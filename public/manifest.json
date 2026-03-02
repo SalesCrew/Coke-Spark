@@ -1,0 +1,10 @@
+{
+  "name": "Coke Spark",
+  "short_name": "CokeSpark",
+  "description": "Shelf Merchandising & Territory Management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f40009",
+  "icons": []
+}

@@ -56,10 +56,8 @@ export function TimeTracker({ entries = defaultEntries }: TimeTrackerProps) {
       style={{
         backgroundColor: "#ffffff",
         borderRadius: 14,
-        border: "1px solid rgba(220,38,38,0.18)",
-        boxShadow: "0 2px 10px rgba(220,38,38,0.06)",
-        padding: "18px 20px 16px",
-        fontFamily: "'SF Mono', 'Fira Code', 'Courier New', monospace",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        padding: "20px",
         height: "100%",
         display: "flex",
         flexDirection: "column",
@@ -76,6 +74,7 @@ export function TimeTracker({ entries = defaultEntries }: TimeTrackerProps) {
             color: "#DC2626",
             letterSpacing: "0.06em",
             lineHeight: 1,
+            fontVariantNumeric: "tabular-nums",
           }}
         >
           {fmt(seconds)}
@@ -153,14 +152,15 @@ export function TimeTracker({ entries = defaultEntries }: TimeTrackerProps) {
               padding: "6px 0",
               fontSize: 10,
               fontWeight: 700,
-              fontFamily: "inherit",
-              letterSpacing: "0.1em",
-              color: "#ef4444",
-              backgroundColor: "rgba(220,38,38,0.12)",
-              border: "1px solid rgba(220,38,38,0.25)",
-              borderRadius: 6,
+              letterSpacing: "0.02em",
+              color: "#ffffff",
+              background: "linear-gradient(to bottom, #DC2626, #e84040)",
+              border: "none",
+              borderRadius: 7,
               cursor: "pointer",
               transition: "all 0.15s ease",
+              boxShadow:
+                "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
             }}
           >
             STOP
@@ -172,14 +172,18 @@ export function TimeTracker({ entries = defaultEntries }: TimeTrackerProps) {
               padding: "6px 0",
               fontSize: 10,
               fontWeight: 700,
-              fontFamily: "inherit",
-              letterSpacing: "0.1em",
-              color: paused ? "#4ade80" : "#fb923c",
-              backgroundColor: paused ? "rgba(34,197,94,0.12)" : "rgba(249,115,22,0.12)",
-              border: `1px solid ${paused ? "rgba(34,197,94,0.25)" : "rgba(249,115,22,0.25)"}`,
-              borderRadius: 6,
+              letterSpacing: "0.02em",
+              color: "#ffffff",
+              background: paused
+                ? "linear-gradient(to bottom, #059669, #0cb880)"
+                : "linear-gradient(to bottom, #ea580c, #f0722e)",
+              border: "none",
+              borderRadius: 7,
               cursor: "pointer",
               transition: "all 0.15s ease",
+              boxShadow: paused
+                ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #048560, 0 1px 6px rgba(5,80,50,0.14)"
+                : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #d4500b, 0 1px 6px rgba(180,60,8,0.14)",
             }}
           >
             {paused ? "RESUME" : "PAUSE"}
@@ -194,14 +198,15 @@ export function TimeTracker({ entries = defaultEntries }: TimeTrackerProps) {
             padding: "6px 0",
             fontSize: 10,
             fontWeight: 700,
-            fontFamily: "inherit",
-            letterSpacing: "0.1em",
-            color: "#4ade80",
-            backgroundColor: "rgba(34,197,94,0.12)",
-            border: "1px solid rgba(34,197,94,0.25)",
-            borderRadius: 6,
+            letterSpacing: "0.02em",
+            color: "#ffffff",
+            background: "linear-gradient(to bottom, #059669, #0cb880)",
+            border: "none",
+            borderRadius: 7,
             cursor: "pointer",
             transition: "all 0.15s ease",
+            boxShadow:
+              "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #048560, 0 1px 6px rgba(5,80,50,0.14)",
           }}
         >
           START

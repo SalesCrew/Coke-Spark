@@ -31,9 +31,8 @@ export function StatusCard({
       style={{
         backgroundColor: "#ffffff",
         borderRadius: 14,
-        border: "1px solid rgba(0,0,0,0.08)",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-        padding: "16px 18px 14px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        padding: "20px",
       }}
     >
       <div className="flex items-baseline justify-between">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { Search, UserCheck } from "lucide-react";
 
 interface Market {
@@ -59,10 +59,22 @@ export function MarketList({
   const [search, setSearch] = useState("");
   const [revealedIdx, setRevealedIdx] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(0);
-  const [listMaxH, setListMaxH] = useState<number | undefined>(undefined);
-  const listRef = useRef<HTMLDivElement>(null);
+  const [cardMaxH, setCardMaxH] = useState<number | undefined>(undefined);
+  const cardRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const daysLeft = daysUntilEndOfMonth();
+
+  useEffect(() => {
+    function calc() {
+      if (!cardRef.current) return;
+      const top = cardRef.current.getBoundingClientRect().top;
+      const menuSpace = 80;
+      setCardMaxH(window.innerHeight - top - menuSpace);
+    }
+    calc();
+    window.addEventListener("resize", calc);
+    return () => window.removeEventListener("resize", calc);
+  }, []);
 
   const clearReveal = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -88,18 +100,6 @@ export function MarketList({
     }, 1000);
   }, []);
 
-  useEffect(() => {
-    function calc() {
-      if (!listRef.current) return;
-      const top = listRef.current.getBoundingClientRect().top;
-      const menuSpace = 80;
-      setListMaxH(window.innerHeight - top - menuSpace);
-    }
-    calc();
-    window.addEventListener("resize", calc);
-    return () => window.removeEventListener("resize", calc);
-  }, []);
-
   const filtered = useMemo(() => {
     if (!search.trim()) return markets;
     const q = search.toLowerCase();
@@ -111,7 +111,19 @@ export function MarketList({
   }, [search, markets]);
 
   return (
-    <div>
+    <div
+      ref={cardRef}
+      style={{
+        backgroundColor: "#ffffff",
+        borderRadius: 14,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        padding: "20px",
+        maxHeight: cardMaxH ? `${cardMaxH}px` : undefined,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       {/* Header */}
       <div className="flex items-baseline justify-between">
         <span
@@ -156,13 +168,13 @@ export function MarketList({
 
       {/* Market rows */}
       <div
-        ref={listRef}
         className="mt-3"
         style={{
           overflowY: "auto",
           scrollbarWidth: "none",
           msOverflowStyle: "none",
-          maxHeight: listMaxH ? `${listMaxH}px` : undefined,
+          flex: 1,
+          minHeight: 0,
         }}
       >
         {filtered.map((m, i) => (

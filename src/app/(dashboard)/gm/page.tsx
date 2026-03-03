@@ -20,7 +20,7 @@ const gmMenuItems = [
 
 export default function GMDashboard() {
   return (
-    <main className="min-h-screen bg-white" style={{ position: "relative" }}>
+    <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7" }}>
       <div
         style={{
           position: "fixed",
@@ -56,9 +56,8 @@ export default function GMDashboard() {
               style={{
                 backgroundColor: "#ffffff",
                 borderRadius: 14,
-                border: "1px solid rgba(0,0,0,0.08)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.025)",
-                padding: "18px 20px 16px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                padding: "20px",
               }}
             >
               <BonusCircles />

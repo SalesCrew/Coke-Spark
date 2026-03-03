@@ -100,8 +100,15 @@ export function BonusCircles({
         })}
       </div>
 
-      <div className="mt-3 text-center">
-        <span className="text-[12px] font-bold" style={{ color: "#16a34a" }}>
+      <div
+        className="mt-3 text-center"
+        style={{
+          backgroundColor: "rgba(0,0,0,0.03)",
+          borderRadius: 7,
+          padding: "3px 12px",
+        }}
+      >
+        <span className="text-[12px] font-bold" style={{ color: "#059669" }}>
           Dein Bonus: {bonus}€
         </span>
       </div>

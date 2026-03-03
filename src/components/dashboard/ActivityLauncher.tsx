@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Store,
   Star,
@@ -14,6 +14,7 @@ import {
   Clock,
   ChevronLeft,
   Check,
+  Search,
 } from "lucide-react";
 
 interface Market {
@@ -309,7 +310,7 @@ function AccordionRow({ activity, isOpen, onToggle, isLast, onRequestClock }: Ac
           padding: "0 2px",
           cursor: "pointer",
           transition: "background-color 0.12s ease",
-          borderRadius: 6,
+          borderRadius: 7,
           borderBottom: !isLast && !isOpen ? "1px solid rgba(0,0,0,0.04)" : "none",
         }}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.02)")}
@@ -339,7 +340,7 @@ function AccordionRow({ activity, isOpen, onToggle, isLast, onRequestClock }: Ac
                   fontSize: 9,
                   fontWeight: 600,
                   letterSpacing: "0.04em",
-                  borderRadius: 6,
+                  borderRadius: 7,
                   border: "none",
                   cursor: "pointer",
                   transition: "all 0.2s ease",
@@ -375,13 +376,15 @@ function AccordionRow({ activity, isOpen, onToggle, isLast, onRequestClock }: Ac
                         padding: "4px 0",
                         fontSize: 8,
                         fontWeight: 700,
-                        letterSpacing: "0.1em",
-                        color: "#ef4444",
-                        backgroundColor: "rgba(220,38,38,0.12)",
-                        border: "1px solid rgba(220,38,38,0.25)",
-                        borderRadius: 5,
+                        letterSpacing: "0.02em",
+                        color: "#ffffff",
+                        background: "linear-gradient(to bottom, #DC2626, #e84040)",
+                        border: "none",
+                        borderRadius: 7,
                         cursor: "pointer",
                         transition: "all 0.15s ease",
+                        boxShadow:
+                          "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
                       }}
                     >
                       STOP
@@ -396,15 +399,18 @@ function AccordionRow({ activity, isOpen, onToggle, isLast, onRequestClock }: Ac
                         padding: "4px 0",
                         fontSize: 8,
                         fontWeight: 700,
-                        letterSpacing: "0.1em",
-                        color: paused ? "#4ade80" : "#fb923c",
-                        backgroundColor: paused
-                          ? "rgba(34,197,94,0.12)"
-                          : "rgba(249,115,22,0.12)",
-                        border: `1px solid ${paused ? "rgba(34,197,94,0.25)" : "rgba(249,115,22,0.25)"}`,
-                        borderRadius: 5,
+                        letterSpacing: "0.02em",
+                        color: "#ffffff",
+                        background: paused
+                          ? "linear-gradient(to bottom, #059669, #0cb880)"
+                          : "linear-gradient(to bottom, #ea580c, #f0722e)",
+                        border: "none",
+                        borderRadius: 7,
                         cursor: "pointer",
                         transition: "all 0.15s ease",
+                        boxShadow: paused
+                          ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #048560, 0 1px 6px rgba(5,80,50,0.14)"
+                          : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #d4500b, 0 1px 6px rgba(180,60,8,0.14)",
                       }}
                     >
                       {paused ? "RESUME" : "PAUSE"}
@@ -423,13 +429,15 @@ function AccordionRow({ activity, isOpen, onToggle, isLast, onRequestClock }: Ac
                       padding: "4px 0",
                       fontSize: 8,
                       fontWeight: 700,
-                      letterSpacing: "0.1em",
-                      color: "#4ade80",
-                      backgroundColor: "rgba(34,197,94,0.12)",
-                      border: "1px solid rgba(34,197,94,0.25)",
-                      borderRadius: 5,
+                      letterSpacing: "0.02em",
+                      color: "#ffffff",
+                      background: "linear-gradient(to bottom, #059669, #0cb880)",
+                      border: "none",
+                      borderRadius: 7,
                       cursor: "pointer",
                       transition: "all 0.15s ease",
+                      boxShadow:
+                        "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #048560, 0 1px 6px rgba(5,80,50,0.14)",
                     }}
                   >
                     START
@@ -529,12 +537,13 @@ function AccordionRow({ activity, isOpen, onToggle, isLast, onRequestClock }: Ac
                   fontSize: 9,
                   fontWeight: 600,
                   color: "#ffffff",
-                  backgroundColor: "#DC2626",
+                  background: "linear-gradient(to bottom, #DC2626, #e84040)",
                   border: "none",
-                  borderRadius: 6,
+                  borderRadius: 7,
                   cursor: "pointer",
                   transition: "all 0.15s ease",
-                  boxShadow: "0 1px 3px rgba(220,38,38,0.25)",
+                  boxShadow:
+                    "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
                   letterSpacing: "0.02em",
                 }}
               >
@@ -557,7 +566,16 @@ export function ActivityLauncher() {
   const [confirmed, setConfirmed] = useState(false);
   const [cardMaxH, setCardMaxH] = useState<number | undefined>(undefined);
   const [clockHandler, setClockHandler] = useState<((h: number, m: number) => void) | null>(null);
+  const [marketSearch, setMarketSearch] = useState("");
   const cardRef = useRef<HTMLDivElement>(null);
+
+  const filteredMarkets = useMemo(() => {
+    if (!marketSearch.trim()) return tempMarkets;
+    const q = marketSearch.toLowerCase();
+    return tempMarkets.filter(
+      (m) => m.chain.toLowerCase().includes(q) || m.address.toLowerCase().includes(q)
+    );
+  }, [marketSearch]);
 
   useEffect(() => {
     function calc() {
@@ -578,6 +596,7 @@ export function ActivityLauncher() {
   const handleMarketSelect = useCallback((_market: Market) => {
     setView("marketConfirmed");
     setConfirmed(true);
+    setMarketSearch("");
     setTimeout(() => {
       setView("idle");
       setConfirmed(false);
@@ -591,9 +610,8 @@ export function ActivityLauncher() {
         position: "relative",
         backgroundColor: "#ffffff",
         borderRadius: 14,
-        border: "1px solid rgba(220,38,38,0.18)",
-        boxShadow: "0 2px 10px rgba(220,38,38,0.06)",
-        padding: "18px 20px 16px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        padding: "20px",
         overflow: "hidden",
         maxHeight: cardMaxH ? `${cardMaxH}px` : undefined,
         display: "flex",
@@ -631,12 +649,12 @@ export function ActivityLauncher() {
               fontSize: 10,
               fontWeight: 600,
               color: "#ffffff",
-              backgroundColor: "#DC2626",
+              background: "linear-gradient(to bottom, #DC2626, #e84040)",
               border: "none",
-              borderRadius: 8,
+              borderRadius: 7,
               cursor: "pointer",
               boxShadow:
-                "0 1px 3px rgba(220,38,38,0.25), 0 0 0 0.5px rgba(220,38,38,0.15)",
+                "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
               transition: "all 0.15s ease",
               letterSpacing: "0.01em",
             }}
@@ -703,7 +721,7 @@ export function ActivityLauncher() {
             style={{
               width: 24,
               height: 24,
-              borderRadius: 6,
+              borderRadius: 7,
               backgroundColor: "rgba(0,0,0,0.04)",
               border: "none",
               cursor: "pointer",
@@ -717,8 +735,33 @@ export function ActivityLauncher() {
           </span>
         </div>
 
+        <div className="relative" style={{ marginBottom: 8 }}>
+          <Search
+            size={11}
+            strokeWidth={1.8}
+            className="absolute"
+            style={{ left: 8, top: "50%", transform: "translateY(-50%)", color: "rgba(0,0,0,0.25)" }}
+          />
+          <input
+            type="text"
+            value={marketSearch}
+            onChange={(e) => setMarketSearch(e.target.value)}
+            placeholder="Suchen..."
+            className="w-full text-[10px] text-gray-600 placeholder-gray-300 outline-none"
+            style={{
+              padding: "5px 10px 5px 24px",
+              backgroundColor: "transparent",
+              borderBottom: "1px solid rgba(0,0,0,0.06)",
+              borderTop: "none",
+              borderLeft: "none",
+              borderRight: "none",
+              borderRadius: 0,
+            }}
+          />
+        </div>
+
         <div>
-          {tempMarkets.map((m, i) => {
+          {filteredMarkets.map((m, i) => {
             const cc = chainColor(m.chain);
             return (
               <div
@@ -730,7 +773,7 @@ export function ActivityLauncher() {
                   borderRadius: 7,
                   cursor: "pointer",
                   borderBottom:
-                    i < tempMarkets.length - 1
+                    i < filteredMarkets.length - 1
                       ? "1px solid rgba(0,0,0,0.04)"
                       : "none",
                   transition: "background-color 0.12s ease",

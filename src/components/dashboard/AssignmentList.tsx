@@ -76,11 +76,13 @@ function StatusPill({ status }: { status: AssignmentStatus }) {
       style={{
         padding: "4px 14px",
         borderRadius: 8,
-        backgroundColor: isStart ? "#DC2626" : "rgba(220,38,38,0.06)",
+        background: isStart
+          ? "linear-gradient(to bottom, #DC2626, #e84040)"
+          : "rgba(220,38,38,0.06)",
         color: isStart ? "#ffffff" : "rgba(180,60,60,0.6)",
         cursor: isStart ? "pointer" : "default",
         boxShadow: isStart
-          ? "0 1px 3px rgba(220,38,38,0.25), 0 0 0 0.5px rgba(220,38,38,0.15)"
+          ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
           : "0 0 0 0.5px rgba(0,0,0,0.06)",
         letterSpacing: "0.01em",
       }}

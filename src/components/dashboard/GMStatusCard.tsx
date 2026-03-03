@@ -32,9 +32,8 @@ export function GMStatusCard({
       style={{
         backgroundColor: "#ffffff",
         borderRadius: 14,
-        border: "1px solid rgba(0,0,0,0.08)",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.025)",
-        padding: "20px 22px 20px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        padding: "20px",
       }}
     >
       <div className="flex items-stretch">
@@ -109,9 +108,9 @@ export function GMStatusCard({
           <span
             className="text-[24px] font-extrabold leading-none"
             style={{
-              color: "#16a34a",
+              color: "#059669",
               letterSpacing: "-0.02em",
-              textShadow: "0 0 20px rgba(34,197,94,0.2)",
+              textShadow: "0 0 20px rgba(5,150,105,0.2)",
             }}
           >
             {praemie}€

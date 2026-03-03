@@ -8,7 +8,7 @@ import { NachrichtenCard } from "@/components/dashboard/NachrichtenCard";
 
 export default function SMDashboard() {
   return (
-    <main className="min-h-screen bg-white">
+    <main className="min-h-screen" style={{ backgroundColor: "#f5f5f7" }}>
       <div className="px-6 pt-6" style={{ maxWidth: 420, margin: "0 auto" }}>
         <StatusCard />
         <div className="mt-5 px-1">

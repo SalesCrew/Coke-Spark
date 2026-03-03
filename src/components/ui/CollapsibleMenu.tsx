@@ -190,8 +190,14 @@ export function CollapsibleMenu({
                   marginRight: CARD_PADDING,
                   gridTemplateColumns: "1fr auto 8px auto 1fr",
                   backgroundColor: isSelected
-                    ? "#ee4044"
+                    ? undefined
                     : "transparent",
+                  background: isSelected
+                    ? "linear-gradient(to bottom, #DC2626, #e84040)"
+                    : undefined,
+                  boxShadow: isSelected
+                    ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
+                    : undefined,
                 }}
               >
                 <span style={{ gridColumn: 1 }} />

@@ -30,9 +30,8 @@ export function NachrichtenCard({
       style={{
         backgroundColor: "#ffffff",
         borderRadius: 14,
-        border: "1px solid rgba(0,0,0,0.08)",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.025)",
-        padding: "16px 18px 14px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        padding: "20px",
       }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -88,13 +87,15 @@ export function NachrichtenCard({
               padding: "4px 12px",
               fontSize: 10,
               fontWeight: 600,
-              color: "#DC2626",
-              backgroundColor: "rgba(220,38,38,0.06)",
-              border: "1px solid rgba(220,38,38,0.12)",
+              color: "#ffffff",
+              background: "linear-gradient(to bottom, #DC2626, #e84040)",
+              border: "none",
               borderRadius: 7,
               cursor: "pointer",
               transition: "all 0.15s ease",
               letterSpacing: "0.01em",
+              boxShadow:
+                "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
             }}
           >
             Als gelesen markieren

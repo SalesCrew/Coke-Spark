@@ -63,7 +63,7 @@ export default function GMDashboard() {
               <BonusCircles />
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4" style={{ position: "relative", zIndex: 5 }}>
               <KuehlerInventurCard />
             </div>
           </div>

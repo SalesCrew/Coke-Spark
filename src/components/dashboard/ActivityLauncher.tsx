@@ -584,7 +584,7 @@ export function ActivityLauncher() {
       const menuSpace = 80;
       setCardMaxH(window.innerHeight - top - menuSpace);
     }
-    calc();
+    requestAnimationFrame(() => requestAnimationFrame(calc));
     window.addEventListener("resize", calc);
     return () => window.removeEventListener("resize", calc);
   }, []);

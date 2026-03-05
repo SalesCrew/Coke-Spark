@@ -98,6 +98,14 @@ export function TimeTracker({ entries = defaultEntries }: TimeTrackerProps) {
         </div>
       </div>
 
+      <div
+        className="mt-4"
+        style={{
+          height: 1,
+          background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.08) 50%, transparent)",
+        }}
+      />
+
       <div className="mt-3 space-y-1.5">
         {entries.map((e, i) => (
           <div

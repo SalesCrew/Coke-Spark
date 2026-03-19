@@ -880,67 +880,76 @@ function YesNoMultiConfig({
   onChange: (c: Record<string, unknown>) => void;
 }) {
   const answers = (config.answers as string[]) || ["Ja", "Nein"];
-  const triggerAnswer = (config.triggerAnswer as string) || answers[0] || "";
-  const options = (config.options as string[]) || ["", ""];
+
+  // branches: array of { answer: string; options: string[] } for each checked answer
+  type Branch = { answer: string; options: string[] };
+  const branches = (config.branches as Branch[]) || [];
+
+  // Which answer texts currently have a branch
+  const checkedAnswers = new Set(branches.map((b) => b.answer));
+
+  function toggleBranch(ans: string) {
+    if (!ans.trim()) return;
+    if (checkedAnswers.has(ans)) {
+      // uncheck — remove branch
+      onChange({ ...config, branches: branches.filter((b) => b.answer !== ans) });
+    } else {
+      // check — add branch
+      onChange({ ...config, branches: [...branches, { answer: ans, options: ["", ""] }] });
+    }
+  }
+
+  function updateBranchOptions(ans: string, opts: string[]) {
+    onChange({
+      ...config,
+      branches: branches.map((b) => b.answer === ans ? { ...b, options: opts } : b),
+    });
+  }
+
+  // Ordered branch list (preserves answer order)
+  const orderedBranches = answers
+    .map((ans, i) => ({ ans, branchIndex: branches.findIndex((b) => b.answer === ans), ansIndex: i }))
+    .filter(({ branchIndex }) => branchIndex !== -1)
+    .map(({ ans, branchIndex }) => ({ ans, branch: branches[branchIndex] }));
 
   return (
     <div style={{ marginTop: 10 }}>
       {/* Primary answers */}
       <div style={{ marginBottom: 14 }}>
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.04em",
-            color: "rgba(0,0,0,0.35)",
-            display: "block",
-            marginBottom: 8,
-          }}
-        >
+        <span style={{
+          fontSize: 9, fontWeight: 600, textTransform: "uppercase" as const,
+          letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)",
+          display: "block", marginBottom: 8,
+        }}>
           Antwortmöglichkeiten
         </span>
         <div>
           {answers.map((ans, i) => {
-            const isTrigger = ans === triggerAnswer && ans.length > 0;
+            const isChecked = checkedAnswers.has(ans) && ans.length > 0;
+            const branchNumber = orderedBranches.findIndex((b) => b.ans === ans) + 1;
             return (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  marginBottom: 5,
-                }}
-              >
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                {/* Check toggle with branch number */}
                 <button
-                  title={isTrigger ? "Öffnet Multi-Auswahl" : "Klicken um Multi-Auswahl hier zu öffnen"}
-                  onClick={() => {
-                    if (ans.length > 0) onChange({ ...config, triggerAnswer: ans });
-                  }}
+                  title={isChecked ? "Entfernt Multi-Auswahl Tray" : "Fügt Multi-Auswahl Tray hinzu"}
+                  onClick={() => toggleBranch(ans)}
                   style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: 5,
-                    border: "none",
+                    width: 18, height: 18, borderRadius: 5, border: "none",
                     cursor: ans.length > 0 ? "pointer" : "default",
-                    flexShrink: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "all 0.15s ease",
-                    ...(isTrigger
-                      ? {
-                          background: "linear-gradient(180deg, #DC2626, #b91c1c)",
-                          boxShadow: "0 1px 3px rgba(220,38,38,0.25)",
-                        }
-                      : {
-                          backgroundColor: "rgba(0,0,0,0.04)",
-                        }),
+                    ...(isChecked
+                      ? { background: "linear-gradient(180deg, #DC2626, #b91c1c)", boxShadow: "0 1px 3px rgba(220,38,38,0.25)" }
+                      : { backgroundColor: "rgba(0,0,0,0.04)" }),
                   }}
                 >
-                  {isTrigger && <Check size={10} strokeWidth={2.5} color="#fff" />}
+                  {isChecked && (
+                    branchNumber > 0
+                      ? <span style={{ fontSize: 8, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{branchNumber}</span>
+                      : <Check size={10} strokeWidth={2.5} color="#fff" />
+                  )}
                 </button>
+
                 <input
                   type="text"
                   value={ans}
@@ -948,38 +957,27 @@ function YesNoMultiConfig({
                     const next = [...answers];
                     const old = next[i];
                     next[i] = e.target.value;
-                    const updated: Record<string, unknown> = { ...config, answers: next };
-                    if (old === triggerAnswer) updated.triggerAnswer = e.target.value;
-                    onChange(updated);
+                    // if this answer had a branch, update branch answer text too
+                    const updatedBranches = branches.map((b) =>
+                      b.answer === old ? { ...b, answer: e.target.value } : b
+                    );
+                    onChange({ ...config, answers: next, branches: updatedBranches });
                   }}
                   placeholder={`Antwort ${i + 1}`}
                   style={{
-                    flex: 1,
-                    fontSize: 11,
-                    padding: "4px 0",
-                    border: "none",
-                    borderBottom: "1px solid rgba(0,0,0,0.08)",
-                    outline: "none",
-                    color: "#374151",
-                    backgroundColor: "transparent",
+                    flex: 1, fontSize: 11, padding: "4px 0",
+                    border: "none", borderBottom: "1px solid rgba(0,0,0,0.08)",
+                    outline: "none", color: "#374151", backgroundColor: "transparent",
                   }}
                 />
                 {answers.length > 2 && (
                   <button
                     onClick={() => {
                       const next = answers.filter((_, j) => j !== i);
-                      const updated: Record<string, unknown> = { ...config, answers: next };
-                      if (ans === triggerAnswer) updated.triggerAnswer = next[0] || "";
-                      onChange(updated);
+                      const updatedBranches = branches.filter((b) => b.answer !== ans);
+                      onChange({ ...config, answers: next, branches: updatedBranches });
                     }}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 2,
-                      color: "rgba(0,0,0,0.25)",
-                      transition: "color 0.15s ease",
-                    }}
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "rgba(0,0,0,0.25)", transition: "color 0.15s ease" }}
                     onMouseEnter={(e) => (e.currentTarget.style.color = "#DC2626")}
                     onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(0,0,0,0.25)")}
                   >
@@ -992,59 +990,58 @@ function YesNoMultiConfig({
           <button
             onClick={() => onChange({ ...config, answers: [...answers, ""] })}
             style={{
-              marginTop: 4,
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 10,
-              fontWeight: 500,
-              color: "#DC2626",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
+              marginTop: 4, display: "flex", alignItems: "center", gap: 4,
+              fontSize: 10, fontWeight: 500, color: "#DC2626",
+              background: "none", border: "none", cursor: "pointer", padding: 0,
             }}
           >
             <Plus size={10} strokeWidth={2} />
             Antwort hinzufügen
           </button>
         </div>
-        <div style={{
-          marginTop: 8,
-          fontSize: 9,
-          color: "rgba(0,0,0,0.3)",
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-        }}>
+        <div style={{ marginTop: 8, fontSize: 9, color: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: 4 }}>
           <div style={{
-            width: 10,
-            height: 10,
-            borderRadius: 3,
+            width: 10, height: 10, borderRadius: 3,
             background: "linear-gradient(180deg, #DC2626, #b91c1c)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           }}>
             <Check size={6} strokeWidth={3} color="#fff" />
           </div>
-          = öffnet Multi-Auswahl
+          = öffnet Multi-Auswahl Tray (mehrere möglich)
         </div>
       </div>
 
-      {/* Divider */}
-      <div style={{
-        height: 1,
-        background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06), transparent)",
-        marginBottom: 12,
-      }} />
-
-      {/* Multiple choice options */}
-      <ChoiceConfig
-        options={options}
-        onChange={(o) => onChange({ ...config, options: o })}
-      />
+      {/* Branch trays — one per checked answer, in answer order */}
+      {orderedBranches.map(({ ans, branch }, idx) => (
+        <div key={ans} style={{ marginBottom: 12 }}>
+          {/* Tray header */}
+          <div style={{
+            height: 1,
+            background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06), transparent)",
+            marginBottom: 10,
+          }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            <div style={{
+              width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+              background: "linear-gradient(180deg, #DC2626, #b91c1c)",
+              boxShadow: "0 1px 3px rgba(220,38,38,0.25)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <span style={{ fontSize: 8, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{idx + 1}</span>
+            </div>
+            <span style={{
+              fontSize: 9, fontWeight: 600, textTransform: "uppercase" as const,
+              letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)",
+            }}>
+              Optionen wenn „{ans}"
+            </span>
+          </div>
+          <ChoiceConfig
+            options={branch.options}
+            onChange={(opts) => updateBranchOptions(ans, opts)}
+          />
+        </div>
+      ))}
     </div>
   );
 }

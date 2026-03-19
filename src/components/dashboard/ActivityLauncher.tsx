@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   Store,
   Star,
@@ -561,6 +562,7 @@ function AccordionRow({ activity, isOpen, onToggle, isLast, onRequestClock }: Ac
 // ── Main Component ────────────────────────────────────────────
 
 export function ActivityLauncher() {
+  const router = useRouter();
   const [view, setView] = useState<View>("idle");
   const [openActivity, setOpenActivity] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -593,15 +595,13 @@ export function ActivityLauncher() {
     setClockHandler(() => onSelect);
   }, []);
 
-  const handleMarketSelect = useCallback((_market: Market) => {
-    setView("marketConfirmed");
+  const handleMarketSelect = useCallback((market: Market) => {
     setConfirmed(true);
     setMarketSearch("");
     setTimeout(() => {
-      setView("idle");
-      setConfirmed(false);
-    }, 1200);
-  }, []);
+      router.push(`/gm/marktbesuch?chain=${encodeURIComponent(market.chain)}&address=${encodeURIComponent(market.address)}`);
+    }, 600);
+  }, [router]);
 
   return (
     <div

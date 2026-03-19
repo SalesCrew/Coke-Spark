@@ -8,6 +8,7 @@ interface ModuleContextValue {
   addModule: (m: Module) => void;
   updateModule: (m: Module) => void;
   deleteModule: (id: string) => void;
+  deleteModuleKeepQuestions: (id: string) => void;
   editModule: (m: Module) => void;
   setEditHandler: (handler: (m: Module) => void) => void;
 }
@@ -30,6 +31,37 @@ export function ModuleProvider({ children }: { children: React.ReactNode }) {
     setModules((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
+  const deleteModuleKeepQuestions = useCallback((id: string) => {
+    setModules((prev) => {
+      const target = prev.find((m) => m.id === id);
+      if (!target || target.questions.length === 0) {
+        return prev.filter((m) => m.id !== id);
+      }
+      const UNASSIGNED_ID = "__unassigned__";
+      const existing = prev.find((m) => m.id === UNASSIGNED_ID);
+      const withoutTarget = prev.filter((m) => m.id !== id);
+      if (existing) {
+        return withoutTarget.map((m) =>
+          m.id === UNASSIGNED_ID
+            ? { ...m, questions: [...m.questions, ...target.questions] }
+            : m
+        );
+      } else {
+        return [
+          ...withoutTarget,
+          {
+            id: UNASSIGNED_ID,
+            name: "Unzugewiesen",
+            description: "",
+            usedInCount: 0,
+            createdAt: new Date().toISOString(),
+            questions: target.questions,
+          },
+        ];
+      }
+    });
+  }, []);
+
   const editModule = useCallback((m: Module) => {
     editHandler?.(m);
   }, [editHandler]);
@@ -39,7 +71,7 @@ export function ModuleProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ModuleContext.Provider value={{ modules, addModule, updateModule, deleteModule, editModule, setEditHandler }}>
+    <ModuleContext.Provider value={{ modules, addModule, updateModule, deleteModule, deleteModuleKeepQuestions, editModule, setEditHandler }}>
       {children}
     </ModuleContext.Provider>
   );

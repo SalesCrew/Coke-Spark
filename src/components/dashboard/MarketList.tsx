@@ -8,6 +8,7 @@ interface Market {
   address: string;
   visited: number;
   frequency: number;
+  visitedThisMonth: boolean;
   nextSM?: string;
 }
 
@@ -18,21 +19,21 @@ interface MarketListProps {
 }
 
 const defaultMarkets: Market[] = [
-  { chain: "BILLA+", address: "Hauptstraße 12, 1010 Wien", visited: 2, frequency: 12, nextSM: "04.03.2026" },
-  { chain: "ADEG", address: "Landstraße 45, 1030 Wien", visited: 1, frequency: 6 },
-  { chain: "SPAR", address: "Mariahilfer Str. 88, 1060 Wien", visited: 3, frequency: 12, nextSM: "06.03.2026" },
-  { chain: "BILLA+", address: "Favoritenstr. 22, 1100 Wien", visited: 0, frequency: 4 },
-  { chain: "PENNY", address: "Simmeringer Hptstr. 5, 1110 Wien", visited: 2, frequency: 6, nextSM: "10.03.2026" },
-  { chain: "ADEG", address: "Brünner Str. 130, 1210 Wien", visited: 4, frequency: 12 },
-  { chain: "SPAR", address: "Laxenburger Str. 67, 1100 Wien", visited: 1, frequency: 4, nextSM: "12.03.2026" },
-  { chain: "BILLA+", address: "Thaliastraße 90, 1160 Wien", visited: 3, frequency: 12 },
-  { chain: "HOFER", address: "Gudrunstraße 18, 1100 Wien", visited: 2, frequency: 6, nextSM: "05.03.2026" },
-  { chain: "PENNY", address: "Ottakringer Str. 44, 1170 Wien", visited: 1, frequency: 6 },
-  { chain: "SPAR", address: "Hütteldorfer Str. 130, 1140 Wien", visited: 5, frequency: 12, nextSM: "08.03.2026" },
-  { chain: "ADEG", address: "Hernalser Hauptstr. 77, 1170 Wien", visited: 0, frequency: 4 },
-  { chain: "BILLA+", address: "Wiedner Hauptstr. 56, 1040 Wien", visited: 2, frequency: 12 },
-  { chain: "HOFER", address: "Johnstraße 42, 1150 Wien", visited: 3, frequency: 6, nextSM: "11.03.2026" },
-  { chain: "SPAR", address: "Döblinger Hauptstr. 2, 1190 Wien", visited: 1, frequency: 4 },
+  { chain: "BILLA+", address: "Hauptstraße 12, 1010 Wien", visited: 2, frequency: 12, visitedThisMonth: true, nextSM: "04.03.2026" },
+  { chain: "ADEG", address: "Landstraße 45, 1030 Wien", visited: 3, frequency: 6, visitedThisMonth: false },
+  { chain: "SPAR", address: "Mariahilfer Str. 88, 1060 Wien", visited: 3, frequency: 12, visitedThisMonth: true, nextSM: "06.03.2026" },
+  { chain: "BILLA+", address: "Favoritenstr. 22, 1100 Wien", visited: 2, frequency: 4, visitedThisMonth: false },
+  { chain: "PENNY", address: "Simmeringer Hptstr. 5, 1110 Wien", visited: 2, frequency: 6, visitedThisMonth: true, nextSM: "10.03.2026" },
+  { chain: "ADEG", address: "Brünner Str. 130, 1210 Wien", visited: 7, frequency: 12, visitedThisMonth: false },
+  { chain: "SPAR", address: "Laxenburger Str. 67, 1100 Wien", visited: 1, frequency: 4, visitedThisMonth: true, nextSM: "12.03.2026" },
+  { chain: "BILLA+", address: "Thaliastraße 90, 1160 Wien", visited: 5, frequency: 12, visitedThisMonth: false },
+  { chain: "HOFER", address: "Gudrunstraße 18, 1100 Wien", visited: 2, frequency: 6, visitedThisMonth: true, nextSM: "05.03.2026" },
+  { chain: "PENNY", address: "Ottakringer Str. 44, 1170 Wien", visited: 3, frequency: 6, visitedThisMonth: false },
+  { chain: "SPAR", address: "Hütteldorfer Str. 130, 1140 Wien", visited: 5, frequency: 12, visitedThisMonth: true, nextSM: "08.03.2026" },
+  { chain: "ADEG", address: "Hernalser Hauptstr. 77, 1170 Wien", visited: 2, frequency: 4, visitedThisMonth: false },
+  { chain: "BILLA+", address: "Wiedner Hauptstr. 56, 1040 Wien", visited: 2, frequency: 12, visitedThisMonth: true },
+  { chain: "HOFER", address: "Johnstraße 42, 1150 Wien", visited: 4, frequency: 6, visitedThisMonth: false, nextSM: "11.03.2026" },
+  { chain: "SPAR", address: "Döblinger Hauptstr. 2, 1190 Wien", visited: 1, frequency: 4, visitedThisMonth: true },
 ];
 
 function chainColors(chain: string): { bg: string; text: string } {
@@ -267,7 +268,7 @@ export function MarketList({
                 <circle
                   cx={18} cy={18} r={15}
                   fill="none"
-                  stroke="#DC2626"
+                  stroke={m.visitedThisMonth ? "#16a34a" : "#DC2626"}
                   strokeWidth={2.5}
                   strokeLinecap="round"
                   strokeDasharray={`${(m.visited / m.frequency) * 94.25} 94.25`}

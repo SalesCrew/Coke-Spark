@@ -64,7 +64,7 @@ export function defaultConfig(t: QuestionType): Record<string, unknown> {
     case "multiple":
       return { options: ["", ""] };
     case "yesnomulti":
-      return { answers: ["Ja", "Nein"], triggerAnswer: "Ja", options: ["", ""] };
+      return { answers: ["Ja", "Nein"], branches: [] as { answer: string; options: string[] }[] };
     case "likert":
       return { min: "", max: "", minLabel: "", maxLabel: "" };
     case "numeric":

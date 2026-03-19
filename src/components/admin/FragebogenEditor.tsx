@@ -1074,6 +1074,7 @@ export function FragebogenEditor({
 }) {
   const [name, setName] = useState(existingFragebogen?.name ?? "");
   const [description, setDescription] = useState(existingFragebogen?.description ?? "");
+  const [nurEinmal, setNurEinmal] = useState(existingFragebogen?.nurEinmalAusfuellbar ?? false);
   const [selectedModules, setSelectedModules] = useState<Module[]>(() => {
     if (!existingFragebogen) return [];
     return existingFragebogen.moduleIds
@@ -1182,6 +1183,7 @@ export function FragebogenEditor({
       endDate: scheduleType === "scheduled" ? endDate : undefined,
       createdAt: existingFragebogen?.createdAt ?? new Date().toISOString(),
       status: computeStatus(),
+      nurEinmalAusfuellbar: nurEinmal,
     };
     onSave(fb);
   };
@@ -1394,6 +1396,33 @@ export function FragebogenEditor({
                     lineHeight: 1.5,
                   }}
                 />
+              </div>
+
+              {/* Nur einmal ausfüllbar toggle */}
+              <div style={{ marginTop: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>Nur einmal ausfüllbar</div>
+                  <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 1 }}>Dieser Fragebogen kann pro Markt jeweils nur einmal ausgefüllt werden</div>
+                </div>
+                <button
+                  onClick={() => setNurEinmal((v) => !v)}
+                  style={{
+                    width: 38, height: 22, borderRadius: 99, border: "none",
+                    cursor: "pointer", flexShrink: 0,
+                    background: nurEinmal ? "#DC2626" : "rgba(0,0,0,0.1)",
+                    boxShadow: "none",
+                    transition: "all 0.18s ease",
+                    position: "relative",
+                  }}
+                >
+                  <div style={{
+                    position: "absolute", top: 3, width: 16, height: 16,
+                    borderRadius: "50%", background: "#fff",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                    transition: "left 0.18s ease",
+                    left: nurEinmal ? 19 : 3,
+                  }} />
+                </button>
               </div>
             </div>
 

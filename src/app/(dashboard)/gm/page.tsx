@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Home, Clock, Calendar, User, Map } from "lucide-react";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GMStatusCard } from "@/components/dashboard/GMStatusCard";
 import { BonusCircles } from "@/components/dashboard/BonusCircles";
+import { BonusDetailModal } from "@/components/dashboard/BonusDetailModal";
 import { TimeTracker } from "@/components/dashboard/TimeTracker";
 import { KuehlerInventurCard } from "@/components/dashboard/KuehlerInventurCard";
 import { MarketList } from "@/components/dashboard/MarketList";
@@ -18,7 +20,15 @@ const gmMenuItems = [
   { label: "Profil", icon: <User size={11} strokeWidth={1.8} /> },
 ];
 
+const BONUS_GOALS = [
+  { name: "Schütten/Displays", percent: 95, color: "#22c55e" },
+  { name: "Distributionsziel", percent: 82, color: "#eab308" },
+  { name: "Flexziel",          percent: 84, color: "#eab308" },
+  { name: "Qualitätsziele",    percent: 83, color: "#eab308" },
+];
+
 export default function GMDashboard() {
+  const [bonusModalOpen, setBonusModalOpen] = useState(false);
   return (
     <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7" }}>
       <div
@@ -60,7 +70,7 @@ export default function GMDashboard() {
                 padding: "20px",
               }}
             >
-              <BonusCircles />
+              <BonusCircles onOpenDetail={() => setBonusModalOpen(true)} />
             </div>
 
             <div className="mt-4" style={{ position: "relative", zIndex: 5 }}>
@@ -82,6 +92,13 @@ export default function GMDashboard() {
       <div className="fixed bottom-6 left-0 right-0 z-50">
         <CollapsibleMenu items={gmMenuItems} defaultIndex={0} />
       </div>
+
+      {bonusModalOpen && (
+        <BonusDetailModal
+          goals={BONUS_GOALS}
+          onClose={() => setBonusModalOpen(false)}
+        />
+      )}
     </main>
   );
 }

@@ -14,8 +14,10 @@ interface GMStatusCardProps {
   praemie?: number;
 }
 
+const BONUS_AVG = Math.round((95 + 82 + 84 + 83) / 4); // 86
+
 const defaultBars: KpiBar[] = [
-  { label: "Persönliche Boni Ziele", value: "79%", percent: 79, color: "#F4B4B4" },
+  { label: "Persönliche Boni Ziele", value: `${BONUS_AVG}%`, percent: BONUS_AVG, color: "#F4B4B4" },
   { label: "Kühlerinventur", value: "62/120", percent: 51.7, color: "#E86B5A" },
   { label: "MHD", value: "67%", percent: 67, color: "#DC2626" },
 ];
@@ -24,7 +26,7 @@ export function GMStatusCard({
   name = "Max Mustermann",
   bars = defaultBars,
   ipp = 5.4,
-  praemie = 903,
+  praemie = 880,
 }: GMStatusCardProps) {
   return (
     <div
@@ -116,7 +118,7 @@ export function GMStatusCard({
             {praemie}€
           </span>
           <span className="mt-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-gray-400">
-            Prämie QTD
+            Bonus QTD
           </span>
         </div>
       </div>

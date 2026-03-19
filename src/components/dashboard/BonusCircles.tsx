@@ -8,6 +8,7 @@ interface Goal {
 interface BonusCirclesProps {
   bonus?: number;
   goals?: Goal[];
+  onOpenDetail?: () => void;
 }
 
 const defaultGoals: Goal[] = [
@@ -16,6 +17,14 @@ const defaultGoals: Goal[] = [
   { name: "Flexziel", percent: 84 },
   { name: "Qualitätsziele", percent: 83 },
 ];
+
+function calcBonus(goals: Goal[]): number {
+  const avg = goals.reduce((s, g) => s + g.percent, 0) / goals.length;
+  if (avg >= 95) return 1100;
+  if (avg >= 80) return 880;
+  if (avg >= 70) return 550;
+  return 0;
+}
 
 function ringColor(percent: number): string {
   if (percent >= 85) return "#22c55e";
@@ -27,9 +36,11 @@ const CIRCLE_SIZE = 42;
 const STROKE_WIDTH = 2;
 
 export function BonusCircles({
-  bonus = 903,
+  bonus,
   goals = defaultGoals,
+  onOpenDetail,
 }: BonusCirclesProps) {
+  const resolvedBonus = bonus ?? calcBonus(goals);
   return (
     <div className="w-full">
       <div className="flex justify-center" style={{ position: "relative" }}>
@@ -102,14 +113,19 @@ export function BonusCircles({
 
       <div
         className="mt-3 text-center"
+        onClick={onOpenDetail}
         style={{
           backgroundColor: "rgba(0,0,0,0.03)",
           borderRadius: 7,
           padding: "3px 12px",
+          cursor: onOpenDetail ? "pointer" : "default",
+          transition: "background-color 0.15s ease",
         }}
+        onMouseEnter={(e) => { if (onOpenDetail) (e.currentTarget as HTMLDivElement).style.backgroundColor = "rgba(0,0,0,0.07)"; }}
+        onMouseLeave={(e) => { if (onOpenDetail) (e.currentTarget as HTMLDivElement).style.backgroundColor = "rgba(0,0,0,0.03)"; }}
       >
         <span className="text-[12px] font-bold" style={{ color: "#059669" }}>
-          Dein Bonus: {bonus}€
+          Dein Bonus: {resolvedBonus}€
         </span>
       </div>
     </div>

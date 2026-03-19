@@ -61,5 +61,6 @@ export interface Fragebogen {
   endDate?: string;
   createdAt: string;
   status: "active" | "scheduled" | "inactive";
-  spezialfragen?: Question[]; // module-free, fragebogen-specific dynamic questions
+  spezialfragen?: Question[];
+  nurEinmalAusfuellbar?: boolean;
 }

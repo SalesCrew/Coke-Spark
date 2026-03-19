@@ -43,7 +43,7 @@ export function NachrichtenCard({
                 height: 7,
                 borderRadius: "50%",
                 backgroundColor: "#DC2626",
-                shrink: 0,
+                flexShrink: 0,
               }}
             />
           )}

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useModules } from "@/context/ModuleContext";
 import { useFragebogen } from "@/context/FragebogenContext";
+import { useFlexModules, useBillaModules } from "@/app/admin/adminContexts";
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { Question, Module, Fragebogen } from "@/types/fragebogen";
 import { SpezialfrageEditor } from "@/components/admin/SpezialfrageEditor";
@@ -462,14 +463,12 @@ function ModuleDeleteDialog({
   usedInCount,
   usedInNames,
   onDeleteModule,
-  onDeleteAll,
   onClose,
 }: {
   module: Module;
   usedInCount: number;
   usedInNames: string[];
   onDeleteModule: () => void;
-  onDeleteAll: () => void;
   onClose: () => void;
 }) {
   const [pending, setPending] = useState<{ label: string; action: () => void } | null>(null);
@@ -491,124 +490,108 @@ function ModuleDeleteDialog({
           onCancel={() => setPending(null)}
         />
       )}
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, zIndex: 10000,
-        backgroundColor: "rgba(0,0,0,0.35)",
-        display: pending ? "none" : "flex", alignItems: "center", justifyContent: "center",
-      }}
-    >
       <div
-        onClick={(e) => e.stopPropagation()}
+        onClick={onClose}
         style={{
-          backgroundColor: "#fff",
-          borderRadius: 14,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.14), 0 4px 16px rgba(0,0,0,0.06)",
-          padding: "24px",
-          width: 420,
-          maxWidth: "90vw",
+          position: "fixed", inset: 0, zIndex: 10000,
+          backgroundColor: "rgba(0,0,0,0.25)",
+          backdropFilter: "blur(4px)",
+          display: pending ? "none" : "flex", alignItems: "center", justifyContent: "center",
         }}
       >
-        {/* Header */}
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em" }}>
-            Modul löschen
-          </div>
-          <div style={{ marginTop: 6, fontSize: 12, color: "rgba(0,0,0,0.5)", lineHeight: 1.55 }}>
-            <span style={{ color: "#1a1a1a", fontWeight: 600 }}>{module.name || "Unbenanntes Modul"}</span>
-            {" "}wird dauerhaft entfernt.
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", marginBottom: 14 }} />
-
-        {/* Usage notice */}
-        {usedInCount > 0 ? (
-          <div style={{
-            padding: "10px 14px", borderRadius: 8, marginBottom: 16,
-            backgroundColor: "rgba(220,38,38,0.06)",
-            border: "1px solid rgba(220,38,38,0.14)",
-          }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: "#DC2626" }}>
-              Dieses Modul wird in {usedInNames.join(", ")} verwendet. Möchtest du es wirklich löschen?
-            </span>
-          </div>
-        ) : (
-          <div style={{
-            padding: "10px 14px", borderRadius: 8, marginBottom: 16,
-            backgroundColor: "rgba(5,150,105,0.06)",
-            border: "1px solid rgba(5,150,105,0.14)",
-          }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: "#047857" }}>
-              Wird in keinem Fragebogen verwendet.
-            </span>
-          </div>
-        )}
-
-        {/* Options */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
-          <button
-            onClick={() => setPending({ label: `"${module.name || "Unbenanntes Modul"}" wird gelöscht. Fragen bleiben erhalten.`, action: onDeleteModule })}
-            style={{
-              display: "flex", alignItems: "center", gap: 12,
-              padding: "12px 14px", borderRadius: 9, cursor: "pointer",
-              border: "1px solid rgba(0,0,0,0.07)", backgroundColor: "#fff",
-              textAlign: "left", transition: "border-color 0.12s ease, background-color 0.12s ease",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.015)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.07)"; e.currentTarget.style.backgroundColor = "#fff"; }}
-          >
-            <div style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Trash2 size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            backgroundColor: "#fff",
+            borderRadius: 14,
+            boxShadow: "0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)",
+            padding: "20px 20px 16px",
+            width: 360,
+            maxWidth: "90vw",
+          }}
+        >
+          {/* Icon + title */}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+              backgroundColor: "rgba(220,38,38,0.07)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Trash2 size={13} strokeWidth={1.8} color="#DC2626" />
             </div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>Nur Modul löschen</div>
-              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 2 }}>Fragen bleiben in der Fragenliste erhalten</div>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setPending({ label: `"${module.name || "Unbenanntes Modul"}" sowie alle ${module.questions.length} ${module.questions.length === 1 ? "Frage" : "Fragen"} werden dauerhaft gelöscht.`, action: onDeleteAll })}
-            style={{
-              display: "flex", alignItems: "center", gap: 12,
-              padding: "12px 14px", borderRadius: 9, cursor: "pointer",
-              border: "1px solid rgba(220,38,38,0.15)", backgroundColor: "rgba(220,38,38,0.02)",
-              textAlign: "left", transition: "border-color 0.12s ease, background-color 0.12s ease",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(220,38,38,0.28)"; e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.04)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(220,38,38,0.15)"; e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.02)"; }}
-          >
-            <div style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(220,38,38,0.07)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#DC2626" }}>Modul und Fragen löschen</div>
-              <div style={{ fontSize: 10, color: "rgba(220,38,38,0.55)", marginTop: 2 }}>
-                Alle {module.questions.length} {module.questions.length === 1 ? "Frage wird" : "Fragen werden"} ebenfalls entfernt
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em" }}>
+                Modul löschen
+              </div>
+              <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginTop: 3, lineHeight: 1.5 }}>
+                <span style={{ color: "#1a1a1a", fontWeight: 600 }}>{module.name || "Unbenanntes Modul"}</span>
+                {" "}wird entfernt. Die Fragen bleiben erhalten.
               </div>
             </div>
-          </button>
-        </div>
+          </div>
 
-        {/* Cancel */}
-        <button
-          onClick={onClose}
-          style={{
-            width: "100%", padding: "9px 0", borderRadius: 8, border: "none",
-            background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
-            boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)",
-            cursor: "pointer", fontSize: 11, fontWeight: 600,
-            color: "rgba(0,0,0,0.4)", transition: "opacity 0.15s ease",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.75")}
-          onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-        >
-          Abbrechen
-        </button>
+          {/* Divider */}
+          <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.05)", marginBottom: 12 }} />
+
+          {/* Usage notice */}
+          {usedInCount > 0 ? (
+            <div style={{
+              padding: "8px 12px", borderRadius: 7, marginBottom: 14,
+              backgroundColor: "rgba(220,38,38,0.05)",
+              border: "1px solid rgba(220,38,38,0.12)",
+            }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "#DC2626" }}>
+                Wird in {usedInNames.join(", ")} verwendet
+              </span>
+            </div>
+          ) : (
+            <div style={{
+              padding: "8px 12px", borderRadius: 7, marginBottom: 14,
+              backgroundColor: "rgba(5,150,105,0.05)",
+              border: "1px solid rgba(5,150,105,0.12)",
+            }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "#047857" }}>
+                Wird in keinem Fragebogen verwendet
+              </span>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 7 }}>
+            <button
+              onClick={onClose}
+              style={{
+                flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
+                background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
+                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.06)",
+                cursor: "pointer", fontSize: 11, fontWeight: 600,
+                color: "rgba(0,0,0,0.4)", transition: "opacity 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.75")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              Abbrechen
+            </button>
+            <button
+              onClick={() => setPending({
+                label: `"${module.name || "Unbenanntes Modul"}" wird gelöscht. Fragen bleiben erhalten.`,
+                action: onDeleteModule,
+              })}
+              style={{
+                flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
+                background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+                cursor: "pointer", fontSize: 11, fontWeight: 700,
+                color: "#fff", transition: "opacity 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              Löschen
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
     </>
   );
 }
@@ -658,7 +641,6 @@ function ModuleCard({ module, onEdit, onDuplicate, onDelete, usedInFragebogen }:
           usedInCount={usedInFragebogen.count}
           usedInNames={usedInFragebogen.names}
           onDeleteModule={onDelete}
-          onDeleteAll={onDelete}
           onClose={() => setDeleteDialog(false)}
         />
       )}
@@ -929,15 +911,60 @@ function ModuleCard({ module, onEdit, onDuplicate, onDelete, usedInFragebogen }:
 function FragenListItem({
   question,
   moduleName,
+  onDelete,
 }: {
   question: Question;
   moduleName: string;
+  onDelete?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const ctxRef = useRef<HTMLDivElement>(null);
   const badge = typeBadgeColor(question.type);
 
+  useEffect(() => {
+    if (!ctxMenu) return;
+    function handle(e: MouseEvent) {
+      if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxMenu(null);
+    }
+    function handleKey(e: KeyboardEvent) { if (e.key === "Escape") setCtxMenu(null); }
+    document.addEventListener("mousedown", handle);
+    document.addEventListener("keydown", handleKey);
+    return () => { document.removeEventListener("mousedown", handle); document.removeEventListener("keydown", handleKey); };
+  }, [ctxMenu]);
+
   return (
-    <div style={{ borderBottom: "1px solid rgba(0,0,0,0.03)" }}>
+    <div
+      style={{ borderBottom: "1px solid rgba(0,0,0,0.03)", position: "relative" }}
+      onContextMenu={(e) => { if (!onDelete) return; e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+    >
+      {ctxMenu && onDelete && (
+        <div
+          ref={ctxRef}
+          style={{
+            position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999,
+            backgroundColor: "#fff", borderRadius: 9,
+            border: "1px solid rgba(0,0,0,0.07)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)",
+            padding: 4, minWidth: 140,
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onDelete(); }}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              width: "100%", padding: "7px 10px", border: "none",
+              borderRadius: 6, background: "none", cursor: "pointer",
+              fontSize: 11, fontWeight: 500, color: "#DC2626", textAlign: "left",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.04)")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+          >
+            <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
+            Löschen
+          </button>
+        </div>
+      )}
       <div
         onClick={() => setExpanded(!expanded)}
         style={{
@@ -1019,6 +1046,14 @@ function FragenListItem({
               {moduleName.replace("__spezialfrage__", "")}
             </span>
           </div>
+        ) : moduleName === "Unzugewiesen" ? (
+          <span style={{
+            fontSize: 9, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
+            backgroundColor: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.3)",
+            flexShrink: 0,
+          }}>
+            Nicht zugewiesen
+          </span>
         ) : (
           <span style={{
             fontSize: 9, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
@@ -1366,14 +1401,17 @@ function SpezialfrageAbwaehlenModal({
 // ── Fragebogen Context Menu ───────────────────────────────────
 
 function FragebogenContextMenu({
-  x, y, onDuplicate, onDelete, onClose,
+  x, y, onDuplicate, onDuplicateToFlex, onDuplicateToBilla, onDelete, onClose,
 }: {
   x: number; y: number;
   onDuplicate: () => void;
+  onDuplicateToFlex: () => void;
+  onDuplicateToBilla: () => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [dupOpen, setDupOpen] = useState(false);
 
   useEffect(() => {
     function handleDown(e: MouseEvent) {
@@ -1391,16 +1429,57 @@ function FragebogenContextMenu({
   }, [onClose]);
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: "4px", minWidth: 160 }}>
-      <button
-        onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
-        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
-        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.03)")}
-        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-      >
-        <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
-        Duplizieren
-      </button>
+    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: "4px", minWidth: 190 }}>
+      {/* Duplizieren with submenu */}
+      <div style={{ position: "relative" }}>
+        <button
+          onMouseEnter={() => setDupOpen(true)}
+          onMouseLeave={() => setDupOpen(false)}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease", backgroundColor: dupOpen ? "rgba(0,0,0,0.03)" : "transparent" }}
+        >
+          <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
+          <span style={{ flex: 1 }}>Duplizieren</span>
+          <ChevronDown size={11} strokeWidth={2} color="rgba(0,0,0,0.3)" style={{ transform: "rotate(-90deg)" }} />
+        </button>
+
+        {/* Submenu */}
+        {dupOpen && (
+          <div
+            onMouseEnter={() => setDupOpen(true)}
+            onMouseLeave={() => setDupOpen(false)}
+            style={{ position: "absolute", left: "100%", top: 0, marginLeft: 4, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: "4px", minWidth: 200, zIndex: 10000 }}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.03)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#DC2626", flexShrink: 0 }} />
+              Hier (Standartbesuch)
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicateToFlex(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(132,204,22,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#84CC16", flexShrink: 0 }} />
+              Zu Flexbesuche kopieren
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicateToBilla(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(8,145,178,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#0891B2", flexShrink: 0 }} />
+              Zu Billa kopieren
+            </button>
+          </div>
+        )}
+      </div>
+
       <div style={{ height: 1, margin: "3px 6px", backgroundColor: "rgba(0,0,0,0.05)" }} />
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(); onClose(); }}
@@ -1420,14 +1499,10 @@ function FragebogenContextMenu({
 function FragebogenDeleteDialog({
   fragebogen,
   onDeleteOnly,
-  onDeleteWithModules,
-  onDeleteKeepQuestions,
   onClose,
 }: {
   fragebogen: Fragebogen;
   onDeleteOnly: () => void;
-  onDeleteWithModules: () => void;
-  onDeleteKeepQuestions: () => void;
   onClose: () => void;
 }) {
   const [pending, setPending] = useState<{ label: string; action: () => void } | null>(null);
@@ -1440,8 +1515,6 @@ function FragebogenDeleteDialog({
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose, pending]);
 
-  const questionCount = fragebogen.moduleIds.length;
-
   return (
     <>
       {pending && (
@@ -1451,91 +1524,85 @@ function FragebogenDeleteDialog({
           onCancel={() => setPending(null)}
         />
       )}
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 10000, backgroundColor: "rgba(0,0,0,0.35)", display: pending ? "none" : "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 20px 60px rgba(0,0,0,0.14), 0 4px 16px rgba(0,0,0,0.06)", padding: "24px", width: 420, maxWidth: "90vw" }}>
-
-        {/* Header */}
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em" }}>
-            Fragebogen löschen
-          </div>
-          <div style={{ marginTop: 6, fontSize: 12, color: "rgba(0,0,0,0.5)", lineHeight: 1.55 }}>
-            <span style={{ color: "#1a1a1a", fontWeight: 600 }}>{fragebogen.name || "Unbenannter Fragebogen"}</span>
-            {" "}wird dauerhaft entfernt. Wie möchtest du fortfahren?
-          </div>
-        </div>
-
-        <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", marginBottom: 14 }} />
-
-        {/* Options */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
-
-          {/* Option 1: only fragebogen */}
-          <button
-            onClick={() => setPending({ label: `Nur "${fragebogen.name || "Unbenannter Fragebogen"}" wird gelöscht. Module und Fragen bleiben erhalten.`, action: onDeleteOnly })}
-            style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 9, cursor: "pointer", border: "1px solid rgba(0,0,0,0.07)", backgroundColor: "#fff", textAlign: "left", transition: "border-color 0.12s ease, background-color 0.12s ease" }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.015)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.07)"; e.currentTarget.style.backgroundColor = "#fff"; }}
-          >
-            <div style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Trash2 size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed", inset: 0, zIndex: 10000,
+          backgroundColor: "rgba(0,0,0,0.25)",
+          backdropFilter: "blur(4px)",
+          display: pending ? "none" : "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            backgroundColor: "#fff",
+            borderRadius: 14,
+            boxShadow: "0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)",
+            padding: "20px 20px 16px",
+            width: 360,
+            maxWidth: "90vw",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+              backgroundColor: "rgba(220,38,38,0.07)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Trash2 size={13} strokeWidth={1.8} color="#DC2626" />
             </div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>Nur Fragebogen löschen</div>
-              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 2 }}>Module und Fragen bleiben erhalten</div>
-            </div>
-          </button>
-
-          {/* Option 2: fragebogen + modules but keep questions */}
-          <button
-            onClick={() => setPending({ label: `Fragebogen und ${questionCount} ${questionCount === 1 ? "Modul werden" : "Module werden"} gelöscht. Fragen bleiben erhalten.`, action: onDeleteKeepQuestions })}
-            style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 9, cursor: "pointer", border: "1px solid rgba(220,38,38,0.10)", backgroundColor: "rgba(220,38,38,0.01)", textAlign: "left", transition: "border-color 0.12s ease, background-color 0.12s ease" }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(220,38,38,0.22)"; e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.03)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(220,38,38,0.10)"; e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.01)"; }}
-          >
-            <div style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(220,38,38,0.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#DC2626" }}>Mit Modulen löschen</div>
-              <div style={{ fontSize: 10, color: "rgba(220,38,38,0.5)", marginTop: 2 }}>
-                Fragebogen + {questionCount} {questionCount === 1 ? "Modul werden" : "Module werden"} gelöscht, Fragen bleiben erhalten
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em" }}>
+                Fragebogen löschen
+              </div>
+              <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginTop: 3, lineHeight: 1.5 }}>
+                <span style={{ color: "#1a1a1a", fontWeight: 600 }}>{fragebogen.name || "Unbenannter Fragebogen"}</span>
+                {" "}wird entfernt. Module und Fragen bleiben erhalten.
               </div>
             </div>
-          </button>
+          </div>
 
-          {/* Option 3: everything */}
-          <button
-            onClick={() => setPending({ label: `Fragebogen, alle Module und alle Fragen werden dauerhaft entfernt. Diese Aktion kann nicht rückgängig gemacht werden.`, action: onDeleteWithModules })}
-            style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 9, cursor: "pointer", border: "1px solid rgba(220,38,38,0.15)", backgroundColor: "rgba(220,38,38,0.02)", textAlign: "left", transition: "border-color 0.12s ease, background-color 0.12s ease" }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(220,38,38,0.28)"; e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.04)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(220,38,38,0.15)"; e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.02)"; }}
-          >
-            <div style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(220,38,38,0.07)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#DC2626" }}>Alles löschen</div>
-              <div style={{ fontSize: 10, color: "rgba(220,38,38,0.55)", marginTop: 2 }}>Fragebogen, Module und alle Fragen werden entfernt</div>
-            </div>
-          </button>
+          <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.05)", marginBottom: 16 }} />
+
+          <div style={{ display: "flex", gap: 7 }}>
+            <button
+              onClick={onClose}
+              style={{
+                flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
+                background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
+                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.06)",
+                cursor: "pointer", fontSize: 11, fontWeight: 600,
+                color: "rgba(0,0,0,0.4)", transition: "opacity 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.75")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              Abbrechen
+            </button>
+            <button
+              onClick={() => setPending({
+                label: `"${fragebogen.name || "Unbenannter Fragebogen"}" wird gelöscht. Module und Fragen bleiben erhalten.`,
+                action: onDeleteOnly,
+              })}
+              style={{
+                flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
+                background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+                cursor: "pointer", fontSize: 11, fontWeight: 700,
+                color: "#fff", transition: "opacity 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              Löschen
+            </button>
+          </div>
         </div>
-
-        {/* Cancel */}
-        <button
-          onClick={onClose}
-          style={{ width: "100%", padding: "9px 0", borderRadius: 8, border: "none", background: "linear-gradient(to bottom, #ffffff, #f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.4)", transition: "opacity 0.15s ease" }}
-          onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.75")}
-          onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-        >
-          Abbrechen
-        </button>
       </div>
-    </div>
     </>
   );
 }
-
 // ── FragebogenCard ────────────────────────────────────────────
 
 function FragebogenCard({
@@ -1544,18 +1611,18 @@ function FragebogenCard({
   onEdit,
   onUpdate,
   onDuplicate,
+  onDuplicateToFlex,
+  onDuplicateToBilla,
   onDelete,
-  onDeleteWithModules,
-  onDeleteKeepQuestions,
 }: {
   fragebogen: Fragebogen;
   availableModules: Module[];
   onEdit: () => void;
   onUpdate: (f: Fragebogen) => void;
   onDuplicate: () => void;
+  onDuplicateToFlex: () => void;
+  onDuplicateToBilla: () => void;
   onDelete: () => void;
-  onDeleteWithModules: () => void;
-  onDeleteKeepQuestions: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [spezialEditorOpen, setSpezialEditorOpen] = useState(false);
@@ -1589,6 +1656,8 @@ function FragebogenCard({
         x={ctxMenu.x}
         y={ctxMenu.y}
         onDuplicate={onDuplicate}
+        onDuplicateToFlex={onDuplicateToFlex}
+        onDuplicateToBilla={onDuplicateToBilla}
         onDelete={() => { setDeleteDialog(true); setCtxMenu(null); }}
         onClose={() => setCtxMenu(null)}
       />
@@ -1597,8 +1666,6 @@ function FragebogenCard({
       <FragebogenDeleteDialog
         fragebogen={fragebogen}
         onDeleteOnly={onDelete}
-        onDeleteWithModules={onDeleteWithModules}
-        onDeleteKeepQuestions={onDeleteKeepQuestions}
         onClose={() => setDeleteDialog(false)}
       />
     )}
@@ -1979,8 +2046,10 @@ export default function FragebogenPage() {
   const [filterType, setFilterType] = useState<string | null>(null);
   const [typeDropOpen, setTypeDropOpen] = useState(false);
   const typeDropRef = useRef<HTMLDivElement>(null);
-  const { modules, editModule, addModule, deleteModule } = useModules();
+  const { modules, editModule, addModule, updateModule, deleteModule, deleteModuleKeepQuestions } = useModules();
   const { fragebogenList, editFragebogen, updateFragebogen, addFragebogen, deleteFragebogen } = useFragebogen();
+  const { modules: flexModules, duplicateFbToFlex } = useFlexModules();
+  const { duplicateFbToBilla, modules: billaModules } = useBillaModules();
 
   useEffect(() => {
     if (!typeDropOpen) return;
@@ -1991,12 +2060,17 @@ export default function FragebogenPage() {
     return () => document.removeEventListener("mousedown", handle);
   }, [typeDropOpen]);
 
+  // Merge all modules from all contexts, sort oldest-first globally, then dedup by question ID
   const allQuestions: { question: Question; moduleName: string }[] = [];
-  modules.forEach((m) => {
-    m.questions.forEach((q) => {
-      allQuestions.push({ question: q, moduleName: m.name });
+  [...modules, ...flexModules, ...billaModules]
+    .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))
+    .forEach((m) => {
+      m.questions.forEach((q) => {
+        if (!allQuestions.some(({ question }) => question.id === q.id)) {
+          allQuestions.push({ question: q, moduleName: m.name });
+        }
+      });
     });
-  });
   // Include spezialfragen from all Fragebogen (not tied to modules)
   fragebogenList.forEach((fb) => {
     (fb.spezialfragen ?? []).forEach((q) => {
@@ -2014,14 +2088,14 @@ export default function FragebogenPage() {
       typeLabel(question.type).toLowerCase().includes(q)
     );
   });
-  const filteredModules = q
+  const filteredModules = (q
     ? modules.filter(
         (m) =>
           m.name.toLowerCase().includes(q) ||
           m.description.toLowerCase().includes(q) ||
           m.questions.some((qst) => qst.text.toLowerCase().includes(q))
       )
-    : modules;
+    : modules).filter((m) => m.id !== "__unassigned__");
   const filteredFragebogen = q
     ? fragebogenList.filter(
         (fb) =>
@@ -2040,7 +2114,7 @@ export default function FragebogenPage() {
             const isActive = activeTab === tab.key;
             const count =
               tab.key === "module"
-                ? modules.length
+                ? modules.filter((m) => m.id !== "__unassigned__").length
                 : tab.key === "fragen"
                 ? allQuestions.length
                 : fragebogenList.length;
@@ -2239,32 +2313,15 @@ export default function FragebogenPage() {
                     onEdit={() => editModule(m)}
                     usedInFragebogen={{ count: usedIn.length, names: usedIn.map((fb) => fb.name) }}
                     onDuplicate={() => {
-                      const now = Date.now();
-                      const idMap: Record<string, string> = {};
-                      m.questions.forEach((q, i) => {
-                        idMap[q.id] = `q-dup-${now}-${i}`;
-                      });
-                      const dupQuestions = m.questions.map((q) => ({
-                        ...q,
-                        id: idMap[q.id],
-                        rules: q.rules.map((r) => ({
-                          ...r,
-                          id: `r-dup-${now}-${Math.random().toString(36).slice(2, 7)}`,
-                          triggerQuestionId: idMap[r.triggerQuestionId] ?? r.triggerQuestionId,
-                          targetQuestionIds: r.targetQuestionIds.map((tid) => idMap[tid] ?? tid),
-                        })),
-                        config: { ...q.config, images: q.config.images ? [...(q.config.images as string[])] : undefined },
-                        scoring: { ...q.scoring },
-                      }));
                       addModule({
                         ...m,
-                        id: `mod-dup-${now}`,
+                        id: `mod-dup-${Date.now()}`,
                         name: `Kopie von ${m.name}`,
                         createdAt: new Date().toISOString(),
-                        questions: dupQuestions,
+                        questions: m.questions,
                       });
                     }}
-                    onDelete={() => deleteModule(m.id)}
+                    onDelete={() => deleteModuleKeepQuestions(m.id)}
                   />
                 );
               })}
@@ -2299,6 +2356,12 @@ export default function FragebogenPage() {
                   key={`${question.id}-${i}`}
                   question={question}
                   moduleName={moduleName}
+                  onDelete={() => {
+                    const ownerModule = modules.find((m) => m.questions.some((q) => q.id === question.id));
+                    if (ownerModule) {
+                      updateModule({ ...ownerModule, questions: ownerModule.questions.filter((q) => q.id !== question.id) });
+                    }
+                  }}
                 />
               ))}
             </div>
@@ -2336,29 +2399,17 @@ export default function FragebogenPage() {
                   onEdit={() => editFragebogen(fb)}
                   onUpdate={updateFragebogen}
                   onDuplicate={() => {
-                    const now = Date.now();
-                    const dupSpezialfragen = (fb.spezialfragen ?? []).map((q, i) => {
-                      const newId = `sq-dup-${now}-${i}`;
-                      return { ...q, id: newId, config: { ...q.config, images: q.config.images ? [...(q.config.images as string[])] : undefined }, scoring: { ...q.scoring }, rules: q.rules.map((r) => ({ ...r, id: `r-dup-${now}-${Math.random().toString(36).slice(2, 7)}` })) };
-                    });
                     addFragebogen({
                       ...fb,
-                      id: `fb-dup-${now}`,
+                      id: `fb-dup-${Date.now()}`,
                       name: `Kopie von ${fb.name}`,
                       createdAt: new Date().toISOString(),
                       status: "inactive",
-                      spezialfragen: dupSpezialfragen,
                     });
                   }}
+                  onDuplicateToFlex={() => duplicateFbToFlex(fb)}
+                  onDuplicateToBilla={() => duplicateFbToBilla(fb)}
                   onDelete={() => deleteFragebogen(fb.id)}
-                  onDeleteWithModules={() => {
-                    fb.moduleIds.forEach((mid) => deleteModule(mid));
-                    deleteFragebogen(fb.id);
-                  }}
-                  onDeleteKeepQuestions={() => {
-                    fb.moduleIds.forEach((mid) => deleteModule(mid));
-                    deleteFragebogen(fb.id);
-                  }}
                 />
               ))}
             </div>

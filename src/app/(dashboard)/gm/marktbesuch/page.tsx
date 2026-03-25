@@ -54,7 +54,7 @@ interface SampleQuestion {
     // photo
     instruction?: string;
     // matrix
-    rows?: string[]; columns?: string[];
+    rows?: string[]; columns?: string[]; matrixSubtype?: string;
     // yesnomulti
     answers?: string[];
     branches?: { answer: string; options: string[] }[];
@@ -188,6 +188,19 @@ const SAMPLE_QUESTIONS: SampleQuestion[] = [
       columns: ["Gut", "Mittel", "Schlecht"],
     },
   },
+  {
+    id: "q11",
+    type: "matrix",
+    text: "[Freitext Matrix] Notizen zur Produktplatzierung je Regalbereich.",
+    required: false,
+    moduleId: "m5",
+    moduleName: "Dokumentation",
+    config: {
+      matrixSubtype: "freitext",
+      rows: ["Coke Original", "Coke Zero", "Fanta", "Sprite"],
+      columns: ["Regal A", "Regal B", "Regal C"],
+    },
+  },
 ];
 
 const MHD_QUESTIONS: SampleQuestion[] = [
@@ -251,6 +264,19 @@ const MHD_QUESTIONS: SampleQuestion[] = [
     required: true,
     moduleId: "mhd-m3",
     moduleName: "Lagerhaltung",
+  },
+  {
+    id: "mhd8",
+    type: "matrix",
+    text: "MHD-Übersicht: Wann läuft welches Produkt ab?",
+    required: false,
+    moduleId: "mhd-m3",
+    moduleName: "Lagerhaltung",
+    config: {
+      matrixSubtype: "datum",
+      rows: ["Coca-Cola", "Fanta", "Sprite", "Römerquelle"],
+      columns: ["Regal 1", "Regal 2", "Kühlzone"],
+    },
   },
 ];
 
@@ -587,6 +613,213 @@ function ColHeader({ label, expanded, onExpand }: { label: string; expanded: boo
         </span>
       )}
     </th>
+  );
+}
+
+function DatePickerMatrix({
+  rows, cols, answers, onAnswer, accentColor = "#7C3AED",
+}: {
+  rows: string[]; cols: string[];
+  answers: Record<string, string>;
+  onAnswer: (dates: Record<string, string>) => void;
+  accentColor?: string;
+}) {
+  const [openCell, setOpenCell] = React.useState<string | null>(null);
+  const [calPos, setCalPos] = React.useState({ x: 0, y: 0 });
+  const [calMonth, setCalMonth] = React.useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => { setMounted(true); }, []);
+
+  const handleCellClick = (cellKey: string, e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (openCell === cellKey) { setOpenCell(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const CAL_H = 278;
+    const above = rect.bottom + 8 + CAL_H > window.innerHeight;
+    let x = rect.left;
+    if (x + 220 > window.innerWidth) x = Math.max(8, window.innerWidth - 228);
+    setCalPos({ x, y: above ? rect.top - CAL_H - 6 : rect.bottom + 6 });
+    if (answers[cellKey]) {
+      const p = answers[cellKey].split("/");
+      if (p.length === 3) setCalMonth({ year: 2000 + parseInt(p[2]), month: parseInt(p[1]) - 1 });
+    } else {
+      const d = new Date(); setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+    }
+    setOpenCell(cellKey);
+  };
+
+  const selectDate = (date: Date) => {
+    if (!openCell) return;
+    const dd = String(date.getDate()).padStart(2, "0");
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const yy = String(date.getFullYear()).slice(-2);
+    onAnswer({ ...answers, [openCell]: `${dd}/${mm}/${yy}` });
+    setOpenCell(null);
+  };
+
+  React.useEffect(() => {
+    if (!openCell) return;
+    const handler = () => setOpenCell(null);
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [openCell]);
+
+  const buildDays = (year: number, month: number) => {
+    const firstDay = new Date(year, month, 1).getDay();
+    const startOffset = (firstDay + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells: (Date | null)[] = [];
+    for (let i = 0; i < startOffset; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+    return cells;
+  };
+
+  const days = buildDays(calMonth.year, calMonth.month);
+  const today = new Date();
+  const MONTH_NAMES = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+  const DAY_NAMES = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+  const openDateStr = openCell ? answers[openCell] : null;
+  const openDate = openDateStr ? (() => {
+    const p = openDateStr.split("/");
+    return p.length === 3 ? new Date(2000 + parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])) : null;
+  })() : null;
+
+  const calendarPortal = mounted && openCell && typeof document !== "undefined" ? createPortal(
+    <div
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{ position: "fixed", left: calPos.x, top: calPos.y, zIndex: 9999, width: 216, background: "white", borderRadius: 14, padding: "12px 10px", boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.06)", animation: "questionIn 0.15s ease both" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+        <button onClick={(e) => { e.stopPropagation(); setCalMonth((p) => { const d = new Date(p.year, p.month - 1, 1); return { year: d.getFullYear(), month: d.getMonth() }; }); }} style={{ width: 24, height: 24, borderRadius: 6, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.5)" }}>
+          <ChevronLeft size={11} strokeWidth={2.5} />
+        </button>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{MONTH_NAMES[calMonth.month]} {calMonth.year}</span>
+        <button onClick={(e) => { e.stopPropagation(); setCalMonth((p) => { const d = new Date(p.year, p.month + 1, 1); return { year: d.getFullYear(), month: d.getMonth() }; }); }} style={{ width: 24, height: 24, borderRadius: 6, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.5)" }}>
+          <ChevronRight size={11} strokeWidth={2.5} />
+        </button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
+        {DAY_NAMES.map((d) => (
+          <div key={d} style={{ textAlign: "center", fontSize: 8.5, fontWeight: 600, color: "rgba(0,0,0,0.28)", padding: "2px 0" }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+        {days.map((date, i) => {
+          if (!date) return <div key={i} />;
+          const isToday = date.toDateString() === today.toDateString();
+          const isSel = openDate && date.toDateString() === openDate.toDateString();
+          return (
+            <button
+              key={i}
+              onClick={(e) => { e.stopPropagation(); selectDate(date); }}
+              style={{ aspectRatio: "1", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 10, fontWeight: isSel ? 700 : 400, background: isSel ? accentColor : isToday ? `${accentColor}14` : "transparent", color: isSel ? "white" : isToday ? accentColor : "#374151", transition: "background 0.1s ease" }}
+              onMouseEnter={(e) => { if (!isSel) e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
+              onMouseLeave={(e) => { if (!isSel) e.currentTarget.style.background = isToday ? `${accentColor}14` : "transparent"; }}
+            >
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <div style={{ margin: "0 -16px", overflowX: "auto" }}>
+      <div style={{ minWidth: `${Math.max(300, cols.length * 52 + 120)}px`, padding: "0 16px" }}>
+        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "3px 3px", tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: 110 }} />
+            {cols.map((_, i) => <col key={i} style={{ width: 52 }} />)}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ padding: "4px 6px" }} />
+              {cols.map((col) => (
+                <th key={col} style={{ padding: "4px 3px", fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.5)", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 52 }}>{col}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row}>
+                <td style={{ padding: "5px 6px", fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.65)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 110 }}>{row}</td>
+                {cols.map((col) => {
+                  const cellKey = `${row}: ${col}`;
+                  const dateStr = answers[cellKey];
+                  const isOpen = openCell === cellKey;
+                  return (
+                    <td key={col} style={{ textAlign: "center", padding: "2px 3px" }}>
+                      <button
+                        onClick={(e) => handleCellClick(cellKey, e)}
+                        style={{ width: "100%", padding: "7px 2px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 9, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", transition: "all 0.14s ease", background: isOpen ? `${accentColor}14` : dateStr ? `${accentColor}0a` : "rgba(0,0,0,0.03)", color: isOpen ? accentColor : dateStr ? accentColor : "rgba(0,0,0,0.35)", boxShadow: isOpen ? `inset 0 0 0 1px ${accentColor}70` : dateStr ? `inset 0 0 0 1px ${accentColor}35` : "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
+                      >
+                        {dateStr ?? "—"}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {calendarPortal}
+    </div>
+  );
+}
+
+function FreeInputMatrix({
+  rows, cols, answers, onAnswer,
+}: {
+  rows: string[]; cols: string[];
+  answers: Record<string, string>;
+  onAnswer: (vals: Record<string, string>) => void;
+}) {
+  return (
+    <div style={{ margin: "0 -16px", overflowX: "auto" }}>
+      <div style={{ minWidth: `${Math.max(300, cols.length * 72 + 120)}px`, padding: "0 16px" }}>
+        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "3px 3px", tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: 110 }} />
+            {cols.map((_, i) => <col key={i} style={{ width: 72 }} />)}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ padding: "4px 6px" }} />
+              {cols.map((col) => (
+                <th key={col} style={{ padding: "4px 3px", fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.5)", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 72 }}>{col}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row}>
+                <td style={{ padding: "5px 6px", fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.65)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 110 }}>{row}</td>
+                {cols.map((col) => {
+                  const cellKey = `${row}: ${col}`;
+                  const val = answers[cellKey] ?? "";
+                  return (
+                    <td key={col} style={{ padding: "2px 3px" }}>
+                      <input
+                        type="text"
+                        value={val}
+                        onChange={(e) => onAnswer({ ...answers, [cellKey]: e.target.value })}
+                        placeholder="—"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "6px 6px", borderRadius: 7, border: "none", outline: "none", fontSize: 10, fontWeight: 500, color: val ? "#1a1a1a" : "rgba(0,0,0,0.3)", background: val ? "rgba(220,38,38,0.04)" : "rgba(0,0,0,0.03)", boxShadow: val ? "inset 0 0 0 1px rgba(220,38,38,0.2)" : "inset 0 0 0 1px rgba(0,0,0,0.07)", transition: "all 0.14s ease" }}
+                        onFocus={(e) => { e.currentTarget.style.boxShadow = "inset 0 0 0 1.5px rgba(220,38,38,0.4)"; e.currentTarget.style.background = "rgba(220,38,38,0.06)"; }}
+                        onBlur={(e) => { e.currentTarget.style.boxShadow = val ? "inset 0 0 0 1px rgba(220,38,38,0.2)" : "inset 0 0 0 1px rgba(0,0,0,0.07)"; e.currentTarget.style.background = val ? "rgba(220,38,38,0.04)" : "rgba(0,0,0,0.03)"; }}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -1232,9 +1465,22 @@ function QuestionCard({ question, answer, onAnswer, direction, animKey, compact 
       })()}
 
       {/* ── MATRIX ── */}
-      {question.type === "matrix" && cfg.rows && cfg.columns && (
-        <MatrixInput rows={cfg.rows!} cols={cfg.columns!} answers={multiAnswers} onToggle={toggleMulti} />
-      )}
+      {question.type === "matrix" && cfg.rows && cfg.columns && (() => {
+        if (cfg.matrixSubtype === "freitext") {
+          const freeVals: Record<string, string> = (typeof answer === "string" && answer.startsWith("{"))
+            ? JSON.parse(answer) as Record<string, string>
+            : {};
+          return (
+            <FreeInputMatrix
+              rows={cfg.rows!}
+              cols={cfg.columns!}
+              answers={freeVals}
+              onAnswer={(vals) => onAnswer(JSON.stringify(vals))}
+            />
+          );
+        }
+        return <MatrixInput rows={cfg.rows!} cols={cfg.columns!} answers={multiAnswers} onToggle={toggleMulti} />;
+      })()}
     </div>
   );
 }
@@ -2516,6 +2762,9 @@ function MarktbesuchInner() {
                 const mhdQ = MHD_QUESTIONS[mhdQIndex];
                 const mhdAns = mhdAnswers[mhdQ?.id];
                 const isLast = mhdQIndex === MHD_QUESTIONS.length - 1;
+                const matrixDates: Record<string, string> = mhdQ?.type === "matrix"
+                  ? (typeof mhdAns === "string" && mhdAns.startsWith("{") ? JSON.parse(mhdAns) as Record<string, string> : {})
+                  : {};
                 return (
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -2555,7 +2804,7 @@ function MarktbesuchInner() {
                     <div style={{ backgroundColor: "rgba(255,255,255,0.78)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.9)", padding: "18px 16px 16px", boxShadow: "0 2px 16px rgba(0,0,0,0.05), 0 1px 4px rgba(0,0,0,0.04)", marginBottom: 10, animation: "questionIn 0.2s cubic-bezier(0.4,0,0.2,1) both" }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                         <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(124,58,237,0.4)" }}>
-                          {mhdQ?.type === "yesno" ? "Ja / Nein" : "Auswahl"}
+                          {mhdQ?.type === "yesno" ? "Ja / Nein" : mhdQ?.type === "matrix" ? "Matrix" : "Auswahl"}
                         </div>
                         <button
                           onClick={() => mhdQ && setCommentOpenId(mhdQ.id)}
@@ -2600,6 +2849,16 @@ function MarktbesuchInner() {
                           })}
                         </div>
                       )}
+
+                      {mhdQ?.type === "matrix" && mhdQ.config?.matrixSubtype === "datum" && (
+                        <DatePickerMatrix
+                          rows={mhdQ.config?.rows || []}
+                          cols={mhdQ.config?.columns || []}
+                          answers={matrixDates}
+                          onAnswer={(dates) => setMhdAnswers((p) => ({ ...p, [mhdQ.id]: JSON.stringify(dates) }))}
+                          accentColor="#7C3AED"
+                        />
+                      )}
                     </div>
 
                     <div style={{ display: "flex", gap: 7, marginBottom: 12 }}>
@@ -2609,15 +2868,15 @@ function MarktbesuchInner() {
                       </button>
                       <button
                         onClick={() => {
-                          if (!mhdAns) return;
+                          if (mhdQ?.required && !mhdAns) return;
                           if (!isLast) {
                             setMhdQIndex((i) => i + 1);
                           } else {
                             handleAbschluss();
                           }
                         }}
-                        disabled={!mhdAns}
-                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !mhdAns ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !mhdAns ? "rgba(0,0,0,0.2)" : "#fff", background: !mhdAns ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #8b5cf6, #7C3AED)", boxShadow: !mhdAns ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #6d28d9, 0 1px 6px rgba(109,40,217,0.2)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                        disabled={!!mhdQ?.required && !mhdAns}
+                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: (!!mhdQ?.required && !mhdAns) ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: (!!mhdQ?.required && !mhdAns) ? "rgba(0,0,0,0.2)" : "#fff", background: (!!mhdQ?.required && !mhdAns) ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #8b5cf6, #7C3AED)", boxShadow: (!!mhdQ?.required && !mhdAns) ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #6d28d9, 0 1px 6px rgba(109,40,217,0.2)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                         {isLast ? "Abschließen" : "Weiter"}
                         <ChevronRight size={12} strokeWidth={2.5} />
                       </button>

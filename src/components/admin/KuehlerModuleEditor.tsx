@@ -400,13 +400,42 @@ function ListEditor({ label, items, onChange }: { label: string; items: string[]
   );
 }
 
+const MATRIX_SUBTYPES = [
+  { value: "toggle", label: "Auswahl" },
+  { value: "datum", label: "Datum" },
+  { value: "freitext", label: "Freitext" },
+] as const;
+
 function MatrixConfig({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const rows = (config.rows as string[]) || [""];
   const columns = (config.columns as string[]) || ["", ""];
+  const subtype = (config.matrixSubtype as string) || "toggle";
   return (
-    <div style={{ marginTop: 10, display: "flex", gap: 20 }}>
-      <ListEditor label="Zeilen" items={rows} onChange={(r) => onChange({ ...config, rows: r })} />
-      <ListEditor label="Spalten" items={columns} onChange={(c) => onChange({ ...config, columns: c })} />
+    <div style={{ marginTop: 10 }}>
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)" }}>Matrix-Typ</span>
+        <div style={{ display: "flex", gap: 0, marginTop: 5, background: "rgba(0,0,0,0.04)", borderRadius: 7, padding: 2, width: "fit-content" }}>
+          {MATRIX_SUBTYPES.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => onChange({ ...config, matrixSubtype: opt.value })}
+              style={{
+                fontSize: 10, fontWeight: 600, padding: "3px 12px", borderRadius: 5, border: "none", cursor: "pointer",
+                background: subtype === opt.value ? "white" : "transparent",
+                color: subtype === opt.value ? YD : "rgba(0,0,0,0.35)",
+                boxShadow: subtype === opt.value ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 20 }}>
+        <ListEditor label="Zeilen" items={rows} onChange={(r) => onChange({ ...config, rows: r })} />
+        <ListEditor label="Spalten" items={columns} onChange={(c) => onChange({ ...config, columns: c })} />
+      </div>
     </div>
   );
 }

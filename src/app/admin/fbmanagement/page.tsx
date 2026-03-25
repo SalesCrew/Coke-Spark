@@ -3465,17 +3465,22 @@ function AnswerNumeric({ answer, config }: { answer: string; config: PreviewQues
   );
 }
 
-function AnswerSlider({ answer, config }: { answer: string; config: PreviewQuestion["config"] }) {
+function AnswerSlider({ answer, config, color }: { answer: string; config: PreviewQuestion["config"]; color: string }) {
   const val = parseFloat(answer);
   const min = config?.min || 0;
   const max = config?.max || 100;
   const pct = Math.round(((val - min) / (max - min)) * 100);
+  const hex = color.replace("#", "");
+  const cr = parseInt(hex.substring(0, 2), 16);
+  const cg = parseInt(hex.substring(2, 4), 16);
+  const cb = parseInt(hex.substring(4, 6), 16);
+  const darker = `rgba(${Math.round(cr * 0.8)},${Math.round(cg * 0.8)},${Math.round(cb * 0.8)},1)`;
   return (
     <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
       <div style={{ flex: 1, height: 6, borderRadius: 99, background: "rgba(0,0,0,0.07)", overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, background: "linear-gradient(to right, #DC2626, #b91c1c)" }} />
+        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, background: `linear-gradient(to right, ${color}, ${darker})` }} />
       </div>
-      <span style={{ fontSize: 12, fontWeight: 700, color: "#DC2626", minWidth: 36, textAlign: "right" }}>{answer}{config?.unit || ""}</span>
+      <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 36, textAlign: "right" }}>{answer}{config?.unit || ""}</span>
     </div>
   );
 }
@@ -3712,7 +3717,7 @@ function MarketVisitDetail({
       case "likert": return <AnswerLikert answer={raw as string} config={q.config} />;
       case "text": return <AnswerText answer={raw as string} />;
       case "numeric": return <AnswerNumeric answer={raw as string} config={q.config} />;
-      case "slider": return <AnswerSlider answer={raw as string} config={q.config} />;
+      case "slider": return <AnswerSlider answer={raw as string} config={q.config} color={campaignColor} />;
       case "photo": return <AnswerPhoto answer={Array.isArray(raw) ? raw : [raw as string]} />;
       case "matrix": return <AnswerMatrix answer={Array.isArray(raw) ? raw : []} config={q.config} color={campaignColor} />;
       default: return null;

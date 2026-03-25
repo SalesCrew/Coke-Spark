@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Plus, Circle, CheckCircle2, Search, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { AdminSidenav } from "@/components/ui/AdminSidenav";
 import { ModuleEditor } from "@/components/admin/ModuleEditor";
 import { FragebogenEditor } from "@/components/admin/FragebogenEditor";
@@ -23,148 +23,7 @@ import {
   type KuehlerCtxValue, type MhdCtxValue, type FlexCtxValue, type BillaCtxValue,
 } from "@/app/admin/adminContexts";
 
-// ── Demo market data ───────────────────────────────────────────
-interface AdminMarket { chain: string; address: string; done: boolean; doneDate?: string; }
-
-const KUEHLER_MARKETS: AdminMarket[] = [
-  { chain: "BILLA+", address: "Mariahilfer Str. 1, 1060 Wien", done: true, doneDate: "03.02.2026" },
-  { chain: "SPAR", address: "Hauptstraße 22, 1140 Wien", done: true, doneDate: "05.02.2026" },
-  { chain: "PENNY", address: "Praterstraße 44, 1020 Wien", done: true, doneDate: "07.02.2026" },
-  { chain: "ADEG", address: "Favoritenstraße 9, 1100 Wien", done: false },
-  { chain: "HOFER", address: "Wiedner Gürtel 3, 1040 Wien", done: false },
-  { chain: "BILLA", address: "Floridsdorfer Hauptstr. 17, 1210 Wien", done: false },
-  { chain: "SPAR", address: "Taborstraße 66, 1020 Wien", done: false },
-];
-
-const MHD_MARKETS: AdminMarket[] = [
-  { chain: "BILLA+", address: "Mariahilfer Str. 1, 1060 Wien", done: true, doneDate: "10.02.2026" },
-  { chain: "SPAR", address: "Hauptstraße 22, 1140 Wien", done: false },
-  { chain: "PENNY", address: "Praterstraße 44, 1020 Wien", done: false },
-  { chain: "ADEG", address: "Favoritenstraße 9, 1100 Wien", done: false },
-  { chain: "HOFER", address: "Wiedner Gürtel 3, 1040 Wien", done: false },
-];
-
-// ── Progress Dropdown ──────────────────────────────────────────
-function ProgressDropdown({ markets, accent, current, total }: {
-  markets: AdminMarket[];
-  accent: { color: string; gradient: string; ring: string; shadow: string };
-  current: number;
-  total: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handle(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
-    function handleKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
-    document.addEventListener("mousedown", handle);
-    document.addEventListener("keydown", handleKey);
-    return () => { document.removeEventListener("mousedown", handle); document.removeEventListener("keydown", handleKey); };
-  }, [open]);
-
-  const q = search.trim().toLowerCase();
-  const filtered = markets.filter(m => !q || m.chain.toLowerCase().includes(q) || m.address.toLowerCase().includes(q));
-  const pending = filtered.filter(m => !m.done);
-  const done = filtered.filter(m => m.done);
-  const pct = Math.round((current / total) * 100);
-
-  return (
-    <div ref={ref} style={{ flex: 1, maxWidth: 220, margin: "0 32px", position: "relative" }}>
-      {/* Trigger */}
-      <div
-        onClick={() => setOpen(o => !o)}
-        style={{ backgroundColor: "rgba(0,0,0,0.03)", borderRadius: 10, padding: "9px 14px", cursor: "pointer", userSelect: "none" }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.02em", textTransform: "uppercase" as const }}>Fortschritt</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: accent.color, fontVariantNumeric: "tabular-nums" }}>{current} / {total}</span>
-        </div>
-        <div style={{ height: 5, borderRadius: 3, backgroundColor: "rgba(0,0,0,0.06)", overflow: "hidden" }}>
-          <div style={{ width: `${pct}%`, height: "100%", borderRadius: 3, background: accent.gradient, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3)", transition: "width 0.4s ease" }} />
-        </div>
-      </div>
-
-      {/* Dropdown panel */}
-      {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
-          width: 300, backgroundColor: "#fff", borderRadius: 14,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.06)",
-          zIndex: 9000, overflow: "hidden",
-        }}>
-          {/* Header */}
-          <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em" }}>Märkte</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, color: accent.color }}>{current} / {total}</span>
-                <button onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center" }}>
-                  <X size={12} strokeWidth={2.5} />
-                </button>
-              </div>
-            </div>
-            {/* Progress bar */}
-            <div style={{ height: 4, borderRadius: 2, backgroundColor: "rgba(0,0,0,0.06)", overflow: "hidden", marginBottom: 10 }}>
-              <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: accent.gradient, transition: "width 0.4s ease" }} />
-            </div>
-            {/* Search */}
-            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-              <Search size={11} strokeWidth={2} color="rgba(0,0,0,0.25)" style={{ position: "absolute", left: 10, pointerEvents: "none" }} />
-              <input
-                type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Suchen…"
-                onClick={e => e.stopPropagation()}
-                style={{ width: "100%", paddingLeft: 28, paddingRight: search ? 28 : 10, paddingTop: 6, paddingBottom: 6, fontSize: 11, fontFamily: "inherit", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, backgroundColor: "rgba(0,0,0,0.02)", outline: "none", color: "#111" }}
-              />
-              {search && (
-                <button onClick={e => { e.stopPropagation(); setSearch(""); }} style={{ position: "absolute", right: 8, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", color: "rgba(0,0,0,0.25)" }}>
-                  <X size={10} strokeWidth={2.5} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* List */}
-          <div style={{ maxHeight: 280, overflowY: "auto", scrollbarWidth: "none" as const, padding: "6px 16px 12px" }}>
-            {pending.length === 0 && done.length === 0 && (
-              <div style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", textAlign: "center", padding: "20px 0" }}>Keine Ergebnisse</div>
-            )}
-            {pending.length > 0 && (
-              <div>
-                <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", color: "#DC2626", display: "block", padding: "8px 0 4px" }}>
-                  Offen ({pending.length})
-                </span>
-                {pending.map((m, i) => (
-                  <div key={`p-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(0,0,0,0.03)" }}>
-                    <Circle size={10} strokeWidth={2} color="rgba(220,38,38,0.4)" style={{ flexShrink: 0 }} />
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, backgroundColor: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.5)", flexShrink: 0 }}>{m.chain}</span>
-                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{m.address}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {done.length > 0 && (
-              <div>
-                <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", color: "#059669", display: "block", padding: "8px 0 4px" }}>
-                  Erledigt ({done.length})
-                </span>
-                {done.map((m, i) => (
-                  <div key={`d-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(0,0,0,0.03)" }}>
-                    <CheckCircle2 size={10} strokeWidth={2} color="#059669" style={{ flexShrink: 0 }} />
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, backgroundColor: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.5)", flexShrink: 0 }}>{m.chain}</span>
-                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{m.address}</span>
-                    {m.doneDate && <span style={{ fontSize: 9, color: "rgba(0,0,0,0.25)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{m.doneDate}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+// ── Purple accent colours (used by MHD) ───────────────────────
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { addModule, updateModule, setEditHandler: setModuleEditHandler, modules } = useModules();
@@ -621,19 +480,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
               <p style={{ fontSize: 12, color: "#9ca3af", fontWeight: 400, margin: 0, marginTop: 4 }}>{pageSubtitle}</p>
             </div>
 
-            {/* Progress bar — kuehler or mhd */}
-            {(isKuehler || isMhd) && (
-              <ProgressDropdown
-                markets={isMhd ? MHD_MARKETS : KUEHLER_MARKETS}
-                accent={isMhd
-                  ? { color: "#7C3AED", gradient: "linear-gradient(to right, #8b5cf6, #7C3AED)", ring: "#6d28d9", shadow: "rgba(124,58,237,0.25)" }
-                  : { color: "#D97706", gradient: "linear-gradient(to right, #F59E0B, #D97706)", ring: "#B45309", shadow: "rgba(245,158,11,0.25)" }
-                }
-                current={isMhd ? 40 : 60}
-                total={160}
-              />
-            )}
-
+            {/* Action buttons */}
             <div style={{ display: "flex", gap: 10 }}>
               {isMhd ? (
                 <>

@@ -161,7 +161,11 @@ function DatePicker({ value, onChange, placeholder = "Datum wählen", disabled =
 }
 
 // ── Step 1: Type selection ────────────────────────────────────
-function StepTyp({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
+function StepTyp({ selected, onSelect, onNext, onCancel, accentColor, accentBg }: {
+  selected: string; onSelect: (id: string) => void;
+  onNext: () => void; onCancel: () => void;
+  accentColor: string; accentBg: string;
+}) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
       <div>
@@ -214,6 +218,38 @@ function StepTyp({ selected, onSelect }: { selected: string; onSelect: (id: stri
             </div>
           );
         })}
+      </div>
+
+      {/* Bottom buttons inside the card */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: 20, marginTop: 4 }}>
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "9px 18px",
+            fontSize: 12, fontWeight: 600, borderRadius: 8, border: "none", cursor: "pointer",
+            background: "linear-gradient(to bottom, #ffffff, #f5f5f5)", color: "rgba(0,0,0,0.5)",
+            boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)",
+          }}
+        >
+          <ArrowLeft size={13} strokeWidth={2} />
+          Abbrechen
+        </button>
+        <button
+          type="button"
+          onClick={onNext}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "9px 22px",
+            fontSize: 12, fontWeight: 600, borderRadius: 8, border: "none", cursor: "pointer",
+            background: `linear-gradient(to bottom, ${accentColor}, color-mix(in srgb, ${accentColor} 80%, black))`,
+            color: "#fff",
+            boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${accentColor}, 0 1px 6px ${accentColor}44`,
+            transition: "all 0.25s ease",
+          }}
+        >
+          Weiter
+          <ChevronRight size={13} strokeWidth={2.5} />
+        </button>
       </div>
     </div>
   );
@@ -861,7 +897,7 @@ export default function NeuKampagnePage() {
             flex: 1,
             transition: "border-color 0.3s ease, box-shadow 0.3s ease",
           }}>
-            {step === 1 && <StepTyp selected={typeId} onSelect={setTypeId} />}
+            {step === 1 && <StepTyp selected={typeId} onSelect={setTypeId} onNext={() => setStep(2)} onCancel={() => router.push("/admin/fbmanagement")} accentColor={AC} accentBg={AC_BG} />}
             {step === 2 && (
               <StepDetails
                 name={name} setName={setName}
@@ -881,8 +917,8 @@ export default function NeuKampagnePage() {
             )}
           </div>
 
-          {/* Navigation buttons */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 4 }}>
+          {/* Navigation buttons — hidden on step 1 (buttons live inside the card) */}
+          {step > 1 && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 4 }}>
             <button
               type="button"
               onClick={() => step > 1 ? setStep(s => s - 1) : router.push("/admin/fbmanagement")}
@@ -961,7 +997,7 @@ export default function NeuKampagnePage() {
                 Kampagne erstellen
               </button>
             )}
-          </div>
+          </div>}
         </div>
       </div>
     </div>

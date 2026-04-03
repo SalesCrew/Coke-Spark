@@ -40,7 +40,7 @@ const MOCK_MARKETS = [
 const FLEX_MARKETS_COUNT = 2800;
 
 const CAMPAIGN_TYPES = [
-  { id: "standart",    label: "Standartbesuch",  icon: ClipboardList, color: R,         bg: R_BG,                      border: R_BORDER,                      autoMarkets: false },
+  { id: "standard",    label: "Standardbesuch",  icon: ClipboardList, color: R,         bg: R_BG,                      border: R_BORDER,                      autoMarkets: false },
   { id: "flex",        label: "Flexbesuch",       icon: Zap,           color: "#84CC16", bg: "rgba(132,204,22,0.06)",   border: "rgba(132,204,22,0.2)",        autoMarkets: true  },
   { id: "kuehler",     label: "Kühlerinventur",   icon: Refrigerator,  color: "#D97706", bg: "rgba(245,158,11,0.06)",   border: "rgba(245,158,11,0.2)",        autoMarkets: false },
   { id: "mhd",         label: "MHD",              icon: FlaskConical,  color: "#7C3AED", bg: "rgba(124,58,237,0.06)",   border: "rgba(124,58,237,0.2)",        autoMarkets: false },
@@ -297,7 +297,7 @@ function StepDetails({ name, setName, startDate, setStartDate, endDate, setEndDa
             onChange={e => setName(e.target.value)}
             onFocus={() => setNameFocused(true)}
             onBlur={() => setNameFocused(false)}
-            placeholder="z. B. Standartbesuch KW14"
+            placeholder="z. B. Standardbesuch KW14"
             style={{
               fontSize: 13, fontWeight: 500, color: "#111",
               padding: "10px 14px", width: "100%", boxSizing: "border-box",
@@ -799,7 +799,7 @@ function StepUebersicht({ typeId, name, startDate, endDate, startNow, markets }:
 export default function NeuKampagnePage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [typeId, setTypeId] = useState("standart");
+  const [typeId, setTypeId] = useState("standard");
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");

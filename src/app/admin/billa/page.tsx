@@ -100,7 +100,7 @@ function BillaContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToFl
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
             >
               <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#DC2626", flexShrink: 0 }} />
-              Zu Standartbesuch kopieren
+              Zu Standardbesuch kopieren
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onDuplicateToFlex(); onClose(); }}
@@ -662,7 +662,7 @@ export default function BillaPage() {
     return () => document.removeEventListener("mousedown", handle);
   }, [typeDropOpen]);
 
-  // All questions flat list — Billa + Standartbesuch + Flexbesuche (shared question pool)
+  // All questions flat list — Billa + Standardbesuch + Flexbesuche (shared question pool)
   // Merge all modules from all contexts, sort oldest-first globally, then dedup by question ID
   // This ensures the original question's module name always wins over any duplicates across all pages
   const allQuestions: { question: import("@/types/fragebogen").Question; moduleName: string }[] = [];

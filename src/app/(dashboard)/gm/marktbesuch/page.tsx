@@ -626,25 +626,32 @@ function DatePickerMatrix({
 }) {
   const [openCell, setOpenCell] = React.useState<string | null>(null);
   const [calPos, setCalPos] = React.useState({ x: 0, y: 0 });
-  const [calMonth, setCalMonth] = React.useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [calStep, setCalStep] = React.useState<"year" | "month" | "day">("year");
+  const [calSel, setCalSel] = React.useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => { setMounted(true); }, []);
+
+  const TODAY = new Date();
+  const YEAR_RANGE = Array.from({ length: 7 }, (_, i) => TODAY.getFullYear() - 3 + i);
+  const MONTH_NAMES = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+  const DAY_NAMES = ["Mo","Di","Mi","Do","Fr","Sa","So"];
 
   const handleCellClick = (cellKey: string, e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (openCell === cellKey) { setOpenCell(null); return; }
     const rect = e.currentTarget.getBoundingClientRect();
-    const CAL_H = 278;
+    const CAL_H = 220;
     const above = rect.bottom + 8 + CAL_H > window.innerHeight;
     let x = rect.left;
     if (x + 220 > window.innerWidth) x = Math.max(8, window.innerWidth - 228);
     setCalPos({ x, y: above ? rect.top - CAL_H - 6 : rect.bottom + 6 });
     if (answers[cellKey]) {
       const p = answers[cellKey].split("/");
-      if (p.length === 3) setCalMonth({ year: 2000 + parseInt(p[2]), month: parseInt(p[1]) - 1 });
+      if (p.length === 3) setCalSel({ year: 2000 + parseInt(p[2]), month: parseInt(p[1]) - 1 });
     } else {
-      const d = new Date(); setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+      setCalSel({ year: TODAY.getFullYear(), month: TODAY.getMonth() });
     }
+    setCalStep("year");
     setOpenCell(cellKey);
   };
 
@@ -674,53 +681,110 @@ function DatePickerMatrix({
     return cells;
   };
 
-  const days = buildDays(calMonth.year, calMonth.month);
-  const today = new Date();
-  const MONTH_NAMES = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
-  const DAY_NAMES = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+  const days = buildDays(calSel.year, calSel.month);
   const openDateStr = openCell ? answers[openCell] : null;
   const openDate = openDateStr ? (() => {
     const p = openDateStr.split("/");
     return p.length === 3 ? new Date(2000 + parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])) : null;
   })() : null;
 
+  const btnBase = { border: "none", cursor: "pointer", borderRadius: 8, transition: "all 0.12s ease", display: "flex", alignItems: "center", justifyContent: "center" } as React.CSSProperties;
+
   const calendarPortal = mounted && openCell && typeof document !== "undefined" ? createPortal(
     <div
       onMouseDown={(e) => e.stopPropagation()}
-      style={{ position: "fixed", left: calPos.x, top: calPos.y, zIndex: 9999, width: 216, background: "white", borderRadius: 14, padding: "12px 10px", boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.06)", animation: "questionIn 0.15s ease both" }}
+      style={{ position: "fixed", left: calPos.x, top: calPos.y, zIndex: 9999, width: 224, background: "white", borderRadius: 16, padding: "14px 12px 13px", boxShadow: "0 12px 40px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.05)", animation: "questionIn 0.15s ease both" }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
-        <button onClick={(e) => { e.stopPropagation(); setCalMonth((p) => { const d = new Date(p.year, p.month - 1, 1); return { year: d.getFullYear(), month: d.getMonth() }; }); }} style={{ width: 24, height: 24, borderRadius: 6, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.5)" }}>
-          <ChevronLeft size={11} strokeWidth={2.5} />
-        </button>
-        <span style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{MONTH_NAMES[calMonth.month]} {calMonth.year}</span>
-        <button onClick={(e) => { e.stopPropagation(); setCalMonth((p) => { const d = new Date(p.year, p.month + 1, 1); return { year: d.getFullYear(), month: d.getMonth() }; }); }} style={{ width: 24, height: 24, borderRadius: 6, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.5)" }}>
-          <ChevronRight size={11} strokeWidth={2.5} />
-        </button>
+      {/* Breadcrumb */}
+      <div style={{ display: "flex", alignItems: "center", gap: 1, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+        <button onClick={(e) => { e.stopPropagation(); setCalStep("year"); }}
+          style={{ ...btnBase, fontSize: 11, fontWeight: 600, letterSpacing: "-0.01em", color: calStep === "year" ? accentColor : "rgba(0,0,0,0.35)", background: "none", padding: "2px 5px", textDecoration: calStep === "year" ? "none" : "none", opacity: calStep === "year" ? 1 : 0.7 }}
+        >{calSel.year}</button>
+        {calStep !== "year" && <>
+          <span style={{ fontSize: 8, color: "rgba(0,0,0,0.18)", fontWeight: 600, padding: "0 1px", lineHeight: 1 }}>›</span>
+          <button onClick={(e) => { e.stopPropagation(); setCalStep("month"); }}
+            style={{ ...btnBase, fontSize: 11, fontWeight: 600, letterSpacing: "-0.01em", color: calStep === "month" ? accentColor : "rgba(0,0,0,0.35)", background: "none", padding: "2px 5px", opacity: calStep === "month" ? 1 : 0.7 }}
+          >{MONTH_NAMES[calSel.month]}</button>
+        </>}
+        {calStep === "day" && <>
+          <span style={{ fontSize: 8, color: "rgba(0,0,0,0.18)", fontWeight: 600, padding: "0 1px", lineHeight: 1 }}>›</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: accentColor, padding: "2px 5px", letterSpacing: "-0.01em" }}>Tag</span>
+        </>}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 3 }}>
+          {(["year","month","day"] as const).map((s, i) => {
+            const reached = calStep === "year" ? i === 0 : calStep === "month" ? i <= 1 : true;
+            return <div key={s} style={{ width: calStep === s ? 12 : 5, height: 4, borderRadius: 99, background: calStep === s ? accentColor : reached ? `${accentColor}40` : "rgba(0,0,0,0.1)", transition: "all 0.2s ease" }} />;
+          })}
+        </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
-        {DAY_NAMES.map((d) => (
-          <div key={d} style={{ textAlign: "center", fontSize: 8.5, fontWeight: 600, color: "rgba(0,0,0,0.28)", padding: "2px 0" }}>{d}</div>
-        ))}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
-        {days.map((date, i) => {
-          if (!date) return <div key={i} />;
-          const isToday = date.toDateString() === today.toDateString();
-          const isSel = openDate && date.toDateString() === openDate.toDateString();
-          return (
-            <button
-              key={i}
-              onClick={(e) => { e.stopPropagation(); selectDate(date); }}
-              style={{ aspectRatio: "1", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 10, fontWeight: isSel ? 700 : 400, background: isSel ? accentColor : isToday ? `${accentColor}14` : "transparent", color: isSel ? "white" : isToday ? accentColor : "#374151", transition: "background 0.1s ease" }}
-              onMouseEnter={(e) => { if (!isSel) e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
-              onMouseLeave={(e) => { if (!isSel) e.currentTarget.style.background = isToday ? `${accentColor}14` : "transparent"; }}
-            >
-              {date.getDate()}
-            </button>
-          );
-        })}
-      </div>
+
+      {/* STEP 1 — Year */}
+      {calStep === "year" && (
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 5 }}>
+          {YEAR_RANGE.map((y) => {
+            const isCur = y === TODAY.getFullYear();
+            const isSel = y === calSel.year;
+            return (
+              <button key={y} onClick={(e) => { e.stopPropagation(); setCalSel((p) => ({ ...p, year: y })); setCalStep("month"); }}
+                style={{ ...btnBase, width: 50, height: 34, fontSize: 11, fontWeight: isSel ? 700 : isCur ? 600 : 400, flexDirection: "column", gap: 2, background: isSel ? accentColor : "transparent", color: isSel ? "white" : isCur ? accentColor : "rgba(0,0,0,0.6)", boxShadow: isSel ? `0 2px 8px ${accentColor}40` : "none" }}
+                onMouseEnter={(e) => { if (!isSel) { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; } }}
+                onMouseLeave={(e) => { if (!isSel) { e.currentTarget.style.background = "transparent"; } }}
+              >
+                {y}
+                {isCur && !isSel && <div style={{ width: 4, height: 4, borderRadius: "50%", background: accentColor, flexShrink: 0 }} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* STEP 2 — Month */}
+      {calStep === "month" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
+          {MONTH_NAMES.map((m, i) => {
+            const isCur = i === TODAY.getMonth() && calSel.year === TODAY.getFullYear();
+            const isSel = i === calSel.month;
+            return (
+              <button key={m} onClick={(e) => { e.stopPropagation(); setCalSel((p) => ({ ...p, month: i })); setCalStep("day"); }}
+                style={{ ...btnBase, height: 34, flexDirection: "column", gap: 2, fontSize: 10, fontWeight: isSel ? 700 : isCur ? 600 : 400, background: isSel ? accentColor : "transparent", color: isSel ? "white" : isCur ? accentColor : "rgba(0,0,0,0.6)", boxShadow: isSel ? `0 2px 8px ${accentColor}40` : "none" }}
+                onMouseEnter={(e) => { if (!isSel) e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
+                onMouseLeave={(e) => { if (!isSel) e.currentTarget.style.background = "transparent"; }}
+              >
+                {m}
+                {isCur && !isSel && <div style={{ width: 4, height: 4, borderRadius: "50%", background: accentColor, flexShrink: 0 }} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* STEP 3 — Day */}
+      {calStep === "day" && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 5 }}>
+            {DAY_NAMES.map((d) => (
+              <div key={d} style={{ textAlign: "center", fontSize: 8, fontWeight: 700, color: "rgba(0,0,0,0.22)", padding: "2px 0", letterSpacing: "0.02em" }}>{d}</div>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+            {days.map((date, i) => {
+              if (!date) return <div key={i} />;
+              const isToday = date.toDateString() === TODAY.toDateString();
+              const isSel = openDate && date.toDateString() === openDate.toDateString();
+              return (
+                <button key={i} onClick={(e) => { e.stopPropagation(); selectDate(date); }}
+                  style={{ ...btnBase, aspectRatio: "1", flexDirection: "column", gap: 1, fontSize: 10, fontWeight: isSel ? 700 : 400, background: isSel ? accentColor : "transparent", color: isSel ? "white" : isToday ? accentColor : "rgba(0,0,0,0.65)", boxShadow: isSel ? `0 2px 6px ${accentColor}40` : "none" }}
+                  onMouseEnter={(e) => { if (!isSel) e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
+                  onMouseLeave={(e) => { if (!isSel) e.currentTarget.style.background = "transparent"; }}
+                >
+                  {date.getDate()}
+                  {isToday && !isSel && <div style={{ width: 3, height: 3, borderRadius: "50%", background: accentColor }} />}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>,
     document.body
   ) : null;

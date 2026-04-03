@@ -1456,7 +1456,7 @@ function FragebogenContextMenu({
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
             >
               <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#DC2626", flexShrink: 0 }} />
-              Hier (Standartbesuch)
+              Hier (Standardbesuch)
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onDuplicateToFlex(); onClose(); }}

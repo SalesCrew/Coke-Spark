@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardList, Users, BarChart3, Settings, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid } from "lucide-react";
+import { ClipboardList, Users, BarChart3, Settings, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plasma } from "@/components/ui/Plasma";
@@ -10,7 +10,7 @@ const NAV_GROUPS = [
   {
     label: "Fragebögen",
     items: [
-      { label: "Standartbesuch", icon: ClipboardList, href: "/admin/fragebogen", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
+      { label: "Standardbesuch", icon: ClipboardList, href: "/admin/fragebogen", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
       { label: "Flexbesuche", icon: Zap, href: "/admin/flexbesuche", color: { bg: "linear-gradient(to bottom, #84CC16, #65a30d)", ring: "#4d7c0f", shadow: "rgba(132,204,22,0.25)" } },
       { label: "Billa", icon: ShoppingBag, href: "/admin/billa", color: { bg: "linear-gradient(to bottom, #0891B2, #0e7490)", ring: "#155e75", shadow: "rgba(8,145,178,0.25)" } },
       { label: "Kühlerinventur", icon: Refrigerator, href: "/admin/kuehlerinventur", color: { bg: "linear-gradient(to bottom, #F59E0B, #D97706)", ring: "#B45309", shadow: "rgba(245,158,11,0.25)" } },
@@ -21,6 +21,7 @@ const NAV_GROUPS = [
   {
     label: null,
     items: [
+      { label: "Prämien", icon: Gift, href: "/admin/praemien", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
       { label: "Mitarbeiter", icon: Users, href: "/admin/mitarbeiter", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
       { label: "Statistiken", icon: BarChart3, href: "/admin/statistiken", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
       { label: "Einstellungen", icon: Settings, href: "/admin/einstellungen", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },

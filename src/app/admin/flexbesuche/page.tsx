@@ -135,7 +135,7 @@ function FlexFbContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToB
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
             >
               <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#DC2626", flexShrink: 0 }} />
-              Zu Standartbesuch kopieren
+              Zu Standardbesuch kopieren
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onDuplicateToBilla(); onClose(); }}
@@ -652,7 +652,7 @@ function FlexEmptyState({ tab }: { tab: Tab }) {
 
 export default function FlexbesuchePage() {
   const { modules, fragebogenList, onEdit, onUpdate, onDelete, onDuplicate, onEditFb, onDeleteFb, onDuplicateFb, duplicateFbToStd } = useFlexModules();
-  // Merge Standartbesuch and Billa questions into the shared question view
+  // Merge Standardbesuch and Billa questions into the shared question view
   const { modules: stdModules } = useModules();
   const { modules: billaModules, duplicateFbToBilla } = useBillaModules();
   const [activeTab, setActiveTab] = useState<Tab>("module");

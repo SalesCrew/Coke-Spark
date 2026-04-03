@@ -35,6 +35,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isBilla = pathname.startsWith("/admin/billa");
   const isFbManagement = pathname.startsWith("/admin/fbmanagement");
   const isFbNeu = pathname === "/admin/fbmanagement/neu";
+  const isPraemien = pathname.startsWith("/admin/praemien");
 
   // ── Fragebogen-side state ──────────────────────────────────
   const [moduleEditorOpen, setModuleEditorOpen] = useState(false);
@@ -453,7 +454,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     },
   };
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : "Standartbesuch";
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : "Standardbesuch";
   const pageSubtitle = isMhd
     ? "MHD-Module und Fragebogen verwalten."
     : isKuehler
@@ -462,6 +463,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     ? "Flexible Besuchsfragebögen verwalten."
     : isBilla
     ? "Billa-Besuchsfragebögen verwalten."
+    : isPraemien
+    ? ""
     : isFbManagement
     ? ""
     : "Fragen, Module und Fragebogen verwalten.";

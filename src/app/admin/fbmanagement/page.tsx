@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, Camera, FileText } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
 
 // ── Mock data ─────────────────────────────────────────────────
@@ -11,8 +11,8 @@ const CAMPAIGNS = [
   // ── Aktiv ─────────────────────────────────────────────────
   {
     id: "1",
-    name: "Standartbesuch KW12",
-    type: "standart",
+    name: "Standardbesuch KW12",
+    type: "standard",
     color: "#DC2626",
     inactive: false,
     period: "17.03 – 23.03.2026",
@@ -102,8 +102,8 @@ const CAMPAIGNS = [
   // ── Inaktiv ───────────────────────────────────────────────
   {
     id: "6",
-    name: "Standartbesuch KW08",
-    type: "standart",
+    name: "Standardbesuch KW08",
+    type: "standard",
     color: "#DC2626",
     inactive: true,
     period: "17.02 – 23.02.2026",
@@ -156,24 +156,84 @@ const CAMPAIGNS = [
   },
 ];
 
-const MOCK_MARKETS = [
-  { id: "m1", name: "Billa Wien 10", region: "Wien", finished: true },
-  { id: "m2", name: "Billa Wien 12", region: "Wien", finished: true },
-  { id: "m3", name: "Merkur Graz Hauptplatz", region: "Steiermark", finished: false },
-  { id: "m4", name: "Spar Linz Nord", region: "Oberösterreich", finished: false },
-  { id: "m5", name: "Billa Wien 6", region: "Wien", finished: true },
-  { id: "m6", name: "Billa Mödling", region: "Niederösterreich", finished: false },
-  { id: "m7", name: "Merkur Wien 22", region: "Wien", finished: true },
-  { id: "m8", name: "Spar Graz West", region: "Steiermark", finished: true },
-  { id: "m9", name: "Billa Baden", region: "Niederösterreich", finished: false },
-  { id: "m10", name: "Merkur Salzburg", region: "Salzburg", finished: false },
-  { id: "m11", name: "Billa Wien 15", region: "Wien", finished: true },
-  { id: "m12", name: "Spar Wels", region: "Oberösterreich", finished: true },
-  { id: "m13", name: "Billa Klagenfurt", region: "Kärnten", finished: false },
-  { id: "m14", name: "Merkur Innsbruck", region: "Tirol", finished: false },
-  { id: "m15", name: "Billa Wien 3", region: "Wien", finished: true },
-  { id: "m16", name: "Spar St. Pölten", region: "Niederösterreich", finished: true },
+interface MarketCatalogItem {
+  id: string;
+  name: string;
+  chain: string;
+  city: string;
+  region: string;
+  address: string;
+  gm: string;
+  finished: boolean;
+}
+
+interface MarketListFilters {
+  chain: string | null;
+  gm: string | null;
+  city: string | null;
+  region: string | null;
+}
+
+const MARKET_CATALOG: MarketCatalogItem[] = [
+  { id: "m1",  name: "Billa Wien 10",          chain: "Billa",  city: "Wien",        region: "Ost",  address: "Favoritenstr. 10, 1100 Wien",            gm: "Thomas Huber",   finished: true  },
+  { id: "m2",  name: "Billa Wien 12",           chain: "Billa",  city: "Wien",        region: "Ost",  address: "Meidlinger Hauptstr. 12, 1120 Wien",     gm: "Thomas Huber",   finished: true  },
+  { id: "m3",  name: "Merkur Graz Hauptplatz",  chain: "Merkur", city: "Graz",        region: "Süd",  address: "Hauptplatz 1, 8010 Graz",                gm: "Anna Gruber",    finished: false },
+  { id: "m4",  name: "Spar Linz Nord",          chain: "Spar",   city: "Linz",        region: "West", address: "Industriezeile 44, 4020 Linz",            gm: "Michael Huber",  finished: false },
+  { id: "m5",  name: "Billa Wien 6",            chain: "Billa",  city: "Wien",        region: "Ost",  address: "Mariahilfer Str. 58, 1060 Wien",          gm: "Sandra Mayer",   finished: true  },
+  { id: "m6",  name: "Billa Mödling",           chain: "Billa",  city: "Mödling",     region: "Ost",  address: "Wiener Str. 22, 2340 Mödling",            gm: "Sandra Mayer",   finished: false },
+  { id: "m7",  name: "Merkur Wien 22",          chain: "Merkur", city: "Wien",        region: "Ost",  address: "Donaustadtstr. 7, 1220 Wien",             gm: "Klaus Berger",   finished: true  },
+  { id: "m8",  name: "Spar Graz West",          chain: "Spar",   city: "Graz",        region: "Süd",  address: "Westring 381, 8051 Graz",                 gm: "Anna Gruber",    finished: true  },
+  { id: "m9",  name: "Billa Baden",             chain: "Billa",  city: "Baden",       region: "Ost",  address: "Kaiser Franz-Josef Ring 5, 2500 Baden",   gm: "Sandra Mayer",   finished: false },
+  { id: "m10", name: "Merkur Salzburg",         chain: "Merkur", city: "Salzburg",    region: "West", address: "Europark Allee 1, 5020 Salzburg",         gm: "Michael Huber",  finished: false },
+  { id: "m11", name: "Billa Wien 15",           chain: "Billa",  city: "Wien",        region: "Ost",  address: "Schönbrunner Str. 131, 1050 Wien",        gm: "Thomas Huber",   finished: true  },
+  { id: "m12", name: "Spar Wels",               chain: "Spar",   city: "Wels",        region: "West", address: "Stadtplatz 12, 4600 Wels",                gm: "Klaus Berger",   finished: true  },
+  { id: "m13", name: "Billa Klagenfurt",        chain: "Billa",  city: "Klagenfurt",  region: "Süd",  address: "Völkermarkter Str. 27, 9020 Klagenfurt",  gm: "Anna Gruber",    finished: false },
+  { id: "m14", name: "Merkur Innsbruck",        chain: "Merkur", city: "Innsbruck",   region: "Nord", address: "Museumstr. 38, 6020 Innsbruck",           gm: "Klaus Berger",   finished: false },
+  { id: "m15", name: "Billa Wien 3",            chain: "Billa",  city: "Wien",        region: "Ost",  address: "Landstr. Hauptstr. 44, 1030 Wien",        gm: "Anna Fuchs",     finished: true  },
+  { id: "m16", name: "Spar St. Pölten",         chain: "Spar",   city: "St. Pölten",  region: "Ost",  address: "Rathausplatz 8, 3100 St. Pölten",         gm: "Anna Fuchs",     finished: true  },
+  // Extra markets available to assign
+  { id: "m17", name: "Billa Salzburg Mitte",    chain: "Billa",  city: "Salzburg",    region: "West", address: "Getreidegasse 10, 5020 Salzburg",         gm: "Michael Huber",  finished: false },
+  { id: "m18", name: "Merkur Villach",          chain: "Merkur", city: "Villach",     region: "Süd",  address: "Hans-Gasser-Platz 3, 9500 Villach",       gm: "Anna Gruber",    finished: false },
+  { id: "m19", name: "Spar Innsbruck Ost",      chain: "Spar",   city: "Innsbruck",   region: "Nord", address: "Pradler Str. 66, 6020 Innsbruck",         gm: "Klaus Berger",   finished: false },
+  { id: "m20", name: "Billa Bregenz",           chain: "Billa",  city: "Bregenz",     region: "Nord", address: "Kirchstr. 19, 6900 Bregenz",              gm: "Klaus Berger",   finished: false },
+  { id: "m21", name: "Spar Steyr",              chain: "Spar",   city: "Steyr",       region: "West", address: "Stadtplatz 14, 4400 Steyr",               gm: "Michael Huber",  finished: false },
+  { id: "m22", name: "Billa Eisenstadt",        chain: "Billa",  city: "Eisenstadt",  region: "Ost",  address: "Domplatz 11, 7000 Eisenstadt",            gm: "Anna Fuchs",     finished: false },
+  { id: "m23", name: "Merkur Linz Mitte",       chain: "Merkur", city: "Linz",        region: "West", address: "Herrenstr. 9, 4020 Linz",                 gm: "Michael Huber",  finished: false },
+  { id: "m24", name: "Spar Wien Mitte",         chain: "Spar",   city: "Wien",        region: "Ost",  address: "Landstr. Hauptstr. 1b, 1030 Wien",        gm: "Thomas Huber",   finished: false },
 ];
+
+const INITIAL_CAMPAIGN_MARKET_IDS: Record<string, string[]> = {
+  "1": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10","m11","m12","m13","m14","m15","m16"],
+  "2": ["m1","m2","m3","m4","m5","m6","m7","m8"],
+  "3": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10","m11","m12","m13","m14","m15","m16"],
+  "4": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10"],
+  "5": ["m1","m2","m5","m7","m8","m11","m15","m16"],
+  "6": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10","m11","m12","m13","m14","m15","m16"],
+};
+
+function applyMarketFilters(
+  markets: MarketCatalogItem[],
+  search: string,
+  filters: MarketListFilters,
+): MarketCatalogItem[] {
+  let r = markets;
+  const q = search.trim().toLowerCase();
+  if (q) r = r.filter(m =>
+    m.name.toLowerCase().includes(q) ||
+    m.address.toLowerCase().includes(q) ||
+    m.gm.toLowerCase().includes(q) ||
+    m.city.toLowerCase().includes(q) ||
+    m.chain.toLowerCase().includes(q)
+  );
+  if (filters.chain)  r = r.filter(m => m.chain  === filters.chain);
+  if (filters.gm)     r = r.filter(m => m.gm     === filters.gm);
+  if (filters.city)   r = r.filter(m => m.city   === filters.city);
+  if (filters.region) r = r.filter(m => m.region === filters.region);
+  return r;
+}
+
+// Keep a thin alias so MOCK_MARKET_META still resolves cleanly
+const MOCK_MARKETS = MARKET_CATALOG;
 
 // ── Mock Fragebogen per section type ─────────────────────────
 
@@ -186,15 +246,15 @@ interface MockFragebogen {
 }
 
 const MOCK_FRAGEBOGEN: Record<string, MockFragebogen[]> = {
-  standart: [
-    { id: "sf1", name: "Standartbesuch KW12", modules: 3, questions: 67, active: true },
-    { id: "sf2", name: "Standartbesuch V2", modules: 4, questions: 82, active: false },
-    { id: "sf3", name: "Standartbesuch Basis", modules: 2, questions: 34, active: false },
-    { id: "sf4", name: "Standartbesuch Erweitert", modules: 5, questions: 95, active: false },
-    { id: "sf5", name: "Standartbesuch KW08", modules: 3, questions: 67, active: false },
-    { id: "sf6", name: "Standartbesuch Kompakt", modules: 2, questions: 28, active: false },
-    { id: "sf7", name: "Standartbesuch Premium", modules: 6, questions: 110, active: false },
-    { id: "sf8", name: "Standartbesuch Q1 2026", modules: 4, questions: 74, active: false },
+  standard: [
+    { id: "sf1", name: "Standardbesuch KW12", modules: 3, questions: 67, active: true },
+    { id: "sf2", name: "Standardbesuch V2", modules: 4, questions: 82, active: false },
+    { id: "sf3", name: "Standardbesuch Basis", modules: 2, questions: 34, active: false },
+    { id: "sf4", name: "Standardbesuch Erweitert", modules: 5, questions: 95, active: false },
+    { id: "sf5", name: "Standardbesuch KW08", modules: 3, questions: 67, active: false },
+    { id: "sf6", name: "Standardbesuch Kompakt", modules: 2, questions: 28, active: false },
+    { id: "sf7", name: "Standardbesuch Premium", modules: 6, questions: 110, active: false },
+    { id: "sf8", name: "Standardbesuch Q1 2026", modules: 4, questions: 74, active: false },
   ],
   flex: [
     { id: "ff1", name: "Flexbesuch April", modules: 3, questions: 42, active: true },
@@ -2226,7 +2286,7 @@ function FlexFragebogenVorschau({ questions = FLEX_PREVIEW_QUESTIONS, showHeatma
   );
 }
 
-// ── Heatmap aggregate mock data (Standart) ──────────────────
+// ── Heatmap aggregate mock data (Standard) ──────────────────
 
 type HeatmapData = {
   total: number;
@@ -2677,7 +2737,7 @@ function HeatmapQuestionCard({ question, data, accentColor, direction, animKey }
   );
 }
 
-// ── FragebogenVorschau container (Standart, red-themed) ──────
+// ── FragebogenVorschau container (Standard, red-themed) ──────
 
 function FragebogenVorschau({
   questions = PREVIEW_QUESTIONS,
@@ -2853,7 +2913,7 @@ function FragebogenSwitcher({ campaignType, campaignColor }: { campaignType: str
   const [closing, setClosing] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const list = MOCK_FRAGEBOGEN[campaignType] || MOCK_FRAGEBOGEN["standart"];
+  const list = MOCK_FRAGEBOGEN[campaignType] || MOCK_FRAGEBOGEN["standard"];
   const [activeId, setActiveId] = useState(() => list.find((f) => f.active)?.id || list[0].id);
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -3098,7 +3158,7 @@ const MOCK_MARKET_META: Record<string, { visitedAt: string; duration: number; gm
 };
 
 const MOCK_MARKET_ANSWERS: Record<string, Record<string, string | string[]>> = {
-  standart: {
+  standard: {
     pq1:  "Ja",
     pq2:  "Gut",
     pq3:  ["Aufsteller", "Preisschild", "Plakat"],
@@ -3632,7 +3692,7 @@ function MarketVisitDetail({
   campaignColor,
   onClose,
 }: {
-  market: typeof MOCK_MARKETS[0];
+  market: MarketCatalogItem;
   campaignType: string;
   campaignColor: string;
   onClose: () => void;
@@ -3646,7 +3706,7 @@ function MarketVisitDetail({
     campaignType === "billa" ? BILLA_PREVIEW_QUESTIONS :
     PREVIEW_QUESTIONS;
 
-  const showIPP = ["standart", "flex", "billa"].includes(campaignType);
+  const showIPP = ["standard", "flex", "billa"].includes(campaignType);
   const ipp = showIPP ? computeIPP(answers, questions) : null;
 
   const visitDate = meta ? new Date(meta.visitedAt).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
@@ -3871,12 +3931,46 @@ function MarketVisitDetail({
   );
 }
 
+// ── Mock GMs per region ───────────────────────────────────────
+
+const MOCK_GMS_BY_REGION: Record<string, { name: string; pct: number }[]> = {
+  Nord: [
+    { name: "Thomas Huber", pct: 98 },
+    { name: "Anna Berger", pct: 91 },
+    { name: "Max Gruber", pct: 87 },
+    { name: "Lena Fischer", pct: 72 },
+    { name: "Stefan Weiß", pct: 44 },
+  ],
+  Ost: [
+    { name: "Maria Mayer", pct: 66 },
+    { name: "Klaus Brandt", pct: 52 },
+    { name: "Julia Schmid", pct: 38 },
+    { name: "René Hofer", pct: 22 },
+  ],
+  Süd: [
+    { name: "David Reiter", pct: 55 },
+    { name: "Sophie Bauer", pct: 41 },
+    { name: "Felix Wagner", pct: 29 },
+    { name: "Nina Wolf", pct: 18 },
+  ],
+  West: [
+    { name: "Oliver Koch", pct: 31 },
+    { name: "Hannah Lang", pct: 18 },
+    { name: "Lukas Müller", pct: 9 },
+  ],
+};
+
 // ── Region progress bar ───────────────────────────────────────
 
-function RegionBar({ name, pct }: { name: string; pct: number }) {
+function RegionBar({ name, pct, onClick }: { name: string; pct: number; onClick?: () => void }) {
   const color = pct >= 80 ? "#16a34a" : pct >= 40 ? "#d97706" : "#DC2626";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+    <div
+      onClick={onClick}
+      style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, cursor: onClick ? "pointer" : "default", borderRadius: 6, transition: "background 0.12s ease" }}
+      onMouseEnter={(e) => { if (onClick) e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
+      onMouseLeave={(e) => { if (onClick) e.currentTarget.style.background = "transparent"; }}
+    >
       <span style={{ fontSize: 11, color: "rgba(0,0,0,0.5)", fontWeight: 500, width: 130, flexShrink: 0 }}>{name}</span>
       <div style={{ flex: 1, height: 4, borderRadius: 99, backgroundColor: "rgba(0,0,0,0.06)", overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, backgroundColor: color, transition: "width 0.4s ease" }} />
@@ -3934,29 +4028,54 @@ function CampaignListItem({
 
 // ── Market row ────────────────────────────────────────────────
 
-function MarketRow({ market, onClick }: { market: typeof MOCK_MARKETS[0]; onClick?: () => void }) {
-  const clickable = market.finished && !!onClick;
+function MarketRow({
+  market, mode = "idle", isRemoving = false, isEntering = false, onRemove, onClick,
+}: {
+  market: MarketCatalogItem;
+  mode?: "idle" | "remove" | "add";
+  isRemoving?: boolean;
+  isEntering?: boolean;
+  onRemove?: () => void;
+  onClick?: () => void;
+}) {
+  const clickable = market.finished && !!onClick && mode === "idle";
+  const anim = isRemoving ? "mrSlideOut 0.3s cubic-bezier(0.4,0,0.6,1) forwards"
+             : isEntering  ? "mrSlideIn 0.3s cubic-bezier(0.2,0,0,1) both"
+             : undefined;
   return (
     <div
       onClick={clickable ? onClick : undefined}
       style={{
-        display: "flex",
-        alignItems: "center",
-        padding: "9px 14px",
-        borderBottom: "1px solid rgba(0,0,0,0.04)",
-        gap: 10,
+        display: "flex", alignItems: "center", padding: "9px 14px",
+        borderBottom: "1px solid rgba(0,0,0,0.04)", gap: 10,
         cursor: clickable ? "pointer" : "default",
         transition: "background 0.12s ease",
+        animation: anim,
+        overflow: "hidden",
       }}
       onMouseEnter={(e) => { if (clickable) e.currentTarget.style.background = "rgba(0,0,0,0.02)"; }}
       onMouseLeave={(e) => { if (clickable) e.currentTarget.style.background = "transparent"; }}
     >
-      <div style={{
-        width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
-        backgroundColor: market.finished ? "#16a34a" : "rgba(0,0,0,0.18)",
-      }} />
+      {mode === "remove" && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove?.(); }}
+          style={{
+            width: 20, height: 20, borderRadius: "50%", border: "none", cursor: "pointer",
+            flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(220,38,38,0.08)", color: "#DC2626",
+            transition: "background 0.15s, transform 0.15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.15)"; e.currentTarget.style.transform = "scale(1.1)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.08)"; e.currentTarget.style.transform = "scale(1)"; }}
+        >
+          <Minus size={10} strokeWidth={2.5} />
+        </button>
+      )}
+      {mode !== "remove" && (
+        <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, backgroundColor: market.finished ? "#16a34a" : "rgba(0,0,0,0.18)" }} />
+      )}
       <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{market.name}</span>
-      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", fontWeight: 400 }}>{market.region}</span>
+      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", fontWeight: 400 }}>{market.city}</span>
       <span style={{
         fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
         backgroundColor: market.finished ? "rgba(22,163,74,0.08)" : "rgba(0,0,0,0.04)",
@@ -3965,6 +4084,411 @@ function MarketRow({ market, onClick }: { market: typeof MOCK_MARKETS[0]; onClic
         {market.finished ? "Abgeschlossen" : "Ausstehend"}
       </span>
     </div>
+  );
+}
+
+// ── Market filter chip ─────────────────────────────────────────
+
+function MarketFilterChip({
+  label, value, options, onChange,
+}: {
+  label: string; value: string | null; options: string[]; onChange: (v: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const syncPos = useCallback(() => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ x: r.left, y: r.bottom + 5 });
+    }
+  }, []);
+
+  // Outside-click close
+  useEffect(() => {
+    if (!open) return;
+    const h = () => setOpen(false);
+    window.addEventListener("mousedown", h);
+    return () => window.removeEventListener("mousedown", h);
+  }, [open]);
+
+  // Keep dropdown attached during scroll / resize
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("scroll", syncPos, true); // capture catches nested scrollers
+    window.addEventListener("resize", syncPos);
+    return () => {
+      window.removeEventListener("scroll", syncPos, true);
+      window.removeEventListener("resize", syncPos);
+    };
+  }, [open, syncPos]);
+
+  const toggleOpen = () => {
+    syncPos();
+    setOpen((o) => !o);
+  };
+
+  const active = value !== null;
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={toggleOpen}
+        style={{
+          display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap",
+          padding: "5px 10px", borderRadius: 7, border: "none", cursor: "pointer",
+          fontSize: 11, fontWeight: 600,
+          background: active ? "rgba(0,0,0,0.06)" : "rgba(0,0,0,0.035)",
+          color: active ? "#1a1a1a" : "rgba(0,0,0,0.4)",
+          boxShadow: active ? "0 0 0 1.5px rgba(0,0,0,0.2)" : "none",
+          transition: "all 0.15s ease",
+        }}
+        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "rgba(0,0,0,0.055)"; }}
+        onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "rgba(0,0,0,0.035)"; }}
+      >
+        {active ? value : label}
+        {active
+          ? <span onMouseDown={(e) => { e.stopPropagation(); onChange(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center" }}><X size={9} strokeWidth={2.5} /></span>
+          : <ChevronDown size={9} strokeWidth={2} />
+        }
+      </button>
+      {mounted && open && typeof document !== "undefined" && createPortal(
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9998, minWidth: 160, background: "#fff", borderRadius: 10, padding: 4, boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mfcIn 0.14s ease both" }}
+        >
+          <style>{`@keyframes mfcIn { from { opacity:0; transform:translateY(-4px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } }`}</style>
+          {options.map((opt) => {
+            const sel = opt === value;
+            return (
+              <button key={opt} onClick={() => { onChange(sel ? null : opt); setOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: sel ? 600 : 400, textAlign: "left", background: sel ? "rgba(0,0,0,0.05)" : "transparent", color: sel ? "#1a1a1a" : "#374151", transition: "background 0.1s ease" }}
+                onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
+                onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
+              >
+                <div style={{ width: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>{sel && <Check size={10} strokeWidth={3} />}</div>
+                {opt}
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+// ── Market edit menu (small 2-option popover) ─────────────────
+
+function MarketEditMenu({
+  pos, onAdd, onRemove, onClose,
+}: {
+  pos: { x: number; y: number };
+  onAdd: () => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const h = () => onClose();
+    window.addEventListener("mousedown", h);
+    return () => window.removeEventListener("mousedown", h);
+  }, [onClose]);
+
+  if (!mounted || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{ position: "fixed", right: window.innerWidth - pos.x, top: pos.y, zIndex: 9998, width: 168, background: "#fff", borderRadius: 11, padding: 5, boxShadow: "0 8px 30px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.055)", animation: "memIn 0.15s cubic-bezier(0.2,0,0,1) both" }}
+    >
+      <style>{`@keyframes memIn { from { opacity:0; transform:translateY(-6px) scale(0.96) } to { opacity:1; transform:translateY(0) scale(1) } }`}</style>
+      {[
+        { icon: <Plus size={13} strokeWidth={2} />, label: "Märkte hinzufügen", action: onAdd, color: "#16a34a" },
+        { icon: <Minus size={13} strokeWidth={2} />, label: "Märkte entfernen", action: onRemove, color: "#DC2626" },
+      ].map(({ icon, label, action, color }) => (
+        <button key={label} onClick={action}
+          style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 500, color: "#1a1a1a", background: "transparent", transition: "background 0.1s ease", textAlign: "left" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; (e.currentTarget.querySelector("span") as HTMLElement).style.color = color; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; (e.currentTarget.querySelector("span") as HTMLElement).style.color = "rgba(0,0,0,0.4)"; }}
+        >
+          <span style={{ color: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", transition: "color 0.1s ease" }}>{icon}</span>
+          {label}
+        </button>
+      ))}
+    </div>,
+    document.body
+  );
+}
+
+// ── Market add panel (large anchored popover) ─────────────────
+
+function MarketAddPanel({
+  pos, availableMarkets, onAdd, onUndoAdd, onClose,
+}: {
+  pos: { x: number; y: number };
+  availableMarkets: MarketCatalogItem[];
+  onAdd: (id: string) => void;
+  onUndoAdd: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
+  const [addedIds, setAddedIds] = useState<string[]>([]);
+  const [expandedAdded, setExpandedAdded] = useState(false);
+  const [undoMenu, setUndoMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!undoMenu) return;
+    const h = () => setUndoMenu(null);
+    window.addEventListener("mousedown", h);
+    return () => window.removeEventListener("mousedown", h);
+  }, [undoMenu]);
+
+  const PANEL_W = 520;
+
+  // Draggable position — initialise from prop, clamp once on mount
+  const [panelPos, setPanelPos] = useState({ x: pos.x, y: pos.y });
+  const dragRef = useRef(false);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    setPanelPos({
+      x: Math.max(8, Math.min(pos.x, window.innerWidth - PANEL_W - 8)),
+      y: Math.max(8, Math.min(pos.y, window.innerHeight - 60)),
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      setPanelPos({
+        x: Math.max(0, Math.min(e.clientX - dragOffsetRef.current.x, window.innerWidth - PANEL_W)),
+        y: Math.max(0, Math.min(e.clientY - dragOffsetRef.current.y, window.innerHeight - 60)),
+      });
+    };
+    const onUp = () => {
+      if (dragRef.current) {
+        dragRef.current = false;
+        document.body.style.cursor = "";
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+    };
+  }, []);
+
+  const handleHeaderMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("button")) return; // don't drag from close button
+    dragRef.current = true;
+    dragOffsetRef.current = { x: e.clientX - panelPos.x, y: e.clientY - panelPos.y };
+    document.body.style.cursor = "grabbing";
+    e.preventDefault(); // prevent text selection during drag
+  };
+
+  useEffect(() => {
+    return () => { document.body.style.cursor = ""; };
+  }, [onClose]);
+
+  const candidates = applyMarketFilters(
+    availableMarkets.filter((m) => !addedIds.includes(m.id)),
+    search,
+    filters,
+  );
+
+  const chains  = Array.from(new Set(availableMarkets.map((m) => m.chain))).sort();
+  const gms     = Array.from(new Set(availableMarkets.map((m) => m.gm))).sort();
+  const cities  = Array.from(new Set(availableMarkets.map((m) => m.city))).sort();
+  const regions = Array.from(new Set(availableMarkets.map((m) => m.region))).sort();
+
+  const handleAdd = (id: string) => {
+    setAddedIds((p) => [...p, id]);
+    onAdd(id);
+  };
+
+  const handleUndoSingle = (id: string) => {
+    const remaining = addedIds.filter((aid) => aid !== id);
+    setAddedIds(remaining);
+    setUndoMenu(null);
+    onUndoAdd(id);
+    if (remaining.length === 0) setExpandedAdded(false);
+  };
+
+  const handleUndoAll = () => {
+    const toUndo = [...addedIds];
+    setAddedIds([]);
+    setExpandedAdded(false);
+    toUndo.forEach((id) => onUndoAdd(id));
+  };
+
+  const addedMarkets = [...addedIds].reverse().map((id) => MARKET_CATALOG.find((m) => m.id === id)).filter(Boolean) as MarketCatalogItem[];
+
+  if (!mounted || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{ position: "fixed", left: panelPos.x, top: panelPos.y, zIndex: 9998, width: PANEL_W, maxHeight: 520, display: "flex", flexDirection: "column", background: "#fff", borderRadius: 14, boxShadow: "0 16px 50px rgba(0,0,0,0.14), 0 4px 16px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mapIn 0.18s cubic-bezier(0.2,0,0,1) both", overflow: "hidden" }}
+    >
+      <style>{`
+        @keyframes mapIn { from { opacity:0; transform:translateY(-8px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } }
+        .map-scroll::-webkit-scrollbar { width: 3px; }
+        .map-scroll::-webkit-scrollbar-track { background: transparent; }
+        .map-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 99px; }
+      `}</style>
+
+      {/* Draggable header */}
+      <div
+        onMouseDown={handleHeaderMouseDown}
+        style={{ padding: "14px 16px 10px", borderBottom: "1px solid rgba(0,0,0,0.06)", flexShrink: 0, cursor: "grab", userSelect: "none" }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>Märkte hinzufügen</span>
+          <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 7, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.45)", transition: "background 0.12s ease", flexShrink: 0 }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.09)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
+          >
+            <X size={12} strokeWidth={2.5} />
+          </button>
+        </div>
+        {/* Search */}
+        <div
+          onMouseDown={(e) => e.stopPropagation()} // don't trigger drag from search area
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 10px", height: 34, borderRadius: 8, background: "rgba(0,0,0,0.04)", border: "1px solid transparent", transition: "border 0.15s ease", cursor: "text", userSelect: "text" }}
+          onFocusCapture={(e) => { (e.currentTarget as HTMLElement).style.border = "1px solid rgba(0,0,0,0.15)"; (e.currentTarget as HTMLElement).style.background = "#fff"; }}
+          onBlurCapture={(e) => { (e.currentTarget as HTMLElement).style.border = "1px solid transparent"; (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.04)"; }}
+        >
+          <Search size={13} strokeWidth={2} color="rgba(0,0,0,0.35)" />
+          <input
+            autoFocus
+            type="text"
+            placeholder="Markt, Adresse oder GM suchen"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 12, color: "#1a1a1a", userSelect: "text" }}
+          />
+          {search && <button onClick={() => setSearch("")} style={{ display: "flex", border: "none", background: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", padding: 0 }}><X size={11} strokeWidth={2} /></button>}
+        </div>
+        {/* Filters */}
+        <div onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap", cursor: "default", userSelect: "none" }}>
+          <MarketFilterChip label="Kette"  value={filters.chain}  options={chains}  onChange={(v) => setFilters((p) => ({ ...p, chain: v }))} />
+          <MarketFilterChip label="GM"     value={filters.gm}     options={gms}     onChange={(v) => setFilters((p) => ({ ...p, gm: v }))} />
+          <MarketFilterChip label="Stadt"  value={filters.city}   options={cities}  onChange={(v) => setFilters((p) => ({ ...p, city: v }))} />
+          <MarketFilterChip label="Region" value={filters.region} options={regions} onChange={(v) => setFilters((p) => ({ ...p, region: v }))} />
+        </div>
+      </div>
+
+      {/* Count row — doubles as expansion trigger */}
+      <div style={{ padding: "8px 16px", borderBottom: expandedAdded ? "none" : "1px solid rgba(0,0,0,0.05)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", fontWeight: 500, flex: 1 }}>
+          {candidates.length} {candidates.length === 1 ? "Markt verfügbar" : "Märkte verfügbar"}
+        </span>
+        {addedIds.length > 0 && (
+          <>
+            <button
+              onClick={handleUndoAll}
+              style={{ fontSize: 10, fontWeight: 600, color: "#DC2626", background: "none", border: "none", cursor: "pointer", padding: "2px 4px", transition: "opacity 0.15s ease", letterSpacing: "-0.01em" }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.6"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+            >Alles rückgängig</button>
+            <button
+              onClick={() => setExpandedAdded((o) => !o)}
+              style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 600, color: "#16a34a", background: "none", border: "none", cursor: "pointer", padding: "2px 4px", transition: "opacity 0.15s ease" }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.6"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+            >
+              {addedIds.length} hinzugefügt
+              <ChevronDown
+                size={10} strokeWidth={2.5}
+                style={{ display: "block", transition: "transform 0.22s cubic-bezier(0.4,0,0.2,1)", transform: expandedAdded ? "rotate(180deg)" : "rotate(0deg)" }}
+              />
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Inline added-markets expansion */}
+      <div style={{ maxHeight: expandedAdded ? "200px" : "0px", opacity: expandedAdded ? 1 : 0, overflow: "hidden", flexShrink: 0, borderBottom: expandedAdded ? "1px solid rgba(0,0,0,0.05)" : "none", transition: "max-height 0.28s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease" }}>
+        <div className="map-scroll" style={{ overflowY: "auto", maxHeight: 200, transform: expandedAdded ? "translateY(0)" : "translateY(-4px)", transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)", paddingTop: 4, paddingBottom: 4 }}>
+          {addedMarkets.map((m) => (
+            <div
+              key={m.id}
+              onContextMenu={(e) => { e.preventDefault(); setUndoMenu({ id: m.id, x: e.clientX, y: e.clientY }); }}
+              style={{ display: "flex", alignItems: "center", padding: "9px 16px", gap: 10, borderBottom: "1px solid rgba(0,0,0,0.03)", background: "rgba(22,163,74,0.025)", cursor: "context-menu", transition: "background 0.12s ease" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(22,163,74,0.055)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(22,163,74,0.025)"; }}
+            >
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a", flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em", marginBottom: 1 }}>{m.name}</div>
+                <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.address}</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.55)" }}>{m.gm}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 20, background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.35)" }}>{m.region}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Candidate list */}
+      <div className="map-scroll" style={{ overflowY: "auto", flex: 1 }}>
+        {candidates.length === 0 ? (
+          <div style={{ padding: "32px 20px", textAlign: "center" }}>
+            <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>Keine Märkte gefunden</span>
+          </div>
+        ) : candidates.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => handleAdd(m.id)}
+            style={{ display: "flex", alignItems: "center", width: "100%", padding: "11px 16px", gap: 10, border: "none", cursor: "pointer", borderBottom: "1px solid rgba(0,0,0,0.04)", background: "transparent", textAlign: "left", transition: "background 0.12s ease" }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            {/* Name + address */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em", marginBottom: 1 }}>{m.name}</div>
+              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.address}</div>
+            </div>
+            {/* Meta */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.55)" }}>{m.gm}</span>
+              <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 20, background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.35)" }}>{m.region}</span>
+            </div>
+            {/* Add icon */}
+            <div style={{ width: 24, height: 24, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(22,163,74,0.07)", color: "#16a34a", flexShrink: 0 }}>
+              <Plus size={12} strokeWidth={2.5} />
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Right-click per-market undo menu */}
+      {undoMenu && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ position: "fixed", left: undoMenu.x, top: undoMenu.y, zIndex: 9999, background: "#fff", borderRadius: 10, padding: 4, boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mfcIn 0.14s ease both" }}
+        >
+          <button
+            onClick={() => handleUndoSingle(undoMenu.id)}
+            style={{ display: "flex", alignItems: "center", width: "100%", padding: "8px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#DC2626", background: "transparent", whiteSpace: "nowrap", transition: "background 0.1s ease" }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.06)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >Rückgängig machen</button>
+        </div>
+      )}
+    </div>,
+    document.body
   );
 }
 
@@ -3977,6 +4501,20 @@ export default function FbManagementPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [extraCampaigns, setExtraCampaigns] = useState<typeof CAMPAIGNS>([]);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
+  const regionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Market management state ────────────────────────────────────
+  const [campaignMarketIds, setCampaignMarketIds] = useState<Record<string, string[]>>(INITIAL_CAMPAIGN_MARKET_IDS);
+  const [marketSearch, setMarketSearch] = useState("");
+  const [marketFilters, setMarketFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
+  const [marketEditMode, setMarketEditMode] = useState<"idle" | "remove" | "add">("idle");
+  const [editMenuOpen, setEditMenuOpen] = useState(false);
+  const [editMenuPos, setEditMenuPos] = useState({ x: 0, y: 0 });
+  const [addPanelPos, setAddPanelPos] = useState({ x: 0, y: 0 });
+  const [removingIds, setRemovingIds] = useState<string[]>([]);
+  const [enteringIds, setEnteringIds] = useState<string[]>([]);
+  const editBtnRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     try {
@@ -3993,14 +4531,84 @@ export default function FbManagementPage() {
   const campaign = allCampaigns.find((c) => c.id === selectedId) ?? allCampaigns[0];
   const pct = campaign.total > 0 ? Math.round((campaign.filled / campaign.total) * 100) : 0;
 
-  const filteredMarkets = MOCK_MARKETS.filter((m) => {
-    if (marketFilter === "finished") return m.finished;
-    if (marketFilter === "pending") return !m.finished;
-    return true;
-  });
+  const assignedIds = campaignMarketIds[campaign.id] ?? INITIAL_CAMPAIGN_MARKET_IDS[campaign.id] ?? [];
+  const assignedMarkets = MARKET_CATALOG.filter((m) => assignedIds.includes(m.id));
+  const availableMarkets = MARKET_CATALOG.filter((m) => !assignedIds.includes(m.id));
 
-  const finishedCount = MOCK_MARKETS.filter((m) => m.finished).length;
-  const pendingCount = MOCK_MARKETS.length - finishedCount;
+  const finishedCount = assignedMarkets.filter((m) => m.finished).length;
+  const pendingCount = assignedMarkets.length - finishedCount;
+
+  const statusFiltered = marketEditMode === "remove"
+    ? assignedMarkets.filter((m) => !m.finished)
+    : marketFilter === "finished" ? assignedMarkets.filter((m) => m.finished)
+    : marketFilter === "pending"  ? assignedMarkets.filter((m) => !m.finished)
+    : assignedMarkets;
+
+  const filteredMarkets = applyMarketFilters(statusFiltered, marketSearch, marketFilters);
+
+  // Derive filter option lists from the full assigned set
+  const mfChains  = Array.from(new Set(assignedMarkets.map((m) => m.chain))).sort();
+  const mfGms     = Array.from(new Set(assignedMarkets.map((m) => m.gm))).sort();
+  const mfCities  = Array.from(new Set(assignedMarkets.map((m) => m.city))).sort();
+  const mfRegions = Array.from(new Set(assignedMarkets.map((m) => m.region))).sort();
+
+  const handleRemoveMarket = useCallback((id: string) => {
+    setRemovingIds((p) => [...p, id]);
+    setTimeout(() => {
+      setCampaignMarketIds((p) => ({
+        ...p,
+        [campaign.id]: (p[campaign.id] ?? INITIAL_CAMPAIGN_MARKET_IDS[campaign.id]).filter((mid) => mid !== id),
+      }));
+      setRemovingIds((p) => p.filter((rid) => rid !== id));
+    }, 320);
+  }, [campaign.id]);
+
+  const handleAddMarket = useCallback((id: string) => {
+    setCampaignMarketIds((p) => ({
+      ...p,
+      [campaign.id]: [id, ...(p[campaign.id] ?? INITIAL_CAMPAIGN_MARKET_IDS[campaign.id])],
+    }));
+    setEnteringIds((p) => [...p, id]);
+    setTimeout(() => setEnteringIds((p) => p.filter((eid) => eid !== id)), 320);
+  }, [campaign.id]);
+
+  const handleUndoAddMarket = useCallback((id: string) => {
+    setCampaignMarketIds((p) => ({
+      ...p,
+      [campaign.id]: (p[campaign.id] ?? INITIAL_CAMPAIGN_MARKET_IDS[campaign.id]).filter((mid) => mid !== id),
+    }));
+    setEnteringIds((p) => p.filter((eid) => eid !== id));
+  }, [campaign.id]);
+
+  const openEditMenu = () => {
+    if (editBtnRef.current) {
+      const r = editBtnRef.current.getBoundingClientRect();
+      setEditMenuPos({ x: r.right, y: r.bottom + 6 });
+    }
+    setEditMenuOpen(true);
+  };
+
+  const openAddPanel = () => {
+    setEditMenuOpen(false);
+    if (editBtnRef.current) {
+      const r = editBtnRef.current.getBoundingClientRect();
+      setAddPanelPos({ x: r.right - 520, y: r.bottom + 6 });
+    }
+    setSelectedMarket(null);
+    setMarketEditMode("add");
+  };
+
+  const startRemoveMode = () => {
+    setEditMenuOpen(false);
+    setMarketFilter("pending");
+    setSelectedMarket(null);
+    setMarketEditMode("remove");
+  };
+
+  const exitEditMode = () => {
+    setMarketEditMode("idle");
+    setMarketFilter("all");
+  };
 
   return (
     <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -4045,7 +4653,7 @@ export default function FbManagementPage() {
               key={c.id}
               campaign={c}
               selected={c.id === selectedId}
-              onClick={() => setSelectedId(c.id)}
+              onClick={() => { setSelectedId(c.id); setSelectedRegion(null); if (regionTimerRef.current) clearTimeout(regionTimerRef.current); setMarketEditMode("idle"); setEditMenuOpen(false); setMarketSearch(""); setMarketFilters({ chain: null, gm: null, city: null, region: null }); setMarketFilter("all"); }}
             />
           ))}
         </div>
@@ -4139,11 +4747,35 @@ export default function FbManagementPage() {
 
           {/* Regions */}
           <div style={{ padding: "14px 16px", borderRadius: 10, background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.05)" }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.25)", letterSpacing: "0.09em", textTransform: "uppercase", display: "block", marginBottom: 12 }}>Regionen</span>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+              <span
+                style={{ fontSize: 9, fontWeight: 700, color: selectedRegion ? campaign.color : "rgba(0,0,0,0.25)", letterSpacing: "0.09em", textTransform: "uppercase", transition: "color 0.2s ease", cursor: selectedRegion ? "pointer" : "default" }}
+                onClick={() => { if (selectedRegion) { if (regionTimerRef.current) clearTimeout(regionTimerRef.current); setSelectedRegion(null); } }}
+              >
+                {selectedRegion ?? "Regionen"}
+              </span>
+              {selectedRegion && (
+                <span style={{ fontSize: 8, color: "rgba(0,0,0,0.25)", marginLeft: "auto", fontWeight: 500 }}>kehrt zurück…</span>
+              )}
+            </div>
             <div style={{ height: 1, background: "rgba(0,0,0,0.06)", marginBottom: 14 }} />
-            {campaign.regions.map((r) => (
-              <RegionBar key={r.name} name={r.name} pct={r.pct} />
-            ))}
+            {selectedRegion
+              ? (MOCK_GMS_BY_REGION[selectedRegion] ?? []).map((gm) => (
+                  <RegionBar key={gm.name} name={gm.name} pct={gm.pct} />
+                ))
+              : campaign.regions.map((r) => (
+                  <RegionBar
+                    key={r.name}
+                    name={r.name}
+                    pct={r.pct}
+                    onClick={() => {
+                      if (regionTimerRef.current) clearTimeout(regionTimerRef.current);
+                      setSelectedRegion(r.name);
+                      regionTimerRef.current = setTimeout(() => setSelectedRegion(null), 10000);
+                    }}
+                  />
+                ))
+            }
           </div>
         </div>
 
@@ -4180,7 +4812,7 @@ export default function FbManagementPage() {
             ? <MhdFragebogenVorschau key="mhd" showHeatmap={showHeatmap} />
             : campaign.type === "billa"
             ? <BillaFragebogenVorschau key="billa" showHeatmap={showHeatmap} />
-            : <FragebogenVorschau key="standart" showHeatmap={showHeatmap} />
+            : <FragebogenVorschau key="standard" showHeatmap={showHeatmap} />
           }
         </div>
       </div>
@@ -4193,44 +4825,111 @@ export default function FbManagementPage() {
         boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
         overflow: "hidden",
       }}>
-        {/* Header */}
-        <div style={{
-          padding: "14px 20px",
-          borderBottom: "1px solid rgba(0,0,0,0.05)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}>
+        <style>{`
+          @keyframes mrSlideOut { from { transform:translateX(0); opacity:1; max-height:60px } to { transform:translateX(110%); opacity:0; max-height:0; padding-top:0; padding-bottom:0; border-width:0 } }
+          @keyframes mrSlideIn  { from { transform:translateX(40px); opacity:0 } to { transform:translateX(0); opacity:1 } }
+        `}</style>
+
+        {/* Header row 1: title + status tabs + edit */}
+        <div style={{ padding: "14px 20px 10px", borderBottom: marketEditMode === "idle" ? "none" : "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>Zugewiesene Märkte</span>
-            <span style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", marginLeft: 8 }}>{MOCK_MARKETS.length} Märkte gesamt</span>
+            <span style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", marginLeft: 8 }}>{assignedMarkets.length} Märkte gesamt</span>
           </div>
-          <div style={{ display: "flex", gap: 4, background: "rgba(0,0,0,0.03)", borderRadius: 8, padding: 3 }}>
-            {(["all", "finished", "pending"] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setMarketFilter(f)}
-                style={{
-                  padding: "5px 12px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none",
-                  backgroundColor: marketFilter === f ? "#fff" : "transparent",
-                  color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)",
-                  boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none",
-                  transition: "all 0.18s ease",
-                }}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Status tabs */}
+            {marketEditMode !== "remove" && (
+              <div style={{ display: "flex", gap: 3, background: "rgba(0,0,0,0.03)", borderRadius: 8, padding: 3 }}>
+                {(["all", "finished", "pending"] as const).map((f) => (
+                  <button key={f} onClick={() => setMarketFilter(f)}
+                    style={{ padding: "5px 11px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" }}
+                  >
+                    {f === "all" ? `Alle (${assignedMarkets.length})` : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Edit / remove mode controls */}
+            {marketEditMode === "remove" ? (
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: "#DC2626", padding: "4px 8px", borderRadius: 6, background: "rgba(220,38,38,0.07)" }}>Entfernen-Modus</span>
+                <button onClick={exitEditMode}
+                  style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "transparent", transition: "all 0.15s ease" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >Fertig</button>
+              </div>
+            ) : marketEditMode === "add" ? (
+              <button onClick={exitEditMode}
+                style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "transparent", transition: "all 0.15s ease" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >Fertig</button>
+            ) : (
+              <button ref={editBtnRef} onClick={openEditMenu}
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "transparent", transition: "all 0.15s ease" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; e.currentTarget.style.color = "#1a1a1a"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(0,0,0,0.5)"; }}
               >
-                {f === "all" ? `Alle (${MOCK_MARKETS.length})` : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
+                Bearbeiten
               </button>
-            ))}
+            )}
+          </div>
+        </div>
+
+        {/* Header row 2: search + filter chips */}
+        <div style={{ padding: "10px 20px 12px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* Search */}
+          <div style={{ display: "flex", alignItems: "center", gap: 7, flex: "1 1 200px", minWidth: 160, padding: "0 10px", height: 32, borderRadius: 8, background: "rgba(0,0,0,0.035)", border: "1px solid transparent", transition: "border 0.15s, background 0.15s" }}
+            onFocusCapture={(e) => { (e.currentTarget as HTMLElement).style.border = "1px solid rgba(0,0,0,0.14)"; (e.currentTarget as HTMLElement).style.background = "#fff"; }}
+            onBlurCapture={(e) => { (e.currentTarget as HTMLElement).style.border = "1px solid transparent"; (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.035)"; }}
+          >
+            <Search size={12} strokeWidth={2} color="rgba(0,0,0,0.3)" />
+            <input
+              type="text"
+              placeholder="Markt, Adresse oder GM suchen"
+              value={marketSearch}
+              onChange={(e) => setMarketSearch(e.target.value)}
+              style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, color: "#1a1a1a" }}
+            />
+            {marketSearch && (
+              <button onClick={() => setMarketSearch("")} style={{ display: "flex", border: "none", background: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", padding: 0 }}>
+                <X size={10} strokeWidth={2} />
+              </button>
+            )}
+          </div>
+          {/* Filter chips */}
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            <MarketFilterChip label="Kette"  value={marketFilters.chain}  options={mfChains}  onChange={(v) => setMarketFilters((p) => ({ ...p, chain: v }))} />
+            <MarketFilterChip label="GM"     value={marketFilters.gm}     options={mfGms}     onChange={(v) => setMarketFilters((p) => ({ ...p, gm: v }))} />
+            <MarketFilterChip label="Stadt"  value={marketFilters.city}   options={mfCities}  onChange={(v) => setMarketFilters((p) => ({ ...p, city: v }))} />
+            <MarketFilterChip label="Region" value={marketFilters.region} options={mfRegions} onChange={(v) => setMarketFilters((p) => ({ ...p, region: v }))} />
           </div>
         </div>
 
         {/* Market list */}
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", overflow: "hidden" }}>
+          {filteredMarkets.length === 0 && (
+            <div style={{ padding: "28px 20px", textAlign: "center" }}>
+              <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>
+                {marketEditMode === "remove" ? "Keine ausstehenden Märkte zum Entfernen." : "Keine Märkte gefunden."}
+              </span>
+            </div>
+          )}
           {filteredMarkets.map((m) => (
-            <MarketRow key={m.id} market={m} onClick={m.finished ? () => setSelectedMarket(m.id) : undefined} />
+            <MarketRow
+              key={m.id}
+              market={m}
+              mode={marketEditMode}
+              isRemoving={removingIds.includes(m.id)}
+              isEntering={enteringIds.includes(m.id)}
+              onRemove={() => handleRemoveMarket(m.id)}
+              onClick={m.finished && marketEditMode === "idle" ? () => setSelectedMarket(m.id) : undefined}
+            />
           ))}
           {selectedMarket && (() => {
-            const m = MOCK_MARKETS.find((x) => x.id === selectedMarket);
+            const m = MARKET_CATALOG.find((x) => x.id === selectedMarket);
             if (!m) return null;
             return (
               <MarketVisitDetail
@@ -4243,6 +4942,25 @@ export default function FbManagementPage() {
           })()}
         </div>
       </div>
+
+      {/* Portals */}
+      {editMenuOpen && (
+        <MarketEditMenu
+          pos={editMenuPos}
+          onAdd={openAddPanel}
+          onRemove={startRemoveMode}
+          onClose={() => setEditMenuOpen(false)}
+        />
+      )}
+      {marketEditMode === "add" && (
+        <MarketAddPanel
+          pos={addPanelPos}
+          availableMarkets={availableMarkets}
+          onAdd={handleAddMarket}
+          onUndoAdd={handleUndoAddMarket}
+          onClose={exitEditMode}
+        />
+      )}
 
     </div>
   );

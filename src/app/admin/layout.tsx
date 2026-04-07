@@ -36,6 +36,23 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isFbManagement = pathname.startsWith("/admin/fbmanagement");
   const isFbNeu = pathname === "/admin/fbmanagement/neu";
   const isPraemien = pathname.startsWith("/admin/praemien");
+  const isMaerkte = pathname.startsWith("/admin/maerkte");
+  const isGebietsmanager = pathname.startsWith("/admin/gebietsmanager");
+  const isZeiterfassung = pathname.startsWith("/admin/zeiterfassung");
+
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const importTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const count = (e as CustomEvent).detail?.count as number;
+      if (importTimerRef.current) clearTimeout(importTimerRef.current);
+      setImportNotice(`${count} Märkte importiert`);
+      importTimerRef.current = setTimeout(() => setImportNotice(null), 5000);
+    };
+    window.addEventListener("maerkte:imported", handler);
+    return () => { window.removeEventListener("maerkte:imported", handler); if (importTimerRef.current) clearTimeout(importTimerRef.current); };
+  }, []);
 
   // ── Fragebogen-side state ──────────────────────────────────
   const [moduleEditorOpen, setModuleEditorOpen] = useState(false);
@@ -454,7 +471,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     },
   };
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : "Standardbesuch";
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : "Standardbesuch";
   const pageSubtitle = isMhd
     ? "MHD-Module und Fragebogen verwalten."
     : isKuehler
@@ -464,6 +481,12 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : isBilla
     ? "Billa-Besuchsfragebögen verwalten."
     : isPraemien
+    ? ""
+    : isMaerkte
+    ? ""
+    : isGebietsmanager
+    ? ""
+    : isZeiterfassung
     ? ""
     : isFbManagement
     ? ""
@@ -477,11 +500,20 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       <div style={{ display: "flex", minHeight: "100vh", backgroundColor: "#f5f5f7" }}>
         <AdminSidenav />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <header style={{ height: 80, backgroundColor: "#ffffff", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", flexShrink: 0 }}>
+          <header style={{ height: 80, backgroundColor: "#ffffff", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", flexShrink: 0, position: "relative" }}>
             <div>
               <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", margin: 0 }}>{pageTitle}</h1>
               <p style={{ fontSize: 12, color: "#9ca3af", fontWeight: 400, margin: 0, marginTop: 4 }}>{pageSubtitle}</p>
             </div>
+
+            {/* Centered import notice */}
+            {importNotice && (
+              <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 20, background: "rgba(22,163,74,0.07)", border: "1px solid rgba(22,163,74,0.18)", animation: "noticeIn 0.2s ease both" }}>
+                <style>{`@keyframes noticeIn{from{opacity:0;transform:translateX(-50%) translateY(-4px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a", flexShrink: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#15803d", whiteSpace: "nowrap" }}>{importNotice}</span>
+              </div>
+            )}
 
             {/* Action buttons */}
             <div style={{ display: "flex", gap: 10 }}>
@@ -570,6 +602,26 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Neue Kampagne
                   </button>
                 </Link>
+              ) : isPraemien ? null : isZeiterfassung ? null : isMaerkte ? (
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent("maerkte:openImport"))}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                >
+                  <Plus size={12} strokeWidth={2} />
+                  Importieren
+                </button>
+              ) : isGebietsmanager ? (
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent("gebietsmanager:openCreate"))}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                >
+                  <Plus size={12} strokeWidth={2} />
+                  GM erstellen
+                </button>
               ) : (
                 <>
                   <button

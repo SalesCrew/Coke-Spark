@@ -243,6 +243,129 @@ function buildGmProgressSummary(
   };
 }
 
+// ── Leaderboard wave history ──────────────────────────────────
+
+interface GmWave {
+  waveId: string;
+  label: string;        // e.g. "Q1 2026"
+  year: number;
+  quarter: number;
+  status: "finished" | "in_progress";
+  rewardEur: number;
+  periodLabel: string;  // e.g. "01.01.2026 – 31.03.2026"
+}
+
+const MOCK_GM_WAVE_HISTORY: Record<string, GmWave[]> = {
+  gm1:  [
+    { waveId: "w1-q1-24", label: "Q1 2024", year: 2024, quarter: 1, status: "finished",     rewardEur: 550,  periodLabel: "01.01.2024 – 31.03.2024" },
+    { waveId: "w1-q2-24", label: "Q2 2024", year: 2024, quarter: 2, status: "finished",     rewardEur: 880,  periodLabel: "01.04.2024 – 30.06.2024" },
+    { waveId: "w1-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",     rewardEur: 880,  periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w1-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",     rewardEur: 1100, periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w1-q1-25", label: "Q1 2025", year: 2025, quarter: 1, status: "finished",     rewardEur: 880,  periodLabel: "01.01.2025 – 31.03.2025" },
+    { waveId: "w1-q2-25", label: "Q2 2025", year: 2025, quarter: 2, status: "finished",     rewardEur: 1100, periodLabel: "01.04.2025 – 30.06.2025" },
+    { waveId: "w1-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 550,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm2:  [
+    { waveId: "w2-q1-24", label: "Q1 2024", year: 2024, quarter: 1, status: "finished",     rewardEur: 0,    periodLabel: "01.01.2024 – 31.03.2024" },
+    { waveId: "w2-q2-24", label: "Q2 2024", year: 2024, quarter: 2, status: "finished",     rewardEur: 550,  periodLabel: "01.04.2024 – 30.06.2024" },
+    { waveId: "w2-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",     rewardEur: 550,  periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w2-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",     rewardEur: 880,  periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w2-q1-25", label: "Q1 2025", year: 2025, quarter: 1, status: "finished",     rewardEur: 880,  periodLabel: "01.01.2025 – 31.03.2025" },
+    { waveId: "w2-q2-25", label: "Q2 2025", year: 2025, quarter: 2, status: "finished",     rewardEur: 1100, periodLabel: "01.04.2025 – 30.06.2025" },
+    { waveId: "w2-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 880,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm3:  [
+    { waveId: "w3-q1-24", label: "Q1 2024", year: 2024, quarter: 1, status: "finished",     rewardEur: 880,  periodLabel: "01.01.2024 – 31.03.2024" },
+    { waveId: "w3-q2-24", label: "Q2 2024", year: 2024, quarter: 2, status: "finished",     rewardEur: 880,  periodLabel: "01.04.2024 – 30.06.2024" },
+    { waveId: "w3-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",     rewardEur: 1100, periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w3-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",     rewardEur: 1100, periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w3-q1-25", label: "Q1 2025", year: 2025, quarter: 1, status: "finished",     rewardEur: 1100, periodLabel: "01.01.2025 – 31.03.2025" },
+    { waveId: "w3-q2-25", label: "Q2 2025", year: 2025, quarter: 2, status: "finished",     rewardEur: 880,  periodLabel: "01.04.2025 – 30.06.2025" },
+    { waveId: "w3-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 880,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm4:  [
+    { waveId: "w4-q1-24", label: "Q1 2024", year: 2024, quarter: 1, status: "finished",     rewardEur: 550,  periodLabel: "01.01.2024 – 31.03.2024" },
+    { waveId: "w4-q2-24", label: "Q2 2024", year: 2024, quarter: 2, status: "finished",     rewardEur: 550,  periodLabel: "01.04.2024 – 30.06.2024" },
+    { waveId: "w4-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",     rewardEur: 880,  periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w4-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",     rewardEur: 880,  periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w4-q2-25", label: "Q2 2025", year: 2025, quarter: 2, status: "finished",     rewardEur: 550,  periodLabel: "01.04.2025 – 30.06.2025" },
+    { waveId: "w4-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 550,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm5:  [
+    { waveId: "w5-q1-24", label: "Q1 2024", year: 2024, quarter: 1, status: "finished",     rewardEur: 880,  periodLabel: "01.01.2024 – 31.03.2024" },
+    { waveId: "w5-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",     rewardEur: 1100, periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w5-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",     rewardEur: 1100, periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w5-q1-25", label: "Q1 2025", year: 2025, quarter: 1, status: "finished",     rewardEur: 880,  periodLabel: "01.01.2025 – 31.03.2025" },
+    { waveId: "w5-q2-25", label: "Q2 2025", year: 2025, quarter: 2, status: "finished",     rewardEur: 1100, periodLabel: "01.04.2025 – 30.06.2025" },
+    { waveId: "w5-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 550,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm6:  [
+    { waveId: "w6-q2-24", label: "Q2 2024", year: 2024, quarter: 2, status: "finished",     rewardEur: 550,  periodLabel: "01.04.2024 – 30.06.2024" },
+    { waveId: "w6-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",     rewardEur: 550,  periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w6-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",     rewardEur: 880,  periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w6-q1-25", label: "Q1 2025", year: 2025, quarter: 1, status: "finished",     rewardEur: 550,  periodLabel: "01.01.2025 – 31.03.2025" },
+    { waveId: "w6-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 880,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm7:  [
+    { waveId: "w7-q1-24", label: "Q1 2024", year: 2024, quarter: 1, status: "finished",     rewardEur: 550,  periodLabel: "01.01.2024 – 31.03.2024" },
+    { waveId: "w7-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",     rewardEur: 880,  periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w7-q1-25", label: "Q1 2025", year: 2025, quarter: 1, status: "finished",     rewardEur: 550,  periodLabel: "01.01.2025 – 31.03.2025" },
+    { waveId: "w7-q2-25", label: "Q2 2025", year: 2025, quarter: 2, status: "finished",     rewardEur: 880,  periodLabel: "01.04.2025 – 30.06.2025" },
+    { waveId: "w7-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 550,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm8:  [
+    { waveId: "w8-q1-24", label: "Q1 2024", year: 2024, quarter: 1, status: "finished",     rewardEur: 1100, periodLabel: "01.01.2024 – 31.03.2024" },
+    { waveId: "w8-q2-24", label: "Q2 2024", year: 2024, quarter: 2, status: "finished",     rewardEur: 880,  periodLabel: "01.04.2024 – 30.06.2024" },
+    { waveId: "w8-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",     rewardEur: 1100, periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w8-q1-25", label: "Q1 2025", year: 2025, quarter: 1, status: "finished",     rewardEur: 1100, periodLabel: "01.01.2025 – 31.03.2025" },
+    { waveId: "w8-q2-25", label: "Q2 2025", year: 2025, quarter: 2, status: "finished",     rewardEur: 880,  periodLabel: "01.04.2025 – 30.06.2025" },
+    { waveId: "w8-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 880,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm9:  [
+    { waveId: "w9-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",     rewardEur: 550,  periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w9-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",     rewardEur: 550,  periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w9-q1-25", label: "Q1 2025", year: 2025, quarter: 1, status: "finished",     rewardEur: 880,  periodLabel: "01.01.2025 – 31.03.2025" },
+    { waveId: "w9-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 550,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+  gm10: [
+    { waveId: "w10-q2-24", label: "Q2 2024", year: 2024, quarter: 2, status: "finished",    rewardEur: 880,  periodLabel: "01.04.2024 – 30.06.2024" },
+    { waveId: "w10-q3-24", label: "Q3 2024", year: 2024, quarter: 3, status: "finished",    rewardEur: 1100, periodLabel: "01.07.2024 – 30.09.2024" },
+    { waveId: "w10-q4-24", label: "Q4 2024", year: 2024, quarter: 4, status: "finished",    rewardEur: 1100, periodLabel: "01.10.2024 – 31.12.2024" },
+    { waveId: "w10-q2-25", label: "Q2 2025", year: 2025, quarter: 2, status: "finished",    rewardEur: 880,  periodLabel: "01.04.2025 – 30.06.2025" },
+    { waveId: "w10-q2-26", label: "Q2 2026", year: 2026, quarter: 2, status: "in_progress", rewardEur: 550,  periodLabel: "01.04.2026 – 30.06.2026" },
+  ],
+};
+
+interface LeaderboardEntry {
+  gmId: string;
+  gmName: string;
+  region: string;
+  cumulative: number;
+  waveCount: number;
+  bestWave: number;
+  latestReward: number;
+  waves: GmWave[]; // newest first
+}
+
+function buildLeaderboard(): LeaderboardEntry[] {
+  return ALL_GMS.map(gm => {
+    const waves = (MOCK_GM_WAVE_HISTORY[gm.id] ?? [])
+      .slice()
+      .sort((a, b) => b.year !== a.year ? b.year - a.year : b.quarter - a.quarter);
+    const cumulative = waves.reduce((n, w) => n + w.rewardEur, 0);
+    const bestWave   = waves.reduce((n, w) => Math.max(n, w.rewardEur), 0);
+    const latestReward = waves[0]?.rewardEur ?? 0;
+    return { gmId: gm.id, gmName: gm.name, region: gm.region, cumulative, waveCount: waves.length, bestWave, latestReward, waves };
+  }).sort((a, b) => b.cumulative - a.cumulative);
+}
+
+function calcWaveDelta(waves: GmWave[], index: number): number | null {
+  const current  = waves[index];
+  const previous = waves[index + 1];
+  if (!previous || previous.rewardEur === 0) return null;
+  return Math.round(((current.rewardEur - previous.rewardEur) / previous.rewardEur) * 100);
+}
+
 // ── Source normalizer ─────────────────────────────────────────
 
 interface BonusSource {
@@ -409,45 +532,70 @@ function QuarterSwitcher({
   onSelect: (id: string) => void;
   onNew: () => void;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      {quarters.map(q => {
-        const active = q.id === activeId;
-        return (
-          <button
-            key={q.id}
-            onClick={() => onSelect(q.id)}
-            style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "6px 14px",
-              borderRadius: 8, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600,
-              background: active ? `linear-gradient(to bottom, ${R}, ${RD})` : "linear-gradient(to bottom, #ffffff, #f5f5f5)",
-              color: active ? "#fff" : "rgba(0,0,0,0.55)",
-              boxShadow: active
-                ? `inset 0 1px 0.6px rgba(255,255,255,0.33), 0 0 0 1px #a91b1b, 0 1px 5px rgba(180,20,20,0.14)`
-                : `inset 0 1px 0.6px rgba(255,255,255,0.9), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.05)`,
-              transition: "all 0.15s ease",
-            }}
-          >
-            <Trophy size={10} strokeWidth={2} />
-            Q{q.quarter} {q.year}
-            <span style={{
-              fontSize: 8, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase",
-              padding: "2px 6px", borderRadius: 20,
-              background: active ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.055)",
-              color: active ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.38)",
-              transition: "all 0.15s ease",
-            }}>
-              {q.status === "active" ? "Aktiv" : q.status === "archived" ? "Archiviert" : "Entwurf"}
-            </span>
-          </button>
-        );
-      })}
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+
+      {/* Scrollable quarter buttons — capped at ~5 visible, scrolls the rest */}
+      <div
+        ref={scrollRef}
+        className="map-scroll"
+        style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", overflowX: "auto", overflowY: "hidden", maxWidth: 720, padding: "4px 2px 4px 4px" }}
+      >
+        {quarters.map(q => {
+          const active = q.id === activeId;
+          return (
+            <button
+              key={q.id}
+              onClick={() => onSelect(q.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "6px 14px",
+                borderRadius: 8, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600,
+                flexShrink: 0, whiteSpace: "nowrap",
+                background: active ? `linear-gradient(to bottom, ${R}, ${RD})` : "linear-gradient(to bottom, #ffffff, #f5f5f5)",
+                color: active ? "#fff" : "rgba(0,0,0,0.55)",
+                boxShadow: active
+                  ? `inset 0 1px 0.6px rgba(255,255,255,0.33), 0 0 0 1px #a91b1b, 0 1px 5px rgba(180,20,20,0.14)`
+                  : `inset 0 1px 0.6px rgba(255,255,255,0.9), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.05)`,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Trophy size={10} strokeWidth={2} />
+              Q{q.quarter} {q.year}
+              <span style={{
+                fontSize: 8, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase",
+                padding: "2px 6px", borderRadius: 20,
+                background: active ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.055)",
+                color: active ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.38)",
+                transition: "all 0.15s ease",
+              }}>
+                {q.status === "active" ? "Aktiv" : q.status === "archived" ? "Archiviert" : "Entwurf"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Neues Quartal — always visible, outside the scroll container */}
       <button
         onClick={onNew}
         style={{
           display: "flex", alignItems: "center", gap: 5, padding: "6px 12px",
           borderRadius: 8, border: "1px dashed rgba(0,0,0,0.15)", cursor: "pointer",
           fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.4)", background: "transparent",
+          flexShrink: 0, whiteSpace: "nowrap",
           transition: "all 0.15s ease",
         }}
         onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = R; (e.currentTarget as HTMLButtonElement).style.color = R; }}
@@ -456,6 +604,7 @@ function QuarterSwitcher({
         <Plus size={10} strokeWidth={2.5} />
         Neues Quartal
       </button>
+
     </div>
   );
 }
@@ -528,9 +677,9 @@ function GMProgressOverviewPanel({
       {/* ── Middle: hero reward + pillar bars + side stats ── */}
       <div style={{ display: "flex", alignItems: "flex-end", gap: 0, marginBottom: 10 }}>
         {/* Hero reward */}
-        <div style={{ minWidth: 0, marginRight: 14 }}>
+          <div style={{ minWidth: 0, marginRight: 14 }}>
           <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.25)", marginBottom: 4 }}>Ø Prämie</div>
-          <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: "-0.045em", color: rc, fontVariantNumeric: "tabular-nums", lineHeight: 1, transition: "color 0.3s ease" }}>
+          <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: "-0.045em", fontVariantNumeric: "tabular-nums", lineHeight: 1, transition: "all 0.3s ease", ...(reward > 0 ? tierGradStyle(reward) : { color: "rgba(0,0,0,0.22)" }) }}>
             {reward > 0 ? `${reward}€` : "—"}
           </div>
         </div>
@@ -561,7 +710,7 @@ function GMProgressOverviewPanel({
         <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0, alignItems: "flex-end" }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.22)", marginBottom: 1 }}>Fortschritt</div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: pct >= 80 ? "#16a34a" : pct >= 50 ? "#D97706" : R, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", lineHeight: 1, transition: "color 0.3s ease" }}>{pct}%</div>
+            <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", lineHeight: 1, transition: "all 0.3s ease", ...(reward > 0 ? tierGradStyle(reward) : { color: R }) }}>{pct}%</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.22)", marginBottom: 1 }}>Fertig</div>
@@ -608,7 +757,8 @@ function QuarterHeaderCard({
   const set = (patch: Partial<PraemienQuarter>) => onChange({ ...quarter, ...patch });
 
   return (
-    <Card>
+    <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, padding: 10 }}>
+      <div style={{ background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)" }}>
       <div style={{ padding: "18px 20px", display: "flex", alignItems: "stretch", gap: 0 }}>
         {/* Left content column */}
         <div style={{ width: "39%", flexShrink: 0, paddingRight: 20 }}>
@@ -689,7 +839,8 @@ function QuarterHeaderCard({
           onOpenDetail={onOpenGmDetail}
         />
       </div>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -718,15 +869,18 @@ function OverviewStrip({
   ];
 
   return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-      {stats.map(s => (
+    <div style={{ display: "flex", gap: 8, background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 12, padding: 7 }}>
+      {stats.map((s, i) => (
         <div key={s.label} style={{
-          flex: "1 1 100px", backgroundColor: "#fff", borderRadius: 11,
-          border: "1px solid rgba(0,0,0,0.06)", padding: "12px 14px",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+          flex: 1, minWidth: 0,
+          background: "#fff", borderRadius: 8,
+          border: "1px solid rgba(0,0,0,0.055)",
+          padding: "10px 12px",
+          display: "flex", flexDirection: "column", gap: 4,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
         }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.28)", marginBottom: 6 }}>{s.label}</div>
-          <div style={{ fontSize: 19, fontWeight: 800, color: s.color, letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+          <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(0,0,0,0.25)", whiteSpace: "nowrap" }}>{s.label}</span>
+          <span style={{ fontSize: 17, fontWeight: 800, color: s.color, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{s.value}</span>
         </div>
       ))}
     </div>
@@ -769,9 +923,9 @@ function ThresholdDesignerCard({
   };
 
   return (
-    <Card>
-      {/* Header */}
-      <div style={{ padding: "13px 18px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <Card style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", overflow: "hidden" }}>
+      {/* Grey header area */}
+      <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>Schwellwerte & Prämien</span>
         {totalAchievable > 0 && (
           <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)" }}>
@@ -779,6 +933,9 @@ function ThresholdDesignerCard({
           </span>
         )}
       </div>
+
+      {/* White inner card with side/bottom margins */}
+      <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
 
       {/* ── Visual threshold track ── */}
       {sorted.length >= 2 && (
@@ -790,9 +947,23 @@ function ThresholdDesignerCard({
               const isVoller = t.label === "Voller Bonus";
               const isHov = hoveredRowId === t.id;
               const hasReward = t.rewardEur > 0;
-              const nodeBg     = isFirst ? "rgba(0,0,0,0.035)" : isVoller ? (isHov ? "rgba(220,38,38,0.22)" : "rgba(220,38,38,0.12)") : (isHov ? "rgba(220,38,38,0.16)" : "rgba(220,38,38,0.08)");
-              const nodeBorder = isFirst ? "rgba(0,0,0,0.2)" : R;
-              const nodeText   = isFirst ? "rgba(0,0,0,0.3)" : R;
+
+              // Per-tier color palette for circle elements
+              const CIRC: Record<string, { base: string; bg: string; bgHov: string; text: string; glow: string; label: string }> = {
+                bronze: { base: "#BD965D", bg: "rgba(189,150,93,0.10)", bgHov: "rgba(189,150,93,0.20)", text: "#7C5A2A", glow: "0 0 0 3px rgba(189,150,93,0.22), 0 0 20px 8px rgba(189,150,93,0.18)", label: "#99774A" },
+                silver: { base: "#9CA3AF", bg: "rgba(156,163,175,0.10)", bgHov: "rgba(156,163,175,0.20)", text: "#6B7280", glow: "0 0 0 3px rgba(156,163,175,0.28), 0 0 20px 8px rgba(156,163,175,0.20)", label: "#6B7280" },
+                gold:   { base: "#EFB54E", bg: "rgba(239,181,78,0.12)",  bgHov: "rgba(239,181,78,0.22)", text: "#92400E", glow: "0 0 0 3px rgba(239,181,78,0.28), 0 0 20px 8px rgba(239,181,78,0.22)", label: "#D97706" },
+              };
+              const palKey = t.rewardEur >= 1100 ? "gold" : t.rewardEur >= 880 ? "silver" : "bronze";
+              const pal = isFirst ? null : CIRC[palKey];
+
+              const nodeBg     = isFirst ? "rgba(0,0,0,0.035)" : pal ? (isHov || isVoller ? pal.bgHov : pal.bg) : "rgba(0,0,0,0.035)";
+              const nodeBorder = isFirst ? "rgba(0,0,0,0.2)"   : pal?.base ?? R;
+              const nodeText   = isFirst ? "rgba(0,0,0,0.3)"   : pal?.text ?? R;
+              const nodeGlow   = !isFirst && (isHov || (isVoller && hoveredRowId === null))
+                ? (pal?.glow ?? `0 0 0 3px rgba(220,38,38,0.18), 0 0 20px 8px rgba(220,38,38,0.22)`)
+                : "none";
+              const labelColor = isFirst ? "rgba(0,0,0,0.3)" : isVoller ? (pal?.label ?? R) : "rgba(0,0,0,0.45)";
 
               return (
                 <div key={t.id} style={{ display: "flex", alignItems: "center", flex: isLast ? "0 0 auto" : 1, minWidth: 0 }}>
@@ -801,21 +972,30 @@ function ThresholdDesignerCard({
                     onMouseLeave={() => setHoveredRowId(null)}
                     style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7, flexShrink: 0, width: 52 }}
                   >
-                    <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums", color: hasReward ? "#16a34a" : "rgba(0,0,0,0.18)", minHeight: 16, transition: "color 0.15s ease" }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums", minHeight: 16, transition: "all 0.15s ease", ...(hasReward ? tierGradStyle(t.rewardEur) : { color: "rgba(0,0,0,0.18)" }) }}>
                       {hasReward ? `${t.rewardEur}€` : "–"}
                     </span>
-                    <div style={{ width: isVoller ? 34 : 30, height: isVoller ? 34 : 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: nodeBg, border: `${isVoller ? 2.5 : 2}px solid ${nodeBorder}`, boxShadow: isHov && !isFirst ? `0 0 0 3px rgba(220,38,38,0.18), 0 0 20px 8px rgba(220,38,38,0.22)` : (isVoller && hoveredRowId === null ? `0 0 0 3px rgba(220,38,38,0.18), 0 0 20px 8px rgba(220,38,38,0.22)` : "none"), transition: "all 0.18s ease", flexShrink: 0 }}>
+                    <div style={{ width: isVoller ? 34 : 30, height: isVoller ? 34 : 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: nodeBg, border: `${isVoller ? 2.5 : 2}px solid ${nodeBorder}`, boxShadow: nodeGlow, transition: "all 0.18s ease", flexShrink: 0 }}>
                       <span style={{ fontSize: t.minPoints > 999 ? 7 : t.minPoints > 99 ? 8 : 9, fontWeight: 800, color: nodeText, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>
                         {t.minPoints}
                       </span>
                     </div>
-                    <span style={{ fontSize: 9, fontWeight: isVoller ? 700 : 600, color: isVoller ? R : isFirst ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.45)", textAlign: "center", maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.01em" }}>
+                    <span style={{ fontSize: 9, fontWeight: isVoller ? 700 : 600, color: labelColor, textAlign: "center", maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.01em" }}>
                       {t.label}
                     </span>
                   </div>
-                  {!isLast && (
-                    <div style={{ flex: 1, height: 2, background: `linear-gradient(to right, rgba(220,38,38,0.25), rgba(220,38,38,0.45))`, borderRadius: 1, marginTop: 2, marginLeft: 3, marginRight: 3 }} />
-                  )}
+                  {!isLast && (() => {
+                    const connBase = (rewardEur: number, firstNode: boolean) =>
+                      firstNode ? "rgba(0,0,0,0.18)"
+                        : rewardEur >= 1100 ? "rgba(239,181,78,0.65)"
+                        : rewardEur >= 880  ? "rgba(156,163,175,0.65)"
+                        :                     "rgba(189,150,93,0.65)";
+                    const from = connBase(t.rewardEur, isFirst);
+                    const to   = connBase(sorted[i + 1].rewardEur, false);
+                    return (
+                      <div style={{ flex: 1, height: 2, background: `linear-gradient(to right, ${from}, ${to})`, borderRadius: 1, marginTop: 2, marginLeft: 3, marginRight: 3 }} />
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -917,6 +1097,8 @@ function ThresholdDesignerCard({
             );
           })}
         </div>
+      </div>
+      {/* end white inner card */}
       </div>
     </Card>
   );
@@ -1742,15 +1924,15 @@ function BonusSourceExplorer({
   }
 
   return (
-    <Card>
-      <CardHeader
-        label={`Bonus-Quellen (${filtered.length} / ${sources.length})`}
-        right={
-          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>
-            Aus Fragebögen · Boni-Werte
-          </span>
-        }
-      />
+    <Card style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", overflow: "hidden" }}>
+      {/* Grey header area */}
+      <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>Bonus-Quellen ({filtered.length} / {sources.length})</span>
+        <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Aus Fragebögen · Boni-Werte</span>
+      </div>
+
+      {/* White inner card */}
+      <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
 
       {/* Filters */}
       <div style={{ padding: "10px 18px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -1843,6 +2025,8 @@ function BonusSourceExplorer({
             })}
           </div>
         ))}
+      </div>
+      {/* end white inner card */}
       </div>
     </Card>
   );
@@ -1992,7 +2176,7 @@ function GMProgressModal({
                     </div>
                     {/* Right meta */}
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: rewardCol, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{row.currentRewardEur > 0 ? `${row.currentRewardEur}€` : "—"}</div>
+                      <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums", ...(row.currentRewardEur > 0 ? tierGradStyle(row.currentRewardEur) : { color: "rgba(0,0,0,0.3)" }) }}>{row.currentRewardEur > 0 ? `${row.currentRewardEur}€` : "—"}</div>
                       <div style={{ fontSize: 8, color: "rgba(0,0,0,0.3)", fontWeight: 500, marginTop: 1 }}>{row.progressPercent}%</div>
                     </div>
                   </div>
@@ -2026,10 +2210,10 @@ function GMProgressModal({
                   </div>
                   {/* Reward hero */}
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "-0.04em", color: tierColor(selected.currentRewardEur), fontVariantNumeric: "tabular-nums" }}>
+                    <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums", ...(selected.currentRewardEur > 0 ? tierGradStyle(selected.currentRewardEur) : { color: "rgba(0,0,0,0.28)" }) }}>
                       {selected.currentRewardEur > 0 ? `${selected.currentRewardEur}€` : "—"}
                     </div>
-                    <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginTop: 1 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginTop: 1, ...(selected.currentRewardEur > 0 ? tierGradStyle(selected.currentRewardEur) : { color: "rgba(0,0,0,0.28)" }) }}>
                       {selected.currentRewardLabel}
                     </div>
                   </div>
@@ -2047,27 +2231,42 @@ function GMProgressModal({
                         const isActive = selected.currentRewardEur === t.rewardEur;
                         const reached  = selected.currentPoints >= t.minPoints;
                         const isLast   = i === sorted.length - 1;
-                        const nc = reached
-                          ? (isActive ? { bg: tierColor(t.rewardEur) + "20", border: tierColor(t.rewardEur), text: tierColor(t.rewardEur) }
-                            : { bg: "rgba(0,0,0,0.04)", border: "rgba(0,0,0,0.2)", text: "rgba(0,0,0,0.4)" })
-                          : { bg: "rgba(0,0,0,0.03)", border: "rgba(0,0,0,0.12)", text: "rgba(0,0,0,0.25)" };
+
+                        // Tier circle palette (same as ThresholdDesignerCard)
+                        const CIRC: Record<string, { base: string; bgActive: string; text: string; glow: string }> = {
+                          bronze: { base: "#BD965D", bgActive: "rgba(189,150,93,0.15)", text: "#7C5A2A", glow: "0 0 0 3px rgba(189,150,93,0.22), 0 0 16px 6px rgba(189,150,93,0.18)" },
+                          silver: { base: "#9CA3AF", bgActive: "rgba(156,163,175,0.15)", text: "#6B7280", glow: "0 0 0 3px rgba(156,163,175,0.28), 0 0 16px 6px rgba(156,163,175,0.20)" },
+                          gold:   { base: "#EFB54E", bgActive: "rgba(239,181,78,0.18)",  text: "#92400E", glow: "0 0 0 3px rgba(239,181,78,0.28), 0 0 16px 6px rgba(239,181,78,0.22)" },
+                        };
+                        const palKey = t.rewardEur >= 1100 ? "gold" : t.rewardEur >= 880 ? "silver" : t.rewardEur >= 550 ? "bronze" : null;
+                        const pal = palKey ? CIRC[palKey] : null;
+
+                        const nc = t.rewardEur === 0
+                          ? { bg: "rgba(0,0,0,0.035)", border: "rgba(0,0,0,0.2)", text: "rgba(0,0,0,0.3)" }
+                          : reached
+                            ? (isActive
+                              ? { bg: pal?.bgActive ?? "rgba(0,0,0,0.05)", border: pal?.base ?? "rgba(0,0,0,0.2)", text: pal?.text ?? "rgba(0,0,0,0.4)" }
+                              : { bg: "rgba(0,0,0,0.04)", border: pal?.base ?? "rgba(0,0,0,0.18)", text: pal?.text ?? "rgba(0,0,0,0.4)" })
+                            : { bg: "rgba(0,0,0,0.03)", border: "rgba(0,0,0,0.12)", text: "rgba(0,0,0,0.25)" };
+
                         return (
                           <div key={t.id} style={{ display: "flex", alignItems: "center", flex: isLast ? "0 0 auto" : 1 }}>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, flexShrink: 0, width: 52 }}>
-                              <span style={{ fontSize: 10, fontWeight: 800, color: reached && t.rewardEur > 0 ? tierColor(t.rewardEur) : "rgba(0,0,0,0.2)", fontVariantNumeric: "tabular-nums" }}>
+                              <span style={{ fontSize: 10, fontWeight: 800, fontVariantNumeric: "tabular-nums", ...(reached && t.rewardEur > 0 ? tierGradStyle(t.rewardEur) : { color: "rgba(0,0,0,0.2)" }) }}>
                                 {t.rewardEur > 0 ? `${t.rewardEur}€` : "—"}
                               </span>
-                              <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: nc.bg, border: `2px solid ${nc.border}`, boxShadow: isActive ? `0 0 0 3px ${tierColor(t.rewardEur)}25, 0 0 16px 6px ${tierColor(t.rewardEur)}28` : "none", transition: "all 0.2s ease" }}>
+                              <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: nc.bg, border: `2px solid ${nc.border}`, boxShadow: isActive && pal ? pal.glow : "none", transition: "all 0.2s ease" }}>
                                 <span style={{ fontSize: t.minPoints > 99 ? 7 : 8, fontWeight: 800, color: nc.text, fontVariantNumeric: "tabular-nums" }}>{t.minPoints}</span>
                               </div>
-                              <span style={{ fontSize: 8, fontWeight: 600, color: reached ? tierColor(t.rewardEur) : "rgba(0,0,0,0.28)", whiteSpace: "nowrap", maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", textAlign: "center" }}>{t.label}</span>
+                              <span style={{ fontSize: 8, fontWeight: 600, whiteSpace: "nowrap", maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", textAlign: "center", ...(reached && t.rewardEur > 0 ? tierGradStyle(t.rewardEur) : { color: "rgba(0,0,0,0.28)" }) }}>{t.label}</span>
                             </div>
                             {!isLast && (() => {
                               const from = t.minPoints;
                               const to   = sorted[i + 1]?.minPoints ?? from;
                               const pts  = selected.currentPoints;
                               const fillPct = pts <= from ? 0 : pts >= to ? 100 : Math.round(((pts - from) / (to - from)) * 100);
-                              const lineColor = tierColor(sorted[i + 1]?.rewardEur ?? 0);
+                              const nextPalKey = (sorted[i+1]?.rewardEur ?? 0) >= 1100 ? "gold" : (sorted[i+1]?.rewardEur ?? 0) >= 880 ? "silver" : (sorted[i+1]?.rewardEur ?? 0) >= 550 ? "bronze" : null;
+                              const lineColor = nextPalKey ? CIRC[nextPalKey].base : "rgba(0,0,0,0.18)";
                               return (
                                 <div style={{ flex: 1, height: 2, borderRadius: 1, background: "rgba(0,0,0,0.06)", marginTop: 1, marginLeft: 2, marginRight: 2, position: "relative", overflow: "hidden" }}>
                                   <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${fillPct}%`, background: lineColor, borderRadius: 1, transition: "width 0.35s ease" }} />
@@ -2088,7 +2287,7 @@ function GMProgressModal({
                           <TrendingUp size={12} strokeWidth={2} color="rgba(0,0,0,0.3)" style={{ flexShrink: 0 }} />
                           <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", lineHeight: 1.5 }}>
                             Noch <strong style={{ color: "#1a1a1a" }}>{missing.toFixed(1)} P</strong> bis zur nächsten Stufe
-                            {next.rewardEur > 0 && <> (<strong style={{ color: tierColor(next.rewardEur) }}>{next.rewardEur}€</strong>)</>}
+                            {next.rewardEur > 0 && <> (<strong style={{ fontVariantNumeric: "tabular-nums", ...tierGradStyle(next.rewardEur) }}>{next.rewardEur}€</strong>)</>}
                           </span>
                         </div>
                       );
@@ -2157,6 +2356,384 @@ function GMProgressModal({
   );
 }
 
+// ── Leaderboard modal ─────────────────────────────────────────
+
+// ── Tier gradient styles ──────────────────────────────────────
+
+const GOLD_GRAD: React.CSSProperties = {
+  background: "linear-gradient(135deg, #EFB54E 0%, #FFED96 22%, #FCD94C 54%, #F9F793 80%, #EFB94D 100%)",
+  WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+};
+const SILVER_GRAD: React.CSSProperties = {
+  background: "linear-gradient(135deg, #DEDFE1 0%, #BCBDC1 26%, #ECEEED 64%, #B6BCBC 100%)",
+  WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+};
+const BRONZE_GRAD: React.CSSProperties = {
+  background: "linear-gradient(135deg, #BD965D 0%, #99774A 26%, #DEBF93 64%, #AC9071 100%)",
+  WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+};
+const CUMULATIVE_GREEN = "#15803d";
+
+function tierGradStyle(eur: number): React.CSSProperties {
+  if (eur >= 1100) return GOLD_GRAD;
+  if (eur >= 880)  return SILVER_GRAD;
+  if (eur >= 550)  return BRONZE_GRAD;
+  return { color: "rgba(0,0,0,0.28)" };
+}
+
+// ── Leaderboard mini wave chart ───────────────────────────────
+
+function LeaderboardMiniWaveChart({ waves }: { waves: GmWave[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const sorted = [...waves].sort((a, b) => a.year !== b.year ? a.year - b.year : a.quarter - b.quarter);
+
+  if (sorted.length === 0) {
+    return (
+      <div style={{ marginTop: 12, height: 56, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 11, color: "rgba(0,0,0,0.28)" }}>Keine Daten verfügbar</span>
+      </div>
+    );
+  }
+
+  const VW = 600, VH = 64;
+  const PAD_L = 10, PAD_R = 54, PAD_T = 12, PAD_B = 16;
+  const chartW = VW - PAD_L - PAD_R;
+  const chartH = VH - PAD_T - PAD_B;
+  const values = sorted.map(w => w.rewardEur);
+  const maxVal = Math.max(...values, 1);
+  const minVal = Math.min(...values);
+  const avgVal = values.reduce((s, v) => s + v, 0) / values.length;
+  const cx = (i: number) => PAD_L + (sorted.length === 1 ? chartW / 2 : i * (chartW / (sorted.length - 1)));
+  const cy = (v: number) => PAD_T + (1 - v / maxVal) * chartH;
+  const avgY = cy(avgVal);
+  const maxIdx = values.indexOf(maxVal);
+  const minIdx = values.lastIndexOf(minVal);
+  const isMultiPoint = sorted.length > 1;
+
+  // Always green for peak, always red for low
+  const peakColor = "#16a34a";
+  const lowColor  = "#DC2626";
+
+  // Closed area path used twice with clip paths (above avg = green, below avg = red)
+  const linePts = sorted.map((_, i) => `${cx(i)},${cy(values[i])}`).join(" L ");
+  const areaPath = `M ${cx(0)},${avgY} L ${linePts} L ${cx(sorted.length - 1)},${avgY} Z`;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" height={56} style={{ overflow: "visible", display: "block" }}>
+        <defs>
+          {/* Clip above avgY → green zone */}
+          <clipPath id="lbchart-above">
+            <rect x={PAD_L - 2} y={0} width={chartW + 4} height={avgY} />
+          </clipPath>
+          {/* Clip below avgY → red zone */}
+          <clipPath id="lbchart-below">
+            <rect x={PAD_L - 2} y={avgY} width={chartW + 4} height={VH - avgY} />
+          </clipPath>
+        </defs>
+
+        {/* Green fill: line above avg */}
+        <path d={areaPath} fill="rgba(22,163,74,0.10)" clipPath="url(#lbchart-above)" />
+        {/* Red fill: line below avg */}
+        <path d={areaPath} fill="rgba(220,38,38,0.08)" clipPath="url(#lbchart-below)" />
+
+        {/* Average dotted guide */}
+        <line x1={PAD_L} y1={avgY} x2={VW - PAD_R} y2={avgY}
+          stroke="rgba(0,0,0,0.22)" strokeWidth="1" strokeDasharray="2.5 3.5" />
+        {/* Avg label */}
+        <text x={VW - PAD_R + 6} y={avgY + 4}
+          fontSize="9.5" fontWeight="700" fill="rgba(0,0,0,0.48)" fontFamily="inherit">
+          Ø {Math.round(avgVal)}€
+        </text>
+
+        {/* Main line */}
+        <polyline points={sorted.map((_, i) => `${cx(i)},${cy(values[i])}`).join(" ")}
+          stroke="rgba(0,0,0,0.3)" strokeWidth="1.8" fill="none"
+          strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* Data points */}
+        {sorted.map((w, i) => {
+          const isPeak = i === maxIdx;
+          const isLow  = isMultiPoint && i === minIdx;
+          const isHov  = hoveredIdx === i;
+          const x = cx(i), y = cy(values[i]);
+          const dotColor = isPeak ? peakColor : isLow ? lowColor : "rgba(0,0,0,0.28)";
+          const dotFill  = isPeak ? peakColor : isLow ? lowColor : "#fff";
+          const dotR     = isPeak || isLow ? 4.2 : 2.6;
+          return (
+            <g key={w.waveId}>
+              {/* Soft outer glow for peak / low */}
+              {(isPeak || isLow) && <circle cx={x} cy={y} r={8} fill={dotColor} fillOpacity={0.12} />}
+
+              {/* Main dot */}
+              <circle cx={x} cy={y}
+                r={dotR}
+                fill={dotFill}
+                stroke={dotColor}
+                strokeWidth={(isPeak || isLow) ? 0 : 1.4} />
+
+              {/* Static peak label — hidden while this dot is hovered */}
+              {isPeak && !isHov && (
+                <text x={x} y={y - 9}
+                  fontSize="7.5" fontWeight="800" fill={peakColor} textAnchor="middle" fontFamily="inherit">
+                  {w.rewardEur.toLocaleString("de-AT")}€
+                </text>
+              )}
+
+              {/* Hover tooltip: quarter label on top, value below it, both above the dot */}
+              {isHov && (
+                <>
+                  <text x={x} y={y - 20}
+                    fontSize="7" fontWeight="600" fill="rgba(0,0,0,0.4)" textAnchor="middle" fontFamily="inherit">
+                    {w.label}
+                  </text>
+                  <text x={x} y={y - 10}
+                    fontSize="8.5" fontWeight="800" fill="#1a1a1a" textAnchor="middle" fontFamily="inherit">
+                    {w.rewardEur.toLocaleString("de-AT")}€
+                  </text>
+                </>
+              )}
+
+              {/* Transparent hit area */}
+              <circle cx={x} cy={y} r={12}
+                fill="transparent"
+                style={{ cursor: "default" }}
+                onMouseEnter={() => setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)} />
+            </g>
+          );
+        })}
+
+        {/* X-axis labels: first + last only */}
+        {sorted.length > 0 && (
+          <>
+            <text x={cx(0)} y={VH}
+              fontSize="7" fontWeight="600" fill="rgba(0,0,0,0.28)" textAnchor="middle" fontFamily="inherit">
+              {sorted[0].label}
+            </text>
+            {sorted.length > 1 && (
+              <text x={cx(sorted.length - 1)} y={VH}
+                fontSize="7" fontWeight="600" fill="rgba(0,0,0,0.28)" textAnchor="middle" fontFamily="inherit">
+                {sorted[sorted.length - 1].label}
+              </text>
+            )}
+          </>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+function DeltaText({ pct }: { pct: number | null }) {
+  if (pct === null) return <span style={{ fontSize: 10, color: "rgba(0,0,0,0.25)", fontWeight: 500 }}>—</span>;
+  const pos = pct >= 0;
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, color: pos ? "#16a34a" : R, letterSpacing: "-0.01em", fontVariantNumeric: "tabular-nums" }}>
+      {pos ? "+" : ""}{pct}%
+    </span>
+  );
+}
+
+function PraemienLeaderboardModal({ onClose }: { onClose: () => void }) {
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string>(ALL_GMS[0].id);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const leaderboard = buildLeaderboard();
+  const filtered = leaderboard.filter(e => {
+    const q = search.toLowerCase().trim();
+    return !q || e.gmName.toLowerCase().includes(q);
+  });
+  const selected = leaderboard.find(e => e.gmId === selectedId) ?? leaderboard[0];
+
+  const totalAllGms = leaderboard.reduce((n, e) => n + e.cumulative, 0);
+
+  if (!mounted || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.22)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}
+    >
+      <style>{`
+        @keyframes lbIn { from { opacity:0; transform:scale(0.97) translateY(8px) } to { opacity:1; transform:scale(1) translateY(0) } }
+        .lb-scroll::-webkit-scrollbar { width: 3px; }
+        .lb-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 99px; }
+      `}</style>
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 860, height: "min(680px, 92vh)", background: "#fff", borderRadius: 18, boxShadow: "0 24px 60px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", overflow: "hidden", animation: "lbIn 0.22s cubic-bezier(0.4,0,0.2,1) both" }}
+      >
+        {/* Modal header */}
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: "rgba(220,38,38,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Trophy size={15} strokeWidth={1.8} color={R} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>Leaderboard</div>
+            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>
+              Kumulierte Prämien · alle Wellen · {leaderboard.length} GMs · Gesamt: {totalAllGms.toLocaleString("de-AT")}€
+            </div>
+          </div>
+          <button onClick={onClose}
+            style={{ width: 28, height: 28, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.45)", transition: "background 0.12s ease", flexShrink: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,0,0,0.09)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
+          >
+            <X size={13} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+
+          {/* ── Left: ranking list ── */}
+          <div style={{ width: 270, borderRight: "1px solid rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+            {/* Search */}
+            <div style={{ padding: "10px 12px", borderBottom: "1px solid rgba(0,0,0,0.05)", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 9px", height: 30, borderRadius: 7, background: "rgba(0,0,0,0.04)", border: "1px solid transparent", transition: "border 0.15s" }}
+                onFocusCapture={e => { (e.currentTarget as HTMLElement).style.border = "1px solid rgba(0,0,0,0.14)"; (e.currentTarget as HTMLElement).style.background = "#fff"; }}
+                onBlurCapture={e => { (e.currentTarget as HTMLElement).style.border = "1px solid transparent"; (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.04)"; }}
+              >
+                <Search size={11} strokeWidth={2} color="rgba(0,0,0,0.3)" />
+                <input type="text" placeholder="GM suchen…" value={search} onChange={e => setSearch(e.target.value)}
+                  style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, color: "#1a1a1a" }} />
+                {search && <button onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center" }}><X size={10} strokeWidth={2} /></button>}
+              </div>
+            </div>
+            {/* Ranking rows */}
+            <div className="lb-scroll" style={{ flex: 1, overflowY: "auto" }}>
+              {filtered.map((entry, idx) => {
+                const rank = leaderboard.indexOf(entry) + 1;
+                const active = entry.gmId === selectedId;
+                const rankColor = rank === 1 ? "#D97706" : rank === 2 ? "rgba(0,0,0,0.45)" : rank === 3 ? "#92400e" : "rgba(0,0,0,0.28)";
+                return (
+                  <div key={entry.gmId} onClick={() => setSelectedId(entry.gmId)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.04)", cursor: "pointer", background: active ? "rgba(220,38,38,0.04)" : "transparent", borderLeft: `3px solid ${active ? R : "transparent"}`, transition: "all 0.12s ease" }}
+                    onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.02)"; }}
+                    onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                  >
+                    {/* Rank */}
+                    <div style={{ width: 20, flexShrink: 0, textAlign: "center" }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: rankColor, fontVariantNumeric: "tabular-nums" }}>{rank}</span>
+                    </div>
+                    {/* Avatar */}
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, background: "rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "rgba(0,0,0,0.4)" }}>
+                      {entry.gmName.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                    </div>
+                    {/* Name + region */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: active ? R : "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{entry.gmName}</div>
+                      <div style={{ fontSize: 8, color: "rgba(0,0,0,0.35)", fontWeight: 500, marginTop: 1 }}>{entry.region} · {entry.waveCount} Wellen</div>
+                    </div>
+                    {/* Cumulative */}
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: CUMULATIVE_GREEN, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{entry.cumulative.toLocaleString("de-AT")}€</div>
+                    </div>
+                  </div>
+                );
+              })}
+              {filtered.length === 0 && (
+                <div style={{ padding: "28px 0", textAlign: "center" }}>
+                  <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)" }}>Keine GMs gefunden</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Right: GM detail ── */}
+          {selected && (
+            <div className="lb-scroll" style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+              {/* Hero */}
+              <div style={{ padding: "18px 22px", borderBottom: "1px solid rgba(0,0,0,0.06)", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                  <div style={{ width: 46, height: 46, borderRadius: "50%", flexShrink: 0, background: "rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "rgba(0,0,0,0.4)", border: "2px solid rgba(0,0,0,0.1)" }}>
+                    {selected.gmName.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>{selected.gmName}</span>
+                      <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", background: "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 20 }}>{selected.region}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", fontWeight: 500 }}>
+                      {selected.waveCount} Prämien-Wellen · Bestes Quartal: {selected.bestWave.toLocaleString("de-AT")}€
+                    </div>
+                  </div>
+                  {/* Cumulative hero */}
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: "-0.04em", color: CUMULATIVE_GREEN, fontVariantNumeric: "tabular-nums" }}>{selected.cumulative.toLocaleString("de-AT")}€</div>
+                    <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginTop: 1 }}>Gesamt kumuliert</div>
+                  </div>
+                </div>
+
+                {/* Quarter progression mini chart */}
+                <LeaderboardMiniWaveChart waves={selected.waves} />
+              </div>
+
+              {/* Wave timeline */}
+              <div style={{ padding: "16px 22px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 4 }}>Prämienverlauf</div>
+                {selected.waves.map((wave, i) => {
+                  const isActive = wave.status === "in_progress";
+                  const delta = calcWaveDelta(selected.waves, i);
+                  const rewardGradStyle = tierGradStyle(wave.rewardEur);
+                  return (
+                    <div key={wave.waveId}
+                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 11, background: isActive ? "rgba(220,38,38,0.025)" : "rgba(0,0,0,0.018)", border: `1px solid ${isActive ? "rgba(220,38,38,0.12)" : "rgba(0,0,0,0.055)"}`, transition: "border 0.15s" }}
+                    >
+                      {/* Timeline dot */}
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: isActive ? R : "rgba(0,0,0,0.15)", boxShadow: isActive ? `0 0 0 3px rgba(220,38,38,0.12)` : "none" }} />
+
+                      {/* Wave label + period */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: isActive ? R : "#1a1a1a", letterSpacing: "-0.01em" }}>{wave.label}</span>
+                          {isActive && (
+                            <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: R, background: "rgba(220,38,38,0.09)", padding: "2px 7px", borderRadius: 20 }}>
+                              In Bearbeitung
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", fontWeight: 500, marginTop: 1 }}>{wave.periodLabel}</div>
+                      </div>
+
+                      {/* Delta vs previous */}
+                      <div style={{ textAlign: "right", flexShrink: 0, minWidth: 44 }}>
+                        {i < selected.waves.length - 1 && (
+                          <div style={{ marginBottom: 2 }}>
+                            <DeltaText pct={delta} />
+                          </div>
+                        )}
+                        {i < selected.waves.length - 1 && delta !== null && (
+                          <div style={{ fontSize: 8, color: "rgba(0,0,0,0.28)", fontWeight: 500, whiteSpace: "nowrap" }}>vs {selected.waves[i + 1].label}</div>
+                        )}
+                      </div>
+
+                      {/* Payout */}
+                      <div style={{ textAlign: "right", flexShrink: 0, minWidth: 58 }}>
+                        <div style={{ fontSize: 15, fontWeight: 900, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", ...rewardGradStyle }}>
+                          {wave.rewardEur > 0 ? `${wave.rewardEur.toLocaleString("de-AT")}€` : "—"}
+                        </div>
+                        {wave.rewardEur === 0 && <div style={{ fontSize: 8, color: "rgba(0,0,0,0.28)", fontWeight: 500 }}>Kein Bonus</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+                {selected.waves.length === 0 && (
+                  <div style={{ padding: "24px 0", textAlign: "center" }}>
+                    <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)" }}>Keine Wellen-Daten verfügbar</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // ── Validation rail ───────────────────────────────────────────
 
 interface ValidationIssue {
@@ -2202,9 +2779,15 @@ function ValidationRail({ quarter, sources }: { quarter: PraemienQuarter | null;
   const infos = issues.filter(i => i.severity === "info");
 
   return (
-    <Card style={{ marginBottom: 16 }}>
-      <CardHeader label={`Validierung${issues.length > 0 ? ` (${issues.length})` : ""}`} />
-      <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ marginBottom: 16, background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
+      {/* Grey header */}
+      <div style={{ padding: "13px 18px", display: "flex", alignItems: "center" }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>
+          {`Validierung${issues.length > 0 ? ` (${issues.length})` : ""}`}
+        </span>
+      </div>
+      {/* White inner card */}
+      <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
         {issues.length === 0 ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
             <CheckCircle2 size={14} strokeWidth={2} color="#16a34a" />
@@ -2224,7 +2807,7 @@ function ValidationRail({ quarter, sources }: { quarter: PraemienQuarter | null;
           );
         })}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -2243,12 +2826,15 @@ function GMPreviewCard({ quarter }: { quarter: PraemienQuarter | null }) {
   const tierColor = (eur: number) => eur === 0 ? R : eur <= 550 ? "#f97316" : eur <= 880 ? "#eab308" : "#16a34a";
 
   return (
-    <Card>
-      <CardHeader
-        label="GM-Ansicht Vorschau"
-        right={<span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Simuliert · 78% Erreichung</span>}
-      />
-      <div style={{ padding: "14px" }}>
+    <Card style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", overflow: "hidden" }}>
+      {/* Grey header area */}
+      <div style={{ padding: "13px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>GM-Ansicht Vorschau</span>
+        <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Simuliert · 78% Erreichung</span>
+      </div>
+
+      {/* White inner card with margins on sides and bottom */}
+      <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "14px" }}>
         {/* Quarter label */}
         <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.04em", marginBottom: 12 }}>
           Q{quarter.quarter} {quarter.year} · {fmtDate(quarter.startDate)} – {fmtDate(quarter.endDate)}
@@ -2261,8 +2847,8 @@ function GMPreviewCard({ quarter }: { quarter: PraemienQuarter | null }) {
             const color = pct >= 85 ? "#22c55e" : pct >= 70 ? "#f97316" : R;
             return (
               <div key={p.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, flex: 1 }}>
-                <div style={{ width: 40, height: 40, borderRadius: "50%", border: `2.5px solid ${color}`, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff" }}>
-                  <span style={{ fontSize: 9, fontWeight: 800, color }}>{pct}%</span>
+                <div style={{ width: 44, height: 44, borderRadius: "50%", border: `2.5px solid ${color}`, display: "flex", alignItems: "center", justifyContent: "center", background: `${color}10` }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color }}>{pct}%</span>
                 </div>
                 <span style={{ fontSize: 8, fontWeight: 600, color: "rgba(0,0,0,0.4)", textAlign: "center", maxWidth: 52, lineHeight: 1.3 }}>{p.name.slice(0, 14)}</span>
               </div>
@@ -2276,7 +2862,7 @@ function GMPreviewCard({ quarter }: { quarter: PraemienQuarter | null }) {
             <div>
               <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>Aktueller Bonus</div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontSize: 22, fontWeight: 900, letterSpacing: "-0.03em", color: tierColor(currentTier.rewardEur) }}>{currentTier.rewardEur}€</span>
+                <span style={{ fontSize: 22, fontWeight: 900, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", ...tierGradStyle(currentTier.rewardEur) }}>{currentTier.rewardEur}€</span>
                 <span style={{ fontSize: 10, color: "rgba(0,0,0,0.3)" }}>von {sorted[sorted.length - 1]?.rewardEur ?? 0}€</span>
               </div>
               <div style={{ fontSize: 9, fontWeight: 500, color: "rgba(0,0,0,0.4)", marginTop: 2 }}>Stufe: {currentTier.label}</div>
@@ -2303,7 +2889,7 @@ function GMPreviewCard({ quarter }: { quarter: PraemienQuarter | null }) {
           <div style={{ padding: "9px 12px", borderRadius: 9, background: `rgba(220,38,38,0.04)`, border: "1px solid rgba(220,38,38,0.1)", display: "flex", gap: 8 }}>
             <TrendingUp size={13} strokeWidth={2} color={tierColor(nextTier.rewardEur)} style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.5)", lineHeight: 1.5 }}>
-              Noch <span style={{ fontWeight: 700, color: "#1a1a1a" }}>{nextTier.minPoints - simulatedPts} Punkte</span> bis <span style={{ fontWeight: 700, color: tierColor(nextTier.rewardEur) }}>{nextTier.rewardEur}€</span> ({nextTier.label})
+              Noch <span style={{ fontWeight: 700, color: "#1a1a1a" }}>{nextTier.minPoints - simulatedPts} Punkte</span> bis <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", ...tierGradStyle(nextTier.rewardEur) }}>{nextTier.rewardEur}€</span> ({nextTier.label})
             </div>
           </div>
         )}
@@ -2350,6 +2936,7 @@ export default function PraemienPage() {
   const [activeQuarterId, setActiveQuarterId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [showGmProgress, setShowGmProgress] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [gmRegionFilter, setGmRegionFilter] = useState<RegionFilter>("Alle");
 
   // Load from localStorage on mount
@@ -2435,47 +3022,32 @@ export default function PraemienPage() {
           onSelect={setActiveQuarterId}
           onNew={createNewQuarter}
         />
-        {activeQuarter && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {/* GM progress launch */}
-            <button
-              onClick={() => setShowGmProgress(true)}
-              style={{
-                display: "flex", alignItems: "center", gap: 5, padding: "6px 12px",
-                fontSize: 11, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer",
-                background: `linear-gradient(to bottom, ${R}, ${RD})`,
-                color: "#fff",
-                boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 5px rgba(180,20,20,0.12)`,
-                transition: "opacity 0.15s ease",
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
-            >
-              <BarChart3 size={11} strokeWidth={2} />
-              GM Fortschritt
-            </button>
-            {/* Compact hint */}
-            <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.35)", whiteSpace: "nowrap" }}>
-              {buildGmProgressRows(activeQuarter).filter(r => r.isFinished).length} / {ALL_GMS.length} fertig
-            </span>
-            <GhostBtn onClick={() => {
-              const copy: PraemienQuarter = { ...activeQuarter, id: uid(), name: `Kopie von ${activeQuarter.name}`, status: "draft", createdAt: new Date().toISOString() };
-              setQuarters(prev => [copy, ...prev]);
-              setActiveQuarterId(copy.id);
-            }}>
-              <Copy size={11} strokeWidth={2} />
-              Duplizieren
-            </GhostBtn>
-            <GhostBtn danger onClick={() => {
-              const filtered = quarters.filter(q => q.id !== activeQuarterId);
-              setQuarters(filtered);
-              setActiveQuarterId(filtered[0]?.id ?? null);
-            }}>
-              <Trash2 size={11} strokeWidth={2} />
-              Löschen
-            </GhostBtn>
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <GhostBtn onClick={() => setShowLeaderboard(true)}>
+            <Trophy size={11} strokeWidth={2} />
+            Leaderboard
+          </GhostBtn>
+          {activeQuarter && (
+            <>
+              <GhostBtn onClick={() => {
+                const copy: PraemienQuarter = { ...activeQuarter, id: uid(), name: `Kopie von ${activeQuarter.name}`, status: "draft", createdAt: new Date().toISOString() };
+                setQuarters(prev => [copy, ...prev]);
+                setActiveQuarterId(copy.id);
+              }}>
+                <Copy size={11} strokeWidth={2} />
+                Duplizieren
+              </GhostBtn>
+              <GhostBtn danger onClick={() => {
+                const filtered = quarters.filter(q => q.id !== activeQuarterId);
+                setQuarters(filtered);
+                setActiveQuarterId(filtered[0]?.id ?? null);
+              }}>
+                <Trash2 size={11} strokeWidth={2} />
+                Löschen
+              </GhostBtn>
+            </>
+          )}
+        </div>
       </div>
 
       {!activeQuarter ? (
@@ -2504,16 +3076,16 @@ export default function PraemienPage() {
             <ThresholdDesignerCard quarter={activeQuarter} onChange={updateQuarter} />
 
             {/* Pillars grid */}
-            <Card>
-              <CardHeader
-                label={`4 Säulen · Boni-Gewichtung`}
-                right={
-                  <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>
-                    Punkte pro Antwort — Ziel: {activeQuarter.thresholds.find(t => t.label === "Voller Bonus")?.minPoints ?? 0} P
-                  </span>
-                }
-              />
-              <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
+              {/* Grey header */}
+              <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>4 Säulen · Boni-Gewichtung</span>
+                <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>
+                  Punkte pro Antwort — Ziel: {activeQuarter.thresholds.find(t => t.label === "Voller Bonus")?.minPoints ?? 0} P
+                </span>
+              </div>
+              {/* White inner card */}
+              <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
                 {activeQuarter.pillars.map((p, i) => (
                   i === 3 ? (
                     <QualityPillarCard
@@ -2540,7 +3112,8 @@ export default function PraemienPage() {
                   )
                 ))}
               </div>
-            </Card>
+              {/* end white inner card */}
+            </div>
 
             <BonusSourceExplorer
               sources={bonusSources}
@@ -2564,6 +3137,9 @@ export default function PraemienPage() {
           initialRegion={gmRegionFilter}
           onClose={() => setShowGmProgress(false)}
         />
+      )}
+      {showLeaderboard && (
+        <PraemienLeaderboardModal onClose={() => setShowLeaderboard(false)} />
       )}
     </div>
   );

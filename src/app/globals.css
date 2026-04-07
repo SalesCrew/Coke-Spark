@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* Hide number input spinners globally */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Hide scrollbar while keeping scroll functional */
+.map-scroll::-webkit-scrollbar { display: none; }
+.map-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
 @theme {
   --color-coke-red: #f40009;
   --color-coke-dark: #1a1a1a;

@@ -1,12 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardList, Users, BarChart3, Settings, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift } from "lucide-react";
+import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plasma } from "@/components/ui/Plasma";
 
 const NAV_GROUPS = [
+  {
+    label: "Prämien",
+    items: [
+      { label: "Prämien", icon: Gift, href: "/admin/praemien", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
+    ],
+  },
   {
     label: "Fragebögen",
     items: [
@@ -19,12 +25,11 @@ const NAV_GROUPS = [
     ],
   },
   {
-    label: null,
+    label: "Management",
     items: [
-      { label: "Prämien", icon: Gift, href: "/admin/praemien", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "Mitarbeiter", icon: Users, href: "/admin/mitarbeiter", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "Statistiken", icon: BarChart3, href: "/admin/statistiken", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "Einstellungen", icon: Settings, href: "/admin/einstellungen", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
+      { label: "Zeiterfassung", icon: Clock, href: "/admin/zeiterfassung", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
+      { label: "Märkte", icon: MapPin, href: "/admin/maerkte", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
+      { label: "Gebietsmanager", icon: UserCheck, href: "/admin/gebietsmanager", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
     ],
   },
 ];

@@ -1021,7 +1021,7 @@ export default function IppBerechnungPage() {
           </div>
 
           {/* Master / detail split */}
-          <div style={{ display: "flex", minHeight: 0, height: "calc(100vh - 340px)", minHeight: 480 }}>
+          <div style={{ display: "flex", height: "calc(100vh - 340px)", minHeight: 480 }}>
 
             {/* Left: master list */}
             <div className="map-scroll" style={{ width: 420, flexShrink: 0, overflowY: "auto", borderRight: "1px solid rgba(0,0,0,0.05)", boxShadow: "4px 0 16px rgba(0,0,0,0.06)" }}>

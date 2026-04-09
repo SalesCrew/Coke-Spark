@@ -306,7 +306,7 @@ function ImportModal({ onImport, onClose }: { onImport: () => void; onClose: () 
 function FilterDropdown({ options, value, onChange, onClose, anchorRef, nullLabel = "Alle" }: {
   options: string[]; value: string | null;
   onChange: (v: string | null) => void; onClose: () => void;
-  anchorRef: React.RefObject<HTMLButtonElement>;
+  anchorRef: React.RefObject<HTMLButtonElement | null>;
   nullLabel?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);

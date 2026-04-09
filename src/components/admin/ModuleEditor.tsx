@@ -27,6 +27,126 @@ const TRIGGER_ELIGIBLE: QuestionType[] = [
   "single", "yesno", "yesnomulti", "multiple", "likert", "numeric", "slider", "matrix",
 ];
 
+// ── Handelsketten temp data ────────────────────────────────────
+const HANDELSKETTEN = [
+  "BILLA", "SPAR", "HOFER", "MERKUR", "PENNY", "ADEG", "BILLA+", "INTERSPAR",
+] as const;
+
+// ── HandelskettenSelector ─────────────────────────────────────
+function HandelskettenSelector({
+  question, onUpdate,
+}: { question: Question; onUpdate: (q: Question) => void }) {
+  const [open, setOpen] = useState(false);
+  const alleActive = question.chains === undefined;
+
+  function toggleAlle() {
+    if (alleActive) {
+      // turn off → pre-select all so user can deselect
+      onUpdate({ ...question, chains: [...HANDELSKETTEN] });
+    } else {
+      onUpdate({ ...question, chains: undefined });
+    }
+    setOpen(!alleActive);
+  }
+
+  function toggleChain(chain: string) {
+    const current = question.chains ?? [...HANDELSKETTEN];
+    const next = current.includes(chain)
+      ? current.filter((c) => c !== chain)
+      : [...current, chain];
+    onUpdate({ ...question, chains: next.length === HANDELSKETTEN.length ? undefined : next });
+  }
+
+  const selected = question.chains;
+  const hasRestriction = selected !== undefined;
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      {/* Section toggle button */}
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        style={{
+          display: "flex", alignItems: "center", gap: 7,
+          width: "100%", padding: "8px 0 6px",
+          fontSize: 11, fontWeight: 600,
+          color: hasRestriction ? "#2563eb" : "rgba(0,0,0,0.35)",
+          background: "none", border: "none", cursor: "pointer",
+          borderTop: "1px solid rgba(0,0,0,0.04)",
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+          <rect x="1" y="1" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="6.5" y="1" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="1" y="6.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="6.5" y="6.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+        </svg>
+        <span style={{ flex: 1, textAlign: "left" as const }}>Handelsketten</span>
+        {hasRestriction && (
+          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(37,99,235,0.09)", color: "#2563eb" }}>
+            {selected!.length} ausgewählt
+          </span>
+        )}
+        <ChevronDown size={12} strokeWidth={2} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }} />
+      </button>
+
+      <div style={{ maxHeight: open ? 400 : 0, opacity: open ? 1 : 0, overflow: "hidden", transition: "max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease" }}>
+        <div style={{ paddingTop: 10, paddingBottom: 4 }}>
+
+          {/* Alle Handelsketten toggle */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: "#374151" }}>Alle Handelsketten</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleAlle(); }}
+              style={{
+                width: 32, height: 18, borderRadius: 9,
+                backgroundColor: alleActive ? "#2563eb" : "rgba(0,0,0,0.12)",
+                border: "none", cursor: "pointer", position: "relative", transition: "background-color 0.2s ease", flexShrink: 0,
+              }}
+            >
+              <div style={{ width: 14, height: 14, borderRadius: "50%", backgroundColor: "#fff", position: "absolute", top: 2, left: alleActive ? 16 : 2, boxShadow: "0 1px 3px rgba(0,0,0,0.18)", transition: "left 0.2s ease" }} />
+            </button>
+          </div>
+
+          {/* Chain pills — visible when not "all" */}
+          {!alleActive && (
+            <>
+              <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.3)", marginBottom: 7 }}>
+                Ketten auswählen
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 5 }}>
+                {HANDELSKETTEN.map((chain) => {
+                  const isSelected = selected?.includes(chain) ?? true;
+                  return (
+                    <button
+                      key={chain}
+                      onClick={(e) => { e.stopPropagation(); toggleChain(chain); }}
+                      style={{
+                        padding: "3px 10px", borderRadius: 5, border: "none", cursor: "pointer",
+                        fontSize: 10, fontWeight: 600, fontFamily: "inherit",
+                        transition: "all 0.12s ease",
+                        background: isSelected ? "rgba(37,99,235,0.09)" : "rgba(0,0,0,0.04)",
+                        color: isSelected ? "#2563eb" : "rgba(0,0,0,0.38)",
+                        boxShadow: isSelected ? "inset 0 0 0 1px rgba(37,99,235,0.25)" : "none",
+                      }}
+                    >
+                      {chain}
+                    </button>
+                  );
+                })}
+              </div>
+              {selected !== undefined && selected.length === 0 && (
+                <div style={{ marginTop: 8, fontSize: 10, color: "#DC2626", fontWeight: 500 }}>
+                  Keine Kette ausgewählt — Frage wird für niemanden angezeigt.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function operatorsForType(t: QuestionType): { value: string; label: string }[] {
   const base = [
     { value: "equals", label: "ist gleich" },
@@ -1696,6 +1816,9 @@ function QuestionCard({
 
             {/* Scoring (IPP / Boni) — only for single, multiple, numeric */}
             <ScoringEditor question={question} onUpdate={onUpdate} />
+
+            {/* Handelsketten selector */}
+            <HandelskettenSelector question={question} onUpdate={onUpdate} />
 
             {/* Conditional logic */}
             <div style={{ marginTop: 14 }}>

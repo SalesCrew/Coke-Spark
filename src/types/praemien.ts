@@ -20,6 +20,7 @@ export interface PraemienSourceRef {
   boniValue: number;
   isFactorMode: boolean;
   displayLabel: string;
+  distributionFreqRule?: "lt8" | "gt8"; // only set when assigned to Distributionsziel
 }
 
 export interface PraemienPillar {

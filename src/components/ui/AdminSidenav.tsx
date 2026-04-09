@@ -1,12 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock } from "lucide-react";
+import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plasma } from "@/components/ui/Plasma";
 
 const NAV_GROUPS = [
+  {
+    label: "Analyse",
+    items: [
+      { label: "IPP Berechnung", icon: TrendingUp, href: "/admin/ipp-berechnung", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
+    ],
+  },
   {
     label: "Prämien",
     items: [

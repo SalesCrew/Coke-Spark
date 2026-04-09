@@ -33,6 +33,7 @@ export interface Question {
   config: Record<string, unknown>;
   rules: ConditionalRule[];
   scoring: Record<string, ScoringWeight>; // key = option text (choice) or "__value__" (numeric)
+  chains?: string[]; // undefined = alle Handelsketten; array = nur diese
 }
 
 export interface Module {

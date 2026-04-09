@@ -542,6 +542,22 @@ function MarketDetailDrawer({ market, visits, onClose, onSave }: {
       <div className="map-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
         {tab === "info" && (
           <>
+            {(market.infoNote || editing) && (
+              <>
+                <InfoSection label="Info">
+                  {editing ? (
+                    <textarea value={draft.infoNote} onChange={e => set({ infoNote: e.target.value })} placeholder="Notiz zum Markt..."
+                      style={{ fontSize: 11, color: "#1a1a1a", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8, padding: "8px 10px", outline: "none", resize: "vertical", minHeight: 72, background: "#fff", fontFamily: "inherit", lineHeight: 1.5, width: "100%", boxSizing: "border-box" }} />
+                  ) : (
+                    <p style={{ fontSize: 11, color: "#1a1a1a", margin: 0, lineHeight: 1.6 }}>
+                      {market.infoNote}
+                    </p>
+                  )}
+                </InfoSection>
+                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+              </>
+            )}
+
             <InfoSection label="Identität">
               <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
               <InfoRow label="Name f. DB" value={market.dbName} edit={editing} editValue={draft.dbName} onEdit={v => set({ dbName: v })} />
@@ -569,18 +585,15 @@ function MarketDetailDrawer({ market, visits, onClose, onSave }: {
               <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v) || market.visitFrequencyPerYear })} />
             </InfoSection>
 
-            <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
-
-            <InfoSection label="Info">
-              {editing ? (
-                <textarea value={draft.infoNote} onChange={e => set({ infoNote: e.target.value })} placeholder="Notiz zum Markt..."
-                  style={{ fontSize: 11, color: "#1a1a1a", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8, padding: "8px 10px", outline: "none", resize: "vertical", minHeight: 72, background: "#fff", fontFamily: "inherit", lineHeight: 1.5, width: "100%", boxSizing: "border-box" }} />
-              ) : (
-                <p style={{ fontSize: 11, color: market.infoNote ? "#1a1a1a" : "rgba(0,0,0,0.28)", margin: 0, lineHeight: 1.6 }}>
-                  {market.infoNote || "Keine Notiz vorhanden."}
-                </p>
-              )}
-            </InfoSection>
+            {editing && (
+              <>
+                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+                <InfoSection label="Info">
+                  <textarea value={draft.infoNote} onChange={e => set({ infoNote: e.target.value })} placeholder="Notiz zum Markt..."
+                    style={{ fontSize: 11, color: "#1a1a1a", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8, padding: "8px 10px", outline: "none", resize: "vertical", minHeight: 72, background: "#fff", fontFamily: "inherit", lineHeight: 1.5, width: "100%", boxSizing: "border-box" }} />
+                </InfoSection>
+              </>
+            )}
           </>
         )}
 

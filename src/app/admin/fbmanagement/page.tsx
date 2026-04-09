@@ -3999,24 +3999,24 @@ function CampaignListItem({
       onClick={onClick}
       style={{
         padding: "10px 14px",
-        borderRadius: 8,
+        borderRadius: 0,
         cursor: "pointer",
         backgroundColor: selected ? `${campaign.color}0d` : "transparent",
-        borderLeft: selected ? `2px solid ${campaign.color}` : "2px solid transparent",
+        borderLeft: selected ? `3px solid ${campaign.color}` : "3px solid transparent",
         transition: "all 0.15s ease",
-        marginBottom: 2,
+        marginBottom: 0,
       }}
-      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.02)"; }}
-      onMouseLeave={(e) => { if (!selected) e.currentTarget.style.backgroundColor = "transparent"; }}
+      onMouseEnter={(e) => { if (!selected) (e.currentTarget as HTMLElement).style.backgroundColor = "rgba(0,0,0,0.025)"; }}
+      onMouseLeave={(e) => { if (!selected) (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: dotColor, flexShrink: 0, opacity: campaign.inactive ? 0.3 : 1 }} />
+          <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: dotColor, flexShrink: 0, opacity: campaign.inactive ? 0.3 : 1 }} />
           <span style={{ fontSize: 12, fontWeight: selected ? 700 : 500, color: selected ? "#1a1a1a" : "#374151", letterSpacing: "-0.01em" }}>{campaign.name}</span>
         </div>
         <span style={{ fontSize: 11, fontWeight: 600, color: pct >= 80 ? "#16a34a" : pct > 0 ? "#d97706" : "rgba(0,0,0,0.25)" }}>{pct}%</span>
       </div>
-      <div style={{ paddingLeft: 14 }}>
+      <div style={{ paddingLeft: 13 }}>
         <div style={{ height: 3, borderRadius: 99, backgroundColor: "rgba(0,0,0,0.06)", overflow: "hidden" }}>
           <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, backgroundColor: pct >= 80 ? "#16a34a" : pct > 0 ? "#d97706" : "transparent" }} />
         </div>
@@ -4614,14 +4614,16 @@ export default function FbManagementPage() {
     <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
 
       {/* ── Main card ─────────────────────────────────────── */}
+      <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
       <div style={{
         backgroundColor: "#ffffff",
-        borderRadius: 14,
+        borderRadius: 10,
         border: "1px solid rgba(0,0,0,0.06)",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+        boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
         overflow: "hidden",
         display: "flex",
         minHeight: 480,
+        margin: "8px 8px 8px",
       }}>
 
         {/* Left: campaign list */}
@@ -4629,12 +4631,12 @@ export default function FbManagementPage() {
           width: 240,
           flexShrink: 0,
           borderRight: "1px solid rgba(0,0,0,0.06)",
-          padding: "16px 10px",
+          padding: "16px 0",
           display: "flex",
           flexDirection: "column",
           gap: 2,
         }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 6px", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", marginBottom: 8 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.3)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Kampagnen</span>
             <button
               onClick={() => { setShowInactive(!showInactive); setSelectedId(showInactive ? "1" : "4"); }}
@@ -4659,7 +4661,11 @@ export default function FbManagementPage() {
         </div>
 
         {/* Right: campaign detail */}
-        <div style={{ flex: 1, padding: "28px 32px", display: "flex", flexDirection: "column", gap: 22, minWidth: 0 }}>
+        <div style={{ flex: 1, padding: "14px", display: "flex", flexDirection: "column", gap: 0, minWidth: 0 }}>
+
+          {/* Grey outer / white inner card */}
+          <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden", flex: 1, display: "flex", flexDirection: "column" }}>
+            <div style={{ background: "#fff", margin: "8px 8px 8px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", gap: 22 }}>
 
           {/* Campaign title + status */}
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
@@ -4777,6 +4783,8 @@ export default function FbManagementPage() {
                 ))
             }
           </div>
+            </div>{/* end white inner */}
+          </div>{/* end grey outer */}
         </div>
 
         {/* Far right: Fragebogen preview placeholder */}
@@ -4815,41 +4823,31 @@ export default function FbManagementPage() {
             : <FragebogenVorschau key="standard" showHeatmap={showHeatmap} />
           }
         </div>
-      </div>
+      </div>{/* end white inner */}
+      </div>{/* end grey outer */}
 
       {/* ── Markets card ──────────────────────────────────── */}
-      <div style={{
-        backgroundColor: "#ffffff",
-        borderRadius: 14,
-        border: "1px solid rgba(0,0,0,0.06)",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
-        overflow: "hidden",
-      }}>
-        <style>{`
-          @keyframes mrSlideOut { from { transform:translateX(0); opacity:1; max-height:60px } to { transform:translateX(110%); opacity:0; max-height:0; padding-top:0; padding-bottom:0; border-width:0 } }
-          @keyframes mrSlideIn  { from { transform:translateX(40px); opacity:0 } to { transform:translateX(0); opacity:1 } }
-        `}</style>
+      <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
 
-        {/* Header row 1: title + status tabs + edit */}
-        <div style={{ padding: "14px 20px 10px", borderBottom: marketEditMode === "idle" ? "none" : "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>Zugewiesene Märkte</span>
-            <span style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", marginLeft: 8 }}>{assignedMarkets.length} Märkte gesamt</span>
+        {/* Grey header row — Zugewiesene Märkte + all controls */}
+        <div style={{ padding: "11px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>Zugewiesene Märkte</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{assignedMarkets.length} Märkte gesamt</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {/* Status tabs */}
             {marketEditMode !== "remove" && (
-              <div style={{ display: "flex", gap: 3, background: "rgba(0,0,0,0.03)", borderRadius: 8, padding: 3 }}>
+              <div style={{ display: "flex", gap: 3, background: "rgba(0,0,0,0.06)", borderRadius: 8, padding: 3 }}>
                 {(["all", "finished", "pending"] as const).map((f) => (
                   <button key={f} onClick={() => setMarketFilter(f)}
-                    style={{ padding: "5px 11px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" }}
+                    style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" as const }}
                   >
                     {f === "all" ? `Alle (${assignedMarkets.length})` : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
                   </button>
                 ))}
               </div>
             )}
-
             {/* Edit / remove mode controls */}
             {marketEditMode === "remove" ? (
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -4877,6 +4875,13 @@ export default function FbManagementPage() {
             )}
           </div>
         </div>
+
+        {/* White inner card — search, filters, market list */}
+        <div style={{ margin: "0 8px 8px", background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
+        <style>{`
+          @keyframes mrSlideOut { from { transform:translateX(0); opacity:1; max-height:60px } to { transform:translateX(110%); opacity:0; max-height:0; padding-top:0; padding-bottom:0; border-width:0 } }
+          @keyframes mrSlideIn  { from { transform:translateX(40px); opacity:0 } to { transform:translateX(0); opacity:1 } }
+        `}</style>
 
         {/* Header row 2: search + filter chips */}
         <div style={{ padding: "10px 20px 12px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -4941,7 +4946,8 @@ export default function FbManagementPage() {
             );
           })()}
         </div>
-      </div>
+        </div>{/* end white inner */}
+      </div>{/* end grey outer */}
 
       {/* Portals */}
       {editMenuOpen && (

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Download } from "lucide-react";
 import { AdminSidenav } from "@/components/ui/AdminSidenav";
 import { ModuleEditor } from "@/components/admin/ModuleEditor";
 import { FragebogenEditor } from "@/components/admin/FragebogenEditor";
@@ -39,6 +39,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isMaerkte = pathname.startsWith("/admin/maerkte");
   const isGebietsmanager = pathname.startsWith("/admin/gebietsmanager");
   const isZeiterfassung = pathname.startsWith("/admin/zeiterfassung");
+  const isIppBerechnung = pathname.startsWith("/admin/ipp-berechnung");
 
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const importTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -471,7 +472,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     },
   };
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : "Standardbesuch";
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : "Standardbesuch";
   const pageSubtitle = isMhd
     ? "MHD-Module und Fragebogen verwalten."
     : isKuehler
@@ -487,6 +488,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : isGebietsmanager
     ? ""
     : isZeiterfassung
+    ? ""
+    : isIppBerechnung
     ? ""
     : isFbManagement
     ? ""
@@ -602,7 +605,16 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Neue Kampagne
                   </button>
                 </Link>
-              ) : isPraemien ? null : isZeiterfassung ? null : isMaerkte ? (
+              ) : isPraemien ? null : isZeiterfassung ? (
+                <button
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.85"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                >
+                  <Download size={12} strokeWidth={2} />
+                  Exportieren
+                </button>
+              ) : isIppBerechnung ? null : isMaerkte ? (
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent("maerkte:openImport"))}
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}

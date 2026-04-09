@@ -6,7 +6,7 @@ import {
   Plus, ChevronDown, ChevronRight, Search, X, Check, Trophy,
   Gift, AlertTriangle, Zap, ShoppingBag, Refrigerator, FlaskConical,
   ClipboardList, Pencil, Trash2, TrendingUp, Award, Copy, Eye,
-  BarChart3, CheckCircle2, Circle, Minus,
+  BarChart3, CheckCircle2, Circle, Minus, Upload,
 } from "lucide-react";
 import { useModules } from "@/context/ModuleContext";
 import { useFragebogen } from "@/context/FragebogenContext";
@@ -45,6 +45,11 @@ function uid(): string { return Math.random().toString(36).slice(2, 10); }
 
 function buildDefaultPillars(): PraemienPillar[] {
   return PILLAR_DEFAULTS.map(d => ({ id: uid(), ...d, sourceRefs: [] }));
+}
+
+function isDistributionPillar(pillars: PraemienPillar[], pillarId: string): boolean {
+  const p = pillars.find(x => x.id === pillarId);
+  return p?.name === "Distributionsziel";
 }
 
 function buildDefaultThresholds(totalPoints = 0): PraemienThreshold[] {
@@ -1213,6 +1218,9 @@ function QualityGoalsModal({
   const [unsaved, setUnsaved] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+  const [showImport, setShowImport] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load existing score when GM selection changes
   useEffect(() => {
@@ -1304,7 +1312,15 @@ function QualityGoalsModal({
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>{quarter.name} · {doneCount} / {ALL_GMS.length} GMs bewertet</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <QualityCompletionPill done={doneCount === ALL_GMS.length} />
+            <button
+              onClick={() => setShowImport(o => !o)}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", fontSize: 10, fontWeight: 600, color: showImport ? "#D97706" : "rgba(0,0,0,0.45)", background: showImport ? "rgba(217,119,6,0.06)" : "linear-gradient(to bottom,#fff,#f5f5f5)", transition: "all 0.12s", boxShadow: "inset 0 1px 0.5px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.07)", fontFamily: "inherit" }}
+              onMouseEnter={e => { if (!showImport) { e.currentTarget.style.color = "#1a1a1a"; e.currentTarget.style.borderColor = "rgba(0,0,0,0.15)"; }}}
+              onMouseLeave={e => { if (!showImport) { e.currentTarget.style.color = "rgba(0,0,0,0.45)"; e.currentTarget.style.borderColor = "rgba(0,0,0,0.09)"; }}}
+            >
+              <Upload size={11} strokeWidth={2} />
+              Importieren
+            </button>
             <button
               onClick={handleClose}
               style={{ width: 28, height: 28, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.45)", transition: "background 0.12s ease", flexShrink: 0 }}
@@ -1313,6 +1329,36 @@ function QualityGoalsModal({
             >
               <X size={13} strokeWidth={2.5} />
             </button>
+          </div>
+        </div>
+
+        {/* Import area — collapses smoothly */}
+        <div style={{ maxHeight: showImport ? 130 : 0, overflow: "hidden", transition: "max-height 0.28s cubic-bezier(0.4,0,0.2,1)", opacity: showImport ? 1 : 0 }}>
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.csv,.xls" style={{ display: "none" }} onChange={() => setShowImport(false)} />
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={e => { e.preventDefault(); setDragOver(false); setShowImport(false); }}
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 7,
+                padding: "18px 24px", borderRadius: 10, cursor: "pointer",
+                border: `1.5px dashed ${dragOver ? "#D97706" : "rgba(0,0,0,0.12)"}`,
+                background: dragOver ? "rgba(217,119,6,0.04)" : "rgba(0,0,0,0.015)",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = "1.5px dashed rgba(217,119,6,0.5)"; (e.currentTarget as HTMLElement).style.background = "rgba(217,119,6,0.03)"; }}
+              onMouseLeave={e => { if (!dragOver) { (e.currentTarget as HTMLElement).style.border = "1.5px dashed rgba(0,0,0,0.12)"; (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.015)"; }}}
+            >
+              <Upload size={16} strokeWidth={1.5} color={dragOver ? "#D97706" : "rgba(0,0,0,0.3)"} />
+              <div style={{ textAlign: "center" as const }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: dragOver ? "#D97706" : "#1a1a1a", marginBottom: 2 }}>
+                  Datei hierher ziehen oder klicken zum Auswählen
+                </div>
+                <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>XLSX, CSV, XLS</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1501,8 +1547,8 @@ function QualityPillarCard({
       <div style={{ maxHeight: expanded ? 600 : 0, overflow: "hidden", transition: "max-height 0.28s cubic-bezier(0.4,0,0.2,1)" }}>
         <div style={{ padding: "0 16px 14px" }}>
           {/* Status strip + CTA */}
-          <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(217,119,6,0.04)", border: "1px solid rgba(217,119,6,0.14)", display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
-            <Award size={18} strokeWidth={1.5} color="#D97706" style={{ flexShrink: 0 }} />
+          <div style={{ padding: "12px 14px", borderRadius: 10, background: complete ? "rgba(22,163,74,0.05)" : "rgba(217,119,6,0.04)", border: `1px solid ${complete ? "rgba(22,163,74,0.2)" : "rgba(217,119,6,0.14)"}`, display: "flex", alignItems: "center", gap: 14, marginBottom: 10, transition: "all 0.3s ease" }}>
+            <Award size={18} strokeWidth={1.5} color={complete ? "#16a34a" : "#D97706"} style={{ flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a", marginBottom: 2 }}>
                 {complete ? "Qualitätsziele vollständig erfasst" : "Qualitätsziele noch nicht fertig"}
@@ -1659,7 +1705,14 @@ function PillarCard({
                     <SectionBadge type={ref.sectionType} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ref.questionText}</div>
-                      <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>{ref.moduleName} · {ref.displayLabel}</div>
+                      <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
+                        {ref.moduleName} · {ref.displayLabel}
+                        {ref.distributionFreqRule && (
+                          <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "rgba(37,99,235,0.09)", color: "#2563eb", letterSpacing: "0.03em", flexShrink: 0 }}>
+                            {ref.distributionFreqRule === "lt8" ? "Freq. <8" : "Freq. >8"}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <span style={{ fontSize: 12, fontWeight: 800, color: pc, fontVariantNumeric: "tabular-nums" }}>{ref.boniValue}</span>
                     <button
@@ -1762,24 +1815,63 @@ function StatusSelect({
 }
 
 // ── Custom pillar select ──────────────────────────────────────
+const DIST_COLOR = "#2563eb";
+const FREQ_LABELS: Record<"lt8" | "gt8", string> = { lt8: "Freq. <8", gt8: "Freq. >8" };
 
 function PillarSelect({
-  value, pillars, onChange,
+  value, pillars, onChange, currentFreqRule,
 }: {
   value: string;
   pillars: PraemienPillar[];
-  onChange: (id: string) => void;
+  onChange: (id: string, freqRule?: "lt8" | "gt8") => void;
+  currentFreqRule?: "lt8" | "gt8";
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [distExpanded, setDistExpanded] = useState(false);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  // Identify the Distributionsziel pillar
+  const distPillar = pillars.find(p => p.name === "Distributionsziel") ?? null;
+  const isCurrentlyDist = !!distPillar && value === distPillar.id;
+
+  // Auto-expand distribution row when reopening if already assigned there
+  useEffect(() => {
+    if (open && isCurrentlyDist) setDistExpanded(true);
+    if (!open) setDistExpanded(false);
+  }, [open, isCurrentlyDist]);
+
   useEffect(() => {
     if (!open) return;
-    const h = () => setOpen(false);
+    const h = (e: MouseEvent) => {
+      if (btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        const panel = document.getElementById("pillar-select-portal");
+        if (panel && panel.contains(e.target as Node)) return;
+        setOpen(false);
+      }
+    };
     window.addEventListener("mousedown", h);
     return () => window.removeEventListener("mousedown", h);
+  }, [open]);
+
+  // Keep dropdown anchored to button on scroll/resize
+  useEffect(() => {
+    if (!open) return;
+    function updatePos() {
+      if (!btnRef.current) return;
+      const r = btnRef.current.getBoundingClientRect();
+      const PANEL_W = 200;
+      const left = Math.min(r.left, window.innerWidth - PANEL_W - 8);
+      setPos({ x: left, y: r.bottom + 5 });
+    }
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
   }, [open]);
 
   const current = pillars.find(p => p.id === value) ?? null;
@@ -1787,12 +1879,18 @@ function PillarSelect({
   const toggleOpen = () => {
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      const PANEL_W = 180;
+      const PANEL_W = 200;
       const left = Math.min(r.left, window.innerWidth - PANEL_W - 8);
       setPos({ x: left, y: r.bottom + 5 });
     }
     setOpen(o => !o);
   };
+
+  // Build the trigger label
+  let triggerLabel = current ? current.name : "– Nicht zugewiesen";
+  if (isCurrentlyDist && currentFreqRule) {
+    triggerLabel = `${current!.name} · ${FREQ_LABELS[currentFreqRule]}`;
+  }
 
   return (
     <>
@@ -1814,15 +1912,17 @@ function PillarSelect({
         <span style={{ display: "flex", alignItems: "center", gap: 5, overflow: "hidden" }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: current ? current.color : "rgba(0,0,0,0.18)", flexShrink: 0 }} />
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {current ? current.name : "– Nicht zugewiesen"}
+            {triggerLabel}
           </span>
         </span>
         <ChevronDown size={9} strokeWidth={2.5} style={{ opacity: 0.5, flexShrink: 0 }} />
       </button>
+
       {mounted && open && typeof document !== "undefined" && createPortal(
         <div
+          id="pillar-select-portal"
           onMouseDown={e => e.stopPropagation()}
-          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9999, width: 180, background: "#fff", borderRadius: 10, padding: 4, boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mfcIn 0.14s ease both" }}
+          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9999, width: 200, background: "#fff", borderRadius: 10, padding: 4, boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mfcIn 0.14s ease both" }}
         >
           {/* Unassigned */}
           <button onClick={() => { onChange(""); setOpen(false); }}
@@ -1834,18 +1934,95 @@ function PillarSelect({
             <span style={{ flex: 1 }}>– Nicht zugewiesen</span>
             {!current && <Check size={10} strokeWidth={3} color="rgba(0,0,0,0.4)" />}
           </button>
+
           {pillars.map(p => {
             const sel = p.id === value;
+            const isDist = p.name === "Distributionsziel";
+            const expanded = isDist && distExpanded;
+
             return (
-              <button key={p.id} onClick={() => { onChange(p.id); setOpen(false); }}
-                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 10, fontWeight: sel ? 700 : 400, background: sel ? `${p.color}0e` : "transparent", color: sel ? p.color : "#374151", transition: "background 0.1s ease" }}
-                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = `${p.color}08`; }}
-                onMouseLeave={e => { if (!sel) e.currentTarget.style.background = "transparent"; }}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, flexShrink: 0 }} />
-                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                {sel && <Check size={10} strokeWidth={3} color={p.color} style={{ flexShrink: 0 }} />}
-              </button>
+              <div key={p.id}>
+                {/* Main pillar row */}
+                <button
+                  onClick={() => {
+                    if (isDist) {
+                      setDistExpanded(e => !e);
+                    } else {
+                      onChange(p.id);
+                      setOpen(false);
+                    }
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px",
+                    borderRadius: expanded ? "7px 7px 0 0" : 7, border: "none", cursor: "pointer",
+                    fontSize: 10, fontWeight: sel ? 700 : 400,
+                    background: expanded ? `${DIST_COLOR}0e` : sel ? `${p.color}0e` : "transparent",
+                    color: sel ? p.color : expanded && isDist ? DIST_COLOR : "#374151",
+                    transition: "background 0.12s ease, color 0.12s ease",
+                  }}
+                  onMouseEnter={e => { if (!sel && !expanded) e.currentTarget.style.background = `${p.color}08`; }}
+                  onMouseLeave={e => { if (!sel && !expanded) e.currentTarget.style.background = "transparent"; }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                  {sel && !isDist && <Check size={10} strokeWidth={3} color={p.color} style={{ flexShrink: 0 }} />}
+                  {isDist && (
+                    <ChevronDown
+                      size={9} strokeWidth={2.5}
+                      color={expanded ? DIST_COLOR : "rgba(0,0,0,0.3)"}
+                      style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.22s cubic-bezier(0.4,0,0.2,1)" }}
+                    />
+                  )}
+                </button>
+
+                {/* Frequency rule tray — only for Distributionsziel */}
+                {isDist && (
+                  <div style={{
+                    overflow: "hidden",
+                    maxHeight: expanded ? 56 : 0,
+                    opacity: expanded ? 1 : 0,
+                    transition: "max-height 0.24s cubic-bezier(0.4,0,0.2,1), opacity 0.18s ease",
+                  }}>
+                    <div style={{
+                      padding: "6px 10px 8px",
+                      background: `${DIST_COLOR}07`,
+                      borderRadius: "0 0 7px 7px",
+                      display: "flex", flexDirection: "column", gap: 4,
+                      transform: expanded ? "translateY(0)" : "translateY(4px)",
+                      transition: "transform 0.22s cubic-bezier(0.4,0,0.2,1)",
+                    }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" as const, color: `${DIST_COLOR}90`, marginBottom: 2 }}>
+                        Frequenzregel wählen
+                      </span>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {(["lt8", "gt8"] as const).map(rule => {
+                          const active = sel && currentFreqRule === rule;
+                          return (
+                            <button
+                              key={rule}
+                              onClick={() => { onChange(p.id, rule); setOpen(false); }}
+                              style={{
+                                flex: 1, padding: "5px 0", borderRadius: 6, border: "none", cursor: "pointer",
+                                fontSize: 10, fontWeight: 600, fontFamily: "inherit",
+                                transition: "all 0.12s ease",
+                                background: active ? DIST_COLOR : "rgba(255,255,255,0.9)",
+                                color: active ? "#fff" : DIST_COLOR,
+                                boxShadow: active
+                                  ? `inset 0 1px 0.5px rgba(255,255,255,0.25), 0 0 0 1px ${DIST_COLOR}`
+                                  : `0 0 0 1px ${DIST_COLOR}40`,
+                              }}
+                              onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = `${DIST_COLOR}12`; }}
+                              onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.9)"; }}
+                            >
+                              {rule === "lt8" ? "nur Freq. <8" : "nur Freq. >8"}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>,
@@ -1886,7 +2063,7 @@ function BonusSourceExplorer({
     return true;
   });
 
-  const assignToPillar = (src: BonusSource, pillarId: string) => {
+  const assignToPillar = (src: BonusSource, pillarId: string, freqRule?: "lt8" | "gt8") => {
     const ref: PraemienSourceRef = {
       id: src.key,
       sectionType: src.sectionType,
@@ -1900,6 +2077,8 @@ function BonusSourceExplorer({
       boniValue: src.boniValue,
       isFactorMode: src.isFactorMode,
       displayLabel: src.displayLabel,
+      // Only store rule when assigning to Distributionsziel
+      ...(freqRule && isDistributionPillar(quarter.pillars, pillarId) ? { distributionFreqRule: freqRule } : {}),
     };
     // Remove from any existing pillar first
     const cleanedPillars = quarter.pillars.map(p => ({
@@ -2017,7 +2196,8 @@ function BonusSourceExplorer({
                     <PillarSelect
                       value={currentPillarId ?? ""}
                       pillars={quarter.pillars}
-                      onChange={id => assignToPillar(src, id)}
+                      currentFreqRule={(quarter.pillars.find(p => p.id === currentPillarId)?.sourceRefs.find(r => r.id === src.key))?.distributionFreqRule}
+                      onChange={(id, freqRule) => assignToPillar(src, id, freqRule)}
                     />
                   </div>
                 </div>
@@ -2365,7 +2545,7 @@ const GOLD_GRAD: React.CSSProperties = {
   WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
 };
 const SILVER_GRAD: React.CSSProperties = {
-  background: "linear-gradient(135deg, #DEDFE1 0%, #BCBDC1 26%, #ECEEED 64%, #B6BCBC 100%)",
+  background: "linear-gradient(135deg, #6B7280 0%, #9CA3AF 30%, #4B5563 60%, #8B9CB0 100%)",
   WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
 };
 const BRONZE_GRAD: React.CSSProperties = {
@@ -2541,9 +2721,31 @@ function PraemienLeaderboardModal({ onClose }: { onClose: () => void }) {
   useEffect(() => { setMounted(true); }, []);
 
   const leaderboard = buildLeaderboard();
+
+  // Normalize region aliases so "nord", "norrd", "n" etc. all match "Nord"
+  const REGION_ALIASES: Record<string, string> = {
+    nord: "Nord", nrd: "Nord", nort: "Nord",
+    ost: "Ost", east: "Ost", ots: "Ost",
+    süd: "Süd", sued: "Süd", sud: "Süd", south: "Süd",
+    west: "West", wst: "West", wets: "West",
+  };
+  function resolveRegion(q: string): string | null {
+    const l = q.toLowerCase().trim();
+    if (REGION_ALIASES[l]) return REGION_ALIASES[l];
+    // partial match
+    for (const [alias, region] of Object.entries(REGION_ALIASES)) {
+      if (alias.startsWith(l) || l.startsWith(alias)) return region;
+    }
+    return null;
+  }
+
   const filtered = leaderboard.filter(e => {
     const q = search.toLowerCase().trim();
-    return !q || e.gmName.toLowerCase().includes(q);
+    if (!q) return true;
+    const resolvedRegion = resolveRegion(q);
+    const gmRegion = ALL_GMS.find(g => g.id === e.gmId)?.region ?? "";
+    if (resolvedRegion) return gmRegion === resolvedRegion;
+    return e.gmName.toLowerCase().includes(q) || gmRegion.toLowerCase().includes(q);
   });
   const selected = leaderboard.find(e => e.gmId === selectedId) ?? leaderboard[0];
 
@@ -2596,7 +2798,7 @@ function PraemienLeaderboardModal({ onClose }: { onClose: () => void }) {
                 onBlurCapture={e => { (e.currentTarget as HTMLElement).style.border = "1px solid transparent"; (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.04)"; }}
               >
                 <Search size={11} strokeWidth={2} color="rgba(0,0,0,0.3)" />
-                <input type="text" placeholder="GM suchen…" value={search} onChange={e => setSearch(e.target.value)}
+                <input type="text" placeholder="GM oder Region suchen…" value={search} onChange={e => setSearch(e.target.value)}
                   style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, color: "#1a1a1a" }} />
                 {search && <button onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center" }}><X size={10} strokeWidth={2} /></button>}
               </div>
@@ -2819,7 +3021,11 @@ function GMPreviewCard({ quarter }: { quarter: PraemienQuarter | null }) {
   const MOCK_GM_PCT = [87, 73, 91, 65]; // simulated GM progress per pillar
   const totalMaxPts = quarter.pillars.reduce((n, p) => n + p.sourceRefs.reduce((s, r) => s + r.boniValue, 0), 0);
   const sorted = [...quarter.thresholds].sort((a, b) => a.minPoints - b.minPoints);
-  const simulatedPts = Math.round(totalMaxPts * 0.78);
+  const vollerBonus = sorted.find(t => t.label === "Voller Bonus");
+  const vollerPts = vollerBonus?.minPoints ?? totalMaxPts;
+  // Simulated points = 78% of Voller Bonus threshold (the real target)
+  const simulatedPts = vollerPts > 0 ? Math.round(vollerPts * 0.78) : Math.round(totalMaxPts * 0.78);
+  const erreichungPct = vollerPts > 0 ? Math.round((simulatedPts / vollerPts) * 100) : 0;
   const currentTier = [...sorted].reverse().find(t => simulatedPts >= t.minPoints) ?? sorted[0];
   const nextTier = currentTier ? sorted.find(t => t.minPoints > (currentTier?.minPoints ?? 0)) : null;
 
@@ -2830,7 +3036,7 @@ function GMPreviewCard({ quarter }: { quarter: PraemienQuarter | null }) {
       {/* Grey header area */}
       <div style={{ padding: "13px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>GM-Ansicht Vorschau</span>
-        <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Simuliert · 78% Erreichung</span>
+        <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Simuliert · {erreichungPct}% Erreichung</span>
       </div>
 
       {/* White inner card with margins on sides and bottom */}
@@ -2875,11 +3081,11 @@ function GMPreviewCard({ quarter }: { quarter: PraemienQuarter | null }) {
         {totalMaxPts > 0 && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-              <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}>{simulatedPts} / {totalMaxPts} Punkte</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: R }}>{Math.round((simulatedPts / totalMaxPts) * 100)}%</span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}>{simulatedPts} / {vollerPts} Punkte</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: R }}>{erreichungPct}%</span>
             </div>
             <div style={{ height: 5, borderRadius: 3, background: "rgba(0,0,0,0.06)", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${Math.min(100, (simulatedPts / totalMaxPts) * 100)}%`, borderRadius: 3, background: `linear-gradient(to right, ${R}80, ${R})`, transition: "width 0.4s ease" }} />
+              <div style={{ height: "100%", width: `${Math.min(100, erreichungPct)}%`, borderRadius: 3, background: `linear-gradient(to right, ${R}80, ${R})`, transition: "width 0.4s ease" }} />
             </div>
           </div>
         )}

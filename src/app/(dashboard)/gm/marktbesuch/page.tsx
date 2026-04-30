@@ -1,9 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  BackendApiError,
+  commitGmVisitPhotos,
+  createGmVisitSession,
+  fetchGmVisitSession,
+  presignGmVisitPhoto,
+  saveGmVisitAnswer,
+  submitGmVisitSession,
+  type GmVisitSessionReadPayload,
+  type GmVisitStartSection,
+} from "@/lib/api/backend";
+import { computeHiddenQuestionIds as computeRuleHiddenQuestionIds } from "@/lib/conditional-visibility";
 import {
   ChevronLeft,
   ChevronDown,
@@ -19,6 +31,7 @@ import {
   CheckCircle2,
   Camera,
   NotebookPen,
+  Tag,
 } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
 
@@ -36,6 +49,7 @@ interface Answer {
 
 interface SampleQuestion {
   id: string;
+  questionId?: string;
   type: "yesno" | "single" | "multiple" | "yesnomulti" | "text" | "numeric" | "likert" | "slider" | "photo" | "matrix";
   text: string;
   options?: string[];
@@ -43,6 +57,9 @@ interface SampleQuestion {
   moduleId: string;
   moduleName: string;
   imageUrl?: string;
+  rules?: Array<Record<string, unknown>>;
+  chains?: string[];
+  appliesToMarketChain?: boolean;
   // type-specific config
   config?: {
     // likert
@@ -53,6 +70,9 @@ interface SampleQuestion {
     decimals?: boolean;
     // photo
     instruction?: string;
+    tagsEnabled?: boolean;
+    tagIds?: string[];
+    tagMeta?: Array<{ id: string; label: string; deletedAt: string | null }>;
     // matrix
     rows?: string[]; columns?: string[]; matrixSubtype?: string;
     // yesnomulti
@@ -61,11 +81,250 @@ interface SampleQuestion {
   };
 }
 
+function mapVisitQuestionToSample(
+  section: GmVisitStartSection,
+  question: GmVisitStartSection["questions"][number],
+): SampleQuestion {
+  const rawConfig = (question.config ?? {}) as Record<string, unknown>;
+  const configOptions = Array.isArray(rawConfig.options) ? (rawConfig.options as string[]) : undefined;
+  const imageList = Array.isArray(rawConfig.images) ? (rawConfig.images as string[]) : [];
+  const config = rawConfig as SampleQuestion["config"];
+  return {
+    id: question.id,
+    questionId: question.questionId,
+    type: question.type,
+    text: question.text,
+    options: question.options ?? configOptions,
+    required: question.required,
+    moduleId: question.moduleId,
+    moduleName: `${section.campaignName} · ${question.moduleName}`,
+    imageUrl: imageList[0],
+    rules: question.rules ?? [],
+    chains: question.chains ?? [],
+    appliesToMarketChain: question.appliesToMarketChain ?? true,
+    config,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Mock data — 5 questions for the first draft
+// Photo answer model
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SAMPLE_QUESTIONS: SampleQuestion[] = [
+interface PhotoAnswerState {
+  photos: string[];
+  selectedTagIds: string[];
+}
+
+interface UploadedPhotoMeta {
+  storageBucket: string;
+  storagePath: string;
+  mimeType?: string;
+  byteSize?: number;
+  widthPx?: number;
+  heightPx?: number;
+  sha256?: string;
+}
+
+/** Encode a PhotoAnswerState into the generic answer storage */
+function encodePhotoAnswer(state: PhotoAnswerState): string {
+  return JSON.stringify(state);
+}
+
+/** Decode a raw answer value back to PhotoAnswerState. Falls back gracefully for legacy plain string[] answers. */
+function decodePhotoAnswer(raw: string | string[] | undefined): PhotoAnswerState {
+  if (!raw) return { photos: [], selectedTagIds: [] };
+  if (Array.isArray(raw)) return { photos: raw, selectedTagIds: [] };
+  try {
+    const parsed = JSON.parse(raw as string) as Partial<PhotoAnswerState>;
+    if (parsed && Array.isArray(parsed.photos)) return { photos: parsed.photos, selectedTagIds: parsed.selectedTagIds ?? [] };
+  } catch { /* noop */ }
+  return { photos: [raw as string], selectedTagIds: [] };
+}
+
+function isPreviewablePhotoSrc(value: string): boolean {
+  return /^blob:|^data:image\/|^https?:\/\//i.test(value);
+}
+
+function photoArtifactLabel(path: string): string {
+  const clean = path.split("?")[0]?.split("#")[0] ?? path;
+  const segments = clean.split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? path;
+}
+
+function isoToDisplayDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function displayDateToIso(value: string): string | null {
+  const ddmmyyyy = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  return null;
+}
+
+function sanitizeNumericDraftInput(raw: string, decimals: boolean): string {
+  let next = raw.replace(",", ".");
+  next = next.replace(decimals ? /[^0-9.\-]/g : /[^0-9\-]/g, "");
+  next = next.replace(/(?!^)-/g, "");
+  if (decimals) {
+    const dotIdx = next.indexOf(".");
+    if (dotIdx >= 0) {
+      next = `${next.slice(0, dotIdx + 1)}${next.slice(dotIdx + 1).replace(/\./g, "")}`;
+    }
+  } else {
+    next = next.replace(/\./g, "");
+  }
+  return next;
+}
+
+function parseYesNoMultiAnswer(rawAnswer: string | string[] | undefined): { sel: string; subs: string[] } | null {
+  if (typeof rawAnswer !== "string" || rawAnswer.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(rawAnswer) as { sel?: unknown; subs?: unknown };
+    const sel = typeof parsed?.sel === "string" ? parsed.sel.trim() : "";
+    if (!sel) return null;
+    const seen = new Set<string>();
+    const subs = Array.isArray(parsed?.subs)
+      ? parsed.subs
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0 && !seen.has(entry) && (seen.add(entry), true))
+      : [];
+    return { sel, subs };
+  } catch {
+    return null;
+  }
+}
+
+function parseMatrixAnswer(
+  question: SampleQuestion,
+  rawAnswer: string | string[] | undefined,
+): string[] | Record<string, string> | null {
+  const subtype = String(question.config?.matrixSubtype ?? "toggle");
+  if (subtype === "toggle") {
+    if (!Array.isArray(rawAnswer)) return null;
+    const seen = new Set<string>();
+    const values = rawAnswer
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0 && !seen.has(entry) && (seen.add(entry), true));
+    return values.length > 0 ? values : null;
+  }
+  if (typeof rawAnswer !== "string" || rawAnswer.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(rawAnswer) as Record<string, unknown>;
+    const entries = Object.entries(parsed)
+      .filter(
+        (entry): entry is [string, string] =>
+          typeof entry[0] === "string" &&
+          entry[0].trim().length > 0 &&
+          typeof entry[1] === "string",
+      )
+      .map(([key, value]) => [key, value.trim()] as const)
+      .filter(([, value]) => value.length > 0);
+    if (entries.length === 0) return null;
+    return Object.fromEntries(entries);
+  } catch {
+    return null;
+  }
+}
+
+function getConfiguredOptionValues(q: SampleQuestion): string[] {
+  if (Array.isArray(q.options) && q.options.length > 0) {
+    return q.options.filter((entry): entry is string => typeof entry === "string");
+  }
+  const configOptions = (q.config as { options?: unknown } | undefined)?.options;
+  return Array.isArray(configOptions)
+    ? configOptions.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+/** True when a question is complete from the GM's perspective */
+function isQuestionComplete(q: SampleQuestion, rawAnswer: string | string[] | undefined): boolean {
+  if (!q.required) return true;
+  if (q.type === "photo") {
+    if (!q.config?.tagsEnabled || !q.config?.tagIds?.length) {
+      // No tag requirement — just need at least one photo
+      const state = decodePhotoAnswer(rawAnswer);
+      return state.photos.length > 0;
+    }
+    // Tag requirement — need photo(s) AND at least one selected tag
+    const state = decodePhotoAnswer(rawAnswer);
+    return state.photos.length > 0 && state.selectedTagIds.length > 0;
+  }
+  if (q.type === "yesnomulti") {
+    const parsed = parseYesNoMultiAnswer(rawAnswer);
+    return Boolean(parsed?.sel);
+  }
+  if (q.type === "matrix") {
+    return parseMatrixAnswer(q, rawAnswer) !== null;
+  }
+  if (q.type === "multiple") {
+    return Array.isArray(rawAnswer) && rawAnswer.length > 0;
+  }
+  if (q.type === "single") {
+    if (typeof rawAnswer !== "string") return false;
+    const normalized = rawAnswer.trim();
+    if (normalized.length === 0) return false;
+    const allowed = getConfiguredOptionValues(q);
+    return allowed.length === 0 ? true : allowed.includes(normalized);
+  }
+  if (q.type === "yesno") {
+    if (typeof rawAnswer !== "string") return false;
+    const normalized = rawAnswer.trim();
+    if (normalized.length === 0) return false;
+    const configured = getConfiguredOptionValues(q);
+    const allowed = configured.length > 0 ? configured : ["Ja", "Nein", "ja", "nein"];
+    return allowed.includes(normalized);
+  }
+  return normalizeAnswerForPersistence(q, rawAnswer) !== undefined;
+}
+
+/** True when a tagged photo question specifically is ready to proceed (covers both required and optional) */
+function isTaggedPhotoReady(q: SampleQuestion, rawAnswer: string | string[] | undefined): boolean {
+  if (q.type !== "photo") return true;
+  if (!q.config?.tagsEnabled || !q.config?.tagIds?.length) return true; // no tags configured
+  const state = decodePhotoAnswer(rawAnswer);
+  return state.photos.length > 0 && state.selectedTagIds.length > 0;
+}
+
+function normalizeAnswerForPersistence(
+  question: SampleQuestion,
+  rawAnswer: string | string[] | undefined,
+): string | string[] | undefined {
+  if (rawAnswer === undefined) return undefined;
+  if (question.type === "yesnomulti") {
+    const parsed = parseYesNoMultiAnswer(rawAnswer);
+    return parsed ? JSON.stringify(parsed) : undefined;
+  }
+  if (question.type === "matrix") {
+    const parsed = parseMatrixAnswer(question, rawAnswer);
+    if (!parsed) return undefined;
+    return Array.isArray(parsed) ? parsed : JSON.stringify(parsed);
+  }
+  if (Array.isArray(rawAnswer)) return rawAnswer.length > 0 ? rawAnswer : undefined;
+  if (question.type === "text" || question.type === "slider" || question.type === "likert") {
+    const normalized = rawAnswer.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+  if (question.type === "numeric") {
+    const normalized = rawAnswer.trim();
+    if (normalized.length === 0) return undefined;
+    if (/^-?$|^\.$|^-?\.$/.test(normalized)) return undefined;
+    const numeric = Number(normalized);
+    return Number.isFinite(numeric) ? normalized : undefined;
+  }
+  if (question.type === "single" || question.type === "yesno") {
+    const normalized = rawAnswer.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+  return rawAnswer;
+}
+
+const DEFAULT_SAMPLE_QUESTIONS: SampleQuestion[] = [
   {
     id: "q1",
     type: "yesno",
@@ -171,10 +430,14 @@ const SAMPLE_QUESTIONS: SampleQuestion[] = [
     id: "q9",
     type: "photo",
     text: "[Foto Upload] Mache ein Foto des Hauptregals.",
-    required: false,
+    required: true,
     moduleId: "m5",
     moduleName: "Dokumentation",
-    config: { instruction: "Bitte das gesamte Coke-Regal von vorne fotografieren." },
+    config: {
+      instruction: "Bitte das gesamte Coke-Regal von vorne fotografieren.",
+      tagsEnabled: true,
+      tagIds: ["tag-seed-regal", "tag-seed-preis", "tag-seed-aktion"],
+    },
   },
   {
     id: "q10",
@@ -203,7 +466,24 @@ const SAMPLE_QUESTIONS: SampleQuestion[] = [
   },
 ];
 
-const MHD_QUESTIONS: SampleQuestion[] = [
+// Ensure demo photo tags exist in the shared pool so q9 tag IDs resolve correctly
+const SEED_PHOTO_TAGS = [
+  { id: "tag-seed-regal", label: "Regal vollständig" },
+  { id: "tag-seed-preis", label: "Preisschild korrekt" },
+  { id: "tag-seed-aktion", label: "Aktionsfläche" },
+];
+if (typeof window !== "undefined") {
+  try {
+    const existing = JSON.parse(localStorage.getItem("admin_photo_tag_pool_v1") ?? "[]") as { id: string }[];
+    const existingIds = new Set(existing.map((t) => t.id));
+    const toAdd = SEED_PHOTO_TAGS.filter((t) => !existingIds.has(t.id));
+    if (toAdd.length > 0) {
+      localStorage.setItem("admin_photo_tag_pool_v1", JSON.stringify([...existing, ...toAdd]));
+    }
+  } catch { /* noop */ }
+}
+
+const DEFAULT_MHD_QUESTIONS: SampleQuestion[] = [
   {
     id: "mhd1",
     type: "yesno",
@@ -280,7 +560,7 @@ const MHD_QUESTIONS: SampleQuestion[] = [
   },
 ];
 
-const KUEHLER_QUESTIONS: SampleQuestion[] = [
+const DEFAULT_KUEHLER_QUESTIONS: SampleQuestion[] = [
   {
     id: "k1",
     type: "single",
@@ -510,6 +790,14 @@ interface QuestionCardProps {
   question: SampleQuestion;
   answer: string | string[] | undefined;
   onAnswer: (value: string | string[]) => void;
+  onPhotoSync?: (payload: {
+    questionId: string;
+    files: File[];
+    selectedTagIds: string[];
+  }) => Promise<void>;
+  photoCommittedMeta?: UploadedPhotoMeta[];
+  photoSyncBusy?: boolean;
+  photoSyncError?: string | null;
   direction: "forward" | "back";
   animKey: string;
   compact?: boolean;
@@ -646,8 +934,11 @@ function DatePickerMatrix({
     if (x + 220 > window.innerWidth) x = Math.max(8, window.innerWidth - 228);
     setCalPos({ x, y: above ? rect.top - CAL_H - 6 : rect.bottom + 6 });
     if (answers[cellKey]) {
-      const p = answers[cellKey].split("/");
-      if (p.length === 3) setCalSel({ year: 2000 + parseInt(p[2]), month: parseInt(p[1]) - 1 });
+      const iso = displayDateToIso(answers[cellKey]);
+      if (iso) {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+        if (match) setCalSel({ year: Number(match[1]), month: Number(match[2]) - 1 });
+      }
     } else {
       setCalSel({ year: TODAY.getFullYear(), month: TODAY.getMonth() });
     }
@@ -657,10 +948,10 @@ function DatePickerMatrix({
 
   const selectDate = (date: Date) => {
     if (!openCell) return;
-    const dd = String(date.getDate()).padStart(2, "0");
+    const yyyy = String(date.getFullYear());
     const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const yy = String(date.getFullYear()).slice(-2);
-    onAnswer({ ...answers, [openCell]: `${dd}/${mm}/${yy}` });
+    const dd = String(date.getDate()).padStart(2, "0");
+    onAnswer({ ...answers, [openCell]: `${yyyy}-${mm}-${dd}` });
     setOpenCell(null);
   };
 
@@ -684,8 +975,10 @@ function DatePickerMatrix({
   const days = buildDays(calSel.year, calSel.month);
   const openDateStr = openCell ? answers[openCell] : null;
   const openDate = openDateStr ? (() => {
-    const p = openDateStr.split("/");
-    return p.length === 3 ? new Date(2000 + parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])) : null;
+    const iso = displayDateToIso(openDateStr);
+    if (!iso) return null;
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
   })() : null;
 
   const btnBase = { border: "none", cursor: "pointer", borderRadius: 8, transition: "all 0.12s ease", display: "flex", alignItems: "center", justifyContent: "center" } as React.CSSProperties;
@@ -819,7 +1112,7 @@ function DatePickerMatrix({
                         onClick={(e) => handleCellClick(cellKey, e)}
                         style={{ width: "100%", padding: "7px 2px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 9, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", transition: "all 0.14s ease", background: isOpen ? `${accentColor}14` : dateStr ? `${accentColor}0a` : "rgba(0,0,0,0.03)", color: isOpen ? accentColor : dateStr ? accentColor : "rgba(0,0,0,0.35)", boxShadow: isOpen ? `inset 0 0 0 1px ${accentColor}70` : dateStr ? `inset 0 0 0 1px ${accentColor}35` : "inset 0 0 0 1px rgba(0,0,0,0.06)" }}
                       >
-                        {dateStr ?? "—"}
+                        {dateStr ? isoToDisplayDate(dateStr) : "—"}
                       </button>
                     </td>
                   );
@@ -1019,9 +1312,28 @@ function QuestionImage({ url, compact }: { url: string; compact?: boolean }) {
   );
 }
 
-function QuestionCard({ question, answer, onAnswer, direction, animKey, compact }: QuestionCardProps) {
+function QuestionCard({
+  question,
+  answer,
+  onAnswer,
+  onPhotoSync,
+  photoCommittedMeta = [],
+  photoSyncBusy = false,
+  photoSyncError = null,
+  direction,
+  animKey,
+  compact,
+}: QuestionCardProps) {
   const fromX = direction === "forward" ? 24 : -24;
   const cfg = question.config ?? {};
+  const yesNoOptions = (
+    Array.isArray(question.options) && question.options.length > 0
+      ? question.options
+      : Array.isArray((cfg as Record<string, unknown>).options)
+        ? ((cfg as Record<string, unknown>).options as unknown[])
+            .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+        : ["Ja", "Nein"]
+  );
 
   // helpers
   const multiAnswers: string[] = Array.isArray(answer) ? answer : [];
@@ -1045,6 +1357,19 @@ function QuestionCard({ question, answer, onAnswer, direction, animKey, compact 
   const [textVal, setTextVal] = React.useState<string>(() =>
     typeof answer === "string" ? answer : ""
   );
+
+  React.useEffect(() => {
+    const nextSlider = Number(answer);
+    setSliderVal(isNaN(nextSlider) ? Number(cfg.min ?? 0) : nextSlider);
+  }, [answer, cfg.min, question.id]);
+
+  React.useEffect(() => {
+    setNumInput(answer !== undefined && answer !== "" ? String(answer) : "");
+  }, [answer, question.id]);
+
+  React.useEffect(() => {
+    setTextVal(typeof answer === "string" ? answer : "");
+  }, [answer, question.id]);
 
   return (
     <div
@@ -1076,7 +1401,7 @@ function QuestionCard({ question, answer, onAnswer, direction, animKey, compact 
       {/* ── YA / NEIN ── */}
       {question.type === "yesno" && (
         <div style={{ display: "flex", gap: 7 }}>
-          {["Ja", "Nein"].map((opt) => {
+          {yesNoOptions.map((opt) => {
             const selected = answer === opt;
             return (
               <button
@@ -1407,7 +1732,7 @@ function QuestionCard({ question, answer, onAnswer, direction, animKey, compact 
             inputMode={cfg.decimals ? "decimal" : "numeric"}
             value={numInput}
             onChange={(e) => {
-              const v = e.target.value.replace(cfg.decimals ? /[^0-9.]/g : /[^0-9]/g, "");
+              const v = sanitizeNumericDraftInput(e.target.value, Boolean(cfg.decimals));
               setNumInput(v);
               onAnswer(v);
             }}
@@ -1485,14 +1810,53 @@ function QuestionCard({ question, answer, onAnswer, direction, animKey, compact 
 
       {/* ── FOTO UPLOAD ── */}
       {question.type === "photo" && (() => {
-        const photos = Array.isArray(answer) ? (answer as string[]) : [];
+        const photoState = decodePhotoAnswer(answer);
+        const photos = photoState.photos;
+        const previewPhotos = photos.filter(isPreviewablePhotoSrc);
+        const fallbackArtifacts = (photoCommittedMeta.length > 0
+          ? photoCommittedMeta.map((meta) => meta.storagePath)
+          : photos
+        ).filter((value) => !isPreviewablePhotoSrc(value));
+        const fallbackLabels = Array.from(new Set(fallbackArtifacts.map(photoArtifactLabel)));
+        const tagsEnabled = Boolean(cfg?.tagsEnabled) && Array.isArray(cfg?.tagIds) && (cfg.tagIds as string[]).length > 0;
+        const configuredTagIds: string[] = tagsEnabled ? (cfg.tagIds as string[]) : [];
+
+        // Resolve tag labels from backend-provided config metadata
+        const resolvedTags = configuredTagIds.map((id) => {
+          const configTagMeta = Array.isArray(cfg?.tagMeta)
+            ? (cfg.tagMeta as Array<{ id: string; label: string; deletedAt: string | null }>).find((entry) => entry.id === id)
+            : null;
+          return configTagMeta ?? { id, label: id, deletedAt: null };
+        });
+
+        const selectedTagIds = photoState.selectedTagIds;
+
+        const handlePhotos = (urls: string[]) => {
+          const next: PhotoAnswerState = { ...photoState, photos: urls };
+          onAnswer(encodePhotoAnswer(next));
+        };
+        const toggleTag = async (id: string) => {
+          const next = selectedTagIds.includes(id)
+            ? selectedTagIds.filter((t) => t !== id)
+            : [...selectedTagIds, id];
+          onAnswer(encodePhotoAnswer({ ...photoState, selectedTagIds: next }));
+          if (onPhotoSync && photoState.photos.length > 0) {
+            await onPhotoSync({
+              questionId: question.id,
+              files: [],
+              selectedTagIds: next,
+            });
+          }
+        };
+
         return (
           <div>
-            {cfg.instruction && (
+            {cfg?.instruction && (
               <p style={{ fontSize: 11, color: "rgba(0,0,0,0.45)", fontStyle: "italic", margin: "0 0 10px" }}>
                 {cfg.instruction}
               </p>
             )}
+            {/* Upload area */}
             <label style={{
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
               padding: "16px 12px",
@@ -1510,19 +1874,109 @@ function QuestionCard({ question, answer, onAnswer, direction, animKey, compact 
                 style={{ display: "none" }}
                 onChange={(e) => {
                   const files = Array.from(e.target.files ?? []);
-                  const readers = files.map((f) => new Promise<string>((res) => {
-                    const r = new FileReader();
-                    r.onload = () => res(r.result as string);
-                    r.readAsDataURL(f);
-                  }));
-                  Promise.all(readers).then((urls) => {
-                    onAnswer([...photos, ...urls]);
-                  });
+                  const objectUrls = files.map((file) => URL.createObjectURL(file));
+                  handlePhotos([...photos, ...objectUrls]);
+                  if (onPhotoSync && files.length > 0) {
+                    void onPhotoSync({
+                      questionId: question.id,
+                      files,
+                      selectedTagIds,
+                    });
+                  }
                 }}
               />
             </label>
-            {photos.length > 0 && (
-              <PhotoLightbox photos={photos} />
+            {previewPhotos.length > 0 && (
+              <PhotoLightbox photos={previewPhotos} />
+            )}
+            {fallbackLabels.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", marginBottom: 6 }}>
+                  Gespeicherte Fotos
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {fallbackLabels.map((label) => (
+                    <span
+                      key={label}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: "rgba(0,0,0,0.55)",
+                        background: "rgba(0,0,0,0.05)",
+                      }}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {photoSyncBusy && (
+              <div style={{ marginTop: 8, fontSize: 10, color: "rgba(0,0,0,0.45)" }}>Fotos werden gespeichert...</div>
+            )}
+            {photoSyncError && (
+              <div style={{ marginTop: 8, fontSize: 10, color: "rgba(220,38,38,0.85)", fontWeight: 600 }}>{photoSyncError}</div>
+            )}
+            {/* Tag selection — only shown when admin configured tags for this question */}
+            {tagsEnabled && resolvedTags.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                  <Tag size={10} strokeWidth={2} color="rgba(0,0,0,0.35)" />
+                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.35)" }}>
+                    Tags
+                  </span>
+                  {selectedTagIds.length === 0 && (
+                    <span style={{ fontSize: 9, color: "rgba(220,38,38,0.7)", fontWeight: 600, marginLeft: 2 }}>— mind. 1 auswählen</span>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                  {resolvedTags.map((tag) => {
+                    const isDeleted = !!tag.deletedAt;
+                    const isSelected = selectedTagIds.includes(tag.id);
+                    return (
+                      <button
+                        key={tag.id}
+                        onClick={() => {
+                          void toggleTag(tag.id);
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 5,
+                          padding: "8px 14px",
+                          borderRadius: 99,
+                          border: isSelected
+                            ? "1.5px solid rgba(220,38,38,0.5)"
+                            : isDeleted
+                              ? "1.5px solid rgba(0,0,0,0.08)"
+                              : "1.5px solid rgba(0,0,0,0.12)",
+                          background: isSelected
+                            ? "linear-gradient(to bottom, #DC2626, #b91c1c)"
+                            : "rgba(255,255,255,0.7)",
+                          color: isSelected ? "#fff" : isDeleted ? "rgba(0,0,0,0.28)" : "#1a1a1a",
+                          fontSize: 12, fontWeight: isSelected ? 700 : 500,
+                          cursor: "pointer",
+                          boxShadow: isSelected
+                            ? "inset 0 1px 0.6px rgba(255,255,255,0.2), 0 0 0 1px #a91b1b, 0 1px 4px rgba(180,20,20,0.2)"
+                            : "0 1px 3px rgba(0,0,0,0.06)",
+                          transition: "all 0.15s ease",
+                          backdropFilter: "blur(4px)",
+                          WebkitBackdropFilter: "blur(4px)",
+                          fontFamily: "inherit",
+                          opacity: isDeleted && !isSelected ? 0.55 : 1,
+                          textDecoration: isDeleted ? "line-through" : "none",
+                          minHeight: 38, // comfortable tap target
+                        }}
+                      >
+                        {isSelected && <Check size={11} strokeWidth={3} />}
+                        {tag.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
         );
@@ -1530,10 +1984,41 @@ function QuestionCard({ question, answer, onAnswer, direction, animKey, compact 
 
       {/* ── MATRIX ── */}
       {question.type === "matrix" && cfg.rows && cfg.columns && (() => {
+        if (cfg.matrixSubtype === "datum") {
+          let dateVals: Record<string, string> = {};
+          if (typeof answer === "string" && answer.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(answer) as Record<string, unknown>;
+              dateVals = Object.fromEntries(
+                Object.entries(parsed)
+                  .filter(
+                    (entry): entry is [string, string] =>
+                      typeof entry[0] === "string" &&
+                      typeof entry[1] === "string",
+                  ),
+              );
+            } catch {
+              dateVals = {};
+            }
+          }
+          return (
+            <DatePickerMatrix
+              rows={cfg.rows!}
+              cols={cfg.columns!}
+              answers={dateVals}
+              onAnswer={(vals) => onAnswer(JSON.stringify(vals))}
+            />
+          );
+        }
         if (cfg.matrixSubtype === "freitext") {
-          const freeVals: Record<string, string> = (typeof answer === "string" && answer.startsWith("{"))
-            ? JSON.parse(answer) as Record<string, string>
-            : {};
+          let freeVals: Record<string, string> = {};
+          if (typeof answer === "string" && answer.startsWith("{")) {
+            try {
+              freeVals = JSON.parse(answer) as Record<string, string>;
+            } catch {
+              freeVals = {};
+            }
+          }
           return (
             <FreeInputMatrix
               rows={cfg.rows!}
@@ -1561,6 +2046,8 @@ interface JumpNavigatorProps {
   kuehlerAnswers: Record<string, string | string[]>;
   answers: Record<string, string | string[]>;
   currentIndex: number;
+  currentKuehlerIndex: number;
+  currentMhdIndex: number;
   onJump: (index: number) => void;
   onJumpKuehler: (index: number) => void;
   onJumpMhd: (index: number) => void;
@@ -1572,6 +2059,7 @@ interface JumpNavigatorProps {
 
 function JumpNavigator({
   questions, mhdQuestions, mhdAnswers, kuehlerQuestions, kuehlerAnswers, answers, currentIndex,
+  currentKuehlerIndex, currentMhdIndex,
   onJump, onJumpKuehler, onJumpMhd, onClose, isOpen,
   flashSections = [], flashModules = [],
 }: JumpNavigatorProps) {
@@ -1757,8 +2245,8 @@ function JumpNavigator({
           <style>{`.nav-scroll::-webkit-scrollbar { display: none; }`}</style>
           <div className="nav-scroll">
             {activeNavSection === "fragebogen" && renderGroups(fragebogenGroups, answers, "#DC2626", handlePillTap, currentIndex)}
-            {activeNavSection === "kuehler"    && renderGroups(kuehlerGroups, kuehlerAnswers, "#d97706", (idx) => { onJumpKuehler(idx); onClose(); })}
-            {activeNavSection === "mhd"        && renderGroups(mhdGroups, mhdAnswers, "#7C3AED", (idx) => { onJumpMhd(idx); onClose(); })}
+            {activeNavSection === "kuehler"    && renderGroups(kuehlerGroups, kuehlerAnswers, "#d97706", (idx) => { onJumpKuehler(idx); onClose(); }, currentKuehlerIndex)}
+            {activeNavSection === "mhd"        && renderGroups(mhdGroups, mhdAnswers, "#7C3AED", (idx) => { onJumpMhd(idx); onClose(); }, currentMhdIndex)}
           </div>
         </div>
       </div>
@@ -1869,6 +2357,18 @@ function MarktbesuchInner() {
   const params = useSearchParams();
   const chain = params.get("chain") || "Markt";
   const address = params.get("address") || "";
+  const marketId = params.get("marketId") || "";
+  const campaignIdsParam = params.get("campaignIds") || "";
+  const sessionIdFromParams = params.get("sessionId") || "";
+  const campaignIds = useMemo(
+    () =>
+      campaignIdsParam
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    [campaignIdsParam],
+  );
+  const hasVisitStartParams = Boolean(marketId) && campaignIds.length > 0;
 
   // Phase state
   const [phase, setPhase] = useState<Phase>("idle");
@@ -1916,6 +2416,436 @@ function MarktbesuchInner() {
   const [bisVal, setBisVal] = useState("");
   const [comment, setComment] = useState("");
   const [clockTarget, setClockTarget] = useState<"von" | "bis" | null>(null);
+  const [visitStartLoading, setVisitStartLoading] = useState(false);
+  const [visitStartError, setVisitStartError] = useState<string | null>(null);
+  const [visitStartRetryNonce, setVisitStartRetryNonce] = useState(0);
+  const [visitSections, setVisitSections] = useState<GmVisitStartSection[]>([]);
+  const [visitSessionId, setVisitSessionId] = useState<string | null>(null);
+  const [visitBootstrapDone, setVisitBootstrapDone] = useState(false);
+  const [isSubmittingSession, setIsSubmittingSession] = useState(false);
+  const [submitSessionError, setSubmitSessionError] = useState<string | null>(null);
+  const [photoSyncBusyByQuestionId, setPhotoSyncBusyByQuestionId] = useState<Record<string, boolean>>({});
+  const [photoSyncErrorByQuestionId, setPhotoSyncErrorByQuestionId] = useState<Record<string, string | null>>({});
+  const [photoMetaByQuestionId, setPhotoMetaByQuestionId] = useState<Record<string, UploadedPhotoMeta[]>>({});
+  const [photoAnswerIdByQuestionId, setPhotoAnswerIdByQuestionId] = useState<Record<string, string>>({});
+  const persistTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const persistFlushersRef = useRef<Record<string, () => Promise<void>>>({});
+  const persistInFlightRef = useRef<Record<string, Promise<void>>>({});
+  const lastPersistSigRef = useRef<Record<string, string>>({});
+
+  const setSessionIdInUrl = useCallback((sessionId: string) => {
+    const next = new URLSearchParams(params.toString());
+    if (next.get("sessionId") === sessionId) return;
+    next.set("sessionId", sessionId);
+    router.replace(`?${next.toString()}`, { scroll: false });
+  }, [params, router]);
+
+  const hydrateFromSessionPayload = useCallback((payload: GmVisitSessionReadPayload) => {
+    const nextFragebogenAnswers: Record<string, string | string[]> = {};
+    const nextKuehlerAnswers: Record<string, string | string[]> = {};
+    const nextMhdAnswers: Record<string, string | string[]> = {};
+    const nextComments: Record<string, string> = {};
+    const nextPhotoMetaByQuestionId: Record<string, UploadedPhotoMeta[]> = {};
+    const nextPhotoAnswerIdByQuestionId: Record<string, string> = {};
+
+    const writeAnswer = (
+      section: "standard" | "flex" | "billa" | "kuehler" | "mhd",
+      questionId: string,
+      value: string | string[] | undefined,
+    ) => {
+      if (value === undefined) return;
+      if (section === "kuehler") {
+        nextKuehlerAnswers[questionId] = value;
+        return;
+      }
+      if (section === "mhd") {
+        nextMhdAnswers[questionId] = value;
+        return;
+      }
+      nextFragebogenAnswers[questionId] = value;
+    };
+
+    for (const section of payload.sections ?? []) {
+      for (const question of section.questions ?? []) {
+        const answer = question.answer;
+        if (!answer) {
+          if ((question.comment ?? "").trim().length > 0) {
+            nextComments[question.id] = question.comment;
+          }
+          continue;
+        }
+        let uiValue: string | string[] | undefined;
+        if (question.type === "multiple") {
+          uiValue = (answer.options ?? [])
+            .filter((opt) => opt.optionRole === "sub")
+            .map((opt) => opt.optionValue);
+        } else if (question.type === "yesnomulti") {
+          const top = (answer.options ?? []).find((opt) => opt.optionRole === "top")?.optionValue ?? "";
+          const subs = (answer.options ?? [])
+            .filter((opt) => opt.optionRole === "sub")
+            .sort((a, b) => a.orderIndex - b.orderIndex)
+            .map((opt) => opt.optionValue);
+          uiValue = top ? JSON.stringify({ sel: top, subs }) : undefined;
+        } else if (question.type === "matrix") {
+          const subtype = String((question.config ?? {}).matrixSubtype ?? "toggle");
+          if (subtype === "toggle") {
+            uiValue = (answer.matrixCells ?? [])
+              .filter((cell) => cell.cellSelected)
+              .sort((a, b) => a.orderIndex - b.orderIndex)
+              .map((cell) => `${cell.rowKey}: ${cell.columnKey}`);
+          } else if (subtype === "datum") {
+            const mapped = Object.fromEntries(
+              (answer.matrixCells ?? [])
+                .sort((a, b) => a.orderIndex - b.orderIndex)
+                .map((cell) => [`${cell.rowKey}: ${cell.columnKey}`, cell.cellValueDate ?? ""]),
+            );
+            uiValue = JSON.stringify(mapped);
+          } else {
+            const mapped = Object.fromEntries(
+              (answer.matrixCells ?? [])
+                .sort((a, b) => a.orderIndex - b.orderIndex)
+                .map((cell) => [`${cell.rowKey}: ${cell.columnKey}`, cell.cellValueText ?? ""]),
+            );
+            uiValue = JSON.stringify(mapped);
+          }
+        } else if (question.type === "photo") {
+          const selectedTagIds = Array.from(
+            new Set(
+              (answer.photos ?? []).flatMap((photo) =>
+                (photo.tags ?? [])
+                  .map((tag) => tag.photoTagId)
+                  .filter((tagId): tagId is string => typeof tagId === "string" && tagId.length > 0),
+              ),
+            ),
+          );
+          const photos = (answer.photos ?? []).map((photo) => photo.storagePath);
+          uiValue = encodePhotoAnswer({ photos, selectedTagIds });
+          nextPhotoMetaByQuestionId[question.id] = (answer.photos ?? []).map((photo) => ({
+            storageBucket: photo.storageBucket,
+            storagePath: photo.storagePath,
+            mimeType: photo.mimeType ?? undefined,
+            byteSize: photo.byteSize ?? undefined,
+            widthPx: photo.widthPx ?? undefined,
+            heightPx: photo.heightPx ?? undefined,
+            sha256: photo.sha256 ?? undefined,
+          }));
+          nextPhotoAnswerIdByQuestionId[question.id] = answer.id;
+        } else if (question.type === "numeric" || question.type === "slider" || question.type === "likert") {
+          uiValue = answer.valueNumber ?? answer.valueText ?? undefined;
+        } else {
+          uiValue = answer.valueText ?? undefined;
+        }
+        writeAnswer(section.section, question.id, uiValue);
+        if ((question.comment ?? "").trim().length > 0) {
+          nextComments[question.id] = question.comment;
+        }
+      }
+    }
+
+    setVisitSessionId(payload.session.id);
+    setVisitSections((payload.sections ?? []).map((section) => ({
+      section: section.section,
+      campaignId: section.campaignId,
+      campaignName: section.campaignName,
+      fragebogenId: section.fragebogenId ?? "",
+      fragebogenName: section.fragebogenName,
+      questions: section.questions.map((question) => ({
+        id: question.id,
+        questionId: question.questionId,
+        type: question.type,
+        text: question.text,
+        required: question.required,
+        config: question.config,
+        rules: (question.rules ?? [])
+          .map((rule) => ({
+            id: typeof rule.id === "string" ? rule.id : undefined,
+            triggerQuestionId: typeof rule.triggerQuestionId === "string" ? rule.triggerQuestionId : "",
+            operator: typeof rule.operator === "string" ? rule.operator : "equals",
+            triggerValue: typeof rule.triggerValue === "string" ? rule.triggerValue : "",
+            triggerValueMax: typeof rule.triggerValueMax === "string" ? rule.triggerValueMax : "",
+            action: (rule.action === "show" ? "show" : "hide") as "show" | "hide",
+            targetQuestionIds: Array.isArray(rule.targetQuestionIds)
+              ? rule.targetQuestionIds.filter((entry): entry is string => typeof entry === "string")
+              : [],
+          }))
+          .filter((rule) => rule.triggerQuestionId.length > 0 && rule.targetQuestionIds.length > 0),
+        scoring: {},
+        chains: question.chains ?? [],
+        appliesToMarketChain: question.appliesToMarketChain ?? true,
+        options: Array.isArray((question.config ?? {}).options) ? ((question.config ?? {}).options as string[]) : undefined,
+        moduleId: "",
+        moduleName: "",
+      })),
+    })));
+    setAnswers(nextFragebogenAnswers);
+    setKuehlerAnswers(nextKuehlerAnswers);
+    setMhdAnswers(nextMhdAnswers);
+    setQuestionComments(nextComments);
+    setPhotoMetaByQuestionId(nextPhotoMetaByQuestionId);
+    setPhotoAnswerIdByQuestionId(nextPhotoAnswerIdByQuestionId);
+    setSessionIdInUrl(payload.session.id);
+  }, [params, setSessionIdInUrl]);
+
+  useEffect(() => {
+    if (!hasVisitStartParams || visitBootstrapDone) return;
+    let active = true;
+    setVisitStartLoading(true);
+    setVisitStartError(null);
+    const run = async () => {
+      try {
+        const resumeId = sessionIdFromParams.trim();
+        if (resumeId) {
+          const payload = await fetchGmVisitSession(resumeId);
+          if (!active) return;
+          hydrateFromSessionPayload(payload);
+          setVisitBootstrapDone(true);
+          return;
+        }
+        const clientSessionToken = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).slice(0, 120);
+        const payload = await createGmVisitSession({ marketId, campaignIds, clientSessionToken });
+        if (!active) return;
+        const hydratedPayload = await fetchGmVisitSession(payload.session.id);
+        if (!active) return;
+        hydrateFromSessionPayload(hydratedPayload);
+        setVisitBootstrapDone(true);
+      } catch (error) {
+        if (!active) return;
+        setVisitSessionId(null);
+        setVisitSections([]);
+        const message = error instanceof Error ? error.message : "Visit-Start Daten konnten nicht geladen werden.";
+        setVisitStartError(message);
+      } finally {
+        if (!active) return;
+        setVisitStartLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      active = false;
+    };
+  }, [
+    campaignIds,
+    hasVisitStartParams,
+    hydrateFromSessionPayload,
+    marketId,
+    sessionIdFromParams,
+    setSessionIdInUrl,
+    visitBootstrapDone,
+    visitStartRetryNonce,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(persistTimersRef.current).forEach((timer) => clearTimeout(timer));
+      persistTimersRef.current = {};
+      persistFlushersRef.current = {};
+      persistInFlightRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    if (visitSessionId) return;
+    setPhotoSyncBusyByQuestionId({});
+    setPhotoSyncErrorByQuestionId({});
+    setPhotoMetaByQuestionId({});
+    setPhotoAnswerIdByQuestionId({});
+  }, [visitSessionId]);
+
+  const dynamicQuestionSets = useMemo<{ fragebogen: SampleQuestion[]; kuehler: SampleQuestion[]; mhd: SampleQuestion[] }>(() => {
+    if (!hasVisitStartParams) {
+      return {
+        fragebogen: DEFAULT_SAMPLE_QUESTIONS,
+        kuehler: DEFAULT_KUEHLER_QUESTIONS,
+        mhd: DEFAULT_MHD_QUESTIONS,
+      };
+    }
+    const ordered = [...visitSections].sort((left, right) => {
+      const order = ["standard", "flex", "billa", "kuehler", "mhd"] as const;
+      const li = order.indexOf(left.section);
+      const ri = order.indexOf(right.section);
+      if (li !== ri) return li - ri;
+      return 0;
+    });
+    const fragebogen = ordered
+      .filter((entry) => entry.section === "standard" || entry.section === "flex" || entry.section === "billa")
+      .flatMap((entry) => entry.questions.map((question) => mapVisitQuestionToSample(entry, question)));
+    const kuehler = ordered
+      .filter((entry) => entry.section === "kuehler")
+      .flatMap((entry) => entry.questions.map((question) => mapVisitQuestionToSample(entry, question)));
+    const mhd = ordered
+      .filter((entry) => entry.section === "mhd")
+      .flatMap((entry) => entry.questions.map((question) => mapVisitQuestionToSample(entry, question)));
+    return { fragebogen, kuehler, mhd };
+  }, [hasVisitStartParams, visitSections]);
+
+  const SAMPLE_QUESTIONS = dynamicQuestionSets.fragebogen;
+  const KUEHLER_QUESTIONS = dynamicQuestionSets.kuehler;
+  const MHD_QUESTIONS = dynamicQuestionSets.mhd;
+
+  const allRenderedQuestions = useMemo(
+    () => [...SAMPLE_QUESTIONS, ...KUEHLER_QUESTIONS, ...MHD_QUESTIONS],
+    [SAMPLE_QUESTIONS, KUEHLER_QUESTIONS, MHD_QUESTIONS],
+  );
+
+  const answerByQuestionId = useMemo(() => {
+    const map = new Map<string, string | string[] | undefined>();
+    for (const q of SAMPLE_QUESTIONS) map.set(q.id, answers[q.id]);
+    for (const q of KUEHLER_QUESTIONS) map.set(q.id, kuehlerAnswers[q.id]);
+    for (const q of MHD_QUESTIONS) map.set(q.id, mhdAnswers[q.id]);
+    return map;
+  }, [KUEHLER_QUESTIONS, MHD_QUESTIONS, SAMPLE_QUESTIONS, answers, kuehlerAnswers, mhdAnswers]);
+
+  const chainHiddenQuestionIds = useMemo(
+    () =>
+      new Set(
+        allRenderedQuestions
+          .filter((question) => question.appliesToMarketChain === false)
+          .map((question) => question.id),
+      ),
+    [allRenderedQuestions],
+  );
+
+  const hiddenQuestionIds = useMemo(() => {
+    const ruleEligibleQuestions = allRenderedQuestions.filter((question) => !chainHiddenQuestionIds.has(question.id));
+    const ruleHiddenQuestionIds = computeRuleHiddenQuestionIds(ruleEligibleQuestions, answerByQuestionId);
+    return new Set<string>([...chainHiddenQuestionIds, ...ruleHiddenQuestionIds]);
+  }, [allRenderedQuestions, answerByQuestionId, chainHiddenQuestionIds]);
+
+  const handlePhotoSync = useCallback(
+    async (payload: { questionId: string; files: File[]; selectedTagIds: string[] }) => {
+      if (!visitSessionId) return;
+      setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: true }));
+      setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: null }));
+      try {
+        const existingAnswerId = photoAnswerIdByQuestionId[payload.questionId] ?? null;
+        const answerId = existingAnswerId
+          ? existingAnswerId
+          : (await saveGmVisitAnswer({
+              sessionId: visitSessionId,
+              visitQuestionId: payload.questionId,
+            })).result.answerId;
+        if (!answerId) throw new Error("Foto-Antwort konnte nicht initialisiert werden.");
+        if (!existingAnswerId) {
+          setPhotoAnswerIdByQuestionId((prev) => ({ ...prev, [payload.questionId]: answerId }));
+        }
+
+        const existingMeta = photoMetaByQuestionId[payload.questionId] ?? [];
+        const uploadedMeta: UploadedPhotoMeta[] = [];
+        for (const file of payload.files) {
+          const ext = (file.name.split(".").pop() ?? "jpg").toLowerCase();
+          const presign = await presignGmVisitPhoto({
+            sessionId: visitSessionId,
+            visitAnswerId: answerId,
+            extension: ext,
+          });
+          const uploadResponse = await fetch(presign.upload.signedUrl, {
+            method: "PUT",
+            headers: {
+              "content-type": file.type || "application/octet-stream",
+            },
+            body: file,
+          });
+          if (!uploadResponse.ok) {
+            throw new Error("Foto-Upload fehlgeschlagen.");
+          }
+          uploadedMeta.push({
+            storageBucket: presign.upload.bucket,
+            storagePath: presign.upload.path,
+            mimeType: file.type || undefined,
+            byteSize: file.size,
+          });
+        }
+
+        const mergedMeta = payload.files.length > 0 ? [...existingMeta, ...uploadedMeta] : existingMeta;
+        await commitGmVisitPhotos({
+          sessionId: visitSessionId,
+          visitAnswerId: answerId,
+          photos: mergedMeta.map((meta) => ({
+            ...meta,
+            photoTagIds: payload.selectedTagIds,
+          })),
+        });
+        setPhotoMetaByQuestionId((prev) => ({ ...prev, [payload.questionId]: mergedMeta }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Fotos konnten nicht gespeichert werden.";
+        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: message }));
+      } finally {
+        setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: false }));
+      }
+    },
+    [photoAnswerIdByQuestionId, photoMetaByQuestionId, visitSessionId],
+  );
+
+  useEffect(() => {
+    if (!visitSessionId || allRenderedQuestions.length === 0) return;
+    for (const question of allRenderedQuestions) {
+      const answerValue = answerByQuestionId.get(question.id);
+      const commentValue = questionComments[question.id] ?? "";
+      const isPhoto = question.type === "photo";
+      const normalizedAnswer = isPhoto ? undefined : normalizeAnswerForPersistence(question, answerValue);
+      const hasAnswer = normalizedAnswer !== undefined;
+      const hasData = isPhoto ? commentValue.trim().length > 0 : hasAnswer || commentValue.trim().length > 0;
+      const answerToPersist = normalizedAnswer;
+      const nextSig = JSON.stringify({ answer: answerToPersist ?? null, comment: commentValue });
+      const previousSig = lastPersistSigRef.current[question.id];
+      if (!hasData && !previousSig) continue;
+      if (previousSig === nextSig) continue;
+
+      const existingTimer = persistTimersRef.current[question.id];
+      if (existingTimer) clearTimeout(existingTimer);
+      const runPersist = async () => {
+        await saveGmVisitAnswer({
+          sessionId: visitSessionId,
+          visitQuestionId: question.id,
+          answer: answerToPersist,
+          comment: commentValue,
+        });
+        if (hasData) {
+          lastPersistSigRef.current[question.id] = nextSig;
+        } else {
+          delete lastPersistSigRef.current[question.id];
+        }
+      };
+      persistFlushersRef.current[question.id] = runPersist;
+      persistTimersRef.current[question.id] = setTimeout(() => {
+        delete persistTimersRef.current[question.id];
+        const persistPromise = runPersist()
+          .catch((error) => {
+            console.error("visit answer save failed", error);
+            throw error;
+          })
+          .finally(() => {
+            if (persistInFlightRef.current[question.id] === persistPromise) {
+              delete persistInFlightRef.current[question.id];
+            }
+            if (persistFlushersRef.current[question.id] === runPersist) {
+              delete persistFlushersRef.current[question.id];
+            }
+          });
+        persistInFlightRef.current[question.id] = persistPromise;
+        void persistPromise;
+      }, 320);
+    }
+  }, [
+    allRenderedQuestions,
+    answerByQuestionId,
+    questionComments,
+    visitSessionId,
+  ]);
+
+  useEffect(() => {
+    if (SAMPLE_QUESTIONS.length > 0) {
+      setActiveSection("fragebogen");
+      return;
+    }
+    if (KUEHLER_QUESTIONS.length > 0) {
+      setActiveSection("kuehler");
+      return;
+    }
+    if (MHD_QUESTIONS.length > 0) {
+      setActiveSection("mhd");
+    }
+  }, [SAMPLE_QUESTIONS.length, KUEHLER_QUESTIONS.length, MHD_QUESTIONS.length]);
 
   // Timer logic
   useEffect(() => {
@@ -1960,16 +2890,185 @@ function MarktbesuchInner() {
     }, 260);
   }
 
+  const flushPendingAnswerSaves = useCallback(async (): Promise<{ ok: boolean; failedQuestionIds: string[] }> => {
+    const pendingFlushers = { ...persistFlushersRef.current };
+    Object.values(persistTimersRef.current).forEach((timer) => clearTimeout(timer));
+    persistTimersRef.current = {};
+    persistFlushersRef.current = {};
+
+    const immediateEntries = Object.entries(pendingFlushers);
+    const immediatePromises = immediateEntries.map(([questionId, runPersist]) => {
+      const promise = runPersist()
+        .catch((error) => {
+          console.error("visit answer immediate flush failed", error);
+          throw error;
+        })
+        .finally(() => {
+          if (persistInFlightRef.current[questionId] === promise) {
+            delete persistInFlightRef.current[questionId];
+          }
+        });
+      persistInFlightRef.current[questionId] = promise;
+      return { questionId, promise };
+    });
+
+    const immediateResults = await Promise.allSettled(
+      immediatePromises.map(({ promise }) => promise),
+    );
+    const immediateFailed = immediateResults.flatMap((result, idx) =>
+      result.status === "rejected" ? [immediatePromises[idx]?.questionId ?? ""] : [],
+    );
+
+    const inFlightEntries = Object.entries(persistInFlightRef.current);
+    const inFlightResults = await Promise.allSettled(
+      inFlightEntries.map(([, promise]) => promise),
+    );
+    const inFlightFailed = inFlightResults.flatMap((result, idx) =>
+      result.status === "rejected" ? [inFlightEntries[idx]?.[0] ?? ""] : [],
+    );
+
+    const failedQuestionIds = Array.from(new Set([...immediateFailed, ...inFlightFailed].filter((id) => id.length > 0)));
+    return { ok: failedQuestionIds.length === 0, failedQuestionIds };
+  }, []);
+
+  async function handleSubmitVisit() {
+    setSubmitSessionError(null);
+    if (!visitSessionId) {
+      transitionTo("confirm");
+      return;
+    }
+    setIsSubmittingSession(true);
+    try {
+      const flushResult = await flushPendingAnswerSaves();
+      if (!flushResult.ok) {
+        setSubmitSessionError("Speichern der Antworten fehlgeschlagen. Bitte kurz warten und erneut versuchen.");
+        return;
+      }
+
+      const localMissing = computeMissingRequired();
+      if (localMissing.all.length > 0) {
+        setSubmitSessionError("Nicht alle Pflichtfragen sind vollständig beantwortet.");
+        triggerMissingHighlight(localMissing.all.map((q) => q.id));
+        return;
+      }
+
+      const requiredPhotoCommitCheck = await ensureRequiredPhotoArtifactsCommitted();
+      if (!requiredPhotoCommitCheck.ok) {
+        setSubmitSessionError(requiredPhotoCommitCheck.message ?? "Nicht alle Pflichtfragen sind vollständig beantwortet.");
+        if (requiredPhotoCommitCheck.missingIds.length > 0) {
+          triggerMissingHighlight(requiredPhotoCommitCheck.missingIds);
+        }
+        return;
+      }
+
+      await submitGmVisitSession(visitSessionId);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
+      }
+      transitionTo("confirm");
+    } catch (error) {
+      if (error instanceof BackendApiError && error.code === "visit_submit_incomplete_required") {
+        const payload = error.data as { missingRequired?: Array<{ visitQuestionId?: string; questionText?: string }> };
+        const missing = Array.isArray(payload.missingRequired) ? payload.missingRequired : [];
+        const missingIds = missing
+          .map((entry) => (typeof entry.visitQuestionId === "string" ? entry.visitQuestionId : ""))
+          .filter((id) => id.length > 0);
+        if (missingIds.length > 0) {
+          triggerMissingHighlight(missingIds);
+        }
+        const labels = missing
+          .map((entry) => (typeof entry.questionText === "string" ? entry.questionText.trim() : ""))
+          .filter((text) => text.length > 0)
+          .slice(0, 2);
+        setSubmitSessionError(
+          labels.length > 0
+            ? `Nicht alle Pflichtfragen sind vollständig beantwortet: ${labels.join(" | ")}`
+            : "Nicht alle Pflichtfragen sind vollständig beantwortet.",
+        );
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Marktbesuch konnte nicht abgeschlossen werden.";
+      setSubmitSessionError(message);
+    } finally {
+      setIsSubmittingSession(false);
+    }
+  }
+
+  const visibleSAMPLE_QUESTIONS = SAMPLE_QUESTIONS.filter((q) => !hiddenQuestionIds.has(q.id));
+  const visibleKUEHLER_QUESTIONS = KUEHLER_QUESTIONS.filter((q) => !hiddenQuestionIds.has(q.id));
+  const visibleMHD_QUESTIONS = MHD_QUESTIONS.filter((q) => !hiddenQuestionIds.has(q.id));
+
+  useEffect(() => {
+    setCurrentQIndex((prev) => {
+      const max = Math.max(visibleSAMPLE_QUESTIONS.length - 1, 0);
+      return Math.min(prev, max);
+    });
+  }, [visibleSAMPLE_QUESTIONS.length]);
+
+  useEffect(() => {
+    setKuehlerQIndex((prev) => {
+      const max = Math.max(visibleKUEHLER_QUESTIONS.length - 1, 0);
+      return Math.min(prev, max);
+    });
+  }, [visibleKUEHLER_QUESTIONS.length]);
+
+  useEffect(() => {
+    setMhdQIndex((prev) => {
+      const max = Math.max(visibleMHD_QUESTIONS.length - 1, 0);
+      return Math.min(prev, max);
+    });
+  }, [visibleMHD_QUESTIONS.length]);
+
+  useEffect(() => {
+    const hasFragebogen = visibleSAMPLE_QUESTIONS.length > 0;
+    const hasKuehler = visibleKUEHLER_QUESTIONS.length > 0;
+    const hasMhd = visibleMHD_QUESTIONS.length > 0;
+    if (activeSection === "fragebogen" && !hasFragebogen) {
+      if (hasKuehler) {
+        setActiveSection("kuehler");
+        setKuehlerQIndex(0);
+      } else if (hasMhd) {
+        setActiveSection("mhd");
+        setMhdQIndex(0);
+      }
+    } else if (activeSection === "kuehler" && !hasKuehler) {
+      if (hasMhd) {
+        setActiveSection("mhd");
+        setMhdQIndex(0);
+      } else if (hasFragebogen) {
+        setActiveSection("fragebogen");
+        setCurrentQIndex(0);
+      }
+    } else if (activeSection === "mhd" && !hasMhd) {
+      if (hasKuehler) {
+        setActiveSection("kuehler");
+        setKuehlerQIndex(0);
+      } else if (hasFragebogen) {
+        setActiveSection("fragebogen");
+        setCurrentQIndex(0);
+      }
+    }
+  }, [
+    activeSection,
+    visibleKUEHLER_QUESTIONS.length,
+    visibleMHD_QUESTIONS.length,
+    visibleSAMPLE_QUESTIONS.length,
+  ]);
+
   // Question navigation
   function goNext() {
-    if (currentQIndex < SAMPLE_QUESTIONS.length - 1) {
+    if (currentQIndex < visibleSAMPLE_QUESTIONS.length - 1) {
       setDirection("forward");
       setAnimKey(`${currentQIndex + 1}-fwd`);
       setCurrentQIndex((i) => i + 1);
-    } else if (KUEHLER_QUESTIONS.length > 0) {
+    } else if (visibleKUEHLER_QUESTIONS.length > 0) {
       setActiveSection("kuehler");
       setKuehlerQIndex(0);
       setAuroraColors(["#FEF3C7", "#F59E0B", "#FEF3C7"]);
+    } else if (visibleMHD_QUESTIONS.length > 0) {
+      setActiveSection("mhd");
+      setMhdQIndex(0);
+      setAuroraColors(["#EDE9FE", "#7C3AED", "#EDE9FE"]);
     } else {
       handleAbschluss();
     }
@@ -1980,14 +3079,20 @@ function MarktbesuchInner() {
       if (mhdQIndex > 0) {
         setMhdQIndex((i) => i - 1);
       } else {
-        setActiveSection("kuehler");
-        setKuehlerQIndex(KUEHLER_QUESTIONS.length - 1);
-        setAuroraColors(["#FEF3C7", "#F59E0B", "#FEF3C7"]);
+        if (visibleKUEHLER_QUESTIONS.length > 0) {
+          setActiveSection("kuehler");
+          setKuehlerQIndex(visibleKUEHLER_QUESTIONS.length - 1);
+          setAuroraColors(["#FEF3C7", "#F59E0B", "#FEF3C7"]);
+        } else if (visibleSAMPLE_QUESTIONS.length > 0) {
+          setActiveSection("fragebogen");
+          setCurrentQIndex(Math.max(0, visibleSAMPLE_QUESTIONS.length - 1));
+          setAuroraColors(["#F4B4B4", "#DC2626", "#F4B4B4"]);
+        }
       }
     } else if (activeSection === "kuehler") {
       if (kuehlerQIndex > 0) {
         setKuehlerQIndex((i) => i - 1);
-      } else {
+      } else if (visibleSAMPLE_QUESTIONS.length > 0) {
         setActiveSection("fragebogen");
         setAuroraColors(["#F4B4B4", "#DC2626", "#F4B4B4"]);
       }
@@ -1999,62 +3104,194 @@ function MarktbesuchInner() {
   }
 
   const jumpTo = useCallback((index: number) => {
-    setDirection(index >= currentQIndex ? "forward" : "back");
-    setAnimKey(`${index}-jump-${Date.now()}`);
-    setCurrentQIndex(index);
+    const clamped = Math.max(0, Math.min(index, Math.max(visibleSAMPLE_QUESTIONS.length - 1, 0)));
+    if (visibleSAMPLE_QUESTIONS.length === 0) return;
+    setDirection(clamped >= currentQIndex ? "forward" : "back");
+    setAnimKey(`${clamped}-jump-${Date.now()}`);
+    setCurrentQIndex(clamped);
     setActiveSection("fragebogen");
-  }, [currentQIndex]);
+  }, [currentQIndex, visibleSAMPLE_QUESTIONS.length]);
 
   const jumpToKuehler = useCallback((index = 0) => {
+    if (visibleKUEHLER_QUESTIONS.length === 0) return;
+    const clamped = Math.max(0, Math.min(index, Math.max(visibleKUEHLER_QUESTIONS.length - 1, 0)));
     setActiveSection("kuehler");
-    setKuehlerQIndex(index);
+    setKuehlerQIndex(clamped);
     setAuroraColors(["#FEF3C7", "#F59E0B", "#FEF3C7"]);
-  }, []);
+  }, [visibleKUEHLER_QUESTIONS.length]);
 
   const jumpToMhd = useCallback((index = 0) => {
+    if (visibleMHD_QUESTIONS.length === 0) return;
+    const clamped = Math.max(0, Math.min(index, Math.max(visibleMHD_QUESTIONS.length - 1, 0)));
     setActiveSection("mhd");
-    setMhdQIndex(index);
+    setMhdQIndex(clamped);
     setAuroraColors(["#EDE9FE", "#7C3AED", "#EDE9FE"]);
-  }, []);
+  }, [visibleMHD_QUESTIONS.length]);
 
-  function handleAbschluss() {
-    // Find unanswered required questions per section
-    const missingFb = SAMPLE_QUESTIONS.filter((q) => q.required && answers[q.id] === undefined);
-    const missingK  = KUEHLER_QUESTIONS.filter((q) => q.required && kuehlerAnswers[q.id] === undefined);
-    const missingM  = MHD_QUESTIONS.filter((q) => q.required && mhdAnswers[q.id] === undefined);
+  const getCurrentAnswerForQuestion = useCallback((questionId: string): string | string[] | undefined => {
+    const fb = answers[questionId];
+    if (fb !== undefined) return fb;
+    const k = kuehlerAnswers[questionId];
+    if (k !== undefined) return k;
+    return mhdAnswers[questionId];
+  }, [answers, kuehlerAnswers, mhdAnswers]);
 
-    if (missingFb.length === 0 && missingK.length === 0 && missingM.length === 0) {
-      transitionTo("abschluss");
-      return;
+  const ensureRequiredPhotoArtifactsCommitted = useCallback(async (): Promise<{ ok: boolean; missingIds: string[]; message?: string }> => {
+    if (!visitSessionId) return { ok: true, missingIds: [] };
+    const requiredPhotos = allRenderedQuestions.filter(
+      (q) => q.required && q.type === "photo" && !hiddenQuestionIds.has(q.id),
+    );
+    if (requiredPhotos.length === 0) return { ok: true, missingIds: [] };
+
+    const missingIds: string[] = [];
+
+    for (const question of requiredPhotos) {
+      const answerValue = getCurrentAnswerForQuestion(question.id);
+      const photoState = decodePhotoAnswer(answerValue);
+      const hasLocalPhotos = photoState.photos.length > 0;
+      const tagsEnabled = Boolean(question.config?.tagsEnabled) && Array.isArray(question.config?.tagIds) && question.config.tagIds.length > 0;
+
+      if (!hasLocalPhotos) {
+        missingIds.push(question.id);
+        continue;
+      }
+      if (tagsEnabled && photoState.selectedTagIds.length === 0) {
+        missingIds.push(question.id);
+        continue;
+      }
+      if (photoSyncBusyByQuestionId[question.id]) {
+        return {
+          ok: false,
+          missingIds: [question.id],
+          message: "Fotos werden noch gespeichert. Bitte kurz warten und erneut versuchen.",
+        };
+      }
+      if (photoSyncErrorByQuestionId[question.id]) {
+        return {
+          ok: false,
+          missingIds: [question.id],
+          message: photoSyncErrorByQuestionId[question.id] ?? "Foto-Synchronisierung fehlgeschlagen.",
+        };
+      }
+
+      const meta = photoMetaByQuestionId[question.id] ?? [];
+      if (meta.length === 0) {
+        missingIds.push(question.id);
+        continue;
+      }
+
+      let answerId = photoAnswerIdByQuestionId[question.id];
+      if (!answerId) {
+        const created = await saveGmVisitAnswer({
+          sessionId: visitSessionId,
+          visitQuestionId: question.id,
+        });
+        answerId = created.result.answerId;
+        if (answerId) {
+          setPhotoAnswerIdByQuestionId((prev) => ({ ...prev, [question.id]: answerId as string }));
+        }
+      }
+      if (!answerId) {
+        missingIds.push(question.id);
+        continue;
+      }
+
+      await commitGmVisitPhotos({
+        sessionId: visitSessionId,
+        visitAnswerId: answerId,
+        photos: meta.map((entry) => ({
+          ...entry,
+          photoTagIds: photoState.selectedTagIds,
+        })),
+      });
     }
 
-    // Build flash lists
-    const sections: ("fragebogen" | "kuehler" | "mhd")[] = [];
-    if (missingFb.length > 0) sections.push("fragebogen");
-    if (missingK.length > 0)  sections.push("kuehler");
-    if (missingM.length > 0)  sections.push("mhd");
+    return { ok: missingIds.length === 0, missingIds };
+  }, [
+    allRenderedQuestions,
+    getCurrentAnswerForQuestion,
+    photoAnswerIdByQuestionId,
+    photoMetaByQuestionId,
+    photoSyncBusyByQuestionId,
+    photoSyncErrorByQuestionId,
+    visitSessionId,
+    hiddenQuestionIds,
+  ]);
 
-    const moduleIds = new Set<string>();
-    [...missingFb, ...missingK, ...missingM].forEach((q) => moduleIds.add(q.moduleId));
+  const buildMissingFocus = useCallback((missingIds: string[]) => {
+    const missingSet = new Set(missingIds);
+    const sectionSet = new Set<"fragebogen" | "kuehler" | "mhd">();
+    const moduleSet = new Set<string>();
 
-    setFlashSections(sections);
-    setFlashModules(Array.from(moduleIds));
+    SAMPLE_QUESTIONS.forEach((q) => {
+      if (!missingSet.has(q.id)) return;
+      sectionSet.add("fragebogen");
+      moduleSet.add(q.moduleId);
+    });
+    KUEHLER_QUESTIONS.forEach((q) => {
+      if (!missingSet.has(q.id)) return;
+      sectionSet.add("kuehler");
+      moduleSet.add(q.moduleId);
+    });
+    MHD_QUESTIONS.forEach((q) => {
+      if (!missingSet.has(q.id)) return;
+      sectionSet.add("mhd");
+      moduleSet.add(q.moduleId);
+    });
+
+    return {
+      sections: Array.from(sectionSet),
+      modules: Array.from(moduleSet),
+    };
+  }, [KUEHLER_QUESTIONS, MHD_QUESTIONS, SAMPLE_QUESTIONS]);
+
+  const computeMissingRequired = useCallback(() => {
+    const missingFb = SAMPLE_QUESTIONS.filter((q) => q.required && !hiddenQuestionIds.has(q.id) && !isQuestionComplete(q, answers[q.id]));
+    const missingK = KUEHLER_QUESTIONS.filter((q) => q.required && !hiddenQuestionIds.has(q.id) && !isQuestionComplete(q, kuehlerAnswers[q.id]));
+    const missingM = MHD_QUESTIONS.filter((q) => q.required && !hiddenQuestionIds.has(q.id) && !isQuestionComplete(q, mhdAnswers[q.id]));
+    return {
+      missingFb,
+      missingK,
+      missingM,
+      all: [...missingFb, ...missingK, ...missingM],
+    };
+  }, [KUEHLER_QUESTIONS, MHD_QUESTIONS, SAMPLE_QUESTIONS, answers, hiddenQuestionIds, kuehlerAnswers, mhdAnswers]);
+
+  const triggerMissingHighlight = useCallback((missingIds: string[]) => {
+    if (missingIds.length === 0) return;
+    const focus = buildMissingFocus(missingIds);
+    setFlashSections(focus.sections);
+    setFlashModules(focus.modules);
     setNavOpen(true);
-
-    // Clear flash after animation completes (3 × 0.6s = 1.8s + small buffer)
     setTimeout(() => {
       setFlashSections([]);
       setFlashModules([]);
     }, 2200);
+  }, [buildMissingFocus]);
+
+  function handleAbschluss() {
+    const missing = computeMissingRequired();
+    if (missing.all.length === 0) {
+      transitionTo("abschluss");
+      return;
+    }
+    triggerMissingHighlight(missing.all.map((q) => q.id));
   }
 
-  const kuehlerAnsweredCount = KUEHLER_QUESTIONS.filter((q) => kuehlerAnswers[q.id] !== undefined).length;
-  const mhdAnsweredCount = MHD_QUESTIONS.filter((q) => mhdAnswers[q.id] !== undefined).length;
-  const answeredCount = SAMPLE_QUESTIONS.filter((q) => answers[q.id] !== undefined).length;
-  const allDone = answeredCount === SAMPLE_QUESTIONS.length && kuehlerAnsweredCount === KUEHLER_QUESTIONS.length && mhdAnsweredCount === MHD_QUESTIONS.length;
+  const kuehlerAnsweredCount = visibleKUEHLER_QUESTIONS.filter((q) => kuehlerAnswers[q.id] !== undefined).length;
+  const mhdAnsweredCount = visibleMHD_QUESTIONS.filter((q) => mhdAnswers[q.id] !== undefined).length;
+  const answeredCount = visibleSAMPLE_QUESTIONS.filter((q) => answers[q.id] !== undefined).length;
+  const totalSectionQuestionCount = visibleSAMPLE_QUESTIONS.length + visibleKUEHLER_QUESTIONS.length + visibleMHD_QUESTIONS.length;
+  const allDone = answeredCount === visibleSAMPLE_QUESTIONS.length && kuehlerAnsweredCount === visibleKUEHLER_QUESTIONS.length && mhdAnsweredCount === visibleMHD_QUESTIONS.length;
+  const fragebogenProgressPct = visibleSAMPLE_QUESTIONS.length > 0 ? (answeredCount / visibleSAMPLE_QUESTIONS.length) * 100 : 0;
+  const kuehlerProgressPct = visibleKUEHLER_QUESTIONS.length > 0 ? (kuehlerAnsweredCount / visibleKUEHLER_QUESTIONS.length) * 100 : 0;
+  const mhdProgressPct = visibleMHD_QUESTIONS.length > 0 ? (mhdAnsweredCount / visibleMHD_QUESTIONS.length) * 100 : 0;
 
-  const currentQ = SAMPLE_QUESTIONS[currentQIndex];
+  const currentQ = visibleSAMPLE_QUESTIONS[currentQIndex];
   const currentAnswer = answers[currentQ?.id];
+  const currentQReady = currentQ
+    ? (!currentQ.required || isQuestionComplete(currentQ, currentAnswer)) && isTaggedPhotoReady(currentQ, currentAnswer)
+    : true;
 
   // ── RENDER ────────────────────────────────────────────────────────────────
 
@@ -2250,6 +3487,41 @@ function MarktbesuchInner() {
                 <div style={{ fontSize: 11, color: "rgba(0,0,0,0.38)", lineHeight: 1.5 }}>
                   Timer läuft automatisch. Du kannst die Zeit danach anpassen.
                 </div>
+                {visitStartLoading && (
+                  <div style={{ marginTop: 8, fontSize: 10, color: "rgba(0,0,0,0.42)" }}>
+                    Besuchsfragen werden geladen...
+                  </div>
+                )}
+                {visitStartError && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10, color: "rgba(220,38,38,0.85)", fontWeight: 600 }}>
+                      {visitStartError}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setVisitBootstrapDone(false);
+                        setVisitStartRetryNonce((prev) => prev + 1);
+                      }}
+                      style={{
+                        marginTop: 6,
+                        border: "none",
+                        background: "none",
+                        color: "#DC2626",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      Erneut versuchen
+                    </button>
+                  </div>
+                )}
+                {hasVisitStartParams && !visitStartLoading && !visitStartError && totalSectionQuestionCount === 0 && (
+                  <div style={{ marginTop: 8, fontSize: 10, color: "rgba(220,38,38,0.85)", fontWeight: 600 }}>
+                    Für die ausgewählten Sektionen sind aktuell keine Fragen verfügbar.
+                  </div>
+                )}
               </div>
 
               {/* Timer starten button */}
@@ -2258,27 +3530,56 @@ function MarktbesuchInner() {
                   setTimerRunning(true);
                   transitionTo("active");
                 }}
+                disabled={visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))}
                 style={{
                   width: "100%", padding: "9px 0",
                   fontSize: 11, fontWeight: 700, letterSpacing: "0.02em",
-                  color: "#fff", border: "none", borderRadius: 9, cursor: "pointer",
-                  background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
-                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+                  color: visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0)) ? "rgba(0,0,0,0.28)" : "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  cursor: visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0)) ? "not-allowed" : "pointer",
+                  background:
+                    visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))
+                      ? "rgba(0,0,0,0.08)"
+                      : "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                  boxShadow:
+                    visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))
+                      ? "none"
+                      : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
                   transition: "opacity 0.15s ease",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
-                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                onMouseEnter={(e) => {
+                  if (e.currentTarget.disabled) return;
+                  e.currentTarget.style.opacity = "0.88";
+                }}
+                onMouseLeave={(e) => {
+                  if (e.currentTarget.disabled) return;
+                  e.currentTarget.style.opacity = "1";
+                }}
               >
                 Timer starten
               </button>
 
               {/* Skip */}
               <button
-                onClick={() => transitionTo("active")}
+                onClick={() => {
+                  if (visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))) return;
+                  transitionTo("active");
+                }}
                 style={{
                   marginTop: 10, width: "100%",
-                  fontSize: 10, color: "rgba(0,0,0,0.3)", fontWeight: 500,
-                  background: "none", border: "none", cursor: "pointer",
+                  fontSize: 10,
+                  color:
+                    visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))
+                      ? "rgba(0,0,0,0.16)"
+                      : "rgba(0,0,0,0.3)",
+                  fontWeight: 500,
+                  background: "none",
+                  border: "none",
+                  cursor:
+                    visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))
+                      ? "not-allowed"
+                      : "pointer",
                   padding: "3px 0", letterSpacing: "0.01em",
                 }}
               >
@@ -2296,7 +3597,8 @@ function MarktbesuchInner() {
             minHeight: "100vh",
             display: "flex", flexDirection: "column",
             alignItems: "center", justifyContent: "center",
-            padding: "40px 20px 60px",
+            padding: "30px 18px 56px",
+            background: "linear-gradient(180deg, rgba(249,250,251,0.28) 0%, rgba(255,255,255,0.16) 72%)",
           }}>
             <style>{`
               @keyframes fadeUp {
@@ -2310,7 +3612,15 @@ function MarktbesuchInner() {
               }
             `}</style>
 
-            <div style={{ width: "100%", maxWidth: 380 }}>
+            <div style={{
+              width: "100%",
+              maxWidth: 410,
+              borderRadius: 22,
+              background: "linear-gradient(180deg, rgba(249,250,251,0.98), rgba(244,245,247,0.96))",
+              border: "1px solid rgba(0,0,0,0.06)",
+              boxShadow: "0 12px 34px rgba(15,23,42,0.08), 0 2px 6px rgba(15,23,42,0.05)",
+              padding: "20px 14px 14px",
+            }}>
 
               {/* Hero */}
               <div style={{
@@ -2323,12 +3633,23 @@ function MarktbesuchInner() {
                   marginBottom: 18,
                   animation: "checkPop 0.55s 0.08s cubic-bezier(0.34,1.56,0.64,1) both",
                 }}>
-                  <CheckCircle2 size={48} strokeWidth={1.5} color="#059669" />
+                  <div style={{
+                    width: 58,
+                    height: 58,
+                    borderRadius: "50%",
+                    background: "radial-gradient(circle at 35% 30%, rgba(16,185,129,0.18), rgba(16,185,129,0.06))",
+                    border: "1px solid rgba(16,185,129,0.28)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}>
+                    <CheckCircle2 size={38} strokeWidth={1.6} color="#059669" />
+                  </div>
                 </div>
 
                 {/* Title */}
                 <div style={{
-                  fontSize: 22, fontWeight: 800, color: "#0f172a",
+                  fontSize: 23, fontWeight: 800, color: "#111827",
                   letterSpacing: "-0.035em", lineHeight: 1.15, marginBottom: 10,
                   animation: "fadeUp 0.38s 0.18s cubic-bezier(0.4,0,0.2,1) both",
                 }}>
@@ -2359,9 +3680,10 @@ function MarktbesuchInner() {
                 }}>
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 5,
-                    fontSize: 10, fontWeight: 600, color: "#059669",
+                    fontSize: 10, fontWeight: 700, color: "#047857",
                     padding: "4px 12px", borderRadius: 20,
-                    backgroundColor: "rgba(5,150,105,0.08)",
+                    backgroundColor: "rgba(16,185,129,0.12)",
+                    border: "1px solid rgba(16,185,129,0.2)",
                     fontVariantNumeric: "tabular-nums",
                     letterSpacing: "0.01em",
                   }}>
@@ -2378,11 +3700,10 @@ function MarktbesuchInner() {
               }}>
                 {/* Time */}
                 <div style={{
-                  flex: 1, backgroundColor: "rgba(255,255,255,0.82)",
-                  backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                  flex: 1, backgroundColor: "#ffffff",
                   borderRadius: 14, padding: "14px 16px",
-                  border: "1px solid rgba(255,255,255,0.9)",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
                 }}>
                   <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(0,0,0,0.28)", marginBottom: 5 }}>Dauer</div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: "#059669", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em", lineHeight: 1 }}>
@@ -2394,18 +3715,17 @@ function MarktbesuchInner() {
                 </div>
                 {/* Questions */}
                 <div style={{
-                  flex: 1, backgroundColor: "rgba(255,255,255,0.82)",
-                  backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                  flex: 1, backgroundColor: "#ffffff",
                   borderRadius: 14, padding: "14px 16px",
-                  border: "1px solid rgba(255,255,255,0.9)",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
                 }}>
                   <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(0,0,0,0.28)", marginBottom: 5 }}>Fragen</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: answeredCount === SAMPLE_QUESTIONS.length ? "#059669" : "#DC2626", letterSpacing: "-0.02em", lineHeight: 1 }}>
-                    {answeredCount}/{SAMPLE_QUESTIONS.length}
+                  <div style={{ fontSize: 18, fontWeight: 800, color: answeredCount === visibleSAMPLE_QUESTIONS.length ? "#059669" : "#DC2626", letterSpacing: "-0.02em", lineHeight: 1 }}>
+                    {answeredCount}/{visibleSAMPLE_QUESTIONS.length}
                   </div>
                   <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 4 }}>
-                    {answeredCount === SAMPLE_QUESTIONS.length ? "Alle beantwortet" : "Unvollständig"}
+                    {answeredCount === visibleSAMPLE_QUESTIONS.length ? "Alle beantwortet" : "Unvollständig"}
                   </div>
                 </div>
               </div>
@@ -2417,20 +3737,20 @@ function MarktbesuchInner() {
               }}>
                 {/* Fragebogen */}
                 <div style={{
-                  backgroundColor: "rgba(255,255,255,0.82)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                  backgroundColor: "#ffffff",
                   borderRadius: 14, padding: "14px 16px",
-                  border: "1px solid rgba(255,255,255,0.9)",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
                   display: "flex", alignItems: "center", gap: 12,
                 }}>
-                  <FileText size={16} strokeWidth={1.8} color={answeredCount === SAMPLE_QUESTIONS.length ? "#059669" : "#DC2626"} style={{ flexShrink: 0 }} />
+                  <FileText size={16} strokeWidth={1.8} color={answeredCount === visibleSAMPLE_QUESTIONS.length ? "#059669" : "#DC2626"} style={{ flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", marginBottom: 6 }}>Fragebogen</div>
                     <div style={{ height: 3, backgroundColor: "rgba(0,0,0,0.06)", borderRadius: 2, overflow: "hidden" }}>
                       <div style={{
                         height: "100%",
-                        width: `${(answeredCount / SAMPLE_QUESTIONS.length) * 100}%`,
-                        background: answeredCount === SAMPLE_QUESTIONS.length
+                        width: `${fragebogenProgressPct}%`,
+                        background: answeredCount === visibleSAMPLE_QUESTIONS.length
                           ? "linear-gradient(to right, #10b981, #059669)"
                           : "linear-gradient(to right, #DC2626, #e84040)",
                         borderRadius: 2,
@@ -2440,29 +3760,31 @@ function MarktbesuchInner() {
                   </div>
                   <span style={{
                     fontSize: 13, fontWeight: 800,
-                    color: answeredCount === SAMPLE_QUESTIONS.length ? "#059669" : "#DC2626",
+                    color: answeredCount === visibleSAMPLE_QUESTIONS.length ? "#059669" : "#DC2626",
                     flexShrink: 0,
                   }}>
-                    {answeredCount}/{SAMPLE_QUESTIONS.length}
+                    {answeredCount}/{visibleSAMPLE_QUESTIONS.length}
                   </span>
                 </div>
 
                 {/* Kühlerinventur */}
                 <div style={{
-                  backgroundColor: "rgba(255,255,255,0.82)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                  backgroundColor: "#ffffff",
                   borderRadius: 14, padding: "14px 16px",
-                  border: "1px solid rgba(255,255,255,0.9)",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
                   display: "flex", alignItems: "center", gap: 12,
                 }}>
-                  <Refrigerator size={16} strokeWidth={1.8} color={kuehlerAnsweredCount === KUEHLER_QUESTIONS.length ? "#d97706" : "rgba(0,0,0,0.25)"} style={{ flexShrink: 0 }} />
+                  <Refrigerator size={16} strokeWidth={1.8} color={kuehlerAnsweredCount === visibleKUEHLER_QUESTIONS.length ? "#d97706" : "rgba(0,0,0,0.25)"} style={{ flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", marginBottom: 6 }}>Kühlerinventur</div>
                     <div style={{ height: 3, backgroundColor: "rgba(0,0,0,0.06)", borderRadius: 2, overflow: "hidden" }}>
                       <div style={{
                         height: "100%",
-                        width: `${(kuehlerAnsweredCount / KUEHLER_QUESTIONS.length) * 100}%`,
-                        background: kuehlerAnsweredCount === KUEHLER_QUESTIONS.length
+                        width: `${kuehlerProgressPct}%`,
+                        background: visibleKUEHLER_QUESTIONS.length === 0
+                          ? "linear-gradient(to right, rgba(0,0,0,0.1), rgba(0,0,0,0.1))"
+                          : kuehlerAnsweredCount === visibleKUEHLER_QUESTIONS.length
                           ? "linear-gradient(to right, #F59E0B, #d97706)"
                           : "linear-gradient(to right, #fbbf24, #F59E0B)",
                         borderRadius: 2,
@@ -2472,29 +3794,36 @@ function MarktbesuchInner() {
                   </div>
                   <span style={{
                     fontSize: 13, fontWeight: 800,
-                    color: kuehlerAnsweredCount === KUEHLER_QUESTIONS.length ? "#d97706" : "rgba(0,0,0,0.3)",
+                    color:
+                      visibleKUEHLER_QUESTIONS.length === 0
+                        ? "rgba(0,0,0,0.24)"
+                        : kuehlerAnsweredCount === visibleKUEHLER_QUESTIONS.length
+                          ? "#d97706"
+                          : "rgba(0,0,0,0.3)",
                     flexShrink: 0,
                   }}>
-                    {kuehlerAnsweredCount}/{KUEHLER_QUESTIONS.length}
+                    {visibleKUEHLER_QUESTIONS.length === 0 ? "—" : `${kuehlerAnsweredCount}/${visibleKUEHLER_QUESTIONS.length}`}
                   </span>
                 </div>
 
                 {/* MHD */}
                 <div style={{
-                  backgroundColor: "rgba(255,255,255,0.82)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                  backgroundColor: "#ffffff",
                   borderRadius: 14, padding: "14px 16px",
-                  border: "1px solid rgba(255,255,255,0.9)",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
                   display: "flex", alignItems: "center", gap: 12,
                 }}>
-                  <Thermometer size={16} strokeWidth={1.8} color={mhdAnsweredCount === MHD_QUESTIONS.length ? "#7C3AED" : "rgba(0,0,0,0.25)"} style={{ flexShrink: 0 }} />
+                  <Thermometer size={16} strokeWidth={1.8} color={mhdAnsweredCount === visibleMHD_QUESTIONS.length ? "#7C3AED" : "rgba(0,0,0,0.25)"} style={{ flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", marginBottom: 6 }}>MHD-Prüfung</div>
                     <div style={{ height: 3, backgroundColor: "rgba(0,0,0,0.06)", borderRadius: 2, overflow: "hidden" }}>
                       <div style={{
                         height: "100%",
-                        width: `${(mhdAnsweredCount / MHD_QUESTIONS.length) * 100}%`,
-                        background: mhdAnsweredCount === MHD_QUESTIONS.length
+                        width: `${mhdProgressPct}%`,
+                        background: visibleMHD_QUESTIONS.length === 0
+                          ? "linear-gradient(to right, rgba(0,0,0,0.1), rgba(0,0,0,0.1))"
+                          : mhdAnsweredCount === visibleMHD_QUESTIONS.length
                           ? "linear-gradient(to right, #8b5cf6, #7C3AED)"
                           : "linear-gradient(to right, #a78bfa, #8b5cf6)",
                         borderRadius: 2,
@@ -2504,20 +3833,25 @@ function MarktbesuchInner() {
                   </div>
                   <span style={{
                     fontSize: 13, fontWeight: 800,
-                    color: mhdAnsweredCount === MHD_QUESTIONS.length ? "#7C3AED" : "rgba(0,0,0,0.3)",
+                    color:
+                      visibleMHD_QUESTIONS.length === 0
+                        ? "rgba(0,0,0,0.24)"
+                        : mhdAnsweredCount === visibleMHD_QUESTIONS.length
+                          ? "#7C3AED"
+                          : "rgba(0,0,0,0.3)",
                     flexShrink: 0,
                   }}>
-                    {mhdAnsweredCount}/{MHD_QUESTIONS.length}
+                    {visibleMHD_QUESTIONS.length === 0 ? "—" : `${mhdAnsweredCount}/${visibleMHD_QUESTIONS.length}`}
                   </span>
                 </div>
 
                 {/* Comment */}
                 {comment && (
                   <div style={{
-                    backgroundColor: "rgba(255,255,255,0.82)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                    backgroundColor: "#ffffff",
                     borderRadius: 14, padding: "14px 16px",
-                    border: "1px solid rgba(255,255,255,0.9)",
-                    boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
                     display: "flex", alignItems: "flex-start", gap: 12,
                   }}>
                     <MessageSquare size={16} strokeWidth={1.8} color="rgba(0,0,0,0.28)" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -2612,7 +3946,7 @@ function MarktbesuchInner() {
             <div style={{ width: "100%", maxWidth: 480, margin: "auto", marginBottom: navOpen ? "65vh" : "auto", transition: "margin-bottom 0.28s cubic-bezier(0.4,0,0.2,1)" }}>
 
               {/* ── FRAGEBOGEN SECTION ── */}
-              {activeSection === "fragebogen" && (
+              {activeSection === "fragebogen" && currentQ && (
                 <div>
                   {/* Section label + dot progress */}
                   <div style={{
@@ -2626,9 +3960,9 @@ function MarktbesuchInner() {
                     {/* Step-bar */}
                     <div style={{ flex: 1, minWidth: 0, position: "relative", height: 16, display: "flex", alignItems: "center" }}>
                       {(() => {
-                        const n = SAMPLE_QUESTIONS.length;
+                        const n = visibleSAMPLE_QUESTIONS.length;
                         const allAnswered = answeredCount === n;
-                        const lastAnsweredIdx = SAMPLE_QUESTIONS.reduce((acc, q, i) => answers[q.id] !== undefined ? i : acc, -1);
+                        const lastAnsweredIdx = visibleSAMPLE_QUESTIONS.reduce((acc, q, i) => answers[q.id] !== undefined ? i : acc, -1);
                         const fillPct = n <= 1 ? 0 : (lastAnsweredIdx / (n - 1)) * 100;
                         const trackColor = allAnswered ? "rgba(34,197,94,0.18)" : "rgba(0,0,0,0.08)";
                         const fillColor = allAnswered
@@ -2638,7 +3972,7 @@ function MarktbesuchInner() {
                           <>
                             <div style={{ position: "absolute", left: 0, right: 0, height: 2, borderRadius: 1, backgroundColor: trackColor, transition: "background-color 0.4s ease" }} />
                             <div style={{ position: "absolute", left: 0, width: `${fillPct}%`, height: 2, borderRadius: 1, background: fillColor, transition: "width 0.35s cubic-bezier(0.4,0,0.2,1), background 0.4s ease" }} />
-                            {SAMPLE_QUESTIONS.map((q, i) => {
+                            {visibleSAMPLE_QUESTIONS.map((q, i) => {
                               const done = answers[q.id] !== undefined;
                               const current = i === currentQIndex;
                               const leftPct = n === 1 ? 50 : (i / (n - 1)) * 100;
@@ -2659,7 +3993,7 @@ function MarktbesuchInner() {
                     </div>
 
                     <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.3)", whiteSpace: "nowrap" }}>
-                      {answeredCount}/{SAMPLE_QUESTIONS.length}
+                      {answeredCount}/{visibleSAMPLE_QUESTIONS.length}
                     </span>
                   </div>
 
@@ -2671,7 +4005,7 @@ function MarktbesuchInner() {
                   }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(0,0,0,0.25)" }}>
-                        Frage {currentQIndex + 1} von {SAMPLE_QUESTIONS.length}
+                        Frage {Math.min(currentQIndex + 1, Math.max(visibleSAMPLE_QUESTIONS.length, 1))} von {visibleSAMPLE_QUESTIONS.length}
                       </div>
                       <button
                         onClick={() => setCommentOpenId(currentQ.id)}
@@ -2685,9 +4019,14 @@ function MarktbesuchInner() {
                       </button>
                     </div>
                     <QuestionCard
+                      key={currentQ.id}
                       question={currentQ}
                       answer={currentAnswer}
                       onAnswer={(val) => setAnswers((prev) => ({ ...prev, [currentQ.id]: val }))}
+                      onPhotoSync={handlePhotoSync}
+                      photoCommittedMeta={photoMetaByQuestionId[currentQ.id] ?? []}
+                      photoSyncBusy={Boolean(photoSyncBusyByQuestionId[currentQ.id])}
+                      photoSyncError={photoSyncErrorByQuestionId[currentQ.id] ?? null}
                       direction={direction}
                       animKey={animKey}
                       compact={navOpen}
@@ -2700,11 +4039,13 @@ function MarktbesuchInner() {
                       <ChevronLeft size={12} strokeWidth={2} />
                       Zurück
                     </button>
-                    <button onClick={goNext} disabled={currentQ.required && !currentAnswer} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: (currentQ.required && !currentAnswer) ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: (currentQ.required && !currentAnswer) ? "rgba(0,0,0,0.2)" : "#fff", background: (currentQ.required && !currentAnswer) ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: (currentQ.required && !currentAnswer) ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-                      {currentQIndex < SAMPLE_QUESTIONS.length - 1
+                    <button onClick={goNext} disabled={!currentQReady} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !currentQReady ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !currentQReady ? "rgba(0,0,0,0.2)" : "#fff", background: !currentQReady ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: !currentQReady ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                      {currentQIndex < visibleSAMPLE_QUESTIONS.length - 1
                         ? "Weiter"
-                        : KUEHLER_QUESTIONS.length > 0
+                        : visibleKUEHLER_QUESTIONS.length > 0
                           ? "Zur Kühlerinventur"
+                          : visibleMHD_QUESTIONS.length > 0
+                            ? "Zur MHD-Prüfung"
                           : "Abschließen"}
                       <ChevronRight size={12} strokeWidth={2.5} />
                     </button>
@@ -2714,23 +4055,26 @@ function MarktbesuchInner() {
 
               {/* ── KÜHLERINVENTUR SECTION ── */}
               {activeSection === "kuehler" && (() => {
-                const kQ = KUEHLER_QUESTIONS[kuehlerQIndex];
+                const kQ = visibleKUEHLER_QUESTIONS[kuehlerQIndex];
                 const kAns = kuehlerAnswers[kQ?.id];
-                const isLast = kuehlerQIndex === KUEHLER_QUESTIONS.length - 1;
+                const isLast = kuehlerQIndex === visibleKUEHLER_QUESTIONS.length - 1;
+                const kReady = kQ
+                  ? (!kQ.required || isQuestionComplete(kQ, kAns)) && isTaggedPhotoReady(kQ, kAns)
+                  : false;
                 return (
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                       <Refrigerator size={11} strokeWidth={1.8} color="rgba(217,119,6,0.5)" />
                       <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(217,119,6,0.7)" }}>Kühlerinventur</span>
-                      <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", marginLeft: "auto" }}>{kuehlerQIndex + 1}/{KUEHLER_QUESTIONS.length}</span>
+                      <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", marginLeft: "auto" }}>{Math.min(kuehlerQIndex + 1, Math.max(visibleKUEHLER_QUESTIONS.length, 1))}/{visibleKUEHLER_QUESTIONS.length}</span>
                     </div>
 
                     {/* Dot progress */}
                     <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 14, width: "100%" }}>
-                      {KUEHLER_QUESTIONS.map((q, i) => {
+                      {visibleKUEHLER_QUESTIONS.map((q, i) => {
                         const done = kuehlerAnswers[q.id] !== undefined;
                         const active = i === kuehlerQIndex;
-                        const isLastDot = i === KUEHLER_QUESTIONS.length - 1;
+                        const isLastDot = i === visibleKUEHLER_QUESTIONS.length - 1;
                         return (
                           <div key={q.id} style={{ display: "flex", alignItems: "center", flex: isLastDot ? "0 0 auto" : 1, minWidth: 0 }}>
                             <div style={{
@@ -2750,7 +4094,7 @@ function MarktbesuchInner() {
                     <div style={{ backgroundColor: "rgba(255,255,255,0.78)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.9)", padding: "18px 16px 16px", boxShadow: "0 2px 16px rgba(0,0,0,0.05), 0 1px 4px rgba(0,0,0,0.04)", marginBottom: 10, animation: "questionIn 0.2s cubic-bezier(0.4,0,0.2,1) both" }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                         <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(217,119,6,0.4)" }}>
-                          {kQ?.type === "yesno" ? "Ja / Nein" : "Auswahl"}
+                          Frage {Math.min(kuehlerQIndex + 1, Math.max(visibleKUEHLER_QUESTIONS.length, 1))} von {visibleKUEHLER_QUESTIONS.length}
                         </div>
                         <button
                           onClick={() => kQ && setCommentOpenId(kQ.id)}
@@ -2762,40 +4106,20 @@ function MarktbesuchInner() {
                           }
                         </button>
                       </div>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a", lineHeight: 1.5, letterSpacing: "-0.01em", margin: "0 0 14px" }}>{kQ?.text}</p>
-                      {kQ?.type === "yesno" && (
-                        <div style={{ display: "flex", gap: 6 }}>
-                          {[{ label: "Ja", val: "ja" }, { label: "Nein", val: "nein" }].map(({ label, val }) => {
-                            const sel = kAns === val;
-                            return (
-                              <button key={val} onClick={() => setKuehlerAnswers((p) => ({ ...p, [kQ.id]: val }))}
-                                style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, transition: "all 0.16s cubic-bezier(0.4,0,0.2,1)", background: sel ? "rgba(217,119,6,0.08)" : "rgba(0,0,0,0.03)", color: sel ? "#d97706" : "rgba(0,0,0,0.5)", boxShadow: sel ? "inset 0 0 0 1px rgba(217,119,6,0.3)" : "none" }}>
-                                {label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {kQ?.type === "single" && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                          {kQ.options?.map((opt) => {
-                            const sel = kAns === opt;
-                            const optColor =
-                              opt === "Sehr voll"  ? { dot: "#22c55e", bg: "rgba(34,197,94,0.07)",  border: "rgba(34,197,94,0.3)",  text: "#15803d",  check: "#22c55e"  } :
-                              opt === "Halb voll"  ? { dot: "#f59e0b", bg: "rgba(245,158,11,0.07)", border: "rgba(245,158,11,0.3)", text: "#92400e",  check: "#f59e0b" } :
-                              opt === "Nicht voll" ? { dot: "#DC2626", bg: "rgba(220,38,38,0.07)",  border: "rgba(220,38,38,0.3)",  text: "#b91c1c",  check: "#DC2626"  } :
-                              { dot: "#d97706", bg: "rgba(217,119,6,0.07)", border: "rgba(217,119,6,0.25)", text: "#d97706", check: "#d97706" };
-                            return (
-                              <button key={opt} onClick={() => setKuehlerAnswers((p) => ({ ...p, [kQ.id]: opt }))}
-                                style={{ padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, textAlign: "left", transition: "all 0.16s cubic-bezier(0.4,0,0.2,1)", display: "flex", alignItems: "center", gap: 10, background: sel ? optColor.bg : "rgba(0,0,0,0.03)", color: sel ? optColor.text : "rgba(0,0,0,0.6)", boxShadow: sel ? `inset 0 0 0 1px ${optColor.border}` : "none" }}>
-                                <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: optColor.dot, flexShrink: 0, opacity: sel ? 1 : 0.4 }} />
-                                {opt}
-                                {sel && <Check size={10} strokeWidth={3} color={optColor.check} style={{ marginLeft: "auto" }} />}
-                              </button>
-                            );
-                          })}
-                        </div>
+                      {kQ && (
+                        <QuestionCard
+                          key={kQ.id}
+                          question={kQ}
+                          answer={kAns}
+                          onAnswer={(val) => setKuehlerAnswers((prev) => ({ ...prev, [kQ.id]: val }))}
+                          onPhotoSync={handlePhotoSync}
+                          photoCommittedMeta={photoMetaByQuestionId[kQ.id] ?? []}
+                          photoSyncBusy={Boolean(photoSyncBusyByQuestionId[kQ.id])}
+                          photoSyncError={photoSyncErrorByQuestionId[kQ.id] ?? null}
+                          direction={direction}
+                          animKey={animKey}
+                          compact={navOpen}
+                        />
                       )}
                     </div>
 
@@ -2806,14 +4130,14 @@ function MarktbesuchInner() {
                       </button>
                       <button
                         onClick={() => {
-                          if (!kAns) return;
+                          if (!kReady) return;
                           if (!isLast) { setKuehlerQIndex((i) => i + 1); }
-                          else if (MHD_QUESTIONS.length > 0) { setActiveSection("mhd"); setMhdQIndex(0); setAuroraColors(["#EDE9FE", "#7C3AED", "#EDE9FE"]); }
+                          else if (visibleMHD_QUESTIONS.length > 0) { setActiveSection("mhd"); setMhdQIndex(0); setAuroraColors(["#EDE9FE", "#7C3AED", "#EDE9FE"]); }
                           else { handleAbschluss(); }
                         }}
-                        disabled={!kAns}
-                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !kAns ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !kAns ? "rgba(0,0,0,0.2)" : "#fff", background: !kAns ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #F59E0B, #d97706)", boxShadow: !kAns ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #b45309, 0 1px 6px rgba(180,100,0,0.16)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-                        {isLast ? (MHD_QUESTIONS.length > 0 ? "Weiter zu MHD" : "Abschließen") : "Weiter"}
+                        disabled={!kReady}
+                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !kReady ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !kReady ? "rgba(0,0,0,0.2)" : "#fff", background: !kReady ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #F59E0B, #d97706)", boxShadow: !kReady ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #b45309, 0 1px 6px rgba(180,100,0,0.16)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                        {isLast ? (visibleMHD_QUESTIONS.length > 0 ? "Weiter zu MHD" : "Abschließen") : "Weiter"}
                         <ChevronRight size={12} strokeWidth={2.5} />
                       </button>
                     </div>
@@ -2823,27 +4147,27 @@ function MarktbesuchInner() {
 
               {/* ── MHD SECTION ── */}
               {activeSection === "mhd" && (() => {
-                const mhdQ = MHD_QUESTIONS[mhdQIndex];
+                const mhdQ = visibleMHD_QUESTIONS[mhdQIndex];
                 const mhdAns = mhdAnswers[mhdQ?.id];
-                const isLast = mhdQIndex === MHD_QUESTIONS.length - 1;
-                const matrixDates: Record<string, string> = mhdQ?.type === "matrix"
-                  ? (typeof mhdAns === "string" && mhdAns.startsWith("{") ? JSON.parse(mhdAns) as Record<string, string> : {})
-                  : {};
+                const isLast = mhdQIndex === visibleMHD_QUESTIONS.length - 1;
+                const mhdReady = mhdQ
+                  ? (!mhdQ.required || isQuestionComplete(mhdQ, mhdAns)) && isTaggedPhotoReady(mhdQ, mhdAns)
+                  : false;
                 return (
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                       <Thermometer size={11} strokeWidth={1.8} color="rgba(124,58,237,0.5)" />
                       <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(124,58,237,0.7)" }}>MHD-Prüfung</span>
-                      <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", marginLeft: "auto" }}>{mhdQIndex + 1}/{MHD_QUESTIONS.length}</span>
+                      <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", marginLeft: "auto" }}>{Math.min(mhdQIndex + 1, Math.max(visibleMHD_QUESTIONS.length, 1))}/{visibleMHD_QUESTIONS.length}</span>
                     </div>
 
                     {/* Dot progress */}
                     <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 14, width: "100%" }}>
-                      {MHD_QUESTIONS.map((q, i) => {
+                      {visibleMHD_QUESTIONS.map((q, i) => {
                         const done = mhdAnswers[q.id] !== undefined;
                         const active = i === mhdQIndex;
                         const isFirst = i === 0;
-                        const isLastDot = i === MHD_QUESTIONS.length - 1;
+                        const isLastDot = i === visibleMHD_QUESTIONS.length - 1;
                         return (
                           <div key={q.id} style={{ display: "flex", alignItems: "center", flex: isLastDot ? "0 0 auto" : 1, minWidth: 0 }}>
                             <div style={{
@@ -2868,7 +4192,7 @@ function MarktbesuchInner() {
                     <div style={{ backgroundColor: "rgba(255,255,255,0.78)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.9)", padding: "18px 16px 16px", boxShadow: "0 2px 16px rgba(0,0,0,0.05), 0 1px 4px rgba(0,0,0,0.04)", marginBottom: 10, animation: "questionIn 0.2s cubic-bezier(0.4,0,0.2,1) both" }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                         <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(124,58,237,0.4)" }}>
-                          {mhdQ?.type === "yesno" ? "Ja / Nein" : mhdQ?.type === "matrix" ? "Matrix" : "Auswahl"}
+                          Frage {Math.min(mhdQIndex + 1, Math.max(visibleMHD_QUESTIONS.length, 1))} von {visibleMHD_QUESTIONS.length}
                         </div>
                         <button
                           onClick={() => mhdQ && setCommentOpenId(mhdQ.id)}
@@ -2880,47 +4204,19 @@ function MarktbesuchInner() {
                           }
                         </button>
                       </div>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a", lineHeight: 1.5, letterSpacing: "-0.01em", margin: "0 0 14px" }}>
-                        {mhdQ?.text}
-                      </p>
-
-                      {mhdQ?.type === "yesno" && (
-                        <div style={{ display: "flex", gap: 6 }}>
-                          {[{ label: "Ja", val: "ja" }, { label: "Nein", val: "nein" }].map(({ label, val }) => {
-                            const sel = mhdAns === val;
-                            return (
-                              <button key={val} onClick={() => setMhdAnswers((p) => ({ ...p, [mhdQ.id]: val }))}
-                                style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, transition: "all 0.16s cubic-bezier(0.4,0,0.2,1)", background: sel ? "rgba(124,58,237,0.08)" : "rgba(0,0,0,0.03)", color: sel ? "#7C3AED" : "rgba(0,0,0,0.5)", boxShadow: sel ? "inset 0 0 0 1px rgba(124,58,237,0.3)" : "none" }}>
-                                {label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {mhdQ?.type === "single" && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                          {mhdQ.options?.map((opt) => {
-                            const sel = mhdAns === opt;
-                            return (
-                              <button key={opt} onClick={() => setMhdAnswers((p) => ({ ...p, [mhdQ.id]: opt }))}
-                                style={{ padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, textAlign: "left", transition: "all 0.16s cubic-bezier(0.4,0,0.2,1)", display: "flex", alignItems: "center", gap: 10, background: sel ? "rgba(124,58,237,0.07)" : "rgba(0,0,0,0.03)", color: sel ? "#7C3AED" : "rgba(0,0,0,0.6)", boxShadow: sel ? "inset 0 0 0 1px rgba(124,58,237,0.25)" : "none" }}>
-                                <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#7C3AED", flexShrink: 0, opacity: sel ? 1 : 0.25 }} />
-                                {opt}
-                                {sel && <Check size={10} strokeWidth={3} color="#7C3AED" style={{ marginLeft: "auto" }} />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {mhdQ?.type === "matrix" && mhdQ.config?.matrixSubtype === "datum" && (
-                        <DatePickerMatrix
-                          rows={mhdQ.config?.rows || []}
-                          cols={mhdQ.config?.columns || []}
-                          answers={matrixDates}
-                          onAnswer={(dates) => setMhdAnswers((p) => ({ ...p, [mhdQ.id]: JSON.stringify(dates) }))}
-                          accentColor="#7C3AED"
+                      {mhdQ && (
+                        <QuestionCard
+                          key={mhdQ.id}
+                          question={mhdQ}
+                          answer={mhdAns}
+                          onAnswer={(val) => setMhdAnswers((prev) => ({ ...prev, [mhdQ.id]: val }))}
+                          onPhotoSync={handlePhotoSync}
+                          photoCommittedMeta={photoMetaByQuestionId[mhdQ.id] ?? []}
+                          photoSyncBusy={Boolean(photoSyncBusyByQuestionId[mhdQ.id])}
+                          photoSyncError={photoSyncErrorByQuestionId[mhdQ.id] ?? null}
+                          direction={direction}
+                          animKey={animKey}
+                          compact={navOpen}
                         />
                       )}
                     </div>
@@ -2932,15 +4228,15 @@ function MarktbesuchInner() {
                       </button>
                       <button
                         onClick={() => {
-                          if (mhdQ?.required && !mhdAns) return;
+                          if (!mhdReady) return;
                           if (!isLast) {
                             setMhdQIndex((i) => i + 1);
                           } else {
                             handleAbschluss();
                           }
                         }}
-                        disabled={!!mhdQ?.required && !mhdAns}
-                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: (!!mhdQ?.required && !mhdAns) ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: (!!mhdQ?.required && !mhdAns) ? "rgba(0,0,0,0.2)" : "#fff", background: (!!mhdQ?.required && !mhdAns) ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #8b5cf6, #7C3AED)", boxShadow: (!!mhdQ?.required && !mhdAns) ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #6d28d9, 0 1px 6px rgba(109,40,217,0.2)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                        disabled={!mhdReady}
+                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !mhdReady ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !mhdReady ? "rgba(0,0,0,0.2)" : "#fff", background: !mhdReady ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #8b5cf6, #7C3AED)", boxShadow: !mhdReady ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #6d28d9, 0 1px 6px rgba(109,40,217,0.2)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                         {isLast ? "Abschließen" : "Weiter"}
                         <ChevronRight size={12} strokeWidth={2.5} />
                       </button>
@@ -3039,8 +4335,37 @@ function MarktbesuchInner() {
                 </div>
                 <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Anmerkungen zum Marktbesuch..." rows={2} style={{ width: "100%", resize: "none", border: "none", outline: "none", fontSize: 11, color: "#1a1a1a", lineHeight: 1.6, background: "transparent", fontFamily: "inherit", boxSizing: "border-box" }} />
               </div>
-              <button onClick={() => transitionTo("confirm")} style={{ width: "100%", padding: "9px 0", fontSize: 11, fontWeight: 700, letterSpacing: "0.02em", color: "#fff", border: "none", borderRadius: 9, cursor: "pointer", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)", transition: "opacity 0.15s ease" }} onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")} onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}>
-                Beenden
+              {submitSessionError && (
+                <div style={{ marginBottom: 8, fontSize: 10, fontWeight: 600, color: "#b91c1c" }}>{submitSessionError}</div>
+              )}
+              <button
+                onClick={() => {
+                  if (!isSubmittingSession) void handleSubmitVisit();
+                }}
+                disabled={isSubmittingSession}
+                style={{
+                  width: "100%",
+                  padding: "9px 0",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.02em",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  cursor: isSubmittingSession ? "not-allowed" : "pointer",
+                  opacity: isSubmittingSession ? 0.75 : 1,
+                  background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+                  transition: "opacity 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSubmittingSession) e.currentTarget.style.opacity = "0.88";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = isSubmittingSession ? "0.75" : "1";
+                }}
+              >
+                {isSubmittingSession ? "Speichert..." : "Beenden"}
               </button>
             </div>
           </div>
@@ -3099,10 +4424,10 @@ function MarktbesuchInner() {
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
                 {activeSection === "kuehler"
-                  ? (kuehlerAnsweredCount === KUEHLER_QUESTIONS.length ? "Abgeschlossen" : `${kuehlerQIndex + 1}/${KUEHLER_QUESTIONS.length} — ${KUEHLER_QUESTIONS[kuehlerQIndex]?.text || ""}`)
+                  ? (kuehlerAnsweredCount === visibleKUEHLER_QUESTIONS.length ? "Abgeschlossen" : `${Math.min(kuehlerQIndex + 1, Math.max(visibleKUEHLER_QUESTIONS.length, 1))}/${visibleKUEHLER_QUESTIONS.length} — ${visibleKUEHLER_QUESTIONS[kuehlerQIndex]?.text || ""}`)
                   : activeSection === "mhd"
-                  ? (mhdAnsweredCount === MHD_QUESTIONS.length ? "Abgeschlossen" : `${mhdQIndex + 1}/${MHD_QUESTIONS.length} — ${MHD_QUESTIONS[mhdQIndex]?.text || ""}`)
-                  : `${currentQIndex + 1}/${SAMPLE_QUESTIONS.length} — ${SAMPLE_QUESTIONS[currentQIndex]?.text || ""}`
+                  ? (mhdAnsweredCount === visibleMHD_QUESTIONS.length ? "Abgeschlossen" : `${Math.min(mhdQIndex + 1, Math.max(visibleMHD_QUESTIONS.length, 1))}/${visibleMHD_QUESTIONS.length} — ${visibleMHD_QUESTIONS[mhdQIndex]?.text || ""}`)
+                  : `${Math.min(currentQIndex + 1, Math.max(visibleSAMPLE_QUESTIONS.length, 1))}/${visibleSAMPLE_QUESTIONS.length} — ${visibleSAMPLE_QUESTIONS[currentQIndex]?.text || ""}`
                 }
               </div>
 
@@ -3128,13 +4453,15 @@ function MarktbesuchInner() {
 
           {/* Expanded sheet */}
           <JumpNavigator
-            questions={SAMPLE_QUESTIONS}
-            mhdQuestions={MHD_QUESTIONS}
+            questions={visibleSAMPLE_QUESTIONS}
+            mhdQuestions={visibleMHD_QUESTIONS}
             mhdAnswers={mhdAnswers}
-            kuehlerQuestions={KUEHLER_QUESTIONS}
+            kuehlerQuestions={visibleKUEHLER_QUESTIONS}
             kuehlerAnswers={kuehlerAnswers}
             answers={answers}
             currentIndex={currentQIndex}
+            currentKuehlerIndex={kuehlerQIndex}
+            currentMhdIndex={mhdQIndex}
             onJump={jumpTo}
             onJumpKuehler={jumpToKuehler}
             onJumpMhd={jumpToMhd}

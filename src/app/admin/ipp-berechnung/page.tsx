@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Search, X, TrendingUp, ChevronDown, ChevronRight, Info } from "lucide-react";
 import type {
-  IppSubmission, IppQuestionAnswer, IppMarketAuditRecord,
+  IppMarketAuditRecord,
   IppQuestionAuditRow, IppAverageSummary, SectionType,
 } from "@/types/ipp";
+import { fetchAdminIppDetail, fetchAdminIppRows, type AdminIppListRow } from "@/lib/api/backend";
 
 // ── Constants ─────────────────────────────────────────────────
 const R = "#DC2626";
@@ -35,610 +36,104 @@ function chainInitials(name: string): { bg: string; text: string } {
   return { bg: "rgba(0,0,0,0.05)", text: "#6b7280" };
 }
 
-// ── Question fingerprint ──────────────────────────────────────
-function buildFingerprint(q: IppQuestionAnswer): string {
-  const normalized = q.questionText.trim().toLowerCase().replace(/\s+/g, " ");
-  const opts = (q.options ?? []).map(o => o.trim().toLowerCase()).sort().join("|");
-  const scoring = Object.entries(q.scoringMap).map(([k, v]) => `${k}:${v}`).sort().join("|");
-  return `${normalized}::${q.questionType}::${opts}::${scoring}`;
+function collectSections(record: IppMarketAuditRecord & { submissionRefs?: Array<{ sectionType?: string }> }): SectionType[] {
+  const fromSubmissionRefs = Array.isArray(record.submissionRefs)
+    ? record.submissionRefs.map((entry) => entry.sectionType).filter((value): value is string => typeof value === "string")
+    : [];
+  const fromQuestionRows = (record.questionRows ?? []).flatMap((row) => row.sourceSections ?? []);
+  return Array.from(new Set([...fromSubmissionRefs, ...fromQuestionRows]))
+    .filter((value): value is SectionType => value in SECTION_META);
 }
 
-// ── Compute applied IPP for a single question+answer ──────────
-function computeAppliedIpp(q: IppQuestionAnswer): number {
-  const ans = q.selectedAnswer;
-  if (q.questionType === "numeric") {
-    const factor = q.scoringMap["__value__"] ?? 0;
-    const val = parseFloat(typeof ans === "string" ? ans : ans[0] ?? "0");
-    return isNaN(val) ? 0 : val * factor;
-  }
-  if (q.questionType === "yesno") {
-    const key = typeof ans === "string" ? ans : ans[0] ?? "";
-    return q.scoringMap[key] ?? 0;
-  }
-  if (q.questionType === "single") {
-    const key = typeof ans === "string" ? ans : ans[0] ?? "";
-    return q.scoringMap[key] ?? 0;
-  }
-  if (q.questionType === "multiple") {
-    const keys = Array.isArray(ans) ? ans : [ans];
-    return keys.reduce((s, k) => s + (q.scoringMap[k] ?? 0), 0);
-  }
-  return 0;
+function collectFragebogenNames(record: IppMarketAuditRecord & { submissionRefs?: Array<{ fragebogenName?: string }> }): string[] {
+  const fromSubmissionRefs = Array.isArray(record.submissionRefs)
+    ? record.submissionRefs
+        .map((entry) => entry.fragebogenName)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  const fromQuestionRows = (record.questionRows ?? []).flatMap((row) => row.sourceFrageboegen ?? []);
+  return Array.from(new Set([...fromSubmissionRefs, ...fromQuestionRows].map((value) => value.trim()).filter((value) => value.length > 0)));
 }
 
-// ── Build normalized audit records from raw submissions ───────
-function buildAuditRecords(submissions: IppSubmission[]): IppMarketAuditRecord[] {
-  // Group by marketId × redMonatLabel
-  const groupMap = new Map<string, IppSubmission[]>();
-  for (const sub of submissions) {
-    const key = `${sub.marketId}::${sub.redMonatLabel}`;
-    if (!groupMap.has(key)) groupMap.set(key, []);
-    groupMap.get(key)!.push(sub);
+// ── Market YTD series ─────────────────────────────────────────
+
+interface IppMarketSeries {
+  marketId: string;
+  marketName: string;
+  chain: string;
+  region: string;
+  postalCode: string;
+  city: string;
+  gmName: string;
+  /** All month records for this market, newest-first */
+  records: IppMarketAuditRecord[];
+  /** Mean of all included (IPP > 0) month IPPs */
+  averageIppYtd: number;
+  includedMonthCount: number;
+  excludedMonthCount: number;
+}
+
+/** Group audit records by market and derive per-market YTD averages */
+function buildMarketSeries(records: IppMarketAuditRecord[]): Map<string, IppMarketSeries> {
+  const byMarket = new Map<string, IppMarketAuditRecord[]>();
+  for (const r of records) {
+    if (!byMarket.has(r.marketId)) byMarket.set(r.marketId, []);
+    byMarket.get(r.marketId)!.push(r);
   }
-
-  const records: IppMarketAuditRecord[] = [];
-  groupMap.forEach((subs, key) => {
-    const base = subs[0];
-    // Collect all questions across all submissions for this market×redMonat
-    // Key: fingerprint → best answer (last submission wins)
-    const fpMap = new Map<string, {
-      q: IppQuestionAnswer;
-      sections: Set<SectionType>;
-      fragebogen: Set<string>;
-    }>();
-
-    for (const sub of subs) {
-      for (const qa of sub.questionAnswers) {
-        const fp = buildFingerprint(qa);
-        if (!fpMap.has(fp)) {
-          fpMap.set(fp, { q: qa, sections: new Set(), fragebogen: new Set() });
-        }
-        const entry = fpMap.get(fp)!;
-        // Always update to latest answer (last submission wins)
-        entry.q = qa;
-        entry.sections.add(sub.sectionType);
-        entry.fragebogen.add(sub.fragebogenName);
-      }
-    }
-
-    // Build question audit rows
-    const questionRows: IppQuestionAuditRow[] = [];
-    fpMap.forEach((entry, fp) => {
-      const ipp = computeAppliedIpp(entry.q);
-      const deduped = entry.sections.size > 1 || entry.fragebogen.size > 1;
-      const hasScore = Object.keys(entry.q.scoringMap).length > 0;
-      let counted = hasScore && ipp > 0;
-      let countedReason = counted
-        ? "IPP-Wert vergeben und Antwort > 0"
-        : !hasScore
-        ? "Keine IPP-Bewertung für diese Frage"
-        : "Gewählte Antwort ergibt IPP 0";
-
-      if (deduped) {
-        countedReason = counted
-          ? `1 Antwort für RED Monat übernommen (${entry.sections.size} Sektionen)`
-          : `Duplizierte Frage, Antwort ergibt IPP 0`;
-      }
-
-      questionRows.push({
-        questionFingerprint: fp,
-        questionText: entry.q.questionText,
-        questionType: entry.q.questionType,
-        selectedAnswer: entry.q.selectedAnswer,
-        appliedIppValue: ipp,
-        counted,
-        countedReason,
-        sourceSections: Array.from(entry.sections),
-        sourceFrageboegen: Array.from(entry.fragebogen),
-        deduped,
-      });
-    });
-
-    // Sort: counted first, then descending IPP
-    questionRows.sort((a, b) => {
-      if (a.counted !== b.counted) return a.counted ? -1 : 1;
-      return b.appliedIppValue - a.appliedIppValue;
-    });
-
-    const marketIpp = questionRows
-      .filter(r => r.counted)
-      .reduce((s, r) => s + r.appliedIppValue, 0);
-
-    records.push({
-      id: key,
-      marketId: base.marketId,
+  const result = new Map<string, IppMarketSeries>();
+  byMarket.forEach((recs, marketId) => {
+    const sorted = [...recs].sort((a, b) => b.redMonatLabel.localeCompare(a.redMonatLabel));
+    const included = sorted.filter(r => r.includedInAverage);
+    const avgYtd = included.length > 0
+      ? Math.round(included.reduce((s, r) => s + r.marketIpp, 0) / included.length * 100) / 100
+      : 0;
+    const base = sorted[0];
+    result.set(marketId, {
+      marketId,
       marketName: base.marketName,
       chain: base.chain,
       region: base.region,
       postalCode: base.postalCode,
       city: base.city,
       gmName: base.gmName,
-      redMonatLabel: base.redMonatLabel,
-      marketIpp: Math.round(marketIpp * 100) / 100,
-      includedInAverage: marketIpp > 0,
-      questionRows,
-      submissionRefs: subs.map(s => ({
-        sectionType: s.sectionType,
-        fragebogenName: s.fragebogenName,
-        submittedAt: s.submittedAt,
-      })),
+      records: sorted,
+      averageIppYtd: avgYtd,
+      includedMonthCount: included.length,
+      excludedMonthCount: sorted.length - included.length,
     });
   });
-
-  return records.sort((a, b) => b.marketIpp - a.marketIpp);
+  return result;
 }
 
-function buildSummary(records: IppMarketAuditRecord[]): IppAverageSummary {
-  const included = records.filter(r => r.includedInAverage);
-  const excluded = records.filter(r => !r.includedInAverage);
-  const numeratorTotal = included.reduce((s, r) => s + r.marketIpp, 0);
+/** Austria-level average: average of market YTD averages across unique markets */
+function buildYtdSummary(series: Map<string, IppMarketSeries>): IppAverageSummary {
+  const markets = Array.from(series.values());
+  const included = markets.filter(m => m.averageIppYtd > 0);
+  const numeratorTotal = included.reduce((s, m) => s + m.averageIppYtd, 0);
   const denominatorIncludedMarkets = included.length;
   const averageIpp = denominatorIncludedMarkets > 0
     ? Math.round((numeratorTotal / denominatorIncludedMarkets) * 100) / 100
     : 0;
-  const contributingQuestionCount = included.reduce(
-    (s, r) => s + r.questionRows.filter(q => q.counted).length, 0
-  );
+  const contributingQuestionCount = markets.reduce((sum, market) => {
+    return (
+      sum +
+      market.records.reduce((rowSum, record) => {
+        if (typeof record.contributingQuestionCount === "number") {
+          return rowSum + record.contributingQuestionCount;
+        }
+        return rowSum + record.questionRows.filter((question) => question.counted).length;
+      }, 0)
+    );
+  }, 0);
   return {
     averageIpp,
     numeratorTotal: Math.round(numeratorTotal * 100) / 100,
     denominatorIncludedMarkets,
-    excludedZeroMarkets: excluded.length,
+    excludedZeroMarkets: markets.length - included.length,
     contributingQuestionCount,
-    totalMarkets: records.length,
+    totalMarkets: markets.length,
   };
 }
-
-// ── Seed Data ─────────────────────────────────────────────────
-// IPP scoring maps for common placement questions
-const Y: Record<"Ja"|"Nein", number> = { Ja: 0.6, Nein: 0 };
-const PLACEMENT_OPTS: Record<string, number> = {
-  "Ja, vollständig": 0.8, "Ja, teilweise": 0.4, "Nein": 0,
-};
-const STANDORT_OPTS: Record<string, number> = {
-  "Eingang": 0.8, "Kasse": 0.65, "Mitte": 0.4, "Nicht vorhanden": 0,
-};
-const ZUSTAND_OPTS: Record<string, number> = {
-  "Sehr gut": 0.8, "Gut": 0.65, "Ausreichend": 0.15, "Mangelhaft": 0,
-};
-const KUEHLER_OPTS: Record<string, number> = {
-  "Sehr voll": 0.4, "Halb voll": 0.2, "Nicht voll": 0.05, "Leer": 0,
-};
-const POS_OPTS: Record<string, number> = {
-  "Vollständig vorhanden": 0.65, "Teilweise vorhanden": 0.3, "Nicht vorhanden": 0,
-};
-
-// Helper to build common standard questions for a market
-function stdQuestions(placementAns: string, standortAns: string, zustandAns: string, plakateAns: string, posAns: string): IppQuestionAnswer[] {
-  return [
-    {
-      questionId: "std_q1",
-      questionText: "Ist ein Coca-Cola Display platziert?",
-      questionType: "single",
-      options: ["Ja, vollständig", "Ja, teilweise", "Nein"],
-      scoringMap: PLACEMENT_OPTS,
-      selectedAnswer: placementAns,
-    },
-    {
-      questionId: "std_q2",
-      questionText: "Standort des Hauptdisplays",
-      questionType: "single",
-      options: ["Eingang", "Kasse", "Mitte", "Nicht vorhanden"],
-      scoringMap: STANDORT_OPTS,
-      selectedAnswer: standortAns,
-    },
-    {
-      questionId: "std_q3",
-      questionText: "Zustand der Platzierung",
-      questionType: "single",
-      options: ["Sehr gut", "Gut", "Ausreichend", "Mangelhaft"],
-      scoringMap: ZUSTAND_OPTS,
-      selectedAnswer: zustandAns,
-    },
-    {
-      questionId: "std_q4",
-      questionText: "Sind aktuelle Preisschilder vorhanden?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.6, Nein: 0 },
-      selectedAnswer: "Ja",
-    },
-    {
-      questionId: "std_q5",
-      questionText: "Plakate / Aufkleber korrekt angebracht?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.6, Nein: 0 },
-      selectedAnswer: plakateAns,
-    },
-    {
-      questionId: "std_q6",
-      questionText: "POS-Material vollständig?",
-      questionType: "single",
-      options: ["Vollständig vorhanden", "Teilweise vorhanden", "Nicht vorhanden"],
-      scoringMap: POS_OPTS,
-      selectedAnswer: posAns,
-    },
-    {
-      questionId: "std_q7",
-      questionText: "Anzahl Facings Coca-Cola 1.5L",
-      questionType: "numeric",
-      scoringMap: { "__value__": 0.08 },
-      selectedAnswer: "6",
-    },
-    {
-      questionId: "std_q8",
-      questionText: "Anzahl Facings Coca-Cola Zero 1L",
-      questionType: "numeric",
-      scoringMap: { "__value__": 0.08 },
-      selectedAnswer: "4",
-    },
-    {
-      questionId: "std_q9",
-      questionText: "Promotionartikel im Aktionsregal?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.6, Nein: 0 },
-      selectedAnswer: "Ja",
-    },
-    {
-      questionId: "std_q10",
-      questionText: "Saisonale Aktionsfläche bespielt?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.6, Nein: 0 },
-      selectedAnswer: "Nein",
-    },
-  ];
-}
-
-function flexQuestions(placementAns: string, standortAns: string): IppQuestionAnswer[] {
-  return [
-    // Shared question — same text/scoring as std_q1 → will be deduped
-    {
-      questionId: "flex_q1",
-      questionText: "Ist ein Coca-Cola Display platziert?",
-      questionType: "single",
-      options: ["Ja, vollständig", "Ja, teilweise", "Nein"],
-      scoringMap: PLACEMENT_OPTS,
-      selectedAnswer: placementAns,
-    },
-    {
-      questionId: "flex_q2",
-      questionText: "Standort des Hauptdisplays",
-      questionType: "single",
-      options: ["Eingang", "Kasse", "Mitte", "Nicht vorhanden"],
-      scoringMap: STANDORT_OPTS,
-      selectedAnswer: standortAns,
-    },
-    {
-      questionId: "flex_q3",
-      questionText: "Flex-Aktionsfläche korrekt aufgebaut?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.2, Nein: 0 },
-      selectedAnswer: "Ja",
-    },
-    {
-      questionId: "flex_q4",
-      questionText: "Aktionsartikel vollständig vorhanden?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.2, Nein: 0 },
-      selectedAnswer: "Ja",
-    },
-  ];
-}
-
-function kuehlerQuestions(kuehlerAns: string, sauberAns: "Ja" | "Nein"): IppQuestionAnswer[] {
-  return [
-    {
-      questionId: "kue_q1",
-      questionText: "Befüllungsgrad Hauptkühler Coca-Cola",
-      questionType: "single",
-      options: ["Sehr voll", "Halb voll", "Nicht voll", "Leer"],
-      scoringMap: KUEHLER_OPTS,
-      selectedAnswer: kuehlerAns,
-    },
-    {
-      questionId: "kue_q2",
-      questionText: "Kühler sauber und gepflegt?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.2, Nein: 0 },
-      selectedAnswer: sauberAns,
-    },
-    {
-      questionId: "kue_q3",
-      questionText: "Planogramm eingehalten?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.2, Nein: 0 },
-      selectedAnswer: "Ja",
-    },
-  ];
-}
-
-function mhdQuestions(): IppQuestionAnswer[] {
-  return [
-    {
-      questionId: "mhd_q1",
-      questionText: "MHD-Kontrolle durchgeführt und dokumentiert?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.25, Nein: 0 },
-      selectedAnswer: "Ja",
-    },
-    {
-      questionId: "mhd_q2",
-      questionText: "Abgelaufene Artikel entfernt?",
-      questionType: "yesno",
-      scoringMap: { Ja: 0.15, Nein: 0 },
-      selectedAnswer: "Ja",
-    },
-  ];
-}
-
-const SEED_SUBMISSIONS: IppSubmission[] = [
-  // ── RED 28 ──────────────────────────────────────────────────
-  // MK1: BILLA Favoriten — Standard + Flex + Kühler (multi-section, shared question deduped)
-  {
-    id: "sub-mk1-std-28", marketId: "mk1", marketName: "BILLA Wien Favoriten", chain: "BILLA",
-    postalCode: "1100", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-02T09:52:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk1-flex-28", marketId: "mk1", marketName: "BILLA Wien Favoriten", chain: "BILLA",
-    postalCode: "1100", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "flex", fragebogenName: "Flex Fragebogen Q2 2026",
-    submittedAt: "2026-04-02T10:05:00Z",
-    questionAnswers: flexQuestions("Ja, vollständig", "Eingang"),
-  },
-  {
-    id: "sub-mk1-kue-28", marketId: "mk1", marketName: "BILLA Wien Favoriten", chain: "BILLA",
-    postalCode: "1100", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q2 2026",
-    submittedAt: "2026-04-02T10:20:00Z",
-    questionAnswers: kuehlerQuestions("Sehr voll", "Ja"),
-  },
-  // MK2: BILLA Meidling — Standard + Flex
-  {
-    id: "sub-mk2-std-28", marketId: "mk2", marketName: "BILLA Wien Meidling", chain: "BILLA",
-    postalCode: "1120", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-02T11:05:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk2-flex-28", marketId: "mk2", marketName: "BILLA Wien Meidling", chain: "BILLA",
-    postalCode: "1120", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "flex", fragebogenName: "Flex Fragebogen Q2 2026",
-    submittedAt: "2026-04-02T11:20:00Z",
-    questionAnswers: flexQuestions("Ja, vollständig", "Eingang"),
-  },
-  // MK3: MERKUR Graz Hauptplatz — Standard + Kühler + MHD
-  {
-    id: "sub-mk3-std-28", marketId: "mk3", marketName: "MERKUR Graz Hauptplatz", chain: "MERKUR",
-    postalCode: "8010", city: "Graz", region: "Süd", gmId: "gm-seed-2", gmName: "Anna Gruber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-03T09:40:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk3-kue-28", marketId: "mk3", marketName: "MERKUR Graz Hauptplatz", chain: "MERKUR",
-    postalCode: "8010", city: "Graz", region: "Süd", gmId: "gm-seed-2", gmName: "Anna Gruber",
-    redMonatLabel: "RED 28", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q2 2026",
-    submittedAt: "2026-04-03T10:00:00Z",
-    questionAnswers: kuehlerQuestions("Sehr voll", "Ja"),
-  },
-  {
-    id: "sub-mk3-mhd-28", marketId: "mk3", marketName: "MERKUR Graz Hauptplatz", chain: "MERKUR",
-    postalCode: "8010", city: "Graz", region: "Süd", gmId: "gm-seed-2", gmName: "Anna Gruber",
-    redMonatLabel: "RED 28", sectionType: "mhd", fragebogenName: "MHD Check Q2 2026",
-    submittedAt: "2026-04-03T10:15:00Z",
-    questionAnswers: mhdQuestions(),
-  },
-  // MK4: SPAR Linz Nord — Standard only (weak IPP)
-  {
-    id: "sub-mk4-std-28", marketId: "mk4", marketName: "SPAR Linz Nord", chain: "SPAR",
-    postalCode: "4020", city: "Linz", region: "West", gmId: "gm-seed-3", gmName: "Markus Steiner",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-04T09:00:00Z",
-    questionAnswers: stdQuestions("Ja, teilweise", "Kasse", "Gut", "Ja", "Teilweise vorhanden"),
-  },
-  // MK5: BILLA Wien Mariahilf — Standard + Flex + Kühler
-  {
-    id: "sub-mk5-std-28", marketId: "mk5", marketName: "BILLA Wien Mariahilf", chain: "BILLA",
-    postalCode: "1060", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-02T12:00:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk5-kue-28", marketId: "mk5", marketName: "BILLA Wien Mariahilf", chain: "BILLA",
-    postalCode: "1060", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q2 2026",
-    submittedAt: "2026-04-02T12:15:00Z",
-    questionAnswers: kuehlerQuestions("Halb voll", "Ja"),
-  },
-  // MK6: BILLA Mödling — Standard (IPP = 0, excluded)
-  {
-    id: "sub-mk6-std-28", marketId: "mk6", marketName: "BILLA Mödling", chain: "BILLA",
-    postalCode: "2340", city: "Mödling", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-03T14:30:00Z",
-    questionAnswers: [
-      {
-        questionId: "std_q1", questionText: "Ist ein Coca-Cola Display platziert?",
-        questionType: "single", options: ["Ja, vollständig", "Ja, teilweise", "Nein"],
-        scoringMap: PLACEMENT_OPTS, selectedAnswer: "Nein",
-      },
-      {
-        questionId: "std_q2", questionText: "Standort des Hauptdisplays",
-        questionType: "single", options: ["Eingang", "Kasse", "Mitte", "Nicht vorhanden"],
-        scoringMap: STANDORT_OPTS, selectedAnswer: "Nicht vorhanden",
-      },
-      {
-        questionId: "std_q3", questionText: "Zustand der Platzierung",
-        questionType: "single", options: ["Sehr gut", "Gut", "Ausreichend", "Mangelhaft"],
-        scoringMap: ZUSTAND_OPTS, selectedAnswer: "Mangelhaft",
-      },
-      {
-        questionId: "std_q5", questionText: "Plakate / Aufkleber korrekt angebracht?",
-        questionType: "yesno", scoringMap: { Ja: 0.6, Nein: 0 }, selectedAnswer: "Nein",
-      },
-      {
-        questionId: "std_q6", questionText: "POS-Material vollständig?",
-        questionType: "single", options: ["Vollständig vorhanden", "Teilweise vorhanden", "Nicht vorhanden"],
-        scoringMap: POS_OPTS, selectedAnswer: "Nicht vorhanden",
-      },
-      {
-        questionId: "std_q7", questionText: "Anzahl Facings Coca-Cola 1.5L",
-        questionType: "numeric", scoringMap: { "__value__": 0.08 }, selectedAnswer: "0",
-      },
-    ],
-  },
-  // MK7: MERKUR Wien Donaustadt — Standard + Flex + Kühler (very strong IPP)
-  {
-    id: "sub-mk7-std-28", marketId: "mk7", marketName: "MERKUR Wien Donaustadt", chain: "MERKUR",
-    postalCode: "1220", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-04T09:00:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk7-flex-28", marketId: "mk7", marketName: "MERKUR Wien Donaustadt", chain: "MERKUR",
-    postalCode: "1220", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "flex", fragebogenName: "Flex Fragebogen Q2 2026",
-    submittedAt: "2026-04-04T09:15:00Z",
-    questionAnswers: flexQuestions("Ja, vollständig", "Eingang"),
-  },
-  {
-    id: "sub-mk7-kue-28", marketId: "mk7", marketName: "MERKUR Wien Donaustadt", chain: "MERKUR",
-    postalCode: "1220", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q2 2026",
-    submittedAt: "2026-04-04T09:30:00Z",
-    questionAnswers: kuehlerQuestions("Sehr voll", "Ja"),
-  },
-  // MK8: SPAR Graz West — Standard + Kühler (Anna Gruber)
-  {
-    id: "sub-mk8-std-28", marketId: "mk8", marketName: "SPAR Graz West", chain: "SPAR",
-    postalCode: "8051", city: "Graz", region: "Süd", gmId: "gm-seed-2", gmName: "Anna Gruber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-03T11:00:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk8-kue-28", marketId: "mk8", marketName: "SPAR Graz West", chain: "SPAR",
-    postalCode: "8051", city: "Graz", region: "Süd", gmId: "gm-seed-2", gmName: "Anna Gruber",
-    redMonatLabel: "RED 28", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q2 2026",
-    submittedAt: "2026-04-03T11:20:00Z",
-    questionAnswers: kuehlerQuestions("Halb voll", "Ja"),
-  },
-  // MK9: BILLA Baden — Standard only (mid IPP)
-  {
-    id: "sub-mk9-std-28", marketId: "mk9", marketName: "BILLA Baden", chain: "BILLA",
-    postalCode: "2500", city: "Baden", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-05T10:00:00Z",
-    questionAnswers: stdQuestions("Ja, teilweise", "Kasse", "Gut", "Ja", "Teilweise vorhanden"),
-  },
-  // MK10: HOFER Klagenfurt West — Standard (Michael Berger, Süd)
-  {
-    id: "sub-mk10-std-28", marketId: "mk10", marketName: "HOFER Klagenfurt West", chain: "HOFER",
-    postalCode: "9020", city: "Klagenfurt", region: "Süd", gmId: "gm-seed-5", gmName: "Michael Berger",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-06T09:00:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-  // MK11: BILLA Wien Schönbrunn — Standard + Billa
-  {
-    id: "sub-mk11-std-28", marketId: "mk11", marketName: "BILLA Wien Schönbrunn", chain: "BILLA",
-    postalCode: "1050", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-06T10:30:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk11-billa-28", marketId: "mk11", marketName: "BILLA Wien Schönbrunn", chain: "BILLA",
-    postalCode: "1050", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 28", sectionType: "billa", fragebogenName: "Billa Fragebogen Q2 2026",
-    submittedAt: "2026-04-06T10:45:00Z",
-    questionAnswers: [
-      {
-        questionId: "bil_q1", questionText: "Billa Aktionsfläche mit Coca-Cola Produkten?",
-        questionType: "yesno", scoringMap: { Ja: 0.35, Nein: 0 }, selectedAnswer: "Ja",
-      },
-      {
-        questionId: "bil_q2", questionText: "Billa-spezifisches Regal optimal befüllt?",
-        questionType: "single", options: ["Vollständig vorhanden", "Teilweise vorhanden", "Nicht vorhanden"],
-        scoringMap: POS_OPTS, selectedAnswer: "Vollständig vorhanden",
-      },
-      {
-        questionId: "bil_q3", questionText: "Sonderplatzierung Billa aktiv?",
-        questionType: "yesno", scoringMap: { Ja: 0.3, Nein: 0 }, selectedAnswer: "Ja",
-      },
-    ],
-  },
-  // MK12: PENNY Wien — Standard (Lisa Wagner, Nord)
-  {
-    id: "sub-mk12-std-28", marketId: "mk12", marketName: "PENNY Wien Nord", chain: "PENNY",
-    postalCode: "1210", city: "Wien", region: "Nord", gmId: "gm-seed-4", gmName: "Lisa Wagner",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-05T11:00:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Gut", "Ja", "Teilweise vorhanden"),
-  },
-  // MK13: ADEG Graz Straßgang — Standard + MHD (Anna Gruber, Süd)
-  {
-    id: "sub-mk13-std-28", marketId: "mk13", marketName: "ADEG Graz Straßgang", chain: "ADEG",
-    postalCode: "8054", city: "Graz", region: "Süd", gmId: "gm-seed-2", gmName: "Anna Gruber",
-    redMonatLabel: "RED 28", sectionType: "standard", fragebogenName: "Standard Fragebogen Q2 2026",
-    submittedAt: "2026-04-03T15:00:00Z",
-    questionAnswers: stdQuestions("Ja, teilweise", "Eingang", "Gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk13-mhd-28", marketId: "mk13", marketName: "ADEG Graz Straßgang", chain: "ADEG",
-    postalCode: "8054", city: "Graz", region: "Süd", gmId: "gm-seed-2", gmName: "Anna Gruber",
-    redMonatLabel: "RED 28", sectionType: "mhd", fragebogenName: "MHD Check Q2 2026",
-    submittedAt: "2026-04-03T15:15:00Z",
-    questionAnswers: mhdQuestions(),
-  },
-
-  // ── RED 27 ──────────────────────────────────────────────────
-  // MK1 in RED 27 — different answers (slightly lower IPP)
-  {
-    id: "sub-mk1-std-27", marketId: "mk1", marketName: "BILLA Wien Favoriten", chain: "BILLA",
-    postalCode: "1100", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 27", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1 2026",
-    submittedAt: "2026-03-18T09:52:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Gut", "Ja", "Vollständig vorhanden"),
-  },
-  {
-    id: "sub-mk1-kue-27", marketId: "mk1", marketName: "BILLA Wien Favoriten", chain: "BILLA",
-    postalCode: "1100", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 27", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q1 2026",
-    submittedAt: "2026-03-18T10:10:00Z",
-    questionAnswers: kuehlerQuestions("Halb voll", "Ja"),
-  },
-  // MK3 in RED 27
-  {
-    id: "sub-mk3-std-27", marketId: "mk3", marketName: "MERKUR Graz Hauptplatz", chain: "MERKUR",
-    postalCode: "8010", city: "Graz", region: "Süd", gmId: "gm-seed-2", gmName: "Anna Gruber",
-    redMonatLabel: "RED 27", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1 2026",
-    submittedAt: "2026-03-20T09:40:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-  // MK7 in RED 27
-  {
-    id: "sub-mk7-std-27", marketId: "mk7", marketName: "MERKUR Wien Donaustadt", chain: "MERKUR",
-    postalCode: "1220", city: "Wien", region: "Ost", gmId: "gm-seed-1", gmName: "Thomas Huber",
-    redMonatLabel: "RED 27", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1 2026",
-    submittedAt: "2026-03-22T09:00:00Z",
-    questionAnswers: stdQuestions("Ja, vollständig", "Eingang", "Sehr gut", "Ja", "Vollständig vorhanden"),
-  },
-];
-
-const ALL_AUDIT_RECORDS = buildAuditRecords(SEED_SUBMISSIONS);
-
-// ── Filter options derived from records ───────────────────────
-const ALL_REGIONS   = [...new Set(ALL_AUDIT_RECORDS.map(r => r.region))].sort();
-const ALL_GMS       = [...new Set(ALL_AUDIT_RECORDS.map(r => r.gmName))].sort();
-const ALL_CHAINS    = [...new Set(ALL_AUDIT_RECORDS.map(r => r.chain))].sort();
-const ALL_RED_MONATS= [...new Set(ALL_AUDIT_RECORDS.map(r => r.redMonatLabel))].sort((a, b) => b.localeCompare(a));
-
 // ── Small UI helpers ──────────────────────────────────────────
 function SectionPill({ type }: { type: SectionType }) {
   const m = SECTION_META[type];
@@ -721,7 +216,209 @@ function QuestionAuditRow({ row }: { row: IppQuestionAuditRow }) {
   );
 }
 
-function MarketInspector({ record }: { record: IppMarketAuditRecord | null }) {
+// ── Month Switcher (market-scoped pill picker) ────────────────
+function MonthSwitcher({
+  records, selectedMonth, onChange,
+}: {
+  records: IppMarketAuditRecord[];
+  selectedMonth: string;
+  onChange: (label: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = React.useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    function update() {
+      if (!btnRef.current) return;
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left });
+    }
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => { window.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      const portal = document.getElementById("ipp-month-switcher-portal");
+      if (btnRef.current?.contains(e.target as Node) || portal?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const months = records.map(r => r.redMonatLabel);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: "flex", alignItems: "center", gap: 5,
+          fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5,
+          background: open ? "rgba(220,38,38,0.14)" : "rgba(220,38,38,0.08)",
+          color: R, letterSpacing: "0.04em",
+          border: "none", cursor: months.length > 1 ? "pointer" : "default",
+          fontFamily: "inherit", transition: "background 0.12s ease",
+        }}
+        onMouseEnter={e => { if (months.length > 1) (e.currentTarget as HTMLButtonElement).style.background = "rgba(220,38,38,0.14)"; }}
+        onMouseLeave={e => { if (!open) (e.currentTarget as HTMLButtonElement).style.background = "rgba(220,38,38,0.08)"; }}
+      >
+        {selectedMonth}
+        {months.length > 1 && (
+          <ChevronDown size={9} strokeWidth={2.5} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+        )}
+      </button>
+      {open && pos && months.length > 1 && typeof document !== "undefined" && createPortal(
+        <div
+          id="ipp-month-switcher-portal"
+          style={{
+            position: "fixed", top: pos.top, left: pos.left, zIndex: 9999,
+            background: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.08)",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.10)", padding: 4, minWidth: 130,
+            animation: "ippDropIn 0.14s ease both",
+          }}
+        >
+          <style>{`@keyframes ippDropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}`}</style>
+          {months.map(m => {
+            const rec = records.find(r => r.redMonatLabel === m)!;
+            const isSelected = m === selectedMonth;
+            return (
+              <button
+                key={m}
+                onMouseDown={e => { e.preventDefault(); onChange(m); setOpen(false); }}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                  gap: 10, padding: "6px 10px", fontSize: 10, borderRadius: 5, border: "none",
+                  cursor: "pointer", background: isSelected ? "rgba(220,38,38,0.06)" : "transparent",
+                  color: isSelected ? R : "#374151", fontWeight: isSelected ? 700 : 400, fontFamily: "inherit",
+                  transition: "background 0.1s ease",
+                }}
+                onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
+                onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+              >
+                <span>{m}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, color: rec.includedInAverage ? GREEN : "rgba(0,0,0,0.3)", fontVariantNumeric: "tabular-nums" }}>
+                  {fmtIpp(rec.marketIpp)}
+                </span>
+              </button>
+            );
+          })}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+// ── Durchschnitt hover breakdown ──────────────────────────────
+function DurchschnittTooltip({
+  series, averageIppYtd, metricBlock, color,
+}: {
+  series: IppMarketSeries;
+  averageIppYtd: number;
+  color: string;
+  metricBlock: (value: string, label: string, color: string) => React.ReactNode;
+}) {
+  const [show, setShow] = useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleEnter = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!containerRef.current) return;
+    const r = containerRef.current.getBoundingClientRect();
+    const panelW = 220;
+    const left = Math.min(r.right - panelW, window.innerWidth - panelW - 12);
+    setPos({ top: r.bottom + 6, left: Math.max(8, left) });
+    setShow(true);
+  };
+  const handleLeave = () => {
+    timerRef.current = setTimeout(() => setShow(false), 120);
+  };
+  const handlePanelEnter = () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  const handlePanelLeave = () => { timerRef.current = setTimeout(() => setShow(false), 120); };
+
+  const included = series.records.filter(r => r.includedInAverage);
+  const sum = included.reduce((s, r) => s + r.marketIpp, 0);
+
+  return (
+    <>
+      {/* Trigger — same MetricBlock as Dieser Monat, just adds hover behaviour */}
+      <div
+        ref={containerRef}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+        style={{ cursor: "default" }}
+      >
+        {metricBlock(fmtIpp(averageIppYtd), "Im Durchschnitt", color)}
+      </div>
+      {show && pos && typeof document !== "undefined" && createPortal(
+        <div
+          onMouseEnter={handlePanelEnter}
+          onMouseLeave={handlePanelLeave}
+          style={{
+            position: "fixed", top: pos.top, left: pos.left, zIndex: 9999,
+            background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.11), 0 1px 4px rgba(0,0,0,0.05)",
+            padding: "10px 0", width: 220,
+            animation: "ippDropIn 0.14s ease both",
+          }}
+        >
+          <div style={{ padding: "0 12px 7px", fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.3)" }}>
+            YTD Berechnung
+          </div>
+          {series.records.map(r => (
+            <div
+              key={r.redMonatLabel}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                padding: "5px 12px",
+                opacity: r.includedInAverage ? 1 : 0.4,
+              }}
+            >
+              <span style={{ fontSize: 10, fontWeight: 600, color: R, letterSpacing: "0.02em" }}>{r.redMonatLabel}</span>
+              <span style={{ fontSize: 10, fontWeight: r.includedInAverage ? 700 : 400, color: r.includedInAverage ? GREEN : "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>
+                {r.includedInAverage ? fmtIpp(r.marketIpp) : "0.00"}
+              </span>
+            </div>
+          ))}
+          <div style={{ margin: "7px 12px 0", paddingTop: 7, borderTop: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span style={{ fontSize: 9, color: "rgba(0,0,0,0.4)", fontVariantNumeric: "tabular-nums" }}>
+              {fmtIpp(sum)} ÷ {included.length}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 800, color: GREEN, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>
+              = {fmtIpp(averageIppYtd)}
+            </span>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+// ── Inspector ─────────────────────────────────────────────────
+function MarketInspector({
+  record,
+  marketSeries,
+  averageIppYtd,
+  inspectorMonthLabel,
+  onMonthChange,
+}: {
+  record: IppMarketAuditRecord | null;
+  marketSeries: IppMarketSeries | null;
+  averageIppYtd: number;
+  inspectorMonthLabel: string | null;
+  onMonthChange: (label: string) => void;
+}) {
   const [ignoredOpen, setIgnoredOpen] = useState(false);
 
   if (!record) {
@@ -742,14 +439,16 @@ function MarketInspector({ record }: { record: IppMarketAuditRecord | null }) {
   const ignored   = record.questionRows.filter(r => !r.counted || r.appliedIppValue === 0);
   const deduped   = record.questionRows.filter(r => r.deduped).length;
   const ci        = chainInitials(record.chain);
-  const sections  = [...new Set(record.submissionRefs.map(s => s.sectionType))];
-  const frageOgen = [...new Set(record.submissionRefs.map(s => s.fragebogenName))];
+  const sections = collectSections(record);
+  const frageOgen = collectFragebogenNames(record);
+  const activeMonth = inspectorMonthLabel ?? record.redMonatLabel;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
       {/* Inspector header */}
       <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(0,0,0,0.06)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+          {/* Left: identity */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 9px", borderRadius: 5, background: ci.bg, color: ci.text, letterSpacing: "0.04em", textTransform: "uppercase" as const, flexShrink: 0 }}>
               {record.chain}
@@ -759,21 +458,64 @@ function MarketInspector({ record }: { record: IppMarketAuditRecord | null }) {
               <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 1 }}>{record.postalCode} {record.city} · {record.region} · {record.gmName}</div>
             </div>
           </div>
-          <div style={{ textAlign: "right" as const, flexShrink: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 900, color: record.includedInAverage ? GREEN : "rgba(0,0,0,0.35)", letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-              {fmtIpp(record.marketIpp)}
-            </div>
-            <div style={{ fontSize: 9, fontWeight: 700, marginTop: 3, color: record.includedInAverage ? GREEN : "rgba(0,0,0,0.4)" }}>
-              {record.includedInAverage ? "Im Durchschnitt" : "Ausgeschlossen (0)"}
-            </div>
-          </div>
+
+          {/* Right: dual IPP metrics — both use the same MetricBlock structure so numbers and labels align */}
+          {(() => {
+            const metricBlock = (
+              value: string,
+              label: string,
+              color: string,
+            ) => (
+              <div style={{ textAlign: "right" as const, width: 60 }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color, letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+                  {value}
+                </div>
+                <div style={{ fontSize: 9, fontWeight: 600, marginTop: 3, color }}>
+                  {label}
+                </div>
+              </div>
+            );
+
+            const dmColor = record.includedInAverage ? GREEN : "rgba(0,0,0,0.35)";
+            const avgColor = averageIppYtd > 0 ? GREEN : "rgba(0,0,0,0.3)";
+
+            return (
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexShrink: 0 }}>
+                {/* Dieser Monat */}
+                {metricBlock(fmtIpp(record.marketIpp), "Dieser Monat", dmColor)}
+
+                {/* Vertical divider */}
+                <div style={{ width: 1, height: 36, background: "rgba(0,0,0,0.07)", flexShrink: 0, alignSelf: "center" }} />
+
+                {/* Im Durchschnitt */}
+                {marketSeries ? (
+                  <DurchschnittTooltip
+                    series={marketSeries}
+                    averageIppYtd={averageIppYtd}
+                    metricBlock={metricBlock}
+                    color={avgColor}
+                  />
+                ) : (
+                  metricBlock("—", "Im Durchschnitt", avgColor)
+                )}
+              </div>
+            );
+          })()}
         </div>
 
-        {/* RED Monat + source summary */}
+        {/* Month switcher + source summary */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const }}>
-          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: "rgba(220,38,38,0.08)", color: R, letterSpacing: "0.04em" }}>
-            {record.redMonatLabel}
-          </span>
+          {marketSeries ? (
+            <MonthSwitcher
+              records={marketSeries.records}
+              selectedMonth={activeMonth}
+              onChange={onMonthChange}
+            />
+          ) : (
+            <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: "rgba(220,38,38,0.08)", color: R, letterSpacing: "0.04em" }}>
+              {record.redMonatLabel}
+            </span>
+          )}
           {sections.map(s => <SectionPill key={s} type={s} />)}
           <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)" }}>
             {frageOgen.length} {frageOgen.length === 1 ? "Fragebogen" : "Fragebögen"} · {record.questionRows.length} IPP-relevante Fragen
@@ -784,7 +526,8 @@ function MarketInspector({ record }: { record: IppMarketAuditRecord | null }) {
       {/* Summary stat strip */}
       <div style={{ padding: "10px 20px 8px", borderBottom: "1px solid rgba(0,0,0,0.04)", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 6, background: "rgba(0,0,0,0.022)", border: "1px solid rgba(0,0,0,0.055)", borderRadius: 9, padding: 5 }}>
-          <StatTile label="Markt IPP" value={fmtIpp(record.marketIpp)} color={record.includedInAverage ? GREEN : "rgba(0,0,0,0.35)"} />
+          <StatTile label="Dieser Monat" value={fmtIpp(record.marketIpp)} color={record.includedInAverage ? GREEN : "rgba(0,0,0,0.35)"} sub={activeMonth} />
+          <StatTile label="YTD Ø" value={fmtIpp(averageIppYtd)} color={averageIppYtd > 0 ? GREEN : "rgba(0,0,0,0.3)"} sub={marketSeries ? `${marketSeries.includedMonthCount} Monate` : "—"} />
           <StatTile label="Gezählt" value={String(counted.length)} color="#1a1a1a" sub={`${fmtIpp(counted.reduce((s, r) => s + r.appliedIppValue, 0))} Punkte`} />
           <StatTile label="Kein IPP / 0" value={String(ignored.length)} color="rgba(0,0,0,0.38)" />
           <StatTile label="Dedupl." value={String(deduped)} color={deduped > 0 ? "#D97706" : "rgba(0,0,0,0.35)"} sub={deduped > 0 ? "zusammengeführt" : "keine"} />
@@ -899,16 +642,61 @@ function FilterDropdown({ label, options, value, onChange }: { label: string; op
 // ── Page ─────────────────────────────────────────────────────
 export default function IppBerechnungPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Month shown in the inspector — can differ from the clicked row's month */
+  const [inspectorMonthLabel, setInspectorMonthLabel] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterRegion, setFilterRegion] = useState<string | null>(null);
   const [filterGm,     setFilterGm]     = useState<string | null>(null);
   const [filterChain,  setFilterChain]  = useState<string | null>(null);
   const [filterMonat,  setFilterMonat]  = useState<string | null>(null);
+  const [allAuditRecords, setAllAuditRecords] = useState<IppMarketAuditRecord[]>([]);
+  const [detailCache, setDetailCache] = useState<Map<string, IppMarketAuditRecord>>(new Map());
+  const [filterOptions, setFilterOptions] = useState<{
+    regions: string[];
+    gms: string[];
+    chains: string[];
+    redMonats: string[];
+  }>({ regions: [], gms: [], chains: [], redMonats: [] });
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setIsLoading(true);
+    setLoadError(null);
+    fetchAdminIppRows()
+      .then((payload) => {
+        if (!mounted) return;
+        setFilterOptions(payload.filters);
+        setAllAuditRecords(
+          payload.rows.map((row: AdminIppListRow) => ({
+            ...row,
+            questionRows: [],
+            sourceSubmissionCount: row.sourceSubmissionCount,
+            contributingQuestionCount: row.contributingQuestionCount,
+          })),
+        );
+      })
+      .catch((error: unknown) => {
+        if (!mounted) return;
+        const msg = error instanceof Error ? error.message : "IPP Daten konnten nicht geladen werden.";
+        setLoadError(msg);
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setIsLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const hasFilters = !!(search || filterRegion || filterGm || filterChain || filterMonat);
 
+  const allMarketSeries = useMemo(() => buildMarketSeries(allAuditRecords), [allAuditRecords]);
+
   const filtered = useMemo(() => {
-    return ALL_AUDIT_RECORDS.filter(r => {
+    return allAuditRecords.filter(r => {
       if (filterRegion && r.region !== filterRegion) return false;
       if (filterGm     && r.gmName !== filterGm)     return false;
       if (filterChain  && r.chain !== filterChain)   return false;
@@ -922,10 +710,61 @@ export default function IppBerechnungPage() {
       }
       return true;
     });
-  }, [search, filterRegion, filterGm, filterChain, filterMonat]);
+  }, [allAuditRecords, search, filterRegion, filterGm, filterChain, filterMonat]);
 
-  const summary = useMemo(() => buildSummary(filtered), [filtered]);
-  const selectedRecord = filtered.find(r => r.id === selectedId) ?? null;
+  const summary = useMemo(() => {
+    const series = buildMarketSeries(filtered);
+    return buildYtdSummary(series);
+  }, [filtered]);
+
+  // The list row that was clicked (identifies the market + default month)
+  const selectedRecord = filtered.find(r => r.id === selectedId) ??
+    allAuditRecords.find(r => r.id === selectedId) ?? null;
+
+  // The market's full series from the global (unfiltered) records
+  const selectedMarketSeries = selectedRecord
+    ? allMarketSeries.get(selectedRecord.marketId) ?? null
+    : null;
+
+  // The record currently shown in the inspector (may be a different month than the clicked row)
+  const inspectorRecordRaw = useMemo(() => {
+    if (!selectedRecord) return null;
+    if (!inspectorMonthLabel || inspectorMonthLabel === selectedRecord.redMonatLabel) {
+      return selectedRecord;
+    }
+    // Look up the same market but a different month
+    return allAuditRecords.find(
+      r => r.marketId === selectedRecord.marketId && r.redMonatLabel === inspectorMonthLabel
+    ) ?? selectedRecord;
+  }, [selectedRecord, inspectorMonthLabel, allAuditRecords]);
+
+  const inspectorRecord = inspectorRecordRaw
+    ? detailCache.get(inspectorRecordRaw.id) ?? inspectorRecordRaw
+    : null;
+
+  const ensureDetailLoaded = useCallback(async (record: IppMarketAuditRecord) => {
+    const cached = detailCache.get(record.id);
+    if (cached && cached.questionRows.length > 0) return;
+    const detail = await fetchAdminIppDetail(record.marketId, record.redPeriodStart);
+    const hydrated: IppMarketAuditRecord = {
+      ...detail,
+      questionRows: detail.questionRows,
+      sourceSubmissionCount: detail.sourceSubmissionCount,
+      contributingQuestionCount: detail.contributingQuestionCount,
+    };
+    setDetailCache((prev) => new Map(prev).set(record.id, hydrated));
+    setAllAuditRecords((prev) =>
+      prev.map((row) => (row.id === record.id ? { ...row, ...hydrated } : row)),
+    );
+  }, [detailCache]);
+
+  useEffect(() => {
+    if (!inspectorRecordRaw) return;
+    void ensureDetailLoaded(inspectorRecordRaw).catch((error: unknown) => {
+      const msg = error instanceof Error ? error.message : "IPP Detail konnte nicht geladen werden.";
+      setLoadError(msg);
+    });
+  }, [inspectorRecordRaw, ensureDetailLoaded]);
 
   const clearFilters = () => { setSearch(""); setFilterRegion(null); setFilterGm(null); setFilterChain(null); setFilterMonat(null); };
 
@@ -938,12 +777,19 @@ export default function IppBerechnungPage() {
         .ipp-insp { animation: inspFade 0.18s ease both; }
       `}</style>
 
+      {isLoading && (
+        <div style={{ fontSize: 12, color: "rgba(0,0,0,0.45)" }}>IPP Daten werden geladen…</div>
+      )}
+      {loadError && (
+        <div style={{ fontSize: 12, color: "#DC2626" }}>{loadError}</div>
+      )}
+
       {/* Summary strip */}
       <div className="ipp-main" style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
         <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>IPP Österreich Übersicht</span>
           <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>
-            {hasFilters ? `${filtered.length} / ${ALL_AUDIT_RECORDS.length} Märkte` : `${ALL_AUDIT_RECORDS.length} Märkte`}
+            {hasFilters ? `${filtered.length} / ${allAuditRecords.length} Märkte` : `${allAuditRecords.length} Märkte`}
           </span>
         </div>
         <div style={{ margin: "0 10px 10px" }}>
@@ -952,11 +798,11 @@ export default function IppBerechnungPage() {
               label="IPP Ø Österreich"
               value={fmtIpp(summary.averageIpp)}
               color={summary.averageIpp > 0 ? GREEN : "rgba(0,0,0,0.3)"}
-              sub={`${fmtIpp(summary.numeratorTotal)} ÷ ${summary.denominatorIncludedMarkets} Märkte`}
+              sub={`Ø der Markt-YTD-Durchschnitte`}
             />
-            <StatTile label="Berechnungsformel" value={`Σ IPP / n > 0`} color="rgba(0,0,0,0.45)" sub={`${fmtIpp(summary.numeratorTotal)} / ${summary.denominatorIncludedMarkets}`} />
-            <StatTile label="Im Durchschnitt" value={String(summary.denominatorIncludedMarkets)} color={GREEN} sub="IPP > 0" />
-            <StatTile label="Nullwerte ausgeschl." value={String(summary.excludedZeroMarkets)} color={summary.excludedZeroMarkets > 0 ? "#D97706" : "rgba(0,0,0,0.25)"} sub="IPP = 0" />
+            <StatTile label="Berechnungsformel" value="Ø Markt-YTD ÷ n" color="rgba(0,0,0,0.45)" sub={`${fmtIpp(summary.numeratorTotal)} ÷ ${summary.denominatorIncludedMarkets}`} />
+            <StatTile label="Märkte im Ø" value={String(summary.denominatorIncludedMarkets)} color={GREEN} sub="YTD-Ø > 0" />
+            <StatTile label="Nullwerte ausgeschl." value={String(summary.excludedZeroMarkets)} color={summary.excludedZeroMarkets > 0 ? "#D97706" : "rgba(0,0,0,0.25)"} sub="YTD-Ø = 0" />
             <StatTile label="Beitragsfragen" value={String(summary.contributingQuestionCount)} color="#2563eb" sub="gezählte Antworten" />
             <StatTile label="Gesamt Märkte" value={String(summary.totalMarkets)} color="rgba(0,0,0,0.45)" />
           </div>
@@ -992,10 +838,10 @@ export default function IppBerechnungPage() {
 
               {/* Filters */}
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" as const }}>
-                <FilterDropdown label="RED Monat" options={ALL_RED_MONATS} value={filterMonat} onChange={setFilterMonat} />
-                <FilterDropdown label="Region"    options={ALL_REGIONS}    value={filterRegion} onChange={setFilterRegion} />
-                <FilterDropdown label="GM"        options={ALL_GMS}        value={filterGm}    onChange={setFilterGm} />
-                <FilterDropdown label="Kette"     options={ALL_CHAINS}     value={filterChain} onChange={setFilterChain} />
+                <FilterDropdown label="RED Monat" options={filterOptions.redMonats} value={filterMonat} onChange={setFilterMonat} />
+                <FilterDropdown label="Region"    options={filterOptions.regions}    value={filterRegion} onChange={setFilterRegion} />
+                <FilterDropdown label="GM"        options={filterOptions.gms}        value={filterGm}    onChange={setFilterGm} />
+                <FilterDropdown label="Kette"     options={filterOptions.chains}     value={filterChain} onChange={setFilterChain} />
                 {hasFilters && (
                   <button onClick={clearFilters}
                     style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(0,0,0,0.1)", background: "rgba(0,0,0,0.035)", cursor: "pointer", color: "rgba(0,0,0,0.4)", fontSize: 9, fontWeight: 600, fontFamily: "inherit" }}
@@ -1046,9 +892,9 @@ export default function IppBerechnungPage() {
               ) : filtered.map(r => {
                 const active = r.id === selectedId;
                 const ci = chainInitials(r.chain);
-                const sections = [...new Set(r.submissionRefs.map(s => s.sectionType))];
+                const sections = collectSections(r);
                 return (
-                  <div key={r.id} onClick={() => setSelectedId(active ? null : r.id)}
+                  <div key={r.id} onClick={() => { const next = active ? null : r.id; setSelectedId(next); setInspectorMonthLabel(null); }}
                     style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid rgba(0,0,0,0.04)", background: active ? "rgba(220,38,38,0.04)" : "transparent", borderLeft: active ? `3px solid ${R}` : "3px solid transparent", transition: "all 0.1s ease", display: "grid", gridTemplateColumns: "1fr 28px 60px", gap: "0 12px", alignItems: "center" }}
                     onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.018)"; }}
                     onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
@@ -1104,7 +950,13 @@ export default function IppBerechnungPage() {
 
             {/* Right: inspector */}
             <div key={selectedId ?? "empty"} className="ipp-insp" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <MarketInspector record={selectedRecord} />
+              <MarketInspector
+                record={inspectorRecord}
+                marketSeries={selectedMarketSeries}
+                averageIppYtd={selectedMarketSeries?.averageIppYtd ?? 0}
+                inspectorMonthLabel={inspectorMonthLabel ?? selectedRecord?.redMonatLabel ?? null}
+                onMonthChange={(label) => setInspectorMonthLabel(label)}
+              />
             </div>
           </div>
         </div>

@@ -72,7 +72,7 @@ export function defaultConfig(t: QuestionType): Record<string, unknown> {
     case "slider":
       return { min: "", max: "", step: "", unit: "" };
     case "photo":
-      return { instruction: "" };
+      return { instruction: "", tagsEnabled: false, tagIds: [] };
     case "matrix":
       return { rows: [""], columns: ["", ""] };
     default:

@@ -2,65 +2,79 @@
 
 import { createContext, useContext, useState, useCallback } from "react";
 import type { Module } from "@/types/fragebogen";
+import { createModule, deleteModuleBackend, updateModuleBackend } from "@/lib/api/backend";
 
 interface ModuleContextValue {
   modules: Module[];
-  addModule: (m: Module) => void;
-  updateModule: (m: Module) => void;
-  deleteModule: (id: string) => void;
-  deleteModuleKeepQuestions: (id: string) => void;
+  addModule: (m: Module, options?: { persist?: boolean }) => Promise<void>;
+  updateModule: (m: Module, options?: { persist?: boolean }) => Promise<void>;
+  deleteModule: (id: string) => Promise<void>;
+  deleteModuleKeepQuestions: (id: string) => Promise<void>;
   editModule: (m: Module) => void;
   setEditHandler: (handler: (m: Module) => void) => void;
 }
 
 const ModuleContext = createContext<ModuleContextValue | null>(null);
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function ModuleProvider({ children }: { children: React.ReactNode }) {
   const [modules, setModules] = useState<Module[]>([]);
   const [editHandler, setEditHandlerState] = useState<((m: Module) => void) | null>(null);
 
-  const addModule = useCallback((m: Module) => {
+  const addModule = useCallback(async (m: Module, options?: { persist?: boolean }) => {
+    const persist = options?.persist ?? true;
     setModules((prev) => [m, ...prev]);
+    if (persist && !uuidRegex.test(m.id)) {
+      try {
+        const persisted = await createModule("main", { ...m, sectionKeywords: ["standard"] });
+        setModules((prev) => prev.map((row) => (row.id === m.id ? persisted : row)));
+      } catch (error) {
+        setModules((prev) => prev.filter((row) => row.id !== m.id));
+        throw error;
+      }
+    }
   }, []);
 
-  const updateModule = useCallback((m: Module) => {
-    setModules((prev) => prev.map((old) => (old.id === m.id ? m : old)));
+  const updateModule = useCallback(async (m: Module, options?: { persist?: boolean }) => {
+    const persist = options?.persist ?? true;
+    let previous: Module | null = null;
+    setModules((prev) =>
+      prev.map((old) => {
+        if (old.id !== m.id) return old;
+        previous = old;
+        return m;
+      }),
+    );
+    if (!persist || !uuidRegex.test(m.id)) return;
+    try {
+      await updateModuleBackend("main", { ...m, sectionKeywords: ["standard"] });
+    } catch (error) {
+      if (previous) {
+        setModules((prev) => prev.map((old) => (old.id === m.id ? previous! : old)));
+      }
+      throw error;
+    }
   }, []);
 
-  const deleteModule = useCallback((id: string) => {
-    setModules((prev) => prev.filter((m) => m.id !== id));
-  }, []);
-
-  const deleteModuleKeepQuestions = useCallback((id: string) => {
+  const deleteModule = useCallback(async (id: string) => {
+    let removedModule: Module | null = null;
     setModules((prev) => {
-      const target = prev.find((m) => m.id === id);
-      if (!target || target.questions.length === 0) {
-        return prev.filter((m) => m.id !== id);
-      }
-      const UNASSIGNED_ID = "__unassigned__";
-      const existing = prev.find((m) => m.id === UNASSIGNED_ID);
-      const withoutTarget = prev.filter((m) => m.id !== id);
-      if (existing) {
-        return withoutTarget.map((m) =>
-          m.id === UNASSIGNED_ID
-            ? { ...m, questions: [...m.questions, ...target.questions] }
-            : m
-        );
-      } else {
-        return [
-          ...withoutTarget,
-          {
-            id: UNASSIGNED_ID,
-            name: "Unzugewiesen",
-            description: "",
-            usedInCount: 0,
-            createdAt: new Date().toISOString(),
-            questions: target.questions,
-          },
-        ];
-      }
+      const found = prev.find((module) => module.id === id);
+      removedModule = found ?? null;
+      return prev.filter((module) => module.id !== id);
     });
+    if (!uuidRegex.test(id)) return;
+    try {
+      await deleteModuleBackend("main", id);
+    } catch (error) {
+      if (removedModule) {
+        setModules((prev) => [removedModule!, ...prev]);
+      }
+      throw error;
+    }
   }, []);
+
+  const deleteModuleKeepQuestions = useCallback(async (id: string) => deleteModule(id), [deleteModule]);
 
   const editModule = useCallback((m: Module) => {
     editHandler?.(m);

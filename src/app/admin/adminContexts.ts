@@ -6,14 +6,14 @@ import type { Module, Fragebogen } from "@/types/fragebogen";
 // ── Kühlerinventur context ─────────────────────────────────────
 export interface KuehlerCtxValue {
   modules: Module[];
-  onEdit: (m: Module) => void;
-  onUpdate: (m: Module) => void;
-  onDelete: (id: string) => void;
-  onDuplicate: (m: Module) => void;
+  onEdit: (m: Module) => void | Promise<void>;
+  onUpdate: (m: Module) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+  onDuplicate: (m: Module) => void | Promise<void>;
   fragebogenList: Fragebogen[];
-  onEditFb: (f: Fragebogen) => void;
-  onDeleteFb: (id: string) => void;
-  onDuplicateFb: (f: Fragebogen) => void;
+  onEditFb: (f: Fragebogen) => void | Promise<void>;
+  onDeleteFb: (id: string) => void | Promise<void>;
+  onDuplicateFb: (f: Fragebogen) => void | Promise<void>;
 }
 
 export const KuehlerCtx = createContext<KuehlerCtxValue>({
@@ -35,14 +35,14 @@ export function useKuehlerModules() {
 // ── MHD context ────────────────────────────────────────────────
 export interface MhdCtxValue {
   modules: Module[];
-  onEdit: (m: Module) => void;
-  onUpdate: (m: Module) => void;
-  onDelete: (id: string) => void;
-  onDuplicate: (m: Module) => void;
+  onEdit: (m: Module) => void | Promise<void>;
+  onUpdate: (m: Module) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+  onDuplicate: (m: Module) => void | Promise<void>;
   fragebogenList: Fragebogen[];
-  onEditFb: (f: Fragebogen) => void;
-  onDeleteFb: (id: string) => void;
-  onDuplicateFb: (f: Fragebogen) => void;
+  onEditFb: (f: Fragebogen) => void | Promise<void>;
+  onDeleteFb: (id: string) => void | Promise<void>;
+  onDuplicateFb: (f: Fragebogen) => void | Promise<void>;
 }
 
 export const MhdCtx = createContext<MhdCtxValue>({
@@ -64,17 +64,17 @@ export function useMhdModules() {
 // ── Flexbesuche context ────────────────────────────────────────
 export interface FlexCtxValue {
   modules: Module[];
-  onEdit: (m: Module) => void;
-  onUpdate: (m: Module) => void;
-  onDelete: (id: string) => void;
-  onDuplicate: (m: Module) => void;
+  onEdit: (m: Module) => void | Promise<void>;
+  onUpdate: (m: Module) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+  onDuplicate: (m: Module) => void | Promise<void>;
   fragebogenList: Fragebogen[];
-  onEditFb: (f: Fragebogen) => void;
-  onDeleteFb: (id: string) => void;
-  onDuplicateFb: (f: Fragebogen) => void;
-  duplicateFbToFlex: (f: Fragebogen) => void;
-  duplicateFbToStd: (f: Fragebogen) => void;
-  duplicateFbToBilla: (f: Fragebogen) => void;
+  onEditFb: (f: Fragebogen) => void | Promise<void>;
+  onDeleteFb: (id: string) => void | Promise<void>;
+  onDuplicateFb: (f: Fragebogen) => void | Promise<void>;
+  duplicateFbToFlex: (f: Fragebogen) => void | Promise<void>;
+  duplicateFbToStd: (f: Fragebogen) => void | Promise<void>;
+  duplicateFbToBilla: (f: Fragebogen) => void | Promise<void>;
 }
 
 export const FlexCtx = createContext<FlexCtxValue>({
@@ -99,17 +99,17 @@ export function useFlexModules() {
 // ── Billa context ──────────────────────────────────────────────
 export interface BillaCtxValue {
   modules: Module[];
-  onEdit: (m: Module) => void;
-  onUpdate: (m: Module) => void;
-  onDelete: (id: string) => void;
-  onDuplicate: (m: Module) => void;
+  onEdit: (m: Module) => void | Promise<void>;
+  onUpdate: (m: Module) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+  onDuplicate: (m: Module) => void | Promise<void>;
   fragebogenList: Fragebogen[];
-  onEditFb: (f: Fragebogen) => void;
-  onDeleteFb: (id: string) => void;
-  onDuplicateFb: (f: Fragebogen) => void;
-  duplicateFbToStd: (f: Fragebogen) => void;
-  duplicateFbToFlex: (f: Fragebogen) => void;
-  duplicateFbToBilla: (f: Fragebogen) => void;
+  onEditFb: (f: Fragebogen) => void | Promise<void>;
+  onDeleteFb: (id: string) => void | Promise<void>;
+  onDuplicateFb: (f: Fragebogen) => void | Promise<void>;
+  duplicateFbToStd: (f: Fragebogen) => void | Promise<void>;
+  duplicateFbToFlex: (f: Fragebogen) => void | Promise<void>;
+  duplicateFbToBilla: (f: Fragebogen) => void | Promise<void>;
 }
 
 export const BillaCtx = createContext<BillaCtxValue>({

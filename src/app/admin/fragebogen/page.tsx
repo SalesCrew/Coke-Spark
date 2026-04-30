@@ -10,10 +10,7 @@ import {
   Minus,
   ChevronDown,
   Zap,
-  MapPin,
   Clock,
-  CalendarRange,
-  Infinity,
   Search,
   X,
   Check,
@@ -21,6 +18,7 @@ import {
   Sparkles,
   Copy,
   Trash2,
+  Tag,
 } from "lucide-react";
 import { useModules } from "@/context/ModuleContext";
 import { useFragebogen } from "@/context/FragebogenContext";
@@ -28,6 +26,7 @@ import { useFlexModules, useBillaModules } from "@/app/admin/adminContexts";
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { Question, Module, Fragebogen } from "@/types/fragebogen";
 import { SpezialfrageEditor } from "@/components/admin/SpezialfrageEditor";
+import { fetchCampaigns, fetchPhotoTags } from "@/lib/api/backend";
 
 type Tab = "fragen" | "module" | "fragebogen";
 
@@ -38,6 +37,48 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 // ── Question config summary (read-only) ─────────────────────
+
+function PhotoTagPills({ tagIds }: { tagIds: string[] }) {
+  const [labels, setLabels] = useState<{ id: string; label: string; deleted: boolean }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const pool = await fetchPhotoTags();
+        if (cancelled) return;
+        setLabels(
+          tagIds.map((id) => {
+            const t = pool.find((p) => p.id === id);
+            return t ? { id, label: t.label, deleted: Boolean(t.deletedAt) } : { id, label: id, deleted: false };
+          }),
+        );
+      } catch {
+        if (!cancelled) setLabels([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tagIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (labels.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4, paddingLeft: 30 }}>
+      {labels.map(t => (
+        <span key={t.id} style={{
+          display: "inline-flex", alignItems: "center", gap: 3,
+          fontSize: 8, fontWeight: 600,
+          color: t.deleted ? "rgba(0,0,0,0.3)" : "#DC2626",
+          background: t.deleted ? "rgba(0,0,0,0.04)" : "rgba(220,38,38,0.07)",
+          padding: "2px 6px", borderRadius: 4,
+          textDecoration: t.deleted ? "line-through" : "none",
+        }}>
+          <Tag size={7} strokeWidth={2.5} />
+          {t.label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function QuestionConfigSummary({ question }: { question: Question }) {
   const cfg = question.config;
@@ -171,31 +212,55 @@ function QuestionConfigSummary({ question }: { question: Question }) {
     }
     case "photo": {
       const instr = cfg.instruction as string;
-      if (!instr) return null;
+      const tagsEnabled = Boolean(cfg.tagsEnabled);
+      const tagIds = (cfg.tagIds as string[]) ?? [];
+      const hasAny = instr || (tagsEnabled && tagIds.length > 0);
+      if (!hasAny) return null;
       return (
-        <div style={{
-          fontSize: 9,
-          color: "rgba(0,0,0,0.35)",
-          marginTop: 4,
-          paddingLeft: 30,
-          fontStyle: "italic",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}>
-          {instr}
+        <div style={{ marginTop: 4 }}>
+          {instr && (
+            <div style={{
+              fontSize: 9, color: "rgba(0,0,0,0.35)", fontStyle: "italic",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              paddingLeft: 30, maxWidth: 320,
+            }}>
+              {instr}
+            </div>
+          )}
+          {tagsEnabled && tagIds.length > 0 && <PhotoTagPills tagIds={tagIds} />}
+          {tagsEnabled && tagIds.length === 0 && (
+            <div style={{ paddingLeft: 30, marginTop: 3 }}>
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 3,
+                fontSize: 8, fontWeight: 500,
+                color: "rgba(0,0,0,0.28)", background: "rgba(0,0,0,0.04)",
+                padding: "2px 6px", borderRadius: 4,
+              }}>
+                <Tag size={7} strokeWidth={2} />
+                Tags aktiv – keine gewählt
+              </span>
+            </div>
+          )}
         </div>
       );
     }
     case "yesnomulti": {
       const answers = ((cfg.answers as string[]) || ["Ja", "Nein"]).filter((a) => a.length > 0);
-      const trigger = (cfg.triggerAnswer as string) || answers[0] || "";
-      const opts = ((cfg.options as string[]) || []).filter((o) => o.length > 0);
+      const branches = (cfg.branches && typeof cfg.branches === "object"
+        ? (cfg.branches as Record<string, { enabled?: boolean; options?: string[] }>)
+        : {}) as Record<string, { enabled?: boolean; options?: string[] }>;
+      const legacyTrigger = (cfg.triggerAnswer as string) || "";
+      const legacyOptions = ((cfg.options as string[]) || []).filter((o) => o.length > 0);
       if (answers.length === 0) return null;
       return (
         <div style={{ marginTop: 5, paddingLeft: 30 }}>
           {answers.map((o, ai) => {
-            const isTriggering = o === trigger;
+            const branch = branches[o];
+            const hasBranch = branch?.enabled === true;
+            const branchOptions = ((branch?.options as string[] | undefined) || []).filter((opt) => opt.length > 0);
+            const isLegacyTrigger = !hasBranch && legacyTrigger.length > 0 && o === legacyTrigger;
+            const visibleOptions = hasBranch ? branchOptions : isLegacyTrigger ? legacyOptions : [];
+            const isTriggering = hasBranch || isLegacyTrigger;
             return (
               <div key={ai}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "3px 0" }}>
@@ -220,9 +285,9 @@ function QuestionConfigSummary({ question }: { question: Question }) {
                     </span>
                   )}
                 </div>
-                {isTriggering && opts.length > 0 && (
+                {isTriggering && visibleOptions.length > 0 && (
                   <div style={{ paddingLeft: 17, marginBottom: 2 }}>
-                    {opts.map((opt, i) => (
+                    {visibleOptions.map((opt, i) => (
                       <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0" }}>
                         <div style={{
                           width: 7,
@@ -286,11 +351,12 @@ function ModuleContextMenu({
   x, y, onDuplicate, onDelete, onClose,
 }: {
   x: number; y: number;
-  onDuplicate: () => void;
-  onDelete: () => void;
+  onDuplicate: () => Promise<void> | void;
+  onDelete: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [isActing, setIsActing] = useState(false);
 
   useEffect(() => {
     function handleDown(e: MouseEvent) {
@@ -306,6 +372,17 @@ function ModuleContextMenu({
       document.removeEventListener("keydown", handleKey);
     };
   }, [onClose]);
+
+  const handleAction = async (action: () => Promise<void> | void) => {
+    if (isActing) return;
+    setIsActing(true);
+    try {
+      await action();
+      onClose();
+    } finally {
+      setIsActing(false);
+    }
+  };
 
   return (
     <div
@@ -324,11 +401,13 @@ function ModuleContextMenu({
       }}
     >
       <button
-        onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
+        onClick={(e) => { e.stopPropagation(); void handleAction(onDuplicate); }}
+        disabled={isActing}
         style={{
           display: "flex", alignItems: "center", gap: 8,
           width: "100%", padding: "7px 10px", border: "none",
-          borderRadius: 6, background: "none", cursor: "pointer",
+          borderRadius: 6, background: "none", cursor: isActing ? "not-allowed" : "pointer",
+          opacity: isActing ? 0.7 : 1,
           fontSize: 11, fontWeight: 500, color: "#374151",
           textAlign: "left", transition: "background-color 0.1s ease",
         }}
@@ -336,17 +415,19 @@ function ModuleContextMenu({
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
       >
         <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
-        Duplizieren
+        {isActing ? "Dupliziere..." : "Duplizieren"}
       </button>
 
       <div style={{ height: 1, margin: "3px 6px", backgroundColor: "rgba(0,0,0,0.05)" }} />
 
       <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); onClose(); }}
+        onClick={(e) => { e.stopPropagation(); void handleAction(onDelete); }}
+        disabled={isActing}
         style={{
           display: "flex", alignItems: "center", gap: 8,
           width: "100%", padding: "7px 10px", border: "none",
-          borderRadius: 6, background: "none", cursor: "pointer",
+          borderRadius: 6, background: "none", cursor: isActing ? "not-allowed" : "pointer",
+          opacity: isActing ? 0.7 : 1,
           fontSize: 11, fontWeight: 500, color: "#DC2626",
           textAlign: "left", transition: "background-color 0.1s ease",
         }}
@@ -354,7 +435,7 @@ function ModuleContextMenu({
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
       >
         <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
-        Löschen
+        {isActing ? "Lösche..." : "Löschen"}
       </button>
     </div>
   );
@@ -368,20 +449,32 @@ function ConfirmDialog({
   onCancel,
 }: {
   label: string;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void> | void;
   onCancel: () => void;
 }) {
+  const [isConfirming, setIsConfirming] = useState(false);
+
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape" && !isConfirming) onCancel();
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onCancel]);
+  }, [isConfirming, onCancel]);
+
+  const handleConfirm = async () => {
+    if (isConfirming) return;
+    setIsConfirming(true);
+    try {
+      await onConfirm();
+    } finally {
+      setIsConfirming(false);
+    }
+  };
 
   return (
     <div
-      onClick={onCancel}
+      onClick={() => { if (!isConfirming) onCancel(); }}
       style={{
         position: "fixed", inset: 0, zIndex: 10100,
         backgroundColor: "rgba(0,0,0,0.45)",
@@ -424,12 +517,13 @@ function ConfirmDialog({
         <div style={{ display: "flex", gap: 8 }}>
           <button
             onClick={onCancel}
+            disabled={isConfirming}
             style={{
               flex: 1, padding: "9px 0", borderRadius: 8, border: "none",
               background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
               boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)",
-              cursor: "pointer", fontSize: 11, fontWeight: 600,
-              color: "rgba(0,0,0,0.4)", transition: "opacity 0.15s ease",
+              cursor: isConfirming ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 600,
+              color: "rgba(0,0,0,0.4)", transition: "opacity 0.15s ease", opacity: isConfirming ? 0.7 : 1,
             }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.75")}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
@@ -437,18 +531,19 @@ function ConfirmDialog({
             Abbrechen
           </button>
           <button
-            onClick={onConfirm}
+            onClick={() => { void handleConfirm(); }}
+            disabled={isConfirming}
             style={{
               flex: 1, padding: "9px 0", borderRadius: 8, border: "none",
               background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
               boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)",
-              cursor: "pointer", fontSize: 11, fontWeight: 600,
-              color: "#fff", transition: "opacity 0.15s ease",
+              cursor: isConfirming ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 600,
+              color: "#fff", transition: "opacity 0.15s ease", opacity: isConfirming ? 0.85 : 1,
             }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
           >
-            Löschen
+            {isConfirming ? "Lösche..." : "Löschen"}
           </button>
         </div>
       </div>
@@ -468,10 +563,10 @@ function ModuleDeleteDialog({
   module: Module;
   usedInCount: number;
   usedInNames: string[];
-  onDeleteModule: () => void;
+  onDeleteModule: () => Promise<void> | void;
   onClose: () => void;
 }) {
-  const [pending, setPending] = useState<{ label: string; action: () => void } | null>(null);
+  const [pending, setPending] = useState<{ label: string; action: () => Promise<void> | void } | null>(null);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -486,7 +581,7 @@ function ModuleDeleteDialog({
       {pending && (
         <ConfirmDialog
           label={pending.label}
-          onConfirm={() => { pending.action(); setPending(null); onClose(); }}
+          onConfirm={async () => { await pending.action(); setPending(null); onClose(); }}
           onCancel={() => setPending(null)}
         />
       )}
@@ -915,10 +1010,11 @@ function FragenListItem({
 }: {
   question: Question;
   moduleName: string;
-  onDelete?: () => void;
+  onDelete?: () => Promise<void> | void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const ctxRef = useRef<HTMLDivElement>(null);
   const badge = typeBadgeColor(question.type);
 
@@ -950,18 +1046,30 @@ function FragenListItem({
           }}
         >
           <button
-            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onDelete(); }}
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (deleting) return;
+              setDeleting(true);
+              try {
+                await onDelete();
+                setCtxMenu(null);
+              } finally {
+                setDeleting(false);
+              }
+            }}
+            disabled={deleting}
             style={{
               display: "flex", alignItems: "center", gap: 8,
               width: "100%", padding: "7px 10px", border: "none",
-              borderRadius: 6, background: "none", cursor: "pointer",
+              borderRadius: 6, background: "none", cursor: deleting ? "not-allowed" : "pointer",
+              opacity: deleting ? 0.7 : 1,
               fontSize: 11, fontWeight: 500, color: "#DC2626", textAlign: "left",
             }}
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.04)")}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
           >
             <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
-            Löschen
+            {deleting ? "Lösche..." : "Löschen"}
           </button>
         </div>
       )}
@@ -1016,6 +1124,18 @@ function FragenListItem({
           return sw?.ipp != null || sw?.boni != null;
         }) && (
           <Trophy size={10} strokeWidth={2} color="#b45309" style={{ flexShrink: 0 }} />
+        )}
+        {question.type === "photo" && Boolean(question.config?.tagsEnabled) && (
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 3,
+            fontSize: 8, fontWeight: 600,
+            color: "#DC2626", background: "rgba(220,38,38,0.07)",
+            padding: "2px 6px", borderRadius: 4, flexShrink: 0, letterSpacing: "0.02em",
+          }}>
+            <Tag size={8} strokeWidth={2.5} />
+            {((question.config?.tagIds as string[]) ?? []).length || ""}
+            {" "}Tags
+          </span>
         )}
         {question.required && (
           <span style={{
@@ -1113,12 +1233,13 @@ function SpezialfrageAbwaehlenModal({
 }: {
   fragebogen: Fragebogen;
   onClose: () => void;
-  onSave: (kept: Question[]) => void;
+  onSave: (kept: Question[]) => Promise<void> | void;
 }) {
   const questions = fragebogen.spezialfragen ?? [];
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     () => new Set(questions.map((q) => q.id))
   );
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1137,9 +1258,15 @@ function SpezialfrageAbwaehlenModal({
     });
   }
 
-  function handleSave() {
+  async function handleSave() {
+    if (isSaving) return;
     const kept = questions.filter((q) => selectedIds.has(q.id));
-    onSave(kept);
+    setIsSaving(true);
+    try {
+      await onSave(kept);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   const total = questions.length;
@@ -1147,9 +1274,13 @@ function SpezialfrageAbwaehlenModal({
 
   function answerHint(q: Question): string {
     const cfg = q.config as Record<string, unknown>;
-    if (q.type === "single" || q.type === "multiple" || q.type === "yesnomulti") {
+    if (q.type === "single" || q.type === "multiple") {
       const opts = (cfg.options as string[] | undefined) ?? [];
       return `${opts.filter(Boolean).length} Antworten`;
+    }
+    if (q.type === "yesnomulti") {
+      const answers = (cfg.answers as string[] | undefined) ?? [];
+      return `${answers.filter(Boolean).length} Antworten`;
     }
     if (q.type === "yesno") return "Ja / Nein";
     if (q.type === "likert") return `Skala ${cfg.min ?? 1}–${cfg.max ?? 5}`;
@@ -1364,11 +1495,13 @@ function SpezialfrageAbwaehlenModal({
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={onClose}
+              disabled={isSaving}
               style={{
                 padding: "6px 14px", fontSize: 10, fontWeight: 600,
                 color: "rgba(0,0,0,0.4)",
                 background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
-                borderRadius: 7, border: "none", cursor: "pointer",
+                borderRadius: 7, border: "none", cursor: isSaving ? "not-allowed" : "pointer",
+                opacity: isSaving ? 0.7 : 1,
                 transition: "opacity 0.15s ease",
                 boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)",
               }}
@@ -1378,10 +1511,12 @@ function SpezialfrageAbwaehlenModal({
               Abbrechen
             </button>
             <button
-              onClick={handleSave}
+              onClick={() => { void handleSave(); }}
+              disabled={isSaving}
               style={{
                 padding: "6px 14px", fontSize: 10, fontWeight: 600,
-                color: "#fff", border: "none", borderRadius: 7, cursor: "pointer",
+                color: "#fff", border: "none", borderRadius: 7, cursor: isSaving ? "not-allowed" : "pointer",
+                opacity: isSaving ? 0.85 : 1,
                 background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
                 boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)",
                 transition: "opacity 0.15s ease",
@@ -1389,7 +1524,7 @@ function SpezialfrageAbwaehlenModal({
               onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
               onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
             >
-              Speichern
+              {isSaving ? "Speichern..." : "Speichern"}
             </button>
           </div>
         </div>
@@ -1404,14 +1539,15 @@ function FragebogenContextMenu({
   x, y, onDuplicate, onDuplicateToFlex, onDuplicateToBilla, onDelete, onClose,
 }: {
   x: number; y: number;
-  onDuplicate: () => void;
-  onDuplicateToFlex: () => void;
-  onDuplicateToBilla: () => void;
-  onDelete: () => void;
+  onDuplicate: () => Promise<void> | void;
+  onDuplicateToFlex: () => Promise<void> | void;
+  onDuplicateToBilla: () => Promise<void> | void;
+  onDelete: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [dupOpen, setDupOpen] = useState(false);
+  const [isActing, setIsActing] = useState(false);
 
   useEffect(() => {
     function handleDown(e: MouseEvent) {
@@ -1428,17 +1564,29 @@ function FragebogenContextMenu({
     };
   }, [onClose]);
 
+  const handleAction = async (action: () => Promise<void> | void) => {
+    if (isActing) return;
+    setIsActing(true);
+    try {
+      await action();
+      onClose();
+    } finally {
+      setIsActing(false);
+    }
+  };
+
   return (
     <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: "4px", minWidth: 190 }}>
       {/* Duplizieren with submenu */}
       <div style={{ position: "relative" }}>
         <button
-          onMouseEnter={() => setDupOpen(true)}
-          onMouseLeave={() => setDupOpen(false)}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease", backgroundColor: dupOpen ? "rgba(0,0,0,0.03)" : "transparent" }}
+          onMouseEnter={() => { if (!isActing) setDupOpen(true); }}
+          onMouseLeave={() => { if (!isActing) setDupOpen(false); }}
+          disabled={isActing}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: isActing ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease", backgroundColor: dupOpen ? "rgba(0,0,0,0.03)" : "transparent", opacity: isActing ? 0.7 : 1 }}
         >
           <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
-          <span style={{ flex: 1 }}>Duplizieren</span>
+          <span style={{ flex: 1 }}>{isActing ? "Dupliziere..." : "Duplizieren"}</span>
           <ChevronDown size={11} strokeWidth={2} color="rgba(0,0,0,0.3)" style={{ transform: "rotate(-90deg)" }} />
         </button>
 
@@ -1450,8 +1598,9 @@ function FragebogenContextMenu({
             style={{ position: "absolute", left: "100%", top: 0, marginLeft: 4, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: "4px", minWidth: 200, zIndex: 10000 }}
           >
             <button
-              onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
-              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
+              onClick={(e) => { e.stopPropagation(); void handleAction(onDuplicate); }}
+              disabled={isActing}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: isActing ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease", opacity: isActing ? 0.7 : 1 }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.03)")}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
             >
@@ -1459,8 +1608,9 @@ function FragebogenContextMenu({
               Hier (Standardbesuch)
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onDuplicateToFlex(); onClose(); }}
-              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
+              onClick={(e) => { e.stopPropagation(); void handleAction(onDuplicateToFlex); }}
+              disabled={isActing}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: isActing ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease", opacity: isActing ? 0.7 : 1 }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(132,204,22,0.06)")}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
             >
@@ -1468,8 +1618,9 @@ function FragebogenContextMenu({
               Zu Flexbesuche kopieren
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onDuplicateToBilla(); onClose(); }}
-              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
+              onClick={(e) => { e.stopPropagation(); void handleAction(onDuplicateToBilla); }}
+              disabled={isActing}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: isActing ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease", opacity: isActing ? 0.7 : 1 }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(8,145,178,0.06)")}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
             >
@@ -1482,13 +1633,14 @@ function FragebogenContextMenu({
 
       <div style={{ height: 1, margin: "3px 6px", backgroundColor: "rgba(0,0,0,0.05)" }} />
       <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); onClose(); }}
-        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#DC2626", textAlign: "left", transition: "background-color 0.1s ease" }}
+        onClick={(e) => { e.stopPropagation(); void handleAction(onDelete); }}
+        disabled={isActing}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: isActing ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 500, color: "#DC2626", textAlign: "left", transition: "background-color 0.1s ease", opacity: isActing ? 0.7 : 1 }}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.04)")}
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
       >
         <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
-        Löschen
+        {isActing ? "Lösche..." : "Löschen"}
       </button>
     </div>
   );
@@ -1502,10 +1654,10 @@ function FragebogenDeleteDialog({
   onClose,
 }: {
   fragebogen: Fragebogen;
-  onDeleteOnly: () => void;
+  onDeleteOnly: () => Promise<void> | void;
   onClose: () => void;
 }) {
-  const [pending, setPending] = useState<{ label: string; action: () => void } | null>(null);
+  const [pending, setPending] = useState<{ label: string; action: () => Promise<void> | void } | null>(null);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -1520,7 +1672,7 @@ function FragebogenDeleteDialog({
       {pending && (
         <ConfirmDialog
           label={pending.label}
-          onConfirm={() => { pending.action(); setPending(null); onClose(); }}
+          onConfirm={async () => { await pending.action(); setPending(null); onClose(); }}
           onCancel={() => setPending(null)}
         />
       )}
@@ -1607,6 +1759,7 @@ function FragebogenDeleteDialog({
 
 function FragebogenCard({
   fragebogen,
+  campaignNames,
   availableModules,
   onEdit,
   onUpdate,
@@ -1616,6 +1769,7 @@ function FragebogenCard({
   onDelete,
 }: {
   fragebogen: Fragebogen;
+  campaignNames: string[];
   availableModules: Module[];
   onEdit: () => void;
   onUpdate: (f: Fragebogen) => void;
@@ -1630,24 +1784,9 @@ function FragebogenCard({
   const [spezialExpanded, setSpezialExpanded] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
-
-  const status = fragebogen.status;
   const modules = fragebogen.moduleIds
     .map((id) => availableModules.find((m) => m.id === id))
     .filter((m): m is Module => !!m);
-
-  const accentColor =
-    status === "active" ? "#DC2626" :
-    status === "scheduled" ? "#d97706" :
-    "transparent";
-
-  const statusConfig = {
-    active: { label: "Aktiv", bg: "rgba(220,38,38,0.07)", text: "#DC2626", dot: "#DC2626" },
-    scheduled: { label: "Geplant", bg: "rgba(245,158,11,0.08)", text: "#d97706", dot: "#f59e0b" },
-    inactive: { label: "Inaktiv", bg: "rgba(0,0,0,0.04)", text: "rgba(0,0,0,0.3)", dot: "rgba(0,0,0,0.2)" },
-  }[status];
-
-  const days = status === "scheduled" ? daysUntil(fragebogen.startDate) : null;
 
   return (
     <>
@@ -1677,13 +1816,11 @@ function FragebogenCard({
         boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
         overflow: "hidden",
         marginBottom: 8,
-        borderLeft: accentColor !== "transparent" ? `3px solid ${accentColor}` : undefined,
       }}
     >
       <div
         style={{
           padding: "16px 20px",
-          opacity: status === "inactive" ? 0.55 : 1,
         }}
       >
         {/* Header row */}
@@ -1704,18 +1841,6 @@ function FragebogenCard({
               {fragebogen.spezialfragen.length} {fragebogen.spezialfragen.length === 1 ? "Spezialfrage" : "Spezialfragen"}
             </span>
           )}
-
-          {/* Status pill */}
-          <div style={{
-            display: "flex", alignItems: "center", gap: 5,
-            padding: "3px 9px", borderRadius: 20,
-            backgroundColor: statusConfig.bg,
-          }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: statusConfig.dot }} />
-            <span style={{ fontSize: 9, fontWeight: 700, color: statusConfig.text, letterSpacing: "0.03em" }}>
-              {statusConfig.label}
-            </span>
-          </div>
 
           {/* Edit button */}
           <button
@@ -1763,44 +1888,14 @@ function FragebogenCard({
 
         {/* Footer row */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          {/* Market count */}
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <MapPin size={11} strokeWidth={1.8} color="rgba(0,0,0,0.3)" />
-            <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>
-              {fragebogen.markets.length} {fragebogen.markets.length === 1 ? "Markt" : "Märkte"}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, color: "#059669", fontWeight: 600 }}>
+              Verwendet in Kampagne:
+            </span>
+            <span style={{ fontSize: 10, color: "#059669", fontWeight: 500 }}>
+              {campaignNames.length > 0 ? campaignNames.join(", ") : "Keine"}
             </span>
           </div>
-
-          <div style={{ width: 1, height: 12, backgroundColor: "rgba(0,0,0,0.06)" }} />
-
-          {/* Schedule info */}
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            {fragebogen.scheduleType === "always" ? (
-              <>
-                <Infinity size={11} strokeWidth={1.8} color="#059669" />
-                <span style={{ fontSize: 10, color: "#059669", fontWeight: 500 }}>Immer aktiv</span>
-              </>
-            ) : (
-              <>
-                <CalendarRange size={11} strokeWidth={1.8} color={statusConfig.text} />
-                <span style={{ fontSize: 10, color: statusConfig.text, fontWeight: 500 }}>
-                  {status === "inactive"
-                    ? `Beendet ${formatDate(fragebogen.endDate)}`
-                    : `${formatDate(fragebogen.startDate)} → ${formatDate(fragebogen.endDate)}`}
-                </span>
-              </>
-            )}
-          </div>
-
-          {/* Countdown for scheduled */}
-          {status === "scheduled" && days !== null && (
-            <>
-              <div style={{ width: 1, height: 12, backgroundColor: "rgba(0,0,0,0.06)" }} />
-              <span style={{ fontSize: 9, color: "#d97706", fontWeight: 600 }}>
-                Startet in {days} {days === 1 ? "Tag" : "Tagen"}
-              </span>
-            </>
-          )}
 
           {/* Spezialfrage button */}
           <div style={{ marginLeft: "auto" }}>
@@ -1916,23 +2011,6 @@ function FragebogenCard({
               </div>
             )}
           </div>
-
-          {/* Markets detail */}
-          {fragebogen.markets.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", display: "block", marginBottom: 8 }}>
-                Märkte ({fragebogen.markets.length})
-              </span>
-              <div style={{ maxHeight: 120, overflowY: "auto", scrollbarWidth: "none" as const, msOverflowStyle: "none" as const }}>
-                {fragebogen.markets.map((m) => (
-                  <div key={m.marketId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px solid rgba(0,0,0,0.03)" }}>
-                    <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}>{m.chain}</span>
-                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>{m.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Created date */}
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -2050,6 +2128,36 @@ export default function FragebogenPage() {
   const { fragebogenList, editFragebogen, updateFragebogen, addFragebogen, deleteFragebogen } = useFragebogen();
   const { modules: flexModules, duplicateFbToFlex } = useFlexModules();
   const { duplicateFbToBilla, modules: billaModules } = useBillaModules();
+  const [campaignUsageByFragebogenId, setCampaignUsageByFragebogenId] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const campaigns = await fetchCampaigns();
+        if (cancelled) return;
+
+        const usage: Record<string, string[]> = {};
+        for (const campaign of campaigns) {
+          if (campaign.section !== "standard" || !campaign.currentFragebogenId) continue;
+          if (!usage[campaign.currentFragebogenId]) usage[campaign.currentFragebogenId] = [];
+          usage[campaign.currentFragebogenId].push(campaign.name);
+        }
+
+        for (const fbId of Object.keys(usage)) {
+          usage[fbId] = Array.from(new Set(usage[fbId]));
+        }
+
+        setCampaignUsageByFragebogenId(usage);
+      } catch {
+        if (!cancelled) setCampaignUsageByFragebogenId({});
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!typeDropOpen) return;
@@ -2385,16 +2493,11 @@ export default function FragebogenPage() {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {[
-                ...filteredFragebogen.filter((fb) => fb.status === "active"),
-                ...[...filteredFragebogen.filter((fb) => fb.status === "scheduled")].sort((a, b) =>
-                  (a.startDate ?? "").localeCompare(b.startDate ?? "")
-                ),
-                ...filteredFragebogen.filter((fb) => fb.status === "inactive"),
-              ].map((fb) => (
+              {filteredFragebogen.map((fb) => (
                 <FragebogenCard
                   key={fb.id}
                   fragebogen={fb}
+                  campaignNames={campaignUsageByFragebogenId[fb.id] ?? []}
                   availableModules={modules}
                   onEdit={() => editFragebogen(fb)}
                   onUpdate={updateFragebogen}

@@ -16,6 +16,7 @@ import {
 
 import type { QuestionType, Question, ConditionalRule, Module, ScoringWeight } from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
+import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
 
 // Teal accent colours
 const G = "#0891B2";
@@ -348,12 +349,7 @@ function BillaSliderConfig({ config, onChange }: { config: Record<string, unknow
 }
 
 function BillaPhotoConfig({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  return (
-    <div style={{ marginTop: 10 }}>
-      <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)" }}>Anweisung</span>
-      <input type="text" value={String(config.instruction ?? "")} onChange={(e) => onChange({ ...config, instruction: e.target.value })} placeholder="z.B. Foto vom Display aufnehmen" style={{ display: "block", width: "100%", marginTop: 4, fontSize: 11, padding: "4px 0", border: "none", borderBottom: "1px solid rgba(0,0,0,0.08)", outline: "none", color: "#374151", backgroundColor: "transparent" }} />
-    </div>
-  );
+  return <PhotoTagsConfig config={config} onChange={onChange} accentColor="#0891B2" />;
 }
 
 function BillaListEditor({ label, items, onChange }: { label: string; items: string[]; onChange: (items: string[]) => void }) {
@@ -521,7 +517,7 @@ function BillaTypeConfig({ question, onUpdate }: { question: Question; onUpdate:
 
 // ── Scoring Editor (IPP / Boni) ────────────────────────────────
 
-const BILLA_SCORING_TYPES = new Set(["single", "multiple", "numeric"]);
+const BILLA_SCORING_TYPES = new Set(["single", "multiple", "yesno", "yesnomulti", "likert", "numeric", "slider"]);
 
 function BillaScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
   const [open, setOpen] = useState(false);
@@ -529,8 +525,28 @@ function BillaScoringEditor({ question, onUpdate }: { question: Question; onUpda
 
   if (!BILLA_SCORING_TYPES.has(question.type)) return null;
 
-  const isChoice = question.type === "single" || question.type === "multiple";
-  const options = isChoice ? ((question.config.options as string[]) ?? []) : [];
+  const isNumericFactor = question.type === "numeric" || question.type === "slider";
+  const scoringOptions = (() => {
+    switch (question.type) {
+      case "single":
+      case "multiple":
+        return ((question.config.options as string[]) ?? []).filter((option) => option.length > 0);
+      case "yesno":
+        return ["Ja", "Nein"];
+      case "yesnomulti":
+        return ((question.config.answers as string[]) ?? ["Ja", "Nein"]).filter((option) => option.length > 0);
+      case "likert": {
+        const min = Number(question.config.min ?? 1);
+        const max = Number(question.config.max ?? 5);
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return [];
+        const values: string[] = [];
+        for (let value = min; value <= max; value += 1) values.push(String(value));
+        return values;
+      }
+      default:
+        return [];
+    }
+  })();
 
   const hasIPP = Object.values(scoring).some((w) => w.ipp !== undefined && w.ipp !== null && String(w.ipp) !== "");
   const hasBoni = Object.values(scoring).some((w) => w.boni !== undefined && w.boni !== null && String(w.boni) !== "");
@@ -568,7 +584,7 @@ function BillaScoringEditor({ question, onUpdate }: { question: Question; onUpda
       </button>
       <div style={{ maxHeight: open ? 1200 : 0, opacity: open ? 1 : 0, overflow: "hidden", transition: "max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease" }}>
         <div style={{ paddingTop: 8, paddingBottom: 4 }}>
-          {isChoice && (
+          {!isNumericFactor && (
             <>
               <div style={{ display: "flex", alignItems: "center", marginBottom: 6, paddingRight: 2 }}>
                 <span style={{ flex: 1 }} />
@@ -576,7 +592,7 @@ function BillaScoringEditor({ question, onUpdate }: { question: Question; onUpda
                 <span style={{ width: 8 }} />
                 <span style={labelColStyle}>Boni</span>
               </div>
-              {options.map((opt, i) => {
+              {scoringOptions.map((opt, i) => {
                 const key = opt || `__opt_${i}__`;
                 const w = scoring[key] ?? {};
                 return (
@@ -588,12 +604,12 @@ function BillaScoringEditor({ question, onUpdate }: { question: Question; onUpda
                   </div>
                 );
               })}
-              {options.length === 0 && <span style={{ fontSize: 10, color: "rgba(0,0,0,0.28)", fontStyle: "italic" }}>Zuerst Optionen hinzufügen.</span>}
+              {scoringOptions.length === 0 && <span style={{ fontSize: 10, color: "rgba(0,0,0,0.28)", fontStyle: "italic" }}>Zuerst Optionen hinzufügen.</span>}
             </>
           )}
-          {question.type === "numeric" && (
+          {isNumericFactor && (
             <>
-              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginBottom: 10, lineHeight: 1.5 }}>Der eingegebene Zahlenwert wird mit dem Faktor multipliziert.</div>
+              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginBottom: 10, lineHeight: 1.5 }}>Der eingegebene Wert wird mit dem Faktor multipliziert.</div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>IPP Faktor</div>
@@ -759,7 +775,7 @@ function BillaQuestionCard({ question, index, isExpanded, onToggle, onUpdate, on
 
 interface BillaModuleEditorProps {
   onClose: () => void;
-  onSave: (m: Module) => void;
+  onSave: (m: Module) => Promise<void> | void;
   existingModule?: Module;
 }
 
@@ -772,6 +788,7 @@ export function BillaModuleEditor({ onClose, onSave, existingModule }: BillaModu
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const addQuestion = useCallback((type: QuestionType) => {
@@ -820,7 +837,8 @@ export function BillaModuleEditor({ onClose, onSave, existingModule }: BillaModu
           <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{existingModule ? "Modul bearbeiten" : "Neues Modul"}</span>
         </div>
         <button
-          onClick={() => {
+          onClick={async () => {
+            if (isSaving) return;
             const mod: Module = {
               id: existingModule?.id ?? `bmod-${Date.now()}`,
               name: moduleName || "Unbenanntes Modul",
@@ -828,11 +846,17 @@ export function BillaModuleEditor({ onClose, onSave, existingModule }: BillaModu
               createdAt: existingModule?.createdAt ?? new Date().toISOString(),
               usedInCount: existingModule?.usedInCount ?? 0,
             };
-            onSave(mod);
+            setIsSaving(true);
+            try {
+              await onSave(mod);
+            } finally {
+              setIsSaving(false);
+            }
           }}
-          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 18px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: `linear-gradient(to bottom, ${G}, ${GD})`, border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${GR}, 0 1px 6px rgba(8,145,178,0.25)` }}
+          disabled={isSaving}
+          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 18px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: `linear-gradient(to bottom, ${G}, ${GD})`, border: "none", borderRadius: 7, cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.8 : 1, transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${GR}, 0 1px 6px rgba(8,145,178,0.25)` }}
         >
-          Speichern
+          {isSaving ? "Speichern..." : "Speichern"}
         </button>
       </div>
 

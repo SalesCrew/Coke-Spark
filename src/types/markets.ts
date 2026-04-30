@@ -11,6 +11,7 @@ export interface MarketRecord {
   region: string;
   emEh: string;
   currentGmName: string;
+  plannedByActiveStandardGmName?: string | null;
   visitFrequencyPerYear: number;
   infoFlag: boolean;
   // Detail-only
@@ -20,9 +21,11 @@ export interface MarketRecord {
   employee: string;
   universeMarket: boolean;
   infoNote: string;
-  ipp: number;
+  ipp: number | null;
   importSourceFileName: string;
   importedAt: string;
+  plannedToId?: string | null;
+  isDeleted?: boolean;
 }
 
 export interface MarketVisitLog {

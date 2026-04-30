@@ -62,6 +62,7 @@ export interface Fragebogen {
   endDate?: string;
   createdAt: string;
   status: "active" | "scheduled" | "inactive";
+  sectionKeywords?: Array<"standard" | "flex" | "billa">;
   spezialfragen?: Question[];
   nurEinmalAusfuellbar?: boolean;
 }

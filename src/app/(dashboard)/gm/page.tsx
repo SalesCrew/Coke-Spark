@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Home, Clock, Calendar, User, Map } from "lucide-react";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GMStatusCard } from "@/components/dashboard/GMStatusCard";
@@ -11,6 +11,9 @@ import { KuehlerInventurCard } from "@/components/dashboard/KuehlerInventurCard"
 import { MarketList } from "@/components/dashboard/MarketList";
 import { ActivityLauncher } from "@/components/dashboard/ActivityLauncher";
 import Aurora from "@/components/ui/Aurora";
+import { RedMonthProvider } from "@/context/RedMonthContext";
+import { fetchGmBonusSummary, fetchGmKuehlerMhdProgress, type GmKuehlerMhdProgressPayload } from "@/lib/api/backend";
+import type { PraemienGmBonusSummary } from "@/types/praemien";
 
 const gmMenuItems = [
   { label: "Home", icon: <Home size={11} strokeWidth={1.8} /> },
@@ -20,16 +23,54 @@ const gmMenuItems = [
   { label: "Profil", icon: <User size={11} strokeWidth={1.8} /> },
 ];
 
-const BONUS_GOALS = [
-  { name: "Schütten/Displays", percent: 95, color: "#22c55e" },
-  { name: "Distributionsziel", percent: 82, color: "#eab308" },
-  { name: "Flexziel",          percent: 84, color: "#eab308" },
-  { name: "Qualitätsziele",    percent: 83, color: "#eab308" },
-];
-
 export default function GMDashboard() {
   const [bonusModalOpen, setBonusModalOpen] = useState(false);
+  const [bonusSummary, setBonusSummary] = useState<PraemienGmBonusSummary | null>(null);
+  const [kuehlerMhdProgress, setKuehlerMhdProgress] = useState<GmKuehlerMhdProgressPayload | null>(null);
+  const [bonusLoading, setBonusLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBonusLoading(true);
+    void (async () => {
+      const [bonusResult, progressResult] = await Promise.allSettled([
+        fetchGmBonusSummary(),
+        fetchGmKuehlerMhdProgress(),
+      ]);
+      if (!cancelled) {
+        setBonusSummary(bonusResult.status === "fulfilled" ? bonusResult.value : null);
+        setKuehlerMhdProgress(progressResult.status === "fulfilled" ? progressResult.value : null);
+        setBonusLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const bonusGoals = bonusSummary?.goals.map((goal) => ({
+    name: goal.name,
+    percent: goal.percent,
+    color: goal.color,
+    points: goal.points,
+    maxPoints: goal.maxPoints,
+  })) ?? [];
+  const personalBonusPercent = bonusSummary && bonusSummary.totalMaxPoints > 0
+    ? Math.max(0, Math.min(100, Math.round((bonusSummary.totalPoints / bonusSummary.totalMaxPoints) * 100)))
+    : 0;
+  const kuehlerCurrent = kuehlerMhdProgress?.kuehler.current ?? 0;
+  const kuehlerTotal = kuehlerMhdProgress?.kuehler.total ?? 0;
+  const kuehlerPercent = kuehlerMhdProgress?.kuehler.percent ?? 0;
+  const mhdPercent = kuehlerMhdProgress?.mhd.percent ?? 0;
+  const statusBars = [
+    { label: "Persönliche Boni Ziele", value: `${personalBonusPercent}%`, percent: personalBonusPercent, color: "#F4B4B4" },
+    { label: "Kühlerinventur", value: `${kuehlerCurrent}/${kuehlerTotal}`, percent: kuehlerPercent, color: "#E86B5A" },
+    { label: "MHD", value: `${mhdPercent}%`, percent: mhdPercent, color: "#DC2626" },
+  ];
+  const roundedBonus = Math.round((bonusSummary?.currentRewardEur ?? 0) * 100) / 100;
+
   return (
+    <RedMonthProvider>
     <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7" }}>
       <div
         style={{
@@ -55,7 +96,7 @@ export default function GMDashboard() {
         className="mx-auto px-6 pt-6 lg:px-10 lg:pt-8"
         style={{ maxWidth: 960, position: "relative", zIndex: 1 }}
       >
-        <GMStatusCard />
+        <GMStatusCard bars={statusBars} praemie={roundedBonus} />
 
         <div className="mt-5 flex gap-5 items-stretch">
           <div className="flex-1">
@@ -70,7 +111,13 @@ export default function GMDashboard() {
                 padding: "20px",
               }}
             >
-              <BonusCircles onOpenDetail={() => setBonusModalOpen(true)} />
+              <BonusCircles
+                bonus={bonusSummary?.currentRewardEur}
+                goals={bonusGoals}
+                hasActiveWave={bonusSummary?.hasActiveWave ?? false}
+                isLoading={bonusLoading}
+                onOpenDetail={() => setBonusModalOpen(true)}
+              />
             </div>
 
             <div className="mt-4" style={{ position: "relative", zIndex: 5 }}>
@@ -95,10 +142,12 @@ export default function GMDashboard() {
 
       {bonusModalOpen && (
         <BonusDetailModal
-          goals={BONUS_GOALS}
+          goals={bonusGoals}
+          summary={bonusSummary}
           onClose={() => setBonusModalOpen(false)}
         />
       )}
     </main>
+    </RedMonthProvider>
   );
 }

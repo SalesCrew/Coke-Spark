@@ -866,7 +866,7 @@ function QuestionCard({
 
 interface SpezialfrageEditorProps {
   onClose: () => void;
-  onSave: (questions: Question[]) => void;
+  onSave: (questions: Question[]) => Promise<void> | void;
   existingQuestions?: Question[];
   fragebogenName?: string;
 }
@@ -880,6 +880,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Collect all existing spezialfragen from other Fragebogen for reuse
@@ -961,12 +962,21 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
           </div>
         </div>
         <button
-          onClick={() => onSave(questions)}
-          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 18px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #059669, #047857)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.18), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 0 1px #036647, 0 1px 6px rgba(5,150,105,0.28)" }}
-          onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
-          onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+          onClick={async () => {
+            if (isSaving) return;
+            setIsSaving(true);
+            try {
+              await onSave(questions);
+            } finally {
+              setIsSaving(false);
+            }
+          }}
+          disabled={isSaving}
+          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 18px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #059669, #047857)", border: "none", borderRadius: 7, cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.8 : 1, transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.18), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 0 1px #036647, 0 1px 6px rgba(5,150,105,0.28)" }}
+          onMouseEnter={(e) => { if (isSaving) return; e.currentTarget.style.opacity = "0.88"; }}
+          onMouseLeave={(e) => { if (isSaving) return; e.currentTarget.style.opacity = "1"; }}
         >
-          Speichern
+          {isSaving ? "Speichern..." : "Speichern"}
         </button>
       </div>
 

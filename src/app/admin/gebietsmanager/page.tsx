@@ -5,11 +5,11 @@ import { createPortal } from "react-dom";
 import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { MarketVisitLog } from "@/types/markets";
+import { createGmUser, fetchGmUsers, updateGmUser } from "@/lib/api/backend";
 
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
 const RD = "#b91c1c";
-const LS_KEY = "admin_gebietsmanager_v1";
 const LS_VISITS = "admin_market_visits_v1";
 const REGIONS = ["Nord", "Ost", "Süd", "West", "Mitte"];
 
@@ -302,11 +302,12 @@ function DrawerSelectField({ label, value, onChange, options }: { label: string;
   );
 }
 
-function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose: () => void; onSave: (updated: GMRecord) => void; visits: MarketVisitLog[] }) {
+function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose: () => void; onSave: (updated: GMRecord) => Promise<void> | void; visits: MarketVisitLog[] }) {
   const [tab, setTab] = useState<"profil" | "besuche">("profil");
   const [draft, setDraft] = useState<GMRecord>({ ...gm });
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Password reveal state
   const [pwVisible, setPwVisible] = useState(false);
@@ -322,11 +323,17 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
     setSaved(false);
   };
 
-  const handleSave = () => {
-    onSave(draft);
-    setDirty(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    if (saving || !dirty) return;
+    setSaving(true);
+    try {
+      await onSave(draft);
+      setDirty(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const revealPassword = () => {
@@ -522,11 +529,11 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
         {tab === "profil" && (
         <div style={{ background: "#fff", borderTop: "1px solid rgba(0,0,0,0.06)", padding: "12px 18px", flexShrink: 0 }}>
           <button
-            onClick={handleSave}
-            disabled={!dirty}
-            style={{ width: "100%", height: 36, borderRadius: 8, border: "none", cursor: dirty ? "pointer" : "default", fontSize: 11, fontWeight: 700, color: dirty ? "#fff" : "rgba(0,0,0,0.25)", fontFamily: "inherit", background: dirty ? `linear-gradient(to bottom,${R},${RD})` : "rgba(0,0,0,0.05)", boxShadow: dirty ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none", transition: "all 0.15s", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            onClick={() => { void handleSave(); }}
+            disabled={!dirty || saving}
+            style={{ width: "100%", height: 36, borderRadius: 8, border: "none", cursor: dirty && !saving ? "pointer" : "default", fontSize: 11, fontWeight: 700, color: dirty && !saving ? "#fff" : "rgba(0,0,0,0.25)", fontFamily: "inherit", background: dirty && !saving ? `linear-gradient(to bottom,${R},${RD})` : "rgba(0,0,0,0.05)", boxShadow: dirty && !saving ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none", transition: "all 0.15s", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
           >
-            {saved ? <><Check size={11} strokeWidth={2.5} /> Gespeichert</> : <><Save size={11} strokeWidth={2} /> Änderungen speichern</>}
+            {saving ? <><Save size={11} strokeWidth={2} /> Speichern...</> : saved ? <><Check size={11} strokeWidth={2.5} /> Gespeichert</> : <><Save size={11} strokeWidth={2} /> Änderungen speichern</>}
           </button>
         </div>
         )}
@@ -618,21 +625,36 @@ function SelectField({ label, value, onChange, options }: { label: string; value
 }
 
 // ── Create Modal ──────────────────────────────────────────────
-function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (gm: GMRecord, password: string) => void }) {
+function CreateModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (form: FormState) => Promise<{ gm: GMRecord; password: string }>;
+}) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [touched, setTouched] = useState<Partial<Record<keyof FormState, boolean>>>({});
   const [step, setStep] = useState<"form" | "success">("form");
   const [password, setPassword] = useState("");
   const [copied, setCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const valid = isFormValid(form);
   const set = (k: keyof FormState) => (v: string) => setForm(f => ({ ...f, [k]: v }));
   const touch = (k: keyof FormState) => setTouched(t => ({ ...t, [k]: true }));
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!valid) return;
-    const pw = genPassword();
-    const ipp = parseFloat((Math.random() * 3 + 4.5).toFixed(1));
-    const gm: GMRecord = { id: genId(), ...form, ipp, createdAt: new Date().toISOString(), password: pw };
-    setPassword(pw); setStep("success"); onCreate(gm, pw);
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await onCreate(form);
+      setPassword(result.password);
+      setStep("success");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erstellung fehlgeschlagen.");
+    } finally {
+      setSubmitting(false);
+    }
   };
   const handleCopy = () => { navigator.clipboard.writeText(password).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
   const emailError = touched.email && form.email && !isValidEmail(form.email);
@@ -672,9 +694,12 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (gm
               <div style={{ flex: "0 0 90px" }}><InputField label="PLZ *" value={form.postalCode} onChange={set("postalCode")} placeholder="1060" /></div>
               <SelectField label="Region *" value={form.region} onChange={set("region")} options={REGIONS} />
             </div>
+            {error ? (
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#b91c1c" }}>{error}</div>
+            ) : null}
             <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
               <button onClick={onClose} style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid rgba(0,0,0,0.1)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", fontFamily: "inherit", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.08),0 1px 4px rgba(0,0,0,0.06)", transition: "all 0.12s" }}>Abbrechen</button>
-              <button onClick={handleSubmit} disabled={!valid} style={{ flex: 2, height: 36, borderRadius: 8, border: "none", cursor: valid ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 700, color: "#fff", fontFamily: "inherit", background: valid ? `linear-gradient(to bottom,${R},${RD})` : "rgba(0,0,0,0.12)", boxShadow: valid ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none", transition: "all 0.15s" }}>Erstellen</button>
+              <button onClick={handleSubmit} disabled={!valid || submitting} style={{ flex: 2, height: 36, borderRadius: 8, border: "none", cursor: valid && !submitting ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 700, color: "#fff", fontFamily: "inherit", background: valid && !submitting ? `linear-gradient(to bottom,${R},${RD})` : "rgba(0,0,0,0.12)", boxShadow: valid && !submitting ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none", transition: "all 0.15s" }}>{submitting ? "Erstellt..." : "Erstellen"}</button>
             </div>
           </div>
         ) : (
@@ -712,27 +737,20 @@ export default function GebietsmanagerPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newId, setNewId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
   const selectedGm = gms.find(g => g.id === selectedId) ?? null;
 
   useEffect(() => {
-    // Load GMs
-    try {
-      const stored = localStorage.getItem(LS_KEY);
-      if (stored) {
-        const parsed: GMRecord[] = JSON.parse(stored);
-        const needsReseed = parsed.some(g => !g.password);
-        if (needsReseed) {
-          const merged = parsed.map(g => ({ ...g, password: g.password ?? SEED_GMS.find(s => s.id === g.id)?.password ?? genPassword() }));
-          localStorage.setItem(LS_KEY, JSON.stringify(merged));
-          setGms(merged);
-        } else {
-          setGms(parsed);
-        }
-      } else {
-        localStorage.setItem(LS_KEY, JSON.stringify(SEED_GMS));
-        setGms(SEED_GMS);
-      }
-    } catch { setGms(SEED_GMS); }
+    fetchGmUsers()
+      .then((rows) => {
+        setGms(rows);
+        setBackendError(null);
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "GM-Liste konnte nicht geladen werden.";
+        setBackendError(msg);
+        setGms([]);
+      });
 
     // Load visits from Märkte page storage, supplement with seed GM visits
     try {
@@ -751,19 +769,35 @@ export default function GebietsmanagerPage() {
     return () => window.removeEventListener("gebietsmanager:openCreate", handler);
   }, []);
 
-  const save = useCallback((list: GMRecord[]) => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch {}
+  const handleCreate = useCallback(async (form: FormState) => {
+    const created = await createGmUser({
+      firstName: form.firstName,
+      lastName: form.lastName,
+      email: form.email,
+      phone: form.phone,
+      address: form.address,
+      city: form.city,
+      postalCode: form.postalCode,
+      region: form.region,
+      ipp: parseFloat((Math.random() * 3 + 4.5).toFixed(1)),
+    });
+    setGms((prev) => [created, ...prev]);
+    setNewId(created.id);
+    setTimeout(() => setNewId(null), 600);
+    setBackendError(null);
+    return { gm: created, password: created.password ?? "" };
   }, []);
 
-  const handleCreate = useCallback((gm: GMRecord) => {
-    setGms(prev => { const next = [gm, ...prev]; save(next); return next; });
-    setNewId(gm.id);
-    setTimeout(() => setNewId(null), 600);
-  }, [save]);
-
-  const handleSave = useCallback((updated: GMRecord) => {
-    setGms(prev => { const next = prev.map(g => g.id === updated.id ? updated : g); save(next); return next; });
-  }, [save]);
+  const handleSave = useCallback(async (updated: GMRecord) => {
+    try {
+      const saved = await updateGmUser(updated);
+      setGms((prev) => prev.map((g) => (g.id === saved.id ? { ...saved, password: g.password } : g)));
+      setBackendError(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "GM konnte nicht gespeichert werden.";
+      setBackendError(msg);
+    }
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -773,6 +807,11 @@ export default function GebietsmanagerPage() {
           <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>Gebietsmanager</span>
           {gms.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{gms.length} {gms.length === 1 ? "GM" : "GMs"}</span>}
         </div>
+        {backendError ? (
+          <div style={{ margin: "0 10px 10px", padding: "9px 11px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.05)", color: "#b91c1c", fontSize: 11, fontWeight: 600 }}>
+            {backendError}
+          </div>
+        ) : null}
 
         <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
           {gms.length === 0 ? (

@@ -3,11 +3,14 @@
 interface Goal {
   name: string;
   percent: number;
+  color?: string;
 }
 
 interface BonusCirclesProps {
   bonus?: number;
   goals?: Goal[];
+  hasActiveWave?: boolean;
+  isLoading?: boolean;
   onOpenDetail?: () => void;
 }
 
@@ -38,9 +41,37 @@ const STROKE_WIDTH = 2;
 export function BonusCircles({
   bonus,
   goals = defaultGoals,
+  hasActiveWave = true,
+  isLoading = false,
   onOpenDetail,
 }: BonusCirclesProps) {
   const resolvedBonus = bonus ?? calcBonus(goals);
+  if (isLoading) {
+    return (
+      <div className="w-full" style={{ minHeight: 132, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span className="text-[12px] text-gray-400">Bonus wird geladen…</span>
+      </div>
+    );
+  }
+
+  if (!hasActiveWave) {
+    return (
+      <div className="w-full" style={{ minHeight: 132, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <span className="text-[12px] font-semibold text-gray-500">Kein aktiver Bonus</span>
+        <span className="text-[11px] text-gray-400">Sobald eine Prämien-Welle aktiv ist, siehst du hier deinen Fortschritt.</span>
+      </div>
+    );
+  }
+
+  if (goals.length === 0) {
+    return (
+      <div className="w-full" style={{ minHeight: 132, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <span className="text-[12px] font-semibold text-gray-500">Noch keine Bonus-Daten</span>
+        <span className="text-[11px] text-gray-400">Beantworte Fragen mit Boni-Punkten, um deinen Stand zu sehen.</span>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
       <div className="flex justify-center" style={{ position: "relative" }}>

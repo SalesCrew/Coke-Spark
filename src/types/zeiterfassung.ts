@@ -26,9 +26,30 @@ export interface TimeDaySession {
   gmId: string;
   gmName: string;
   region: string;
+  status?: "started" | "ended" | "submitted";
+  isLive?: boolean;
+  timezone?: string;
   startTime: string; // "HH:MM" — day start (Anfahrt begin)
   endTime: string;   // "HH:MM" — day end (Heimfahrt end)
-  startKm: number;
-  endKm: number;
+  startKm: number | null;
+  endKm: number | null;
   entries: TimeEntry[];
+  timeline?: Array<{
+    kind: "anfahrt" | "fahrtzeit" | "marktbesuch" | "pause" | "zusatzzeit" | "heimfahrt";
+    start: string;
+    end: string;
+    durationMin: number;
+    title: string;
+    subtitle?: string;
+    subtype?: string;
+    questionnaireType?: string;
+  }>;
+  stats?: {
+    arbeitstag: number;
+    pauseMin: number;
+    reineArbeitszeit: number;
+    kmGefahren: number | null;
+    marktbesuche: number;
+    zusatz: number;
+  };
 }

@@ -2,6 +2,11 @@
 
 import { createContext, useContext, useState, useCallback } from "react";
 import type { Fragebogen } from "@/types/fragebogen";
+import {
+  createFragebogen,
+  deleteFragebogenBackend,
+  updateFragebogenBackend,
+} from "@/lib/api/backend";
 
 interface FragebogenContextValue {
   fragebogenList: Fragebogen[];
@@ -13,6 +18,7 @@ interface FragebogenContextValue {
 }
 
 const FragebogenContext = createContext<FragebogenContextValue | null>(null);
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function FragebogenProvider({ children }: { children: React.ReactNode }) {
   const [fragebogenList, setFragebogenList] = useState<Fragebogen[]>([]);
@@ -20,14 +26,25 @@ export function FragebogenProvider({ children }: { children: React.ReactNode }) 
 
   const addFragebogen = useCallback((f: Fragebogen) => {
     setFragebogenList((prev) => [f, ...prev]);
+    if (!uuidRegex.test(f.id)) {
+      void createFragebogen("main", f).then((persisted) => {
+        setFragebogenList((prev) => prev.map((row) => (row.id === f.id ? persisted : row)));
+      });
+    }
   }, []);
 
   const updateFragebogen = useCallback((f: Fragebogen) => {
     setFragebogenList((prev) => prev.map((old) => (old.id === f.id ? f : old)));
+    if (uuidRegex.test(f.id)) {
+      void updateFragebogenBackend("main", f);
+    }
   }, []);
 
   const deleteFragebogen = useCallback((id: string) => {
     setFragebogenList((prev) => prev.filter((f) => f.id !== id));
+    if (uuidRegex.test(id)) {
+      void deleteFragebogenBackend("main", id);
+    }
   }, []);
 
   const editFragebogen = useCallback(

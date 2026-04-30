@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Search, X, CheckCircle2, Circle } from "lucide-react";
+import { fetchGmKuehlerMhdProgress, type GmKuehlerMhdProgressPayload } from "@/lib/api/backend";
 
 interface KuehlerMarket {
   chain: string;
@@ -62,6 +63,8 @@ function chainColor(chain: string): { bg: string; text: string } {
 }
 
 type Tab = "kuehler" | "mhd";
+const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
+const KUEHLER_MHD_PROGRESS_UPDATED_EVENT = "gm:kuehler-mhd-progress-updated";
 
 interface KuehlerInventurCardProps {
   current?: number;
@@ -87,6 +90,9 @@ export function KuehlerInventurCard({
   const [activeTab, setActiveTab] = useState<Tab>("kuehler");
   const [showDetail, setShowDetail] = useState(false);
   const [search, setSearch] = useState("");
+  const [progressData, setProgressData] = useState<GmKuehlerMhdProgressPayload | null>(null);
+  const [loadingData, setLoadingData] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Auto-rotate: switches every 10s, pauses 60s after manual interaction
   const autoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -129,14 +135,79 @@ export function KuehlerInventurCard({
     handleInteraction();
   };
 
-  // Derived values per tab
-  const kuehlerPercent = Math.round((current / total) * 100);
-  const mhdPercent = Math.round((mhdCurrent / mhdTotal) * 100);
+  const formatYmd = useCallback((value: string | undefined, fallback: string): string => {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return fallback;
+    const [y, m, d] = value.split("-");
+    return `${d}.${m}.${y}`;
+  }, []);
 
+  const loadProgress = useCallback(async () => {
+    setLoadingData(true);
+    try {
+      const payload = await fetchGmKuehlerMhdProgress();
+      setProgressData(payload);
+      setLoadError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Fortschritt konnte nicht geladen werden.";
+      setLoadError(message || "Fortschritt konnte nicht geladen werden.");
+      setProgressData(null);
+    } finally {
+      setLoadingData(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadProgress();
+  }, [loadProgress]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      void loadProgress();
+    };
+    const onExternalUpdate = () => {
+      void loadProgress();
+    };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(TODAY_SUBMISSIONS_UPDATED_EVENT, onExternalUpdate);
+    window.addEventListener(KUEHLER_MHD_PROGRESS_UPDATED_EVENT, onExternalUpdate);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(TODAY_SUBMISSIONS_UPDATED_EVENT, onExternalUpdate);
+      window.removeEventListener(KUEHLER_MHD_PROGRESS_UPDATED_EVENT, onExternalUpdate);
+    };
+  }, [loadProgress]);
+
+  // Derived values per tab
+  const kuehlerPayload = progressData?.kuehler;
+  const mhdPayload = progressData?.mhd;
+  const kuehlerPercent = kuehlerPayload?.percent ?? (loadingData ? 0 : Math.round((current / Math.max(total, 1)) * 100));
+  const mhdPercent = mhdPayload?.percent ?? (loadingData ? 0 : Math.round((mhdCurrent / Math.max(mhdTotal, 1)) * 100));
+  const mappedKuehlerMarkets = (kuehlerPayload?.markets ?? []).map((entry) => ({
+    chain: entry.chain,
+    address: entry.address,
+    done: entry.done,
+    doneDate: entry.doneAt ? new Date(entry.doneAt).toLocaleDateString("de-AT") : undefined,
+  }));
+  const mappedMhdMarkets = (mhdPayload?.markets ?? []).map((entry) => ({
+    chain: entry.chain,
+    address: entry.address,
+    done: entry.done,
+    doneDate: entry.doneAt ? new Date(entry.doneAt).toLocaleDateString("de-AT") : undefined,
+  }));
   const percent = activeTab === "kuehler" ? kuehlerPercent : mhdPercent;
-  const cur = activeTab === "kuehler" ? current : mhdCurrent;
-  const tot = activeTab === "kuehler" ? total : mhdTotal;
-  const activeMarkets = activeTab === "kuehler" ? markets : mhdMarkets;
+  const cur = activeTab === "kuehler" ? (kuehlerPayload?.current ?? (loadingData ? 0 : current)) : (mhdPayload?.current ?? (loadingData ? 0 : mhdCurrent));
+  const tot = activeTab === "kuehler" ? (kuehlerPayload?.total ?? (loadingData ? 0 : total)) : (mhdPayload?.total ?? (loadingData ? 0 : mhdTotal));
+  const activeMarkets = activeTab === "kuehler"
+    ? (mappedKuehlerMarkets.length > 0 || progressData ? mappedKuehlerMarkets : markets)
+    : (mappedMhdMarkets.length > 0 || progressData ? mappedMhdMarkets : mhdMarkets);
+  const resolvedStartDate =
+    activeTab === "kuehler"
+      ? formatYmd(kuehlerPayload?.startDate, startDate)
+      : formatYmd(mhdPayload?.startDate, startDate);
+  const resolvedEndDate =
+    activeTab === "kuehler"
+      ? formatYmd(kuehlerPayload?.endDate, endDate)
+      : formatYmd(mhdPayload?.endDate, endDate);
   const title = activeTab === "kuehler" ? "Aktuelle Kühlerinventur" : "Aktuelle MHDs";
 
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -217,7 +288,7 @@ export function KuehlerInventurCard({
                 {title}
               </span>
               <span className="text-[10px] tabular-nums text-gray-400">
-                {startDate} – {endDate}
+                {resolvedStartDate} – {resolvedEndDate}
               </span>
             </div>
 
@@ -290,6 +361,11 @@ export function KuehlerInventurCard({
               Märkte anzeigen
             </button>
           </div>
+          {loadError && (
+            <div style={{ marginTop: 6, fontSize: 10, color: "rgba(220,38,38,0.72)", fontWeight: 500 }}>
+              Fortschritt konnte nicht geladen werden.
+            </div>
+          )}
         </div>
 
         {/* Detail View */}
@@ -460,7 +536,13 @@ export function KuehlerInventurCard({
 
             {filtered.pending.length === 0 && filtered.done.length === 0 && (
               <div className="text-center py-6">
-                <span className="text-[10px] text-gray-400">Keine Märkte gefunden</span>
+                <span className="text-[10px] text-gray-400">
+                  {loadingData
+                    ? "Fortschritt wird geladen..."
+                    : search.trim().length > 0
+                      ? "Keine Märkte gefunden"
+                      : "Keine zugewiesenen Märkte"}
+                </span>
               </div>
             )}
           </div>

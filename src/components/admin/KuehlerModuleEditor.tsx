@@ -15,6 +15,7 @@ import {
 
 import type { QuestionType, Question, ConditionalRule, Module } from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
+import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
 
 // Yellow accent colours — zero red anywhere in this file
 const Y = "#F59E0B";
@@ -366,12 +367,7 @@ function SliderConfig({ config, onChange }: { config: Record<string, unknown>; o
 // ── Photo Config ───────────────────────────────────────────────
 
 function PhotoConfig({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  return (
-    <div style={{ marginTop: 10 }}>
-      <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)" }}>Anweisung</span>
-      <input type="text" value={String(config.instruction ?? "")} onChange={(e) => onChange({ ...config, instruction: e.target.value })} placeholder="z.B. Foto vom Display aufnehmen" style={{ display: "block", width: "100%", marginTop: 4, fontSize: 11, padding: "4px 0", border: "none", borderBottom: "1px solid rgba(0,0,0,0.08)", outline: "none", color: "#374151", backgroundColor: "transparent" }} />
-    </div>
-  );
+  return <PhotoTagsConfig config={config} onChange={onChange} accentColor="#F59E0B" />;
 }
 
 // ── List Editor (for Matrix rows/columns) ──────────────────────
@@ -690,7 +686,7 @@ function QuestionCard({ question, index, isExpanded, onToggle, onUpdate, onDelet
 
 interface KuehlerModuleEditorProps {
   onClose: () => void;
-  onSave: (m: Module) => void;
+  onSave: (m: Module) => Promise<void> | void;
   existingModule?: Module;
 }
 
@@ -703,6 +699,7 @@ export function KuehlerModuleEditor({ onClose, onSave, existingModule }: Kuehler
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const addQuestion = useCallback((type: QuestionType) => {
@@ -753,7 +750,8 @@ export function KuehlerModuleEditor({ onClose, onSave, existingModule }: Kuehler
         </div>
         {/* Save button — yellow */}
         <button
-          onClick={() => {
+          onClick={async () => {
+            if (isSaving) return;
             const mod: Module = {
               id: existingModule?.id ?? `kmod-${Date.now()}`,
               name: moduleName || "Unbenanntes Modul",
@@ -761,11 +759,17 @@ export function KuehlerModuleEditor({ onClose, onSave, existingModule }: Kuehler
               createdAt: existingModule?.createdAt ?? new Date().toISOString(),
               usedInCount: existingModule?.usedInCount ?? 0,
             };
-            onSave(mod);
+            setIsSaving(true);
+            try {
+              await onSave(mod);
+            } finally {
+              setIsSaving(false);
+            }
           }}
-          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 18px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: `linear-gradient(to bottom, ${Y}, ${YD})`, border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${YR}, 0 1px 6px rgba(245,158,11,0.25)` }}
+          disabled={isSaving}
+          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 18px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: `linear-gradient(to bottom, ${Y}, ${YD})`, border: "none", borderRadius: 7, cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.8 : 1, transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${YR}, 0 1px 6px rgba(245,158,11,0.25)` }}
         >
-          Speichern
+          {isSaving ? "Speichern..." : "Speichern"}
         </button>
       </div>
 

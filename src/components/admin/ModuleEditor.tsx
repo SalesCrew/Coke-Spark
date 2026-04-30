@@ -16,6 +16,7 @@ import {
 
 import type { QuestionType, Question, ConditionalRule, Module, ScoringWeight } from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
+import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
 
 let _qid = 0;
 function nextId(): string {
@@ -27,22 +28,30 @@ const TRIGGER_ELIGIBLE: QuestionType[] = [
   "single", "yesno", "yesnomulti", "multiple", "likert", "numeric", "slider", "matrix",
 ];
 
-// ── Handelsketten temp data ────────────────────────────────────
-const HANDELSKETTEN = [
-  "BILLA", "SPAR", "HOFER", "MERKUR", "PENNY", "ADEG", "BILLA+", "INTERSPAR",
-] as const;
-
 // ── HandelskettenSelector ─────────────────────────────────────
 function HandelskettenSelector({
-  question, onUpdate,
-}: { question: Question; onUpdate: (q: Question) => void }) {
+  question,
+  onUpdate,
+  availableChains,
+}: { question: Question; onUpdate: (q: Question) => void; availableChains: string[] }) {
   const [open, setOpen] = useState(false);
+  const chainOptions = Array.from(
+    new Set(
+      availableChains
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ),
+  );
   const alleActive = question.chains === undefined;
 
   function toggleAlle() {
+    if (chainOptions.length === 0) {
+      onUpdate({ ...question, chains: undefined });
+      return;
+    }
     if (alleActive) {
       // turn off → pre-select all so user can deselect
-      onUpdate({ ...question, chains: [...HANDELSKETTEN] });
+      onUpdate({ ...question, chains: [...chainOptions] });
     } else {
       onUpdate({ ...question, chains: undefined });
     }
@@ -50,11 +59,11 @@ function HandelskettenSelector({
   }
 
   function toggleChain(chain: string) {
-    const current = question.chains ?? [...HANDELSKETTEN];
+    const current = question.chains ?? [...chainOptions];
     const next = current.includes(chain)
       ? current.filter((c) => c !== chain)
       : [...current, chain];
-    onUpdate({ ...question, chains: next.length === HANDELSKETTEN.length ? undefined : next });
+    onUpdate({ ...question, chains: next.length === chainOptions.length ? undefined : next });
   }
 
   const selected = question.chains;
@@ -114,7 +123,7 @@ function HandelskettenSelector({
                 Ketten auswählen
               </div>
               <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 5 }}>
-                {HANDELSKETTEN.map((chain) => {
+                {chainOptions.map((chain) => {
                   const isSelected = selected?.includes(chain) ?? true;
                   return (
                     <button
@@ -134,6 +143,11 @@ function HandelskettenSelector({
                   );
                 })}
               </div>
+              {chainOptions.length === 0 && (
+                <div style={{ marginTop: 8, fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 500 }}>
+                  Keine Handelsketten aus Märkten verfügbar.
+                </div>
+              )}
               {selected !== undefined && selected.length === 0 && (
                 <div style={{ marginTop: 8, fontSize: 10, color: "#DC2626", fontWeight: 500 }}>
                   Keine Kette ausgewählt — Frage wird für niemanden angezeigt.
@@ -935,12 +949,7 @@ function PhotoConfig({
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
 }) {
-  return (
-    <div style={{ marginTop: 10 }}>
-      <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)" }}>Anweisung</span>
-      <input type="text" value={String(config.instruction ?? "")} onChange={(e) => onChange({ ...config, instruction: e.target.value })} placeholder="z.B. Foto vom Display aufnehmen" style={{ display: "block", width: "100%", marginTop: 4, fontSize: 11, padding: "4px 0", border: "none", borderBottom: "1px solid rgba(0,0,0,0.08)", outline: "none", color: "#374151", backgroundColor: "transparent" }} />
-    </div>
-  );
+  return <PhotoTagsConfig config={config} onChange={onChange} accentColor="#DC2626" />;
 }
 
 function ListEditor({
@@ -1232,7 +1241,7 @@ function TypeConfig({
 
 // ── Scoring Editor ─────────────────────────────────────────────
 
-const SCORING_TYPES = new Set(["single", "multiple", "numeric"]);
+const SCORING_TYPES = new Set(["single", "multiple", "yesno", "yesnomulti", "likert", "numeric", "slider"]);
 
 function ScoringEditor({
   question,
@@ -1246,8 +1255,28 @@ function ScoringEditor({
 
   if (!SCORING_TYPES.has(question.type)) return null;
 
-  const isChoice = question.type === "single" || question.type === "multiple";
-  const options = isChoice ? ((question.config.options as string[]) ?? []) : [];
+  const isNumericFactor = question.type === "numeric" || question.type === "slider";
+  const scoringOptions = (() => {
+    switch (question.type) {
+      case "single":
+      case "multiple":
+        return ((question.config.options as string[]) ?? []).filter((option) => option.length > 0);
+      case "yesno":
+        return ["Ja", "Nein"];
+      case "yesnomulti":
+        return ((question.config.answers as string[]) ?? ["Ja", "Nein"]).filter((option) => option.length > 0);
+      case "likert": {
+        const min = Number(question.config.min ?? 1);
+        const max = Number(question.config.max ?? 5);
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return [];
+        const values: string[] = [];
+        for (let value = min; value <= max; value += 1) values.push(String(value));
+        return values;
+      }
+      default:
+        return [];
+    }
+  })();
 
   // Helpers
   const hasIPP = Object.values(scoring).some((w) => w.ipp !== undefined && w.ipp !== null && String(w.ipp) !== "");
@@ -1329,7 +1358,7 @@ function ScoringEditor({
       }}>
         <div style={{ paddingTop: 8, paddingBottom: 4 }}>
 
-          {isChoice && (
+          {!isNumericFactor && (
             <>
               {/* Column headers */}
               <div style={{ display: "flex", alignItems: "center", marginBottom: 6, paddingRight: 2 }}>
@@ -1340,7 +1369,7 @@ function ScoringEditor({
               </div>
 
               {/* One row per option */}
-              {options.map((opt, i) => {
+              {scoringOptions.map((opt, i) => {
                 const key = opt || `__opt_${i}__`;
                 const w = scoring[key] ?? {};
                 return (
@@ -1376,7 +1405,7 @@ function ScoringEditor({
                 );
               })}
 
-              {options.length === 0 && (
+              {scoringOptions.length === 0 && (
                 <span style={{ fontSize: 10, color: "rgba(0,0,0,0.28)", fontStyle: "italic" }}>
                   Zuerst Optionen hinzufügen.
                 </span>
@@ -1384,10 +1413,10 @@ function ScoringEditor({
             </>
           )}
 
-          {question.type === "numeric" && (
+          {isNumericFactor && (
             <>
               <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginBottom: 10, lineHeight: 1.5 }}>
-                Der eingegebene Zahlenwert wird mit dem Faktor multipliziert.
+                Der eingegebene Wert wird mit dem Faktor multipliziert.
               </div>
               {/* Column headers */}
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
@@ -1596,6 +1625,7 @@ function QuestionCard({
   onDrop,
   dropTarget,
   allQuestions,
+  availableChains,
 }: {
   question: Question;
   index: number;
@@ -1608,6 +1638,7 @@ function QuestionCard({
   onDrop: () => void;
   dropTarget: boolean;
   allQuestions: Question[];
+  availableChains: string[];
 }) {
   const badge = typeBadgeColor(question.type);
   const [logicOpen, setLogicOpen] = useState(false);
@@ -1818,7 +1849,7 @@ function QuestionCard({
             <ScoringEditor question={question} onUpdate={onUpdate} />
 
             {/* Handelsketten selector */}
-            <HandelskettenSelector question={question} onUpdate={onUpdate} />
+            <HandelskettenSelector question={question} onUpdate={onUpdate} availableChains={availableChains} />
 
             {/* Conditional logic */}
             <div style={{ marginTop: 14 }}>
@@ -1926,11 +1957,12 @@ function QuestionCard({
 
 interface ModuleEditorProps {
   onClose: () => void;
-  onSave: (m: Module) => void;
+  onSave: (m: Module) => Promise<void> | void;
   existingModule?: Module;
+  availableChains?: string[];
 }
 
-export function ModuleEditor({ onClose, onSave, existingModule }: ModuleEditorProps) {
+export function ModuleEditor({ onClose, onSave, existingModule, availableChains = [] }: ModuleEditorProps) {
   const [moduleName, setModuleName] = useState(existingModule?.name ?? "");
   const [description, setDescription] = useState(existingModule?.description ?? "");
   const [questions, setQuestions] = useState<Question[]>(
@@ -1939,6 +1971,8 @@ export function ModuleEditor({ onClose, onSave, existingModule }: ModuleEditorPr
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const addQuestion = useCallback(
@@ -2069,7 +2103,8 @@ export function ModuleEditor({ onClose, onSave, existingModule }: ModuleEditorPr
         </div>
 
         <button
-          onClick={() => {
+          onClick={async () => {
+            if (isSaving) return;
             const mod: Module = {
               id: existingModule?.id ?? `mod-${Date.now()}`,
               name: moduleName || "Unbenanntes Modul",
@@ -2078,8 +2113,18 @@ export function ModuleEditor({ onClose, onSave, existingModule }: ModuleEditorPr
               createdAt: existingModule?.createdAt ?? new Date().toISOString(),
               usedInCount: existingModule?.usedInCount ?? 0,
             };
-            onSave(mod);
+            setIsSaving(true);
+            setSaveError(null);
+            try {
+              await onSave(mod);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Modul konnte nicht gespeichert werden.";
+              setSaveError(message);
+            } finally {
+              setIsSaving(false);
+            }
           }}
+          disabled={isSaving}
           style={{
             display: "flex",
             alignItems: "center",
@@ -2091,16 +2136,31 @@ export function ModuleEditor({ onClose, onSave, existingModule }: ModuleEditorPr
             background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
             border: "none",
             borderRadius: 7,
-            cursor: "pointer",
+            cursor: isSaving ? "not-allowed" : "pointer",
+            opacity: isSaving ? 0.8 : 1,
             transition: "all 0.15s ease",
             letterSpacing: "0.01em",
             boxShadow:
               "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)",
           }}
         >
-          Speichern
+          {isSaving ? "Speichern..." : "Speichern"}
         </button>
       </div>
+      {saveError && (
+        <div
+          style={{
+            padding: "8px 24px",
+            borderBottom: "1px solid rgba(220,38,38,0.12)",
+            backgroundColor: "rgba(220,38,38,0.04)",
+            color: "#b91c1c",
+            fontSize: 11,
+            fontWeight: 500,
+          }}
+        >
+          {saveError}
+        </div>
+      )}
 
       {/* Body */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
@@ -2328,6 +2388,7 @@ export function ModuleEditor({ onClose, onSave, existingModule }: ModuleEditorPr
                 onDrop={handleDrop}
                 dropTarget={dropIdx === i && dragIdx !== null && dragIdx !== i}
                 allQuestions={questions}
+                availableChains={availableChains}
               />
             ))}
 

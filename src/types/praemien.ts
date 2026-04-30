@@ -9,6 +9,7 @@ export interface PraemienThreshold {
 
 export interface PraemienSourceRef {
   id: string;
+  catalogKey: string;
   sectionType: SectionType;
   fragebogenId: string;
   fragebogenName: string;
@@ -59,4 +60,35 @@ export interface PraemienQuarter {
   thresholds: PraemienThreshold[];
   qualitySubmissions: PraemienQualitySubmission[];
   createdAt: string;
+  updatedAt?: string;
+  timezone?: string;
+}
+
+export interface PraemienGmGoalProgress {
+  pillarId: string;
+  name: string;
+  color: string;
+  points: number;
+  maxPoints: number;
+  percent: number;
+}
+
+export interface PraemienGmBonusSummary {
+  hasActiveWave: boolean;
+  waveId: string | null;
+  waveName: string | null;
+  year: number | null;
+  quarter: number | null;
+  startDate: string | null;
+  endDate: string | null;
+  totalPoints: number;
+  totalMaxPoints: number;
+  currentRewardEur: number;
+  fullRewardEur: number;
+  goals: PraemienGmGoalProgress[];
+  thresholds: Array<{
+    label: string;
+    minPoints: number;
+    rewardEur: number;
+  }>;
 }

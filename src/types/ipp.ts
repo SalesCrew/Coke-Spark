@@ -5,7 +5,7 @@ export interface IppQuestionAnswer {
   questionText: string;
   questionType: "single" | "multiple" | "numeric" | "yesno";
   options?: string[];
-  scoringMap: Record<string, number>; // option → IPP value; "__value__" for numeric with factor
+  scoringMap: Record<string, number>;
   selectedAnswer: string | string[];
 }
 
@@ -26,23 +26,25 @@ export interface IppSubmission {
   questionAnswers: IppQuestionAnswer[];
 }
 
-// ── Normalized audit layer ─────────────────────────────────────
-
 export interface IppQuestionAuditRow {
   questionFingerprint: string;
+  questionId: string;
   questionText: string;
-  questionType: IppQuestionAnswer["questionType"];
+  questionType: string;
   selectedAnswer: string | string[];
   appliedIppValue: number;
   counted: boolean;
-  countedReason: string; // why it was or was not counted
-  sourceSections: SectionType[];
+  countedReason: string;
+  sourceSections: string[];
   sourceFrageboegen: string[];
-  deduped: boolean; // true if identical question appeared in multiple sections
+  deduped: boolean;
+  section: SectionType | null;
+  fragebogenName: string | null;
+  submittedAt: string | null;
 }
 
 export interface IppMarketAuditRecord {
-  id: string; // marketId + "_" + redMonatLabel
+  id: string;
   marketId: string;
   marketName: string;
   chain: string;
@@ -51,10 +53,15 @@ export interface IppMarketAuditRecord {
   city: string;
   gmName: string;
   redMonatLabel: string;
+  redPeriodStart: string;
+  redPeriodEnd: string;
+  redPeriodYear: number;
   marketIpp: number;
   includedInAverage: boolean;
+  isFinalized: boolean;
   questionRows: IppQuestionAuditRow[];
-  submissionRefs: Array<{ sectionType: SectionType; fragebogenName: string; submittedAt: string }>;
+  sourceSubmissionCount?: number;
+  contributingQuestionCount?: number;
 }
 
 export interface IppAverageSummary {

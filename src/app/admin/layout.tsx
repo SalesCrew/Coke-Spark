@@ -16,18 +16,34 @@ import { BillaModuleEditor } from "@/components/admin/BillaModuleEditor";
 import { BillaFragebogenEditor } from "@/components/admin/BillaFragebogenEditor";
 import { ModuleProvider, useModules } from "@/context/ModuleContext";
 import { FragebogenProvider, useFragebogen } from "@/context/FragebogenContext";
+import { RedMonthProvider } from "@/context/RedMonthContext";
 import type { Module, Fragebogen } from "@/types/fragebogen";
 import { usePathname } from "next/navigation";
+import {
+  createFragebogen,
+  createModule,
+  deleteFragebogenBackend,
+  deleteModuleBackend,
+  duplicateFragebogenBackend,
+  duplicateModuleBackend,
+  fetchFragebogen,
+  fetchMarketChains,
+  fetchModules,
+  updateFragebogenBackend,
+  updateModuleBackend,
+  type FragebogenScope,
+} from "@/lib/api/backend";
 import {
   KuehlerCtx, MhdCtx, FlexCtx, BillaCtx,
   type KuehlerCtxValue, type MhdCtxValue, type FlexCtxValue, type BillaCtxValue,
 } from "@/app/admin/adminContexts";
+import { RedMonthHeaderControl } from "@/components/admin/RedMonthHeaderControl";
 
 // ── Purple accent colours (used by MHD) ───────────────────────
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
-  const { addModule, updateModule, setEditHandler: setModuleEditHandler, modules } = useModules();
-  const { addFragebogen, updateFragebogen, setEditHandler: setFbEditHandler } = useFragebogen();
+  const { addModule, updateModule, deleteModule, setEditHandler: setModuleEditHandler, modules } = useModules();
+  const { addFragebogen, updateFragebogen, deleteFragebogen, setEditHandler: setFbEditHandler, fragebogenList } = useFragebogen();
   const pathname = usePathname();
   const isKuehler = pathname.startsWith("/admin/kuehlerinventur");
   const isMhd = pathname.startsWith("/admin/mhd");
@@ -42,6 +58,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isIppBerechnung = pathname.startsWith("/admin/ipp-berechnung");
 
   const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [availableMarketChains, setAvailableMarketChains] = useState<string[]>([]);
   const importTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -60,6 +77,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [editingModule, setEditingModule] = useState<Module | null>(null);
   const [fbEditorOpen, setFbEditorOpen] = useState(false);
   const [editingFb, setEditingFb] = useState<Fragebogen | null>(null);
+  const fragebogenLoadedRef = useRef(false);
 
   const openEditModule = (m: Module) => { setEditingModule(m); setModuleEditorOpen(true); };
   const openEditFb = (f: Fragebogen) => { setEditingFb(f); setFbEditorOpen(true); };
@@ -67,13 +85,21 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   useEffect(() => { setModuleEditHandler(openEditModule); }, [setModuleEditHandler]);
   useEffect(() => { setFbEditHandler(openEditFb); }, [setFbEditHandler]);
 
-  const handleModuleSave = (m: Module) => {
-    editingModule ? updateModule(m) : addModule(m);
+  const handleModuleSave = async (m: Module) => {
+    const persisted = editingModule
+      ? await updateModuleBackend("main", { ...m, sectionKeywords: ["standard"] })
+      : await createModule("main", { ...m, sectionKeywords: ["standard"] });
+    editingModule
+      ? await updateModule(persisted, { persist: false })
+      : await addModule(persisted, { persist: false });
     setModuleEditorOpen(false);
     setEditingModule(null);
   };
-  const handleFbSave = (f: Fragebogen) => {
-    editingFb ? updateFragebogen(f) : addFragebogen(f);
+  const handleFbSave = async (f: Fragebogen) => {
+    const persisted = editingFb
+      ? await updateFragebogenBackend("main", { ...f, sectionKeywords: ["standard"] })
+      : await createFragebogen("main", { ...f, sectionKeywords: ["standard"] });
+    editingFb ? updateFragebogen(persisted) : addFragebogen(persisted);
     setFbEditorOpen(false);
     setEditingFb(null);
   };
@@ -87,53 +113,37 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [kuehlerFbEditorOpen, setKuehlerFbEditorOpen] = useState(false);
   const [kuehlerEditingFb, setKuehlerEditingFb] = useState<Fragebogen | null>(null);
 
-  const handleKuehlerModuleSave = (m: Module) => {
-    setKuehlerModules((prev) => {
-      const exists = prev.find((x) => x.id === m.id);
-      return exists ? prev.map((x) => (x.id === m.id ? m : x)) : [m, ...prev];
-    });
-    setKuehlerModuleEditorOpen(false);
-    setKuehlerEditingModule(null);
+  const handleKuehlerModuleSave = async (m: Module) => {
+    try {
+      const persisted = kuehlerEditingModule ? await updateModuleBackend("kuehler", m) : await createModule("kuehler", m);
+      setKuehlerModules((prev) => {
+        const exists = prev.find((x) => x.id === persisted.id);
+        return exists ? prev.map((x) => (x.id === persisted.id ? persisted : x)) : [persisted, ...prev];
+      });
+      setKuehlerModuleEditorOpen(false);
+      setKuehlerEditingModule(null);
+    } catch {
+      // Keep editor open on API failure.
+    }
   };
 
-  const handleKuehlerFbSave = (f: Fragebogen) => {
+  const handleKuehlerFbSave = async (f: Fragebogen) => {
+    const persisted = kuehlerEditingFb ? await updateFragebogenBackend("kuehler", f) : await createFragebogen("kuehler", f);
     setKuehlerFragebogenList((prev) => {
-      const exists = prev.find((x) => x.id === f.id);
-      return exists ? prev.map((x) => (x.id === f.id ? f : x)) : [f, ...prev];
+      const exists = prev.find((x) => x.id === persisted.id);
+      return exists ? prev.map((x) => (x.id === persisted.id ? persisted : x)) : [persisted, ...prev];
     });
     setKuehlerFbEditorOpen(false);
     setKuehlerEditingFb(null);
   };
 
-  const deleteKuehlerModuleKeepQuestions = (id: string) => {
-    setKuehlerModules((prev) => {
-      const target = prev.find((m) => m.id === id);
-      if (!target || target.questions.length === 0) {
-        return prev.filter((m) => m.id !== id);
-      }
-      const UNASSIGNED_ID = "__kuehler_unassigned__";
-      const existing = prev.find((m) => m.id === UNASSIGNED_ID);
-      const withoutTarget = prev.filter((m) => m.id !== id);
-      if (existing) {
-        return withoutTarget.map((m) =>
-          m.id === UNASSIGNED_ID
-            ? { ...m, questions: [...m.questions, ...target.questions] }
-            : m
-        );
-      } else {
-        return [
-          ...withoutTarget,
-          {
-            id: UNASSIGNED_ID,
-            name: "Unzugewiesen",
-            description: "",
-            usedInCount: 0,
-            createdAt: new Date().toISOString(),
-            questions: target.questions,
-          },
-        ];
-      }
-    });
+  const deleteKuehlerModuleKeepQuestions = async (id: string) => {
+    try {
+      await deleteModuleBackend("kuehler", id);
+    } catch {
+      return;
+    }
+    setKuehlerModules((prev) => prev.filter((m) => m.id !== id));
   };
 
   const kuehlerCtxValue: KuehlerCtxValue = {
@@ -141,17 +151,20 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     onEdit: (m) => { setKuehlerEditingModule(m); setKuehlerModuleEditorOpen(true); },
     onUpdate: (m) => setKuehlerModules((prev) => prev.map((x) => (x.id === m.id ? m : x))),
     onDelete: deleteKuehlerModuleKeepQuestions,
-    onDuplicate: (m) => setKuehlerModules((prev) => [
-      { ...m, id: `kmod-dup-${Date.now()}`, name: `Kopie von ${m.name}`, createdAt: new Date().toISOString(), questions: m.questions },
-      ...prev,
-    ]),
+    onDuplicate: async (m) => {
+      const duplicated = await duplicateModuleBackend("kuehler", m.id, "kuehler");
+      setKuehlerModules((prev) => [duplicated, ...prev]);
+    },
     fragebogenList: kuehlerFragebogenList,
     onEditFb: (f) => { setKuehlerEditingFb(f); setKuehlerFbEditorOpen(true); },
-    onDeleteFb: (id) => setKuehlerFragebogenList((prev) => prev.filter((x) => x.id !== id)),
-    onDuplicateFb: (f) => setKuehlerFragebogenList((prev) => [
-      { ...f, id: `kfb-dup-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" },
-      ...prev,
-    ]),
+    onDeleteFb: async (id) => {
+      await deleteFragebogenBackend("kuehler", id);
+      setKuehlerFragebogenList((prev) => prev.filter((x) => x.id !== id));
+    },
+    onDuplicateFb: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("kuehler", f.id, "kuehler");
+      setKuehlerFragebogenList((prev) => [duplicated, ...prev]);
+    },
   };
 
   // ── MHD-side state (fully isolated) ───────────────────────────
@@ -163,53 +176,37 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [mhdFbEditorOpen, setMhdFbEditorOpen] = useState(false);
   const [mhdEditingFb, setMhdEditingFb] = useState<Fragebogen | null>(null);
 
-  const handleMhdModuleSave = (m: Module) => {
-    setMhdModules((prev) => {
-      const exists = prev.find((x) => x.id === m.id);
-      return exists ? prev.map((x) => (x.id === m.id ? m : x)) : [m, ...prev];
-    });
-    setMhdModuleEditorOpen(false);
-    setMhdEditingModule(null);
+  const handleMhdModuleSave = async (m: Module) => {
+    try {
+      const persisted = mhdEditingModule ? await updateModuleBackend("mhd", m) : await createModule("mhd", m);
+      setMhdModules((prev) => {
+        const exists = prev.find((x) => x.id === persisted.id);
+        return exists ? prev.map((x) => (x.id === persisted.id ? persisted : x)) : [persisted, ...prev];
+      });
+      setMhdModuleEditorOpen(false);
+      setMhdEditingModule(null);
+    } catch {
+      // Keep editor open on API failure.
+    }
   };
 
-  const handleMhdFbSave = (f: Fragebogen) => {
+  const handleMhdFbSave = async (f: Fragebogen) => {
+    const persisted = mhdEditingFb ? await updateFragebogenBackend("mhd", f) : await createFragebogen("mhd", f);
     setMhdFragebogenList((prev) => {
-      const exists = prev.find((x) => x.id === f.id);
-      return exists ? prev.map((x) => (x.id === f.id ? f : x)) : [f, ...prev];
+      const exists = prev.find((x) => x.id === persisted.id);
+      return exists ? prev.map((x) => (x.id === persisted.id ? persisted : x)) : [persisted, ...prev];
     });
     setMhdFbEditorOpen(false);
     setMhdEditingFb(null);
   };
 
-  const deleteMhdModuleKeepQuestions = (id: string) => {
-    setMhdModules((prev) => {
-      const target = prev.find((m) => m.id === id);
-      if (!target || target.questions.length === 0) {
-        return prev.filter((m) => m.id !== id);
-      }
-      const UNASSIGNED_ID = "__mhd_unassigned__";
-      const existing = prev.find((m) => m.id === UNASSIGNED_ID);
-      const withoutTarget = prev.filter((m) => m.id !== id);
-      if (existing) {
-        return withoutTarget.map((m) =>
-          m.id === UNASSIGNED_ID
-            ? { ...m, questions: [...m.questions, ...target.questions] }
-            : m
-        );
-      } else {
-        return [
-          ...withoutTarget,
-          {
-            id: UNASSIGNED_ID,
-            name: "Unzugewiesen",
-            description: "",
-            usedInCount: 0,
-            createdAt: new Date().toISOString(),
-            questions: target.questions,
-          },
-        ];
-      }
-    });
+  const deleteMhdModuleKeepQuestions = async (id: string) => {
+    try {
+      await deleteModuleBackend("mhd", id);
+    } catch {
+      return;
+    }
+    setMhdModules((prev) => prev.filter((m) => m.id !== id));
   };
 
   const mhdCtxValue: MhdCtxValue = {
@@ -217,17 +214,20 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     onEdit: (m) => { setMhdEditingModule(m); setMhdModuleEditorOpen(true); },
     onUpdate: (m) => setMhdModules((prev) => prev.map((x) => (x.id === m.id ? m : x))),
     onDelete: deleteMhdModuleKeepQuestions,
-    onDuplicate: (m) => setMhdModules((prev) => [
-      { ...m, id: `mmod-dup-${Date.now()}`, name: `Kopie von ${m.name}`, createdAt: new Date().toISOString(), questions: m.questions },
-      ...prev,
-    ]),
+    onDuplicate: async (m) => {
+      const duplicated = await duplicateModuleBackend("mhd", m.id, "mhd");
+      setMhdModules((prev) => [duplicated, ...prev]);
+    },
     fragebogenList: mhdFragebogenList,
     onEditFb: (f) => { setMhdEditingFb(f); setMhdFbEditorOpen(true); },
-    onDeleteFb: (id) => setMhdFragebogenList((prev) => prev.filter((x) => x.id !== id)),
-    onDuplicateFb: (f) => setMhdFragebogenList((prev) => [
-      { ...f, id: `mfb-dup-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" },
-      ...prev,
-    ]),
+    onDeleteFb: async (id) => {
+      await deleteFragebogenBackend("mhd", id);
+      setMhdFragebogenList((prev) => prev.filter((x) => x.id !== id));
+    },
+    onDuplicateFb: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("mhd", f.id, "mhd");
+      setMhdFragebogenList((prev) => [duplicated, ...prev]);
+    },
   };
 
   // ── Flexbesuche-side state (modules isolated; fragebogen isolated; questions shared via flat view) ──
@@ -239,53 +239,41 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [flexFbEditorOpen, setFlexFbEditorOpen] = useState(false);
   const [flexEditingFb, setFlexEditingFb] = useState<Fragebogen | null>(null);
 
-  const handleFlexModuleSave = (m: Module) => {
-    setFlexModules((prev) => {
-      const exists = prev.find((x) => x.id === m.id);
-      return exists ? prev.map((x) => (x.id === m.id ? m : x)) : [m, ...prev];
-    });
-    setFlexModuleEditorOpen(false);
-    setFlexEditingModule(null);
+  const handleFlexModuleSave = async (m: Module) => {
+    try {
+      const persisted = flexEditingModule
+        ? await updateModuleBackend("main", { ...m, sectionKeywords: ["flex"] })
+        : await createModule("main", { ...m, sectionKeywords: ["flex"] });
+      setFlexModules((prev) => {
+        const exists = prev.find((x) => x.id === persisted.id);
+        return exists ? prev.map((x) => (x.id === persisted.id ? persisted : x)) : [persisted, ...prev];
+      });
+      setFlexModuleEditorOpen(false);
+      setFlexEditingModule(null);
+    } catch {
+      // Keep editor open on API failure.
+    }
   };
 
-  const handleFlexFbSave = (f: Fragebogen) => {
+  const handleFlexFbSave = async (f: Fragebogen) => {
+    const persisted = flexEditingFb
+      ? await updateFragebogenBackend("main", { ...f, sectionKeywords: ["flex"] })
+      : await createFragebogen("main", { ...f, sectionKeywords: ["flex"] });
     setFlexFragebogenList((prev) => {
-      const exists = prev.find((x) => x.id === f.id);
-      return exists ? prev.map((x) => (x.id === f.id ? f : x)) : [f, ...prev];
+      const exists = prev.find((x) => x.id === persisted.id);
+      return exists ? prev.map((x) => (x.id === persisted.id ? persisted : x)) : [persisted, ...prev];
     });
     setFlexFbEditorOpen(false);
     setFlexEditingFb(null);
   };
 
-  const deleteFlexModuleKeepQuestions = (id: string) => {
-    setFlexModules((prev) => {
-      const target = prev.find((m) => m.id === id);
-      if (!target || target.questions.length === 0) {
-        return prev.filter((m) => m.id !== id);
-      }
-      const UNASSIGNED_ID = "__flex_unassigned__";
-      const existing = prev.find((m) => m.id === UNASSIGNED_ID);
-      const withoutTarget = prev.filter((m) => m.id !== id);
-      if (existing) {
-        return withoutTarget.map((m) =>
-          m.id === UNASSIGNED_ID
-            ? { ...m, questions: [...m.questions, ...target.questions] }
-            : m
-        );
-      } else {
-        return [
-          ...withoutTarget,
-          {
-            id: UNASSIGNED_ID,
-            name: "Unzugewiesen",
-            description: "",
-            usedInCount: 0,
-            createdAt: new Date().toISOString(),
-            questions: target.questions,
-          },
-        ];
-      }
-    });
+  const deleteFlexModuleKeepQuestions = async (id: string) => {
+    try {
+      await deleteModuleBackend("main", id);
+    } catch {
+      return;
+    }
+    setFlexModules((prev) => prev.filter((m) => m.id !== id));
   };
 
   const flexCtxValue: FlexCtxValue = {
@@ -293,59 +281,31 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     onEdit: (m) => { setFlexEditingModule(m); setFlexModuleEditorOpen(true); },
     onUpdate: (m) => setFlexModules((prev) => prev.map((x) => (x.id === m.id ? m : x))),
     onDelete: deleteFlexModuleKeepQuestions,
-    onDuplicate: (m) => setFlexModules((prev) => [
-      { ...m, id: `fxmod-dup-${Date.now()}`, name: `Kopie von ${m.name}`, createdAt: new Date().toISOString(), questions: m.questions },
-      ...prev,
-    ]),
+    onDuplicate: async (m) => {
+      const duplicated = await duplicateModuleBackend("main", m.id, "main", ["flex"]);
+      setFlexModules((prev) => [duplicated, ...prev]);
+    },
     fragebogenList: flexFragebogenList,
     onEditFb: (f) => { setFlexEditingFb(f); setFlexFbEditorOpen(true); },
-    onDeleteFb: (id) => setFlexFragebogenList((prev) => prev.filter((x) => x.id !== id)),
-    onDuplicateFb: (f) => setFlexFragebogenList((prev) => [
-      { ...f, id: `fxfb-dup-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" },
-      ...prev,
-    ]),
-    duplicateFbToFlex: (f) => {
-      // Copy any modules referenced by the fragebogen into Flex modules (skip already present)
-      const referencedModules = f.moduleIds
-        .map((id) => modules.find((m) => m.id === id))
-        .filter((m): m is Module => !!m);
-      if (referencedModules.length > 0) {
-        setFlexModules((prev) => {
-          const newModules = referencedModules.filter((m) => !prev.some((x) => x.id === m.id));
-          return newModules.length > 0 ? [...newModules, ...prev] : prev;
-        });
-      }
-      // Copy the fragebogen itself
-      setFlexFragebogenList((prev) => [
-        { ...f, id: `fxfb-from-std-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" },
-        ...prev,
-      ]);
+    onDeleteFb: async (id) => {
+      await deleteFragebogenBackend("main", id);
+      setFlexFragebogenList((prev) => prev.filter((x) => x.id !== id));
     },
-    duplicateFbToStd: (f) => {
-      const referencedModules = f.moduleIds
-        .map((id) => flexModules.find((m) => m.id === id))
-        .filter((m): m is Module => !!m);
-      referencedModules.forEach((m) => {
-        if (!modules.find((x) => x.id === m.id)) {
-          addModule({ ...m, id: `fxmod-to-std-${Date.now()}-${m.id}` });
-        }
-      });
-      addFragebogen({ ...f, id: `fb-from-flex-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" });
+    onDuplicateFb: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["flex"]);
+      setFlexFragebogenList((prev) => [duplicated, ...prev]);
     },
-    duplicateFbToBilla: (f) => {
-      const referencedModules = f.moduleIds
-        .map((id) => flexModules.find((m) => m.id === id))
-        .filter((m): m is Module => !!m);
-      if (referencedModules.length > 0) {
-        setBillaModules((prev) => {
-          const newMods = referencedModules.filter((m) => !prev.some((x) => x.id === m.id));
-          return newMods.length > 0 ? [...newMods, ...prev] : prev;
-        });
-      }
-      setBillaFragebogenList((prev) => [
-        { ...f, id: `bfb-from-flex-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" },
-        ...prev,
-      ]);
+    duplicateFbToFlex: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["flex"]);
+      setFlexFragebogenList((prev) => [duplicated, ...prev]);
+    },
+    duplicateFbToStd: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["standard"]);
+      addFragebogen(duplicated);
+    },
+    duplicateFbToBilla: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["billa"]);
+      setBillaFragebogenList((prev) => [duplicated, ...prev]);
     },
   };
 
@@ -358,53 +318,41 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [billaFbEditorOpen, setBillaFbEditorOpen] = useState(false);
   const [billaEditingFb, setBillaEditingFb] = useState<Fragebogen | null>(null);
 
-  const handleBillaModuleSave = (m: Module) => {
-    setBillaModules((prev) => {
-      const exists = prev.find((x) => x.id === m.id);
-      return exists ? prev.map((x) => (x.id === m.id ? m : x)) : [m, ...prev];
-    });
-    setBillaModuleEditorOpen(false);
-    setBillaEditingModule(null);
+  const handleBillaModuleSave = async (m: Module) => {
+    try {
+      const persisted = billaEditingModule
+        ? await updateModuleBackend("main", { ...m, sectionKeywords: ["billa"] })
+        : await createModule("main", { ...m, sectionKeywords: ["billa"] });
+      setBillaModules((prev) => {
+        const exists = prev.find((x) => x.id === persisted.id);
+        return exists ? prev.map((x) => (x.id === persisted.id ? persisted : x)) : [persisted, ...prev];
+      });
+      setBillaModuleEditorOpen(false);
+      setBillaEditingModule(null);
+    } catch {
+      // Keep editor open on API failure.
+    }
   };
 
-  const handleBillaFbSave = (f: Fragebogen) => {
+  const handleBillaFbSave = async (f: Fragebogen) => {
+    const persisted = billaEditingFb
+      ? await updateFragebogenBackend("main", { ...f, sectionKeywords: ["billa"] })
+      : await createFragebogen("main", { ...f, sectionKeywords: ["billa"] });
     setBillaFragebogenList((prev) => {
-      const exists = prev.find((x) => x.id === f.id);
-      return exists ? prev.map((x) => (x.id === f.id ? f : x)) : [f, ...prev];
+      const exists = prev.find((x) => x.id === persisted.id);
+      return exists ? prev.map((x) => (x.id === persisted.id ? persisted : x)) : [persisted, ...prev];
     });
     setBillaFbEditorOpen(false);
     setBillaEditingFb(null);
   };
 
-  const deleteBillaModuleKeepQuestions = (id: string) => {
-    setBillaModules((prev) => {
-      const target = prev.find((m) => m.id === id);
-      if (!target || target.questions.length === 0) {
-        return prev.filter((m) => m.id !== id);
-      }
-      const UNASSIGNED_ID = "__billa_unassigned__";
-      const existing = prev.find((m) => m.id === UNASSIGNED_ID);
-      const withoutTarget = prev.filter((m) => m.id !== id);
-      if (existing) {
-        return withoutTarget.map((m) =>
-          m.id === UNASSIGNED_ID
-            ? { ...m, questions: [...m.questions, ...target.questions] }
-            : m
-        );
-      } else {
-        return [
-          ...withoutTarget,
-          {
-            id: UNASSIGNED_ID,
-            name: "Unzugewiesen",
-            description: "",
-            usedInCount: 0,
-            createdAt: new Date().toISOString(),
-            questions: target.questions,
-          },
-        ];
-      }
-    });
+  const deleteBillaModuleKeepQuestions = async (id: string) => {
+    try {
+      await deleteModuleBackend("main", id);
+    } catch {
+      return;
+    }
+    setBillaModules((prev) => prev.filter((m) => m.id !== id));
   };
 
   const billaCtxValue: BillaCtxValue = {
@@ -412,90 +360,87 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     onEdit: (m) => { setBillaEditingModule(m); setBillaModuleEditorOpen(true); },
     onUpdate: (m) => setBillaModules((prev) => prev.map((x) => (x.id === m.id ? m : x))),
     onDelete: deleteBillaModuleKeepQuestions,
-    onDuplicate: (m) => setBillaModules((prev) => [
-      { ...m, id: `bmod-dup-${Date.now()}`, name: `Kopie von ${m.name}`, createdAt: new Date().toISOString(), questions: m.questions },
-      ...prev,
-    ]),
+    onDuplicate: async (m) => {
+      const duplicated = await duplicateModuleBackend("main", m.id, "main", ["billa"]);
+      setBillaModules((prev) => [duplicated, ...prev]);
+    },
     fragebogenList: billaFragebogenList,
     onEditFb: (f) => { setBillaEditingFb(f); setBillaFbEditorOpen(true); },
-    onDeleteFb: (id) => setBillaFragebogenList((prev) => prev.filter((x) => x.id !== id)),
-    onDuplicateFb: (f) => setBillaFragebogenList((prev) => [
-      { ...f, id: `bfb-dup-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" },
-      ...prev,
-    ]),
-    duplicateFbToStd: (f) => {
-      const referencedModules = f.moduleIds
-        .map((id) => billaModules.find((m) => m.id === id))
-        .filter((m): m is Module => !!m);
-      // Add modules not already in std
-      referencedModules.forEach((m) => {
-        if (!modules.find((x) => x.id === m.id)) {
-          addModule({ ...m, id: `bmod-to-std-${Date.now()}-${m.id}` });
-        }
-      });
-      addFragebogen({ ...f, id: `fb-from-billa-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" });
+    onDeleteFb: async (id) => {
+      await deleteFragebogenBackend("main", id);
+      setBillaFragebogenList((prev) => prev.filter((x) => x.id !== id));
     },
-    duplicateFbToFlex: (f) => {
-      const referencedModules = f.moduleIds
-        .map((id) => billaModules.find((m) => m.id === id))
-        .filter((m): m is Module => !!m);
-      if (referencedModules.length > 0) {
-        setFlexModules((prev) => {
-          const newMods = referencedModules.filter((m) => !prev.some((x) => x.id === m.id));
-          return newMods.length > 0 ? [...newMods, ...prev] : prev;
-        });
-      }
-      setFlexFragebogenList((prev) => [
-        { ...f, id: `fxfb-from-billa-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" },
-        ...prev,
-      ]);
+    onDuplicateFb: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["billa"]);
+      setBillaFragebogenList((prev) => [duplicated, ...prev]);
     },
-    duplicateFbToBilla: (f) => {
-      // This allows other pages to copy a fragebogen into Billa
-      const referencedStdModules = f.moduleIds
-        .map((id) => modules.find((m) => m.id === id))
-        .filter((m): m is Module => !!m);
-      const referencedFlexModules = f.moduleIds
-        .map((id) => flexModules.find((m) => m.id === id))
-        .filter((m): m is Module => !!m);
-      const allReferenced = [...referencedStdModules, ...referencedFlexModules];
-      if (allReferenced.length > 0) {
-        setBillaModules((prev) => {
-          const newMods = allReferenced.filter((m) => !prev.some((x) => x.id === m.id));
-          return newMods.length > 0 ? [...newMods, ...prev] : prev;
-        });
-      }
-      setBillaFragebogenList((prev) => [
-        { ...f, id: `bfb-from-other-${Date.now()}`, name: `Kopie von ${f.name}`, createdAt: new Date().toISOString(), status: "inactive" },
-        ...prev,
-      ]);
+    duplicateFbToStd: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["standard"]);
+      addFragebogen(duplicated);
+    },
+    duplicateFbToFlex: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["flex"]);
+      setFlexFragebogenList((prev) => [duplicated, ...prev]);
+    },
+    duplicateFbToBilla: async (f) => {
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["billa"]);
+      setBillaFragebogenList((prev) => [duplicated, ...prev]);
     },
   };
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : "Standardbesuch";
-  const pageSubtitle = isMhd
-    ? "MHD-Module und Fragebogen verwalten."
-    : isKuehler
-    ? "Kühlerinventur-Module und Fragebogen verwalten."
-    : isFlex
-    ? "Flexible Besuchsfragebögen verwalten."
-    : isBilla
-    ? "Billa-Besuchsfragebögen verwalten."
-    : isPraemien
-    ? ""
-    : isMaerkte
-    ? ""
-    : isGebietsmanager
-    ? ""
-    : isZeiterfassung
-    ? ""
-    : isIppBerechnung
-    ? ""
-    : isFbManagement
-    ? ""
-    : "Fragen, Module und Fragebogen verwalten.";
+  useEffect(() => {
+    if (fragebogenLoadedRef.current) return;
+    fragebogenLoadedRef.current = true;
+    let cancelled = false;
+    const loadScope = async (scope: FragebogenScope) => {
+      const [mods, fbs] = await Promise.all([fetchModules(scope), fetchFragebogen(scope)]);
+      if (cancelled) return { mods: [], fbs: [] as Fragebogen[] };
+      return { mods, fbs };
+    };
+    (async () => {
+      try {
+        const [mainData, kuehlerData, mhdData, marketChains] = await Promise.all([
+          loadScope("main"),
+          loadScope("kuehler"),
+          loadScope("mhd"),
+          fetchMarketChains(),
+        ]);
+        if (cancelled) return;
 
+        if (modules.length === 0) {
+          mainData.mods
+            .filter((m) => !(m as Module & { sectionKeywords?: string[] }).sectionKeywords || (m as Module & { sectionKeywords?: string[] }).sectionKeywords?.includes("standard"))
+            .forEach((m) => addModule(m));
+        }
+        if (fragebogenList.length === 0) {
+          mainData.fbs
+            .filter((f) => !(f as Fragebogen & { sectionKeywords?: string[] }).sectionKeywords || (f as Fragebogen & { sectionKeywords?: string[] }).sectionKeywords?.includes("standard"))
+            .forEach((f) => addFragebogen(f));
+        }
+
+        setKuehlerModules(kuehlerData.mods);
+        setKuehlerFragebogenList(kuehlerData.fbs);
+        setMhdModules(mhdData.mods);
+        setMhdFragebogenList(mhdData.fbs);
+
+        // Flex/Billa are represented in main table with section keywords.
+        setFlexModules(mainData.mods.filter((m) => (m as Module & { sectionKeywords?: string[] }).sectionKeywords?.includes("flex")));
+        setFlexFragebogenList(mainData.fbs.filter((f) => (f as Fragebogen & { sectionKeywords?: string[] }).sectionKeywords?.includes("flex")));
+        setBillaModules(mainData.mods.filter((m) => (m as Module & { sectionKeywords?: string[] }).sectionKeywords?.includes("billa")));
+        setBillaFragebogenList(mainData.fbs.filter((f) => (f as Fragebogen & { sectionKeywords?: string[] }).sectionKeywords?.includes("billa")));
+        setAvailableMarketChains(marketChains);
+      } catch {
+        // keep local fallback behavior
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [addFragebogen, addModule, fragebogenList.length, modules.length]);
+
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : "Standardbesuch";
   return (
+    <RedMonthProvider>
     <BillaCtx.Provider value={billaCtxValue}>
     <FlexCtx.Provider value={flexCtxValue}>
     <MhdCtx.Provider value={mhdCtxValue}>
@@ -506,7 +451,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           <header style={{ height: 80, backgroundColor: "#ffffff", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", flexShrink: 0, position: "relative" }}>
             <div>
               <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", margin: 0 }}>{pageTitle}</h1>
-              <p style={{ fontSize: 12, color: "#9ca3af", fontWeight: 400, margin: 0, marginTop: 4 }}>{pageSubtitle}</p>
+              <RedMonthHeaderControl />
             </div>
 
             {/* Centered import notice */}
@@ -664,6 +609,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {moduleEditorOpen && (
           <ModuleEditor
             existingModule={editingModule ?? undefined}
+            availableChains={availableMarketChains}
             onSave={handleModuleSave}
             onClose={() => { setModuleEditorOpen(false); setEditingModule(null); }}
           />
@@ -749,6 +695,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     </MhdCtx.Provider>
     </FlexCtx.Provider>
     </BillaCtx.Provider>
+    </RedMonthProvider>
   );
 }
 

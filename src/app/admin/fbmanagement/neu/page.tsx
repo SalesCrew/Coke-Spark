@@ -1,11 +1,16 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, Check, ClipboardList, Zap, Refrigerator, FlaskConical, ShoppingBag,
   Upload, Calendar, ChevronRight, Users, FileSpreadsheet,
+  X, ChevronDown, AlertTriangle, CheckCircle2, Search,
 } from "lucide-react";
+import { readWorkbook, buildPreviewGrid, getColHeader, getColSample, isValidColLetter, excelColToIndex } from "@/utils/marketImport";
+import { createCampaign, fetchCampaigns, fetchGmUsers, fetchMarkets, getCampaignOverlapConflicts, migrateCampaignMarkets } from "@/lib/api/backend";
+import type { Campaign, CampaignMarketAssignmentInput, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
+import type { GMRecord } from "@/types/gebietsmanager";
 
 // ── Colors ────────────────────────────────────────────────────
 const R = "#DC2626";
@@ -14,7 +19,41 @@ const R_BG = "rgba(220,38,38,0.06)";
 const R_BORDER = "rgba(220,38,38,0.18)";
 
 // ── Mock data ─────────────────────────────────────────────────
-const MOCK_MARKETS = [
+type NeuMarketItem = {
+  id: string;
+  name: string;
+  region: string;
+  gm: string;
+};
+
+type NeuMarketCandidate = NeuMarketItem & {
+  address?: string;
+  postalCode?: string;
+  city?: string;
+  standardMarketNumber?: string;
+  cokeMasterNumber?: string;
+  flexNumber?: string;
+};
+
+type MarketMatchStatus = "matched" | "unmatched" | "ambiguous";
+type MarketMatchResult = {
+  row: NeuMarketItem;
+  status: MarketMatchStatus;
+  marketId: string | null;
+  candidateIds: string[];
+  reason: string;
+};
+
+type GmMatchIssueKind = "missing" | "unmatched" | "ambiguous" | "conflict";
+type GmMatchIssue = {
+  rowId: string;
+  marketId: string;
+  gmName: string;
+  kind: GmMatchIssueKind;
+  candidateUserIds: string[];
+};
+
+const MOCK_MARKETS: NeuMarketItem[] = [
   { id: "m1",  name: "Billa Wien 10",          region: "Ost",  gm: "Thomas Maier" },
   { id: "m2",  name: "Billa Wien 12",          region: "Ost",  gm: "Thomas Maier" },
   { id: "m3",  name: "Merkur Graz Hauptplatz", region: "Süd",  gm: "Anna Gruber" },
@@ -38,6 +77,139 @@ const MOCK_MARKETS = [
 ];
 
 const FLEX_MARKETS_COUNT = 2800;
+
+function normalizeMatcherValue(value: string | undefined | null) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function buildFlexMatcherKeys(value: string | undefined | null): string[] {
+  const raw = String(value ?? "").trim().toLowerCase().replace(/^'+/, "");
+  if (!raw) return [];
+
+  const keys = new Set<string>([raw]);
+
+  const compact = raw.replace(/[^a-z0-9]/g, "");
+  if (compact) keys.add(compact);
+
+  const decimalNormalized = raw.replace(",", ".");
+  if (/^\d+\.0+$/.test(decimalNormalized)) {
+    keys.add(decimalNormalized.replace(/\.0+$/, ""));
+  }
+
+  const digitsOnly = raw.replace(/\D/g, "");
+  if (digitsOnly) {
+    keys.add(digitsOnly);
+    const digitsWithoutLeadingZeros = digitsOnly.replace(/^0+/, "") || "0";
+    keys.add(digitsWithoutLeadingZeros);
+  }
+
+  return Array.from(keys).filter(Boolean);
+}
+
+function toCompactFlexKey(value: string | undefined | null): string {
+  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function normalizePersonName(value: string | undefined | null) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function buildMarketMatchReport(
+  rows: NeuMarketItem[],
+  allMarkets: NeuMarketCandidate[],
+  isAuto: boolean,
+): { results: MarketMatchResult[]; matchedIds: string[]; unmatched: number; ambiguous: number } {
+  if (isAuto) {
+    const matchedIds = Array.from(new Set(allMarkets.map((market) => market.id)));
+    return {
+      results: [],
+      matchedIds,
+      unmatched: 0,
+      ambiguous: 0,
+    };
+  }
+
+  const byId = new Map(allMarkets.map((market) => [market.id, market]));
+  const flexIndex = new Map<string, NeuMarketCandidate[]>();
+  const flexCompactKeyByMarketId = new Map<string, string>();
+  for (const market of allMarkets) {
+    for (const key of buildFlexMatcherKeys(market.flexNumber)) {
+      const bucket = flexIndex.get(key) ?? [];
+      bucket.push(market);
+      flexIndex.set(key, bucket);
+    }
+    flexCompactKeyByMarketId.set(market.id, toCompactFlexKey(market.flexNumber));
+  }
+  const results: MarketMatchResult[] = rows.map((row) => {
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.id) && byId.has(row.id)) {
+      return { row, status: "matched", marketId: row.id, candidateIds: [row.id], reason: "uuid" };
+    }
+
+    const candidateMap = new Map<string, NeuMarketCandidate>();
+    for (const key of buildFlexMatcherKeys(row.name)) {
+      const markets = flexIndex.get(key) ?? [];
+      for (const market of markets) {
+        candidateMap.set(market.id, market);
+      }
+    }
+    const identityCandidates = Array.from(candidateMap.values());
+    if (identityCandidates.length === 1) {
+      return { row, status: "matched", marketId: identityCandidates[0]?.id ?? null, candidateIds: [identityCandidates[0]?.id ?? ""], reason: "flex_number" };
+    }
+    if (identityCandidates.length > 1) {
+      return { row, status: "ambiguous", marketId: null, candidateIds: identityCandidates.map((market) => market.id), reason: "flex_number" };
+    }
+
+    const rowCompact = toCompactFlexKey(row.name);
+    if (rowCompact) {
+      const partialCandidates = allMarkets.filter((market) => {
+        const candidateCompact = flexCompactKeyByMarketId.get(market.id) ?? "";
+        if (!candidateCompact) return false;
+        return candidateCompact.includes(rowCompact) || rowCompact.includes(candidateCompact);
+      });
+      if (partialCandidates.length === 1) {
+        return {
+          row,
+          status: "matched",
+          marketId: partialCandidates[0]?.id ?? null,
+          candidateIds: [partialCandidates[0]?.id ?? ""],
+          reason: "flex_number_partial",
+        };
+      }
+      if (partialCandidates.length > 1) {
+        return {
+          row,
+          status: "ambiguous",
+          marketId: null,
+          candidateIds: partialCandidates.map((market) => market.id),
+          reason: "flex_number_partial",
+        };
+      }
+    }
+
+    return { row, status: "unmatched", marketId: null, candidateIds: [], reason: "none" };
+  });
+
+  const matchedIds = Array.from(new Set(results.filter((result) => result.status === "matched" && result.marketId).map((result) => result.marketId as string)));
+  return {
+    results,
+    matchedIds,
+    unmatched: results.filter((result) => result.status === "unmatched").length,
+    ambiguous: results.filter((result) => result.status === "ambiguous").length,
+  };
+}
+
+function matcherReasonLabel(reason: string) {
+  if (reason === "uuid") return "UUID";
+  if (reason === "flex_number") return "Flexnummer";
+  if (reason === "flex_number_partial") return "Flexnummer (Teiltreffer)";
+  return "Kein Match";
+}
 
 const CAMPAIGN_TYPES = [
   { id: "standard",    label: "Standardbesuch",  icon: ClipboardList, color: R,         bg: R_BG,                      border: R_BORDER,                      autoMarkets: false },
@@ -384,13 +556,305 @@ function StepDetails({ name, setName, startDate, setStartDate, endDate, setEndDa
   );
 }
 
+// ── Neu-Kampagne: embedded Excel import wizard ─────────────────
+
+const NEU_FIELDS = [
+  { key: "name", label: "Flexnummer", required: true },
+  { key: "gm", label: "Mitarbeiter", required: false },
+] as const;
+
+type NeuColMapping = Partial<Record<"name" | "gm", string>>;
+type NeuStep = "upload" | "review" | "summary";
+
+function NeuImportWizard({ onLoad }: { onLoad: (m: NeuMarketItem[]) => void }) {
+  const [step, setStep] = useState<NeuStep>("upload");
+  const [dragging, setDragging] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [wb, setWb] = useState<Awaited<ReturnType<typeof readWorkbook>> | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [mapping, setMapping] = useState<NeuColMapping>({});
+  const [summaryCount, setSummaryCount] = useState({ created: 0, skipped: 0 });
+  const [isImporting, setIsImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const f = files[0];
+    if (!f.name.endsWith(".xlsx") && !f.name.endsWith(".xls")) return;
+    setParsing(true);
+    setParseError(null);
+    try {
+      const result = await readWorkbook(f);
+      setWb(result);
+      setFileName(f.name);
+      setMapping({});
+      setStep("review");
+    } catch (err) {
+      setParseError(String(err));
+    } finally {
+      setParsing(false);
+    }
+  }, []);
+
+  const preview = useMemo(() => wb ? buildPreviewGrid(wb.rows) : null, [wb]);
+
+  const colError = useCallback((key: string, val: string): string | null => {
+    if (!val) return null;
+    if (!isValidColLetter(val)) return "Ungültige Spalte";
+    // Duplicate check
+    const others = NEU_FIELDS.filter(f => f.key !== key);
+    for (const o of others) {
+      const ov = mapping[o.key as keyof NeuColMapping] ?? "";
+      if (ov && isValidColLetter(ov) && excelColToIndex(ov) === excelColToIndex(val)) {
+        return `Selbe Spalte wie "${o.label}"`;
+      }
+    }
+    return null;
+  }, [mapping]);
+
+  const canImport = useMemo(() => {
+    return NEU_FIELDS.filter(f => f.required).every(f => {
+      const val = mapping[f.key as keyof NeuColMapping] ?? "";
+      return val && isValidColLetter(val) && !colError(f.key, val);
+    }) && !NEU_FIELDS.some(f => {
+      const val = mapping[f.key as keyof NeuColMapping] ?? "";
+      return val && colError(f.key, val);
+    });
+  }, [mapping, colError]);
+
+  const handleImport = useCallback(() => {
+    if (!wb || isImporting) return;
+    setIsImporting(true);
+    try {
+      const dataRows = wb.rows.slice(1);
+      let created = 0;
+      let skipped = 0;
+      const result: NeuMarketItem[] = [];
+      dataRows.forEach((row, idx) => {
+        if (row.every(c => !c?.trim())) { skipped++; return; }
+        const get = (key: keyof NeuColMapping) => {
+          const col = mapping[key] ?? "";
+          if (!col || !isValidColLetter(col)) return "";
+          return row[excelColToIndex(col)]?.trim() ?? "";
+        };
+        const name = get("name");
+        const gm = get("gm");
+        if (!name) { skipped++; return; }
+        result.push({ id: `xi-${idx}-${Date.now()}`, name: name || "—", region: "", gm: gm || "" });
+        created++;
+      });
+      setSummaryCount({ created, skipped });
+      onLoad(result);
+      setStep("summary");
+    } finally {
+      setIsImporting(false);
+    }
+  }, [wb, mapping, onLoad, isImporting]);
+
+  // ── Shared scrollbar style injected once ───────────────────
+  const scrollbarStyle = `
+    .neu-imp-scroll::-webkit-scrollbar{width:4px;height:4px}
+    .neu-imp-scroll::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.12);border-radius:4px}
+    .neu-imp-scroll::-webkit-scrollbar-track{background:transparent}
+    .neu-imp-scroll{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,0.12) transparent}
+    .neu-imp-input:focus{outline:none;border-bottom-color:${R} !important}
+  `;
+
+  if (step === "upload") {
+    return (
+      <>
+        <style>{scrollbarStyle}</style>
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files); }}
+          onClick={() => fileRef.current?.click()}
+          style={{ border: `2px dashed ${dragging ? R : "rgba(0,0,0,0.10)"}`, borderRadius: 14, padding: "40px 24px", backgroundColor: dragging ? R_BG : "rgba(0,0,0,0.012)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, cursor: "pointer", transition: "all 0.18s ease", textAlign: "center" }}
+        >
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => handleFile(e.target.files)} />
+          <div style={{ width: 48, height: 48, borderRadius: 13, backgroundColor: dragging ? R_BG : "rgba(0,0,0,0.045)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}>
+            {parsing
+              ? <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${R}`, borderTopColor: "transparent", animation: "neuSpin 0.7s linear infinite" }} />
+              : <FileSpreadsheet size={22} strokeWidth={1.5} color={dragging ? R : "rgba(0,0,0,0.28)"} />
+            }
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: dragging ? R : "#1a1a1a", letterSpacing: "-0.012em", marginBottom: 4 }}>
+              {parsing ? "Datei wird gelesen…" : "Excel-Datei hier ablegen"}
+            </div>
+            <div style={{ fontSize: 11, color: "rgba(0,0,0,0.32)", fontWeight: 400 }}>oder klicken zum Auswählen · .xlsx, .xls</div>
+          </div>
+          <button type="button" style={{ marginTop: 2, padding: "8px 20px", fontSize: 11, fontWeight: 600, borderRadius: 8, background: "linear-gradient(to bottom,#fff,#f5f5f5)", cursor: "pointer", border: "none", color: "rgba(0,0,0,0.48)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),inset 0 -1px 0 rgba(0,0,0,0.04),0 0 0 1px rgba(0,0,0,0.10),0 1px 4px rgba(0,0,0,0.07)" }}>
+            <Upload size={10} strokeWidth={2} style={{ marginRight: 6, display: "inline", verticalAlign: "middle" }} />
+            Datei auswählen
+          </button>
+          <style>{`@keyframes neuSpin{to{transform:rotate(360deg)}}`}</style>
+        </div>
+        {parseError && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", marginTop: -8 }}>
+            <AlertTriangle size={12} strokeWidth={2} color={R} />
+            <span style={{ fontSize: 11, color: R, fontWeight: 500 }}>Fehler: {parseError}</span>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  if (step === "review" && wb && preview) {
+    return (
+      <>
+        <style>{scrollbarStyle}</style>
+        <div style={{ display: "flex", flexDirection: "column", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, overflow: "hidden", width: "100%", minWidth: 0 }}>
+          {/* Header — fixed */}
+          <div style={{ padding: "10px 14px", background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <FileSpreadsheet size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fileName}</span>
+            <span style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>{wb.sheetName} · {wb.rows.length - 1} Zeilen</span>
+            <button type="button" onClick={() => { setStep("upload"); setWb(null); setMapping({}); }} style={{ display: "flex", border: "none", background: "rgba(0,0,0,0.05)", borderRadius: 5, cursor: "pointer", padding: 4, color: "rgba(0,0,0,0.4)" }}>
+              <X size={10} strokeWidth={2.5} />
+            </button>
+          </div>
+
+          {/* Scrollable body: table + mapping */}
+          <div className="neu-imp-scroll" style={{ flex: 1, overflow: "auto" }}>
+
+            {/* Preview table — horizontal scroll */}
+            <div style={{ borderBottom: "1px solid rgba(0,0,0,0.06)", flexShrink: 0 }}>
+              <div className="neu-imp-scroll" style={{ width: "100%", maxWidth: "100%", overflowX: "auto", overflowY: "hidden" }}>
+                <table style={{ borderCollapse: "collapse", fontSize: 10, tableLayout: "fixed", minWidth: "max-content" }}>
+                  <colgroup>
+                    <col style={{ width: 32 }} />
+                    {preview.colLetters.map((_l, i) => <col key={i} style={{ width: 100 }} />)}
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th style={{ position: "sticky", left: 0, top: 0, zIndex: 3, background: "#f8f8f8", borderRight: "1px solid rgba(0,0,0,0.06)", borderBottom: "1px solid rgba(0,0,0,0.08)", width: 32 }} />
+                      {preview.colLetters.map(l => (
+                        <th key={l} style={{ position: "sticky", top: 0, zIndex: 2, background: "#f8f8f8", borderBottom: "1px solid rgba(0,0,0,0.08)", borderRight: "1px solid rgba(0,0,0,0.04)", padding: "4px 7px", textAlign: "center", fontWeight: 700, color: "rgba(0,0,0,0.4)", fontSize: 8, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>{l}</th>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td style={{ position: "sticky", left: 0, zIndex: 2, background: "#f8f8f8", borderRight: "1px solid rgba(0,0,0,0.06)", borderBottom: "1px solid rgba(0,0,0,0.08)", padding: "3px 5px", textAlign: "right", fontSize: 8, fontWeight: 600, color: "rgba(0,0,0,0.25)" }}>1</td>
+                      {preview.headerRow.map((h, ci) => (
+                        <td key={ci} style={{ borderBottom: "1px solid rgba(0,0,0,0.08)", borderRight: "1px solid rgba(0,0,0,0.04)", padding: "3px 7px", fontWeight: 600, color: "#1a1a1a", background: "#fafafa", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 100 }}>{h}</td>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.previewRows.slice(0, 20).map((row, ri) => (
+                      <tr key={ri} style={{ background: ri % 2 === 0 ? "#fff" : "rgba(0,0,0,0.012)" }}>
+                        <td style={{ position: "sticky", left: 0, background: ri % 2 === 0 ? "#f8f8f8" : "#f3f3f3", borderRight: "1px solid rgba(0,0,0,0.06)", padding: "2px 5px", textAlign: "right", fontSize: 8, fontWeight: 600, color: "rgba(0,0,0,0.22)" }}>{preview.rowNumbers[ri]}</td>
+                        {row.map((cell, ci) => (
+                          <td key={ci} style={{ borderRight: "1px solid rgba(0,0,0,0.03)", padding: "2px 7px", color: cell ? "#374151" : "rgba(0,0,0,0.18)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 100, fontSize: 10 }}>{cell || "—"}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Column mapping */}
+            <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
+              <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)" }}>Spaltenzuweisung</div>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${NEU_FIELDS.length}, 1fr)`, gap: "6px 12px" }}>
+                {NEU_FIELDS.map(spec => {
+                  const val = mapping[spec.key as keyof NeuColMapping] ?? "";
+                  const err = colError(spec.key, val);
+                  const header = val && !err ? getColHeader(wb.rows, val) : null;
+                  const sample = val && !err ? getColSample(wb.rows, val) : null;
+                  return (
+                    <div key={spec.key} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, color: err ? R : "rgba(0,0,0,0.5)", flex: 1 }}>{spec.label}</span>
+                        {spec.required && <span style={{ fontSize: 7, fontWeight: 700, color: R, background: "rgba(220,38,38,0.07)", padding: "1px 4px", borderRadius: 3 }}>P</span>}
+                      </div>
+                      <input
+                        type="text"
+                        value={val}
+                        maxLength={3}
+                        placeholder="—"
+                        className="neu-imp-input"
+                        onChange={e => setMapping(m => ({ ...m, [spec.key]: e.target.value.replace(/[^A-Za-z]/g, "").toUpperCase() }))}
+                        style={{ fontSize: 12, fontWeight: 700, fontFamily: "inherit", textTransform: "uppercase", padding: "4px 0", border: "none", borderBottom: `1.5px solid ${err ? "rgba(220,38,38,0.4)" : val ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.1)"}`, outline: "none", background: "transparent", color: err ? R : "#1a1a1a", transition: "border-color 0.15s", width: "100%" }}
+                      />
+                      {!err && val && (header !== null || sample !== null) && (
+                        <div style={{ fontSize: 8, color: "rgba(0,0,0,0.38)", lineHeight: 1.4 }}>
+                          {header && <span style={{ fontWeight: 600, color: "rgba(0,0,0,0.5)" }}>{header.substring(0, 16)}</span>}
+                          {sample && <span style={{ marginLeft: header ? 3 : 0 }}>{sample.substring(0, 16)}</span>}
+                        </div>
+                      )}
+                      {err && <div style={{ fontSize: 8, color: R, fontWeight: 500 }}>{err}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 9, color: "rgba(0,0,0,0.28)" }}>A = 1. Spalte · Z = 26. · AA = 27.</div>
+            </div>
+          </div>
+
+          {/* Footer — fixed */}
+          <div style={{ padding: "10px 14px", borderTop: "1px solid rgba(0,0,0,0.06)", display: "flex", justifyContent: "flex-end", gap: 8, background: "rgba(0,0,0,0.01)", flexShrink: 0 }}>
+            <button type="button" onClick={() => { setStep("upload"); setWb(null); setMapping({}); }} style={{ padding: "6px 13px", fontSize: 11, fontWeight: 600, borderRadius: 7, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)", fontFamily: "inherit" }}>← Zurück</button>
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={!canImport || isImporting}
+              style={{ padding: "6px 16px", fontSize: 11, fontWeight: 700, borderRadius: 7, border: "none", cursor: canImport && !isImporting ? "pointer" : "not-allowed", color: "#fff", background: canImport && !isImporting ? `linear-gradient(to bottom,${R},${RD})` : "rgba(0,0,0,0.15)", boxShadow: canImport && !isImporting ? `inset 0 1px 0.6px rgba(255,255,255,0.33),0 0 0 1px #a91b1b,0 1px 4px rgba(180,20,20,0.14)` : "none", display: "flex", alignItems: "center", gap: 5, transition: "all 0.15s", fontFamily: "inherit" }}
+            >
+              <Upload size={10} strokeWidth={2} /> {isImporting ? "Importiere..." : "Importieren"}
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (step === "summary") {
+    return (
+      <>
+        <style>{scrollbarStyle}</style>
+        <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ padding: "12px 14px", background: "rgba(22,163,74,0.04)", borderBottom: "1px solid rgba(22,163,74,0.1)", display: "flex", alignItems: "center", gap: 8 }}>
+            <CheckCircle2 size={14} strokeWidth={2} color="#16a34a" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", flex: 1 }}>Import abgeschlossen</span>
+          </div>
+          {/* Stats */}
+          <div style={{ padding: "14px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.06)" }}>
+              <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Gesamt</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "rgba(0,0,0,0.55)", letterSpacing: "-0.04em" }}>{summaryCount.created + summaryCount.skipped}</div>
+            </div>
+            <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(22,163,74,0.05)", border: "1px solid rgba(22,163,74,0.14)" }}>
+              <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#16a34a", opacity: 0.8, marginBottom: 4 }}>Importiert</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#16a34a", letterSpacing: "-0.04em" }}>{summaryCount.created}</div>
+            </div>
+            <div style={{ padding: "10px 12px", borderRadius: 8, background: summaryCount.skipped > 0 ? "rgba(217,119,6,0.05)" : "rgba(0,0,0,0.02)", border: `1px solid ${summaryCount.skipped > 0 ? "rgba(217,119,6,0.14)" : "rgba(0,0,0,0.06)"}` }}>
+              <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: summaryCount.skipped > 0 ? "#d97706" : "rgba(0,0,0,0.35)", opacity: 0.8, marginBottom: 4 }}>Übersprungen</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: summaryCount.skipped > 0 ? "#d97706" : "rgba(0,0,0,0.35)", letterSpacing: "-0.04em" }}>{summaryCount.skipped}</div>
+            </div>
+          </div>
+          <div style={{ padding: "0 14px 14px", display: "flex", justifyContent: "flex-end" }}>
+            <button type="button" onClick={() => { setStep("upload"); setWb(null); setMapping({}); }} style={{ padding: "5px 13px", fontSize: 10, fontWeight: 600, borderRadius: 7, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)", fontFamily: "inherit" }}>
+              Neue Datei importieren
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return null;
+}
+
 // ── Step 3: Markets ───────────────────────────────────────────
 function StepMaerkte({ typeId, markets, onLoad }: {
   typeId: string;
-  markets: typeof MOCK_MARKETS;
-  onLoad: (m: typeof MOCK_MARKETS) => void;
+  markets: NeuMarketCandidate[];
+  onLoad: (m: NeuMarketItem[]) => void;
 }) {
-  const [dragging, setDragging] = useState(false);
   const isAuto = CAMPAIGN_TYPES.find(t => t.id === typeId)?.autoMarkets ?? false;
   const hasMarkets = markets.length > 0;
 
@@ -407,12 +871,12 @@ function StepMaerkte({ typeId, markets, onLoad }: {
   const regionColors: Record<string, string> = { Nord: "#0891B2", Ost: "#DC2626", Süd: "#16a34a", West: "#D97706" };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24, overflow: "hidden", minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
         <div>
           <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", margin: "0 0 6px" }}>Märkte importieren</h3>
           <p style={{ fontSize: 13, color: "rgba(0,0,0,0.4)", margin: 0 }}>
-            {isAuto ? "Alle Märkte sind automatisch enthalten." : hasMarkets ? `${markets.length} Märkte geladen · ${uniqueGms} GMs · ${uniqueRegions} Regionen` : "Importiere die Märkte per Excel oder lade Testmärkte."}
+            {isAuto ? "Alle Märkte sind automatisch enthalten." : hasMarkets ? `${markets.length} Märkte geladen · ${uniqueGms} GMs · ${uniqueRegions} Regionen` : "Importiere die Märkte per Excel."}
           </p>
         </div>
         {hasMarkets && !isAuto && (
@@ -449,61 +913,7 @@ function StepMaerkte({ typeId, markets, onLoad }: {
           </div>
         </div>
       ) : !hasMarkets ? (
-        <>
-          {/* Drop zone */}
-          <div
-            onDragOver={e => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={e => { e.preventDefault(); setDragging(false); }}
-            style={{
-              border: `2px dashed ${dragging ? R : "rgba(0,0,0,0.10)"}`,
-              borderRadius: 14, padding: "40px 24px",
-              backgroundColor: dragging ? R_BG : "rgba(0,0,0,0.012)",
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12,
-              cursor: "pointer", transition: "all 0.18s ease", textAlign: "center",
-            }}
-          >
-            <div style={{ width: 48, height: 48, borderRadius: 13, backgroundColor: dragging ? R_BG : "rgba(0,0,0,0.045)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}>
-              <FileSpreadsheet size={22} strokeWidth={1.5} color={dragging ? R : "rgba(0,0,0,0.28)"} />
-            </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: dragging ? R : "#1a1a1a", letterSpacing: "-0.012em", marginBottom: 4 }}>Excel-Datei hier ablegen</div>
-              <div style={{ fontSize: 11, color: "rgba(0,0,0,0.32)", fontWeight: 400, letterSpacing: "0.005em" }}>oder klicken zum Auswählen · .xlsx, .xls</div>
-            </div>
-            <button
-              type="button"
-              style={{
-                marginTop: 2, padding: "8px 20px", fontSize: 11, fontWeight: 600, borderRadius: 8,
-                background: "linear-gradient(to bottom, #ffffff, #f5f5f5)", cursor: "pointer",
-                border: "none", color: "rgba(0,0,0,0.48)",
-                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)",
-                letterSpacing: "0.005em",
-              }}
-            >
-              <Upload size={10} strokeWidth={2} style={{ marginRight: 6, display: "inline", verticalAlign: "middle" }} />
-              Datei auswählen
-            </button>
-          </div>
-
-          {/* Divider + fake data */}
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ flex: 1, height: 1, backgroundColor: "rgba(0,0,0,0.055)" }} />
-            <button
-              type="button"
-              onClick={() => onLoad(MOCK_MARKETS)}
-              style={{
-                padding: "6px 16px", fontSize: 10, fontWeight: 600, borderRadius: 7,
-                backgroundColor: "transparent", border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer",
-                color: "rgba(0,0,0,0.38)", transition: "all 0.15s", letterSpacing: "0.02em",
-              }}
-              onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.borderColor = R; b.style.color = R; b.style.backgroundColor = R_BG; }}
-              onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.borderColor = "rgba(0,0,0,0.09)"; b.style.color = "rgba(0,0,0,0.38)"; b.style.backgroundColor = "transparent"; }}
-            >
-              Testmärkte laden
-            </button>
-            <div style={{ flex: 1, height: 1, backgroundColor: "rgba(0,0,0,0.055)" }} />
-          </div>
-        </>
+        <NeuImportWizard onLoad={onLoad} />
       ) : (
         // ── Imported state ────────────────────────────────────────
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -576,21 +986,24 @@ function StepMaerkte({ typeId, markets, onLoad }: {
             </div>
             <div style={{ borderRadius: 11, border: "1px solid rgba(0,0,0,0.055)", overflow: "hidden", maxHeight: 240, overflowY: "auto", boxShadow: "0 1px 4px rgba(0,0,0,0.03)", scrollbarWidth: "none" } as React.CSSProperties}>
               {/* Table header */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 140px", padding: "7px 16px", backgroundColor: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.055)" }}>
-                {["Markt", "Region", "GM"].map(h => (
+              <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.5fr 1fr 70px", padding: "7px 16px", backgroundColor: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.055)" }}>
+                {["Markt", "Adresse", "Ort", "Region"].map(h => (
                   <span key={h} style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{h}</span>
                 ))}
               </div>
               {markets.map((m, i) => (
                 <div key={m.id} style={{
-                  display: "grid", gridTemplateColumns: "1fr 60px 140px",
+                  display: "grid", gridTemplateColumns: "1.1fr 1.5fr 1fr 70px",
                   alignItems: "center", padding: "9px 16px",
                   borderBottom: i < markets.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
                   backgroundColor: i % 2 === 0 ? "#fff" : "rgba(0,0,0,0.012)",
                 }}>
                   <span style={{ fontSize: 11, fontWeight: 500, color: "#1a1a1a", letterSpacing: "-0.008em" }}>{m.name}</span>
+                  <span style={{ fontSize: 10, color: "rgba(0,0,0,0.5)", fontWeight: 400 }}>{m.address || "—"}</span>
+                  <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 400 }}>
+                    {[m.postalCode, m.city].filter((part) => typeof part === "string" && part.trim().length > 0).join(" ").trim() || "—"}
+                  </span>
                   <span style={{ fontSize: 10, fontWeight: 700, color: regionColors[m.region], letterSpacing: "0.01em" }}>{m.region}</span>
-                  <span style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 400 }}>{m.gm}</span>
                 </div>
               ))}
             </div>
@@ -605,7 +1018,7 @@ function StepMaerkte({ typeId, markets, onLoad }: {
 // ── Step 4: Review ────────────────────────────────────────────
 function StepUebersicht({ typeId, name, startDate, endDate, startNow, markets }: {
   typeId: string; name: string; startDate: string; endDate: string; startNow: boolean;
-  markets: typeof MOCK_MARKETS;
+  markets: NeuMarketItem[];
 }) {
   const t = CAMPAIGN_TYPES.find(c => c.id === typeId);
   const isAuto = t?.autoMarkets ?? false;
@@ -804,14 +1217,71 @@ export default function NeuKampagnePage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [startNow, setStartNow] = useState(false);
-  const [markets, setMarkets] = useState<typeof MOCK_MARKETS>([]);
+  const [markets, setMarkets] = useState<NeuMarketItem[]>([]);
+  const [allMarkets, setAllMarkets] = useState<NeuMarketCandidate[]>([]);
+  const [gmUsers, setGmUsers] = useState<GMRecord[]>([]);
+  const [gmOverridesByRowId, setGmOverridesByRowId] = useState<Record<string, string>>({});
+  const [existingCampaigns, setExistingCampaigns] = useState<Campaign[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
+  const [overlapConflicts, setOverlapConflicts] = useState<CampaignMarketOverlapConflict[] | null>(null);
+  const [selectedMigrationKeys, setSelectedMigrationKeys] = useState<string[]>([]);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const activetype = CAMPAIGN_TYPES.find(t => t.id === typeId) ?? CAMPAIGN_TYPES[0];
   const AC = activetype.color;                           // accent color
   const AC_BG = activetype.bg;                          // accent bg tint
   const AC_BORDER = activetype.border;                  // accent border
-  const AC_DARK = AC.replace(/^#/, "");                 // used for shadow hex
   const isAuto = activetype.autoMarkets;
+
+  useEffect(() => {
+    const loadMarkets = async () => {
+      try {
+        const rows = await fetchMarkets();
+        setAllMarkets(
+          rows.map((row) => ({
+            id: row.id,
+            name: row.name,
+            region: row.region,
+            gm: row.currentGmName || row.employee || "Unbekannt",
+            address: row.address,
+            postalCode: row.postalCode,
+            city: row.city,
+            standardMarketNumber: row.standardMarketNumber,
+            cokeMasterNumber: row.cokeMasterNumber,
+            flexNumber: row.flexNumber,
+          })),
+        );
+      } catch {
+        setAllMarkets(MOCK_MARKETS);
+      }
+    };
+    void loadMarkets();
+  }, []);
+
+  useEffect(() => {
+    const loadGmUsers = async () => {
+      try {
+        const rows = await fetchGmUsers();
+        setGmUsers(rows);
+      } catch {
+        setGmUsers([]);
+      }
+    };
+    void loadGmUsers();
+  }, []);
+
+  useEffect(() => {
+    const loadCampaigns = async () => {
+      try {
+        const rows = await fetchCampaigns();
+        setExistingCampaigns(rows);
+      } catch {
+        setExistingCampaigns([]);
+      }
+    };
+    void loadCampaigns();
+  }, []);
 
   const canProceed = (() => {
     if (step === 1) return !!typeId;
@@ -820,13 +1290,302 @@ export default function NeuKampagnePage() {
     return true;
   })();
 
-  const canCreate = !!name && (isAuto || markets.length > 0);
+  const matcherReport = useMemo(() => buildMarketMatchReport(markets, allMarkets, isAuto), [markets, allMarkets, isAuto]);
+  const matchedMarketRows = useMemo<NeuMarketCandidate[]>(() => {
+    if (isAuto) return markets;
+    const allById = new Map(allMarkets.map((market) => [market.id, market]));
+    const seenIds = new Set<string>();
+    const resolved: NeuMarketCandidate[] = [];
+    for (const result of matcherReport.results) {
+      if (result.status !== "matched" || !result.marketId || seenIds.has(result.marketId)) continue;
+      const matched = allById.get(result.marketId);
+      if (!matched) continue;
+      seenIds.add(result.marketId);
+      resolved.push(matched);
+    }
+    return resolved.length > 0 ? resolved : markets;
+  }, [allMarkets, isAuto, markets, matcherReport.results]);
+  const matcherIssueRows = useMemo(
+    () => matcherReport.results.filter((result) => result.status !== "matched"),
+    [matcherReport.results],
+  );
+  const gmNameIndex = useMemo(() => {
+    const index = new Map<string, GMRecord[]>();
+    for (const user of gmUsers) {
+      const fullName = normalizePersonName(`${user.firstName} ${user.lastName}`);
+      const reverseName = normalizePersonName(`${user.lastName} ${user.firstName}`);
+      const keys = new Set([fullName, reverseName]);
+      for (const key of keys) {
+        if (!key) continue;
+        const bucket = index.get(key) ?? [];
+        bucket.push(user);
+        index.set(key, bucket);
+      }
+    }
+    return index;
+  }, [gmUsers]);
+
+  const assignmentBuild = useMemo(() => {
+    if (isAuto) {
+      return {
+        assignments: [] as CampaignMarketAssignmentInput[],
+        issues: [] as GmMatchIssue[],
+      };
+    }
+
+    const matchedRows = matcherReport.results.filter((result) => result.status === "matched" && result.marketId);
+    const assignmentByMarketId = new Map<string, CampaignMarketAssignmentInput>();
+    const issues: GmMatchIssue[] = [];
+
+    for (const result of matchedRows) {
+      const rowId = result.row.id;
+      const marketId = result.marketId as string;
+      const gmName = result.row.gm ?? "";
+      const overrideGmId = gmOverridesByRowId[rowId];
+
+      let resolvedGmId: string | null = null;
+      let candidates: GMRecord[] = [];
+
+      if (overrideGmId) {
+        const selected = gmUsers.find((gm) => gm.id === overrideGmId);
+        if (selected) {
+          resolvedGmId = selected.id;
+          candidates = [selected];
+        } else {
+          issues.push({
+            rowId,
+            marketId,
+            gmName,
+            kind: "unmatched",
+            candidateUserIds: [],
+          });
+          continue;
+        }
+      } else {
+        const normalizedGm = normalizePersonName(gmName);
+        if (!normalizedGm) {
+          issues.push({
+            rowId,
+            marketId,
+            gmName,
+            kind: "missing",
+            candidateUserIds: [],
+          });
+          continue;
+        }
+        candidates = gmNameIndex.get(normalizedGm) ?? [];
+        if (candidates.length === 0) {
+          issues.push({
+            rowId,
+            marketId,
+            gmName,
+            kind: "unmatched",
+            candidateUserIds: [],
+          });
+          continue;
+        }
+        if (candidates.length > 1) {
+          issues.push({
+            rowId,
+            marketId,
+            gmName,
+            kind: "ambiguous",
+            candidateUserIds: candidates.map((candidate) => candidate.id),
+          });
+          continue;
+        }
+        resolvedGmId = candidates[0]?.id ?? null;
+      }
+
+      if (!resolvedGmId) {
+        issues.push({
+          rowId,
+          marketId,
+          gmName,
+          kind: "unmatched",
+          candidateUserIds: candidates.map((candidate) => candidate.id),
+        });
+        continue;
+      }
+
+      const existing = assignmentByMarketId.get(marketId);
+      if (existing && existing.gmUserId !== resolvedGmId) {
+        issues.push({
+          rowId,
+          marketId,
+          gmName,
+          kind: "conflict",
+          candidateUserIds: [existing.gmUserId ?? "", resolvedGmId].filter(Boolean),
+        });
+        continue;
+      }
+
+      assignmentByMarketId.set(marketId, {
+        marketId,
+        gmUserId: resolvedGmId,
+        gmNameRaw: gmName,
+      });
+    }
+
+    return {
+      assignments: Array.from(assignmentByMarketId.values()),
+      issues,
+    };
+  }, [gmNameIndex, gmOverridesByRowId, gmUsers, isAuto, matcherReport.results]);
+
+  const gmIssueByRowId = useMemo(() => {
+    const map = new Map<string, GmMatchIssue>();
+    for (const issue of assignmentBuild.issues) {
+      if (!map.has(issue.rowId)) map.set(issue.rowId, issue);
+    }
+    return map;
+  }, [assignmentBuild.issues]);
+
+  const matcherDisplayRows = useMemo(() => {
+    const byId = new Map<string, MarketMatchResult>();
+    for (const result of matcherIssueRows) {
+      byId.set(result.row.id, result);
+    }
+    for (const result of matcherReport.results) {
+      if (result.status !== "matched") continue;
+      if (!gmIssueByRowId.has(result.row.id)) continue;
+      byId.set(result.row.id, result);
+    }
+    return Array.from(byId.values());
+  }, [gmIssueByRowId, matcherIssueRows, matcherReport.results]);
+
+  const gmBlockingIssues = assignmentBuild.issues.length;
+  const canCreate = !!name && !isSubmitting && (isAuto || gmBlockingIssues === 0);
+
+  const updateMatcherRow = useCallback((rowId: string, field: "name" | "gm", value: string) => {
+    setMarkets((current) =>
+      current.map((row) =>
+        row.id === rowId ? { ...row, [field]: value } : row,
+      ),
+    );
+  }, []);
+
+  const setGmOverride = useCallback((rowId: string, gmUserId: string) => {
+    setGmOverridesByRowId((current) => {
+      if (!gmUserId) {
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      }
+      return { ...current, [rowId]: gmUserId };
+    });
+  }, []);
+
+  const localOverlapConflicts = useMemo(() => {
+    if (isAuto) return [] as CampaignMarketOverlapConflict[];
+    if (!name.trim()) return [] as CampaignMarketOverlapConflict[];
+    const section = (typeId as CampaignSection) ?? "standard";
+    if (section === "flex") return [] as CampaignMarketOverlapConflict[];
+    const scheduleType = !startNow && startDate && endDate ? "scheduled" : "always";
+    const status = startNow ? "active" : scheduleType === "scheduled" ? "scheduled" : "inactive";
+    if (status !== "active") return [] as CampaignMarketOverlapConflict[];
+
+    const targetStart = scheduleType === "scheduled" ? startDate : null;
+    const targetEnd = scheduleType === "scheduled" ? endDate : null;
+    const windowsOverlap = (
+      left: { scheduleType: "always" | "scheduled"; startDate: string | null; endDate: string | null },
+      right: { scheduleType: "always" | "scheduled"; startDate: string | null; endDate: string | null },
+    ) => {
+      if (left.scheduleType === "always" || right.scheduleType === "always") return true;
+      if (!left.startDate || !left.endDate || !right.startDate || !right.endDate) return false;
+      return !(left.endDate < right.startDate || right.endDate < left.startDate);
+    };
+    const toPeriodLabel = (campaign: Campaign) => {
+      if (campaign.scheduleType === "always") return "Immer aktiv";
+      if (!campaign.startDate || !campaign.endDate) return "Geplant";
+      return `${campaign.startDate} - ${campaign.endDate}`;
+    };
+    const marketNameById = new Map(allMarkets.map((market) => [market.id, market.name]));
+    const conflicts: CampaignMarketOverlapConflict[] = [];
+    for (const assignment of assignmentBuild.assignments) {
+      for (const campaign of existingCampaigns) {
+        if (campaign.section !== section) continue;
+        if (campaign.status !== "active") continue;
+        const overlap = windowsOverlap(
+          { scheduleType, startDate: targetStart, endDate: targetEnd },
+          { scheduleType: campaign.scheduleType, startDate: campaign.startDate, endDate: campaign.endDate },
+        );
+        if (!overlap) continue;
+        const existingAssignment = (campaign.assignments ?? []).find((item) => item.marketId === assignment.marketId);
+        if (!existingAssignment) continue;
+        conflicts.push({
+          marketId: assignment.marketId,
+          marketName: marketNameById.get(assignment.marketId) ?? assignment.marketId,
+          section,
+          existingCampaignId: campaign.id,
+          existingCampaignName: campaign.name,
+          existingScheduleType: campaign.scheduleType,
+          existingStartDate: campaign.startDate,
+          existingEndDate: campaign.endDate,
+          existingPeriodLabel: toPeriodLabel(campaign),
+          existingGmUserId: existingAssignment.gmUserId ?? null,
+          existingGmName: existingAssignment.gmName ?? null,
+        });
+      }
+    }
+    const deduped = new Map<string, CampaignMarketOverlapConflict>();
+    for (const conflict of conflicts) {
+      const key = `${conflict.marketId}:${conflict.existingCampaignId}`;
+      if (!deduped.has(key)) deduped.set(key, conflict);
+    }
+    return Array.from(deduped.values());
+  }, [allMarkets, assignmentBuild.assignments, endDate, existingCampaigns, isAuto, name, startDate, startNow, typeId]);
+
+  const submitCampaign = useCallback(
+    async (
+      mode: "normal" | "conflict_free" | "migrate",
+      conflictsToExclude: CampaignMarketOverlapConflict[] = [],
+      conflictsToMigrate: CampaignMarketOverlapConflict[] = [],
+    ) => {
+      const allMarketIds = matcherReport.matchedIds;
+      const allAssignments = assignmentBuild.assignments;
+      const conflictedMarketIds = new Set(conflictsToExclude.map((conflict) => conflict.marketId));
+      const marketIds =
+        mode === "normal" ? allMarketIds : allMarketIds.filter((marketId) => !conflictedMarketIds.has(marketId));
+      const assignments =
+        mode === "normal"
+          ? allAssignments
+          : allAssignments.filter((assignment) => !conflictedMarketIds.has(assignment.marketId));
+
+      const scheduleType = !startNow && startDate && endDate ? "scheduled" : "always";
+      const status = startNow ? "active" : scheduleType === "scheduled" ? "scheduled" : "inactive";
+      const created = await createCampaign({
+        name,
+        section: (typeId as CampaignSection) ?? "standard",
+        status,
+        scheduleType,
+        startDate: scheduleType === "scheduled" ? startDate : undefined,
+        endDate: scheduleType === "scheduled" ? endDate : undefined,
+        marketIds,
+        assignments: isAuto ? undefined : assignments,
+      });
+
+      if (mode === "migrate" && conflictsToMigrate.length > 0) {
+        const assignmentByMarketId = new Map(allAssignments.map((assignment) => [assignment.marketId, assignment]));
+        await migrateCampaignMarkets(
+          created.id,
+          conflictsToMigrate.map((conflict) => ({
+            marketId: conflict.marketId,
+            fromCampaignId: conflict.existingCampaignId,
+            gmUserId: assignmentByMarketId.get(conflict.marketId)?.gmUserId ?? null,
+            reason: "campaign_overlap_resolution",
+          })),
+        );
+      }
+    },
+    [assignmentBuild.assignments, endDate, isAuto, matcherReport.matchedIds, name, startDate, startNow, typeId],
+  );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "calc(100vh - 80px)" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "calc(100vh - 80px)", overflowX: "hidden" }}>
 
       {/* Inner layout */}
-      <div style={{ display: "flex", flex: 1, gap: 0 }}>
+      <div style={{ display: "flex", flex: 1, gap: 0, minWidth: 0, overflowX: "hidden" }}>
 
         {/* Stepper sidebar */}
         <div style={{
@@ -885,7 +1644,7 @@ export default function NeuKampagnePage() {
         </div>
 
         {/* Main content */}
-        <div style={{ flex: 1, padding: "0 0 0 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ flex: 1, minWidth: 0, padding: "0 0 0 20px", display: "flex", flexDirection: "column", gap: 16, overflowX: "hidden" }}>
 
           {/* Content card */}
           <div style={{
@@ -895,6 +1654,8 @@ export default function NeuKampagnePage() {
             boxShadow: step > 1 ? `0 2px 12px rgba(0,0,0,0.05), 0 0 0 3px ${AC_BG}` : "0 2px 12px rgba(0,0,0,0.05)",
             padding: "32px 36px",
             flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
             transition: "border-color 0.3s ease, box-shadow 0.3s ease",
           }}>
             {step === 1 && <StepTyp selected={typeId} onSelect={setTypeId} onNext={() => setStep(2)} onCancel={() => router.push("/admin/fbmanagement")} accentColor={AC} accentBg={AC_BG} />}
@@ -907,7 +1668,7 @@ export default function NeuKampagnePage() {
                 accentColor={AC} accentBg={AC_BG}
               />
             )}
-            {step === 3 && <StepMaerkte typeId={typeId} markets={markets} onLoad={setMarkets} />}
+            {step === 3 && <StepMaerkte typeId={typeId} markets={matchedMarketRows} onLoad={setMarkets} />}
             {step === 4 && (
               <StepUebersicht
                 typeId={typeId} name={name}
@@ -939,7 +1700,16 @@ export default function NeuKampagnePage() {
             {step < 4 ? (
               <button
                 type="button"
-                onClick={() => canProceed && setStep(s => s + 1)}
+                onClick={() => {
+                  if (!canProceed) return;
+                  if (step === 3 && !isAuto && localOverlapConflicts.length > 0) {
+                    setStep(4);
+                    setOverlapConflicts(localOverlapConflicts);
+                    setSelectedMigrationKeys(localOverlapConflicts.map((conflict) => `${conflict.marketId}:${conflict.existingCampaignId}`));
+                    return;
+                  }
+                  setStep((s) => s + 1);
+                }}
                 style={{
                   display: "flex", alignItems: "center", gap: 6, padding: "9px 22px",
                   fontSize: 12, fontWeight: 600, borderRadius: 8, border: "none",
@@ -956,48 +1726,327 @@ export default function NeuKampagnePage() {
             ) : (
               <button
                 type="button"
-                onClick={() => {
-                  if (!canCreate) return;
-                  const regionCounts = { Nord: 0, Ost: 0, Süd: 0, West: 0 } as Record<string, number>;
-                  if (isAuto) {
-                    regionCounts["Nord"] = 420; regionCounts["Ost"] = 980; regionCounts["Süd"] = 700; regionCounts["West"] = 700;
-                  } else {
-                    markets.forEach(m => { regionCounts[m.region] = (regionCounts[m.region] || 0) + 1; });
-                  }
-                  const total = isAuto ? 2800 : markets.length;
-                  const newCampaign = {
-                    id: `new-${Date.now()}`,
-                    name,
-                    type: typeId,
-                    color: AC,
-                    inactive: false,
-                    filled: 0,
-                    total,
-                    todayNew: 0,
-                    thisWeek: 0,
-                    regions: ["Nord", "Ost", "Süd", "West"].map(r => ({ name: r, pct: 0 })),
-                  };
+                onClick={async () => {
+                  if (!canCreate || isSubmitting) return;
+                  setSubmitError(null);
+                  setOverlapConflicts(null);
+                  setSelectedMigrationKeys([]);
+                  setIsSubmitting(true);
                   try {
-                    const existing = JSON.parse(localStorage.getItem("fbm_new_campaigns") || "[]");
-                    localStorage.setItem("fbm_new_campaigns", JSON.stringify([newCampaign, ...existing]));
-                  } catch {}
-                  router.push("/admin/fbmanagement");
+                    await submitCampaign("normal");
+                    router.push("/admin/fbmanagement");
+                  } catch (error) {
+                    const conflicts = getCampaignOverlapConflicts(error);
+                    if (conflicts.length > 0) {
+                      setOverlapConflicts(conflicts);
+                      setSelectedMigrationKeys(conflicts.map((conflict) => `${conflict.marketId}:${conflict.existingCampaignId}`));
+                    } else {
+                      setSubmitError(error instanceof Error ? error.message : "Kampagne konnte nicht erstellt werden.");
+                    }
+                  } finally {
+                    setIsSubmitting(false);
+                  }
                 }}
                 style={{
                   display: "flex", alignItems: "center", gap: 6, padding: "10px 28px",
                   fontSize: 13, fontWeight: 700, borderRadius: 9, border: "none",
-                  cursor: canCreate ? "pointer" : "not-allowed",
-                  background: canCreate ? `linear-gradient(to bottom, ${AC}, color-mix(in srgb, ${AC} 80%, black))` : "rgba(0,0,0,0.08)",
-                  color: canCreate ? "#fff" : "rgba(0,0,0,0.3)",
-                  boxShadow: canCreate ? `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${AC}, 0 2px 8px ${AC}55` : "none",
-                  transition: "all 0.25s ease", letterSpacing: "-0.01em",
+                  cursor: canCreate && !isSubmitting ? "pointer" : "not-allowed",
+                  background: canCreate && !isSubmitting ? `linear-gradient(to bottom, ${AC}, color-mix(in srgb, ${AC} 80%, black))` : "rgba(0,0,0,0.08)",
+                  color: canCreate && !isSubmitting ? "#fff" : "rgba(0,0,0,0.3)",
+                  boxShadow: canCreate && !isSubmitting ? `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${AC}, 0 2px 8px ${AC}55` : "none",
+                  transition: "all 0.25s ease", letterSpacing: "-0.01em", opacity: canCreate && !isSubmitting ? 1 : 0.65,
                 }}
+                disabled={!canCreate || isSubmitting}
               >
                 <Check size={14} strokeWidth={2.5} />
-                Kampagne erstellen
+                {isSubmitting ? "Erstelle..." : "Kampagne erstellen"}
               </button>
             )}
           </div>}
+          {step === 4 && !isAuto && (
+            <div style={{ marginTop: 4, padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.02)", fontSize: 11, color: "rgba(0,0,0,0.62)" }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>Matcher Ergebnis</div>
+              <div>
+                Zugeordnet: {matcherReport.matchedIds.length} · Unklar: {matcherReport.ambiguous} · Nicht gefunden: {matcherReport.unmatched} · GM-Probleme: {gmBlockingIssues}
+              </div>
+              {(matcherReport.ambiguous > 0 || matcherReport.unmatched > 0 || gmBlockingIssues > 0) && (
+                <div style={{ marginTop: 6, color: "#b45309", fontWeight: 600 }}>
+                  Nicht zuordenbare Felder muessen vor dem Erstellen korrigiert werden (inkl. GM-Zuordnung).
+                </div>
+              )}
+              {matcherDisplayRows.length > 0 && (
+                <div style={{ marginTop: 8, borderTop: "1px solid rgba(0,0,0,0.08)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {matcherDisplayRows.slice(0, 10).map((issue, index) => {
+                    const gmIssue = gmIssueByRowId.get(issue.row.id);
+                    return (
+                    <div
+                      key={`${issue.row.id}-${index}`}
+                      style={{
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        border: "1px solid rgba(180,83,9,0.22)",
+                        background: "rgba(180,83,9,0.07)",
+                        display: "grid",
+                        gridTemplateColumns: "1fr auto",
+                        gap: 6,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: "#7c2d12", display: "flex", gap: 6 }}>
+                        <input
+                          value={issue.row.name}
+                          onChange={(event) => updateMatcherRow(issue.row.id, "name", event.target.value)}
+                          style={{ minWidth: 120, border: "1px solid rgba(124,45,18,0.25)", borderRadius: 5, padding: "2px 6px", fontSize: 11, fontWeight: 600, color: "#7c2d12", background: "#fff" }}
+                        />
+                        <input
+                          value={issue.row.gm}
+                          onChange={(event) => updateMatcherRow(issue.row.id, "gm", event.target.value)}
+                          style={{ minWidth: 120, border: "1px solid rgba(124,45,18,0.25)", borderRadius: 5, padding: "2px 6px", fontSize: 11, fontWeight: 600, color: "#7c2d12", background: "#fff" }}
+                        />
+                      </div>
+                      <div style={{ color: "#92400e", fontWeight: 700 }}>
+                        {issue.status === "ambiguous" ? "Markt unklar" : issue.status === "unmatched" ? "Markt nicht gefunden" : gmIssue ? "GM prüfen" : "OK"}
+                      </div>
+                      <div style={{ color: "rgba(124,45,18,0.9)" }}>
+                        Regel: {matcherReasonLabel(issue.reason)}
+                      </div>
+                      <div style={{ color: "rgba(124,45,18,0.9)" }}>
+                        Kandidaten: {issue.candidateIds.length}
+                      </div>
+                      {gmIssue && (
+                        <>
+                          <div style={{ color: "rgba(124,45,18,0.9)" }}>
+                            GM-Status: {
+                              gmIssue.kind === "missing"
+                                ? "Name fehlt"
+                                : gmIssue.kind === "unmatched"
+                                  ? "Kein GM gefunden"
+                                  : gmIssue.kind === "ambiguous"
+                                    ? "Mehrdeutiger GM"
+                                    : "Konflikt fuer selben Markt"
+                            }
+                          </div>
+                          <div style={{ color: "rgba(124,45,18,0.9)" }}>
+                            <select
+                              value={gmOverridesByRowId[issue.row.id] ?? ""}
+                              onChange={(event) => setGmOverride(issue.row.id, event.target.value)}
+                              style={{ border: "1px solid rgba(124,45,18,0.25)", borderRadius: 5, padding: "3px 6px", fontSize: 11, background: "#fff", minWidth: 180 }}
+                            >
+                              <option value="">GM manuell auswählen…</option>
+                              {gmUsers.map((gm) => (
+                                <option key={gm.id} value={gm.id}>
+                                  {gm.firstName} {gm.lastName}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )})}
+                  {matcherDisplayRows.length > 10 && (
+                    <div style={{ color: "rgba(124,45,18,0.85)", fontWeight: 600 }}>
+                      +{matcherDisplayRows.length - 10} weitere Problemzeilen
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {submitError && (
+            <div style={{ marginTop: 6, padding: "9px 12px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.06)", fontSize: 11, color: "#DC2626", fontWeight: 600 }}>
+              {submitError}
+            </div>
+          )}
+          {overlapConflicts && overlapConflicts.length > 0 && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 1200,
+                background: "rgba(10, 16, 28, 0.36)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 20,
+              }}
+            >
+              <div
+                style={{
+                  width: "min(860px, 95vw)",
+                  maxHeight: "85vh",
+                  overflowY: "auto",
+                  background: "#fff",
+                  borderRadius: 14,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  boxShadow: "0 24px 70px rgba(0,0,0,0.24)",
+                  padding: 18,
+                }}
+              >
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1a1a" }}>Marktkonflikte in derselben Sektion</div>
+                <div style={{ marginTop: 6, fontSize: 12, color: "rgba(0,0,0,0.55)" }}>
+                  Diese Märkte sind bereits einer aktiven Kampagne in derselben Sektion zugeordnet.
+                </div>
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {overlapConflicts.map((conflict) => (
+                    <div
+                      key={`${conflict.marketId}:${conflict.existingCampaignId}`}
+                      style={{
+                        border: "1px solid rgba(0,0,0,0.08)",
+                        borderRadius: 10,
+                        padding: "10px 12px",
+                        background: "rgba(0,0,0,0.015)",
+                      }}
+                    >
+                      {(() => {
+                        const migrationKey = `${conflict.marketId}:${conflict.existingCampaignId}`;
+                        const isSelected = selectedMigrationKeys.includes(migrationKey);
+                        return (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>{conflict.marketName}</div>
+                        <button
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => {
+                            if (isResolvingConflict) return;
+                            setSelectedMigrationKeys((current) =>
+                              isSelected ? current.filter((entry) => entry !== migrationKey) : Array.from(new Set([...current, migrationKey])),
+                            );
+                          }}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 8,
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            cursor: isResolvingConflict ? "not-allowed" : "pointer",
+                            opacity: isResolvingConflict ? 0.65 : 1,
+                            fontSize: 11,
+                            color: "rgba(0,0,0,0.7)",
+                            fontWeight: 700,
+                          }}
+                          disabled={isResolvingConflict}
+                        >
+                          <span
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: 5,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              border: `1px solid ${isSelected ? "#b91c1c" : "rgba(0,0,0,0.28)"}`,
+                              background: isSelected ? "linear-gradient(to bottom, #ef4444, #b91c1c)" : "#fff",
+                              boxShadow: isSelected ? "0 1px 2px rgba(185,28,28,0.35)" : "inset 0 1px 0 rgba(255,255,255,0.95)",
+                              transition: "all 0.18s ease",
+                            }}
+                          >
+                            {isSelected ? <Check size={11} strokeWidth={3} color="#fff" /> : null}
+                          </span>
+                          Migrieren
+                        </button>
+                      </div>
+                        );
+                      })()}
+                      <div style={{ marginTop: 4, fontSize: 11, color: "rgba(0,0,0,0.6)" }}>
+                        Aktuell in: <strong>{conflict.existingCampaignName}</strong> · Zeitraum: {conflict.existingPeriodLabel}
+                      </div>
+                      <div style={{ marginTop: 2, fontSize: 11, color: "rgba(0,0,0,0.6)" }}>
+                        Zugewiesener GM: {conflict.existingGmName ?? "Kein GM"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setOverlapConflicts(null)}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(0,0,0,0.12)",
+                      background: "#fff",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "rgba(0,0,0,0.6)",
+                      cursor: isResolvingConflict ? "not-allowed" : "pointer",
+                      opacity: isResolvingConflict ? 0.7 : 1,
+                    }}
+                    disabled={isResolvingConflict}
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (isResolvingConflict) return;
+                      setSubmitError(null);
+                      setIsResolvingConflict(true);
+                      try {
+                        await submitCampaign("conflict_free", overlapConflicts);
+                        router.push("/admin/fbmanagement");
+                      } catch (error) {
+                        setSubmitError(error instanceof Error ? error.message : "Kampagne konnte nicht erstellt werden.");
+                      } finally {
+                        setIsResolvingConflict(false);
+                      }
+                    }}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: "rgba(0,0,0,0.08)",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#1f2937",
+                      cursor: isResolvingConflict ? "not-allowed" : "pointer",
+                      opacity: isResolvingConflict ? 0.7 : 1,
+                    }}
+                    disabled={isResolvingConflict}
+                  >
+                    Nur konfliktfreie übernehmen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (isResolvingConflict) return;
+                      setSubmitError(null);
+                      setIsResolvingConflict(true);
+                      try {
+                        const selected = overlapConflicts.filter((conflict) =>
+                          selectedMigrationKeys.includes(`${conflict.marketId}:${conflict.existingCampaignId}`),
+                        );
+                        await submitCampaign(
+                          "migrate",
+                          overlapConflicts,
+                          selected,
+                        );
+                        router.push("/admin/fbmanagement");
+                      } catch (error) {
+                        setSubmitError(error instanceof Error ? error.message : "Migration konnte nicht durchgeführt werden.");
+                      } finally {
+                        setIsResolvingConflict(false);
+                      }
+                    }}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#fff",
+                      cursor: isResolvingConflict ? "not-allowed" : "pointer",
+                      opacity: isResolvingConflict ? 0.7 : 1,
+                    }}
+                    disabled={isResolvingConflict || selectedMigrationKeys.length === 0}
+                  >
+                    Ausgewählte migrieren
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

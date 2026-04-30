@@ -8,10 +8,20 @@ import {
   ClipboardList, Pencil, Trash2, TrendingUp, Award, Copy, Eye,
   BarChart3, CheckCircle2, Circle, Minus, Upload,
 } from "lucide-react";
-import { useModules } from "@/context/ModuleContext";
-import { useFragebogen } from "@/context/FragebogenContext";
-import { useFlexModules, useBillaModules, useKuehlerModules, useMhdModules } from "@/app/admin/adminContexts";
-import type { Module } from "@/types/fragebogen";
+import {
+  BackendApiError,
+  createAdminPraemienWave,
+  deleteAdminPraemienWave,
+  fetchGmUsers,
+  fetchAdminPraemienSources,
+  fetchAdminPraemienWave,
+  fetchAdminPraemienWaves,
+  patchAdminPraemienWave,
+  replaceAdminPraemienPillars,
+  replaceAdminPraemienQualityScores,
+  replaceAdminPraemienSources,
+  replaceAdminPraemienThresholds,
+} from "@/lib/api/backend";
 import type {
   PraemienQuarter, PraemienPillar, PraemienThreshold, PraemienSourceRef, SectionType,
   PraemienQualitySubmission, PraemienQualityCriteria,
@@ -21,7 +31,24 @@ import type {
 
 const R = "#DC2626";
 const RD = "#b91c1c";
-const LS_KEY = "admin_praemien_quarters";
+const WAVE_AUTOSAVE_DEBOUNCE_MS = 700;
+type AutosaveSection = "metadata" | "thresholds" | "pillars" | "sources" | "quality";
+type AutosaveSectionState = "clean" | "dirty" | "saving" | "blocked" | "conflict";
+const AUTOSAVE_SECTION_ORDER: AutosaveSection[] = ["metadata", "thresholds", "pillars", "sources", "quality"];
+const AUTOSAVE_SECTION_LABELS: Record<AutosaveSection, string> = {
+  metadata: "Metadaten",
+  thresholds: "Schwellen",
+  pillars: "Säulen",
+  sources: "Quellen",
+  quality: "Qualität",
+};
+const INITIAL_SECTION_STATES: Record<AutosaveSection, AutosaveSectionState> = {
+  metadata: "clean",
+  thresholds: "clean",
+  pillars: "clean",
+  sources: "clean",
+  quality: "clean",
+};
 
 const SECTION_META: Record<SectionType, { label: string; color: string; bg: string; Icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = {
   standard: { label: "Standard",  color: "#DC2626", bg: "rgba(220,38,38,0.08)",  Icon: ClipboardList },
@@ -42,6 +69,9 @@ const PILLAR_DEFAULTS: Pick<PraemienPillar, "name" | "description" | "color">[] 
 // ── Utility ───────────────────────────────────────────────────
 
 function uid(): string { return Math.random().toString(36).slice(2, 10); }
+function isUuid(value: string | null | undefined): boolean {
+  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+}
 
 function buildDefaultPillars(): PraemienPillar[] {
   return PILLAR_DEFAULTS.map(d => ({ id: uid(), ...d, sourceRefs: [] }));
@@ -55,23 +85,43 @@ function isDistributionPillar(pillars: PraemienPillar[], pillarId: string): bool
 function buildDefaultThresholds(totalPoints = 0): PraemienThreshold[] {
   const vollerBonus = Math.round(totalPoints * 0.95);
   const total = vollerBonus > 0 ? vollerBonus / 0.95 : 0;
-  return [
+  const raw: PraemienThreshold[] = [
     { id: uid(), label: "Kein Bonus",   minPoints: 0,                          rewardEur: 0    },
     { id: uid(), label: "Teilbonus",    minPoints: Math.round(total * 0.70),   rewardEur: 550  },
     { id: uid(), label: "Zielbonus",    minPoints: Math.round(total * 0.80),   rewardEur: 880  },
     { id: uid(), label: "Voller Bonus", minPoints: vollerBonus,                rewardEur: 1100 },
   ];
+  const normalized: PraemienThreshold[] = [];
+  let previous = -1;
+  for (let index = 0; index < raw.length; index += 1) {
+    const entry = raw[index];
+    if (!entry) continue;
+    const next = index === 0 ? 0 : (entry.minPoints <= previous ? previous + 1 : entry.minPoints);
+    normalized.push({ ...entry, minPoints: next });
+    previous = next;
+  }
+  return normalized;
 }
 
 function recalcThresholdsFromVollerBonus(thresholds: PraemienThreshold[], newVollerPoints: number): PraemienThreshold[] {
   const total = newVollerPoints > 0 ? newVollerPoints / 0.95 : 0;
-  return thresholds.map(t => {
+  const raw = thresholds.map(t => {
     if (t.label === "Kein Bonus")   return { ...t, minPoints: 0 };
     if (t.label === "Teilbonus")    return { ...t, minPoints: Math.round(total * 0.70) };
     if (t.label === "Zielbonus")    return { ...t, minPoints: Math.round(total * 0.80) };
     if (t.label === "Voller Bonus") return { ...t, minPoints: newVollerPoints };
     return t;
   });
+  const normalized: PraemienThreshold[] = [];
+  let previous = -1;
+  for (let index = 0; index < raw.length; index += 1) {
+    const entry = raw[index];
+    if (!entry) continue;
+    const next = index === 0 ? 0 : (entry.minPoints <= previous ? previous + 1 : entry.minPoints);
+    normalized.push({ ...entry, minPoints: next });
+    previous = next;
+  }
+  return normalized;
 }
 
 function getQuarterDates(year: number, q: 1 | 2 | 3 | 4): { startDate: string; endDate: string } {
@@ -85,9 +135,352 @@ function fmtDate(iso: string): string {
   return new Date(iso + "T00:00:00").toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function toUiQuarter(serverWave: PraemienQuarter): PraemienQuarter {
+  return { ...serverWave };
+}
+
+function toCreatePayload(input: {
+  name: string;
+  year: number;
+  quarter: 1 | 2 | 3 | 4;
+  startDate: string;
+  endDate: string;
+  description: string;
+  status?: "draft" | "active" | "archived";
+  timezone?: string;
+  thresholds: PraemienThreshold[];
+  pillars: PraemienPillar[];
+}) {
+  return {
+    name: input.name,
+    year: input.year,
+    quarter: input.quarter,
+    status: input.status ?? "draft",
+    startDate: input.startDate,
+    endDate: input.endDate,
+    description: input.description,
+    timezone: input.timezone ?? "Europe/Vienna",
+    thresholds: input.thresholds.map((entry, index) => ({
+      label: entry.label,
+      orderIndex: index,
+      minPoints: entry.minPoints,
+      rewardEur: entry.rewardEur,
+    })),
+    pillars: input.pillars.map((entry, index) => ({
+      name: entry.name,
+      description: entry.description,
+      color: entry.color,
+      orderIndex: index,
+      isManual: entry.name === "Qualitätsziele",
+    })),
+  };
+}
+
+function toPatchPayload(quarter: PraemienQuarter): {
+  name: string;
+  year: number;
+  quarter: 1 | 2 | 3 | 4;
+  status: "draft" | "active" | "archived";
+  startDate: string;
+  endDate: string;
+  description: string;
+  timezone: string;
+  expectedUpdatedAt?: string;
+} {
+  return {
+    name: quarter.name,
+    year: quarter.year,
+    quarter: quarter.quarter,
+    status: quarter.status,
+    startDate: quarter.startDate,
+    endDate: quarter.endDate,
+    description: quarter.description,
+    timezone: quarter.timezone ?? "Europe/Vienna",
+    expectedUpdatedAt: quarter.updatedAt,
+  };
+}
+
+function toThresholdsPayload(quarter: PraemienQuarter): { thresholds: Array<{ id?: string; label: string; orderIndex: number; minPoints: number; rewardEur: number }>; expectedUpdatedAt?: string } {
+  return {
+    expectedUpdatedAt: quarter.updatedAt,
+    thresholds: quarter.thresholds.map((entry, index) => ({
+      id: isUuid(entry.id) ? entry.id : undefined,
+      label: entry.label,
+      orderIndex: index,
+      minPoints: entry.minPoints,
+      rewardEur: entry.rewardEur,
+    })),
+  };
+}
+
+function toPillarsPayload(quarter: PraemienQuarter): { pillars: Array<{ id?: string; name: string; description: string; color: string; orderIndex: number; isManual: boolean }>; expectedUpdatedAt?: string } {
+  return {
+    expectedUpdatedAt: quarter.updatedAt,
+    pillars: quarter.pillars.map((entry, index) => ({
+      id: isUuid(entry.id) ? entry.id : undefined,
+      name: entry.name,
+      description: entry.description,
+      color: entry.color,
+      orderIndex: index,
+      isManual: entry.name === "Qualitätsziele",
+    })),
+  };
+}
+
+function toSourcesPayload(quarter: PraemienQuarter, serverPillarByName?: Map<string, string>): { sources: Array<{ id?: string; pillarId: string; sectionType: SectionType; fragebogenId: string | null; fragebogenName: string; moduleId: string | null; moduleName: string; questionId: string; questionText: string; scoringKey: string; displayLabel: string; isFactorMode: boolean; boniValue: number; distributionFreqRule: "lt8" | "gt8" | null }>; expectedUpdatedAt?: string } {
+  return {
+    expectedUpdatedAt: quarter.updatedAt,
+    sources: quarter.pillars.flatMap((pillar) =>
+      pillar.sourceRefs.map((source) => ({
+        id: isUuid(source.id) ? source.id : undefined,
+        pillarId: serverPillarByName?.get(pillar.name) ?? pillar.id,
+        sectionType: source.sectionType,
+        fragebogenId: source.fragebogenId || null,
+        fragebogenName: source.fragebogenName,
+        moduleId: source.moduleId || null,
+        moduleName: source.moduleName,
+        questionId: source.questionId,
+        questionText: source.questionText,
+        scoringKey: source.scoringKey,
+        displayLabel: source.displayLabel,
+        isFactorMode: source.isFactorMode,
+        boniValue: source.boniValue,
+        distributionFreqRule: source.distributionFreqRule ?? null,
+      })),
+    ),
+  };
+}
+
+function toQualityPayload(quarter: PraemienQuarter): { qualityScores: Array<{ gmUserId: string; zeiterfassung: number; reporting: number; accuracy: number; note: string | null }>; expectedUpdatedAt?: string } {
+  return {
+    expectedUpdatedAt: quarter.updatedAt,
+    qualityScores: (quarter.qualitySubmissions ?? [])
+      .filter((entry) => isUuid(entry.gmId))
+      .map((entry) => ({
+        gmUserId: entry.gmId,
+        zeiterfassung: entry.scores.zeiterfassung,
+        reporting: entry.scores.reporting,
+        accuracy: entry.scores.accuracy,
+        note: entry.note ?? null,
+      })),
+  };
+}
+
+function stableThresholdSignature(entries: PraemienThreshold[]): string {
+  return JSON.stringify(entries.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    minPoints: entry.minPoints,
+    rewardEur: entry.rewardEur,
+  })));
+}
+
+function stablePillarStructureSignature(entries: PraemienPillar[]): string {
+  return JSON.stringify(entries.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    description: entry.description,
+    color: entry.color,
+  })));
+}
+
+function stableSourceSignature(entries: PraemienPillar[]): string {
+  return JSON.stringify(entries.map((entry) => ({
+    id: entry.id,
+    sourceRefs: entry.sourceRefs.map((source) => ({
+      id: source.id,
+      catalogKey: source.catalogKey,
+      sectionType: source.sectionType,
+      fragebogenId: source.fragebogenId,
+      moduleId: source.moduleId,
+      questionId: source.questionId,
+      scoringKey: source.scoringKey,
+      boniValue: source.boniValue,
+      distributionFreqRule: source.distributionFreqRule ?? null,
+    })),
+  })));
+}
+
+function stableQualitySignature(entries: PraemienQualitySubmission[]): string {
+  return JSON.stringify(entries.map((entry) => ({
+    gmId: entry.gmId,
+    zeiterfassung: entry.scores.zeiterfassung,
+    reporting: entry.scores.reporting,
+    accuracy: entry.scores.accuracy,
+    note: entry.note ?? null,
+  })));
+}
+
+function detectDirtySections(previous: PraemienQuarter, next: PraemienQuarter): AutosaveSection[] {
+  const dirty = new Set<AutosaveSection>();
+  if (
+    previous.name !== next.name ||
+    previous.year !== next.year ||
+    previous.quarter !== next.quarter ||
+    previous.status !== next.status ||
+    previous.startDate !== next.startDate ||
+    previous.endDate !== next.endDate ||
+    previous.description !== next.description ||
+    (previous.timezone ?? "Europe/Vienna") !== (next.timezone ?? "Europe/Vienna")
+  ) {
+    dirty.add("metadata");
+  }
+  if (stableThresholdSignature(previous.thresholds) !== stableThresholdSignature(next.thresholds)) {
+    dirty.add("thresholds");
+  }
+  if (stablePillarStructureSignature(previous.pillars) !== stablePillarStructureSignature(next.pillars)) {
+    dirty.add("pillars");
+  }
+  if (stableSourceSignature(previous.pillars) !== stableSourceSignature(next.pillars)) {
+    dirty.add("sources");
+  }
+  if (stableQualitySignature(previous.qualitySubmissions ?? []) !== stableQualitySignature(next.qualitySubmissions ?? [])) {
+    dirty.add("quality");
+  }
+  return Array.from(dirty);
+}
+
+type MetadataSnapshot = Omit<ReturnType<typeof toPatchPayload>, "expectedUpdatedAt">;
+type ThresholdsSnapshot = ReturnType<typeof toThresholdsPayload>["thresholds"];
+type PillarsSnapshot = ReturnType<typeof toPillarsPayload>["pillars"];
+type SourcesSnapshot = Array<{ pillarName: string; sourceRefs: PraemienSourceRef[] }>;
+type QualitySnapshot = ReturnType<typeof toQualityPayload>["qualityScores"];
+type SectionPayloadSnapshot = {
+  metadata: MetadataSnapshot;
+  thresholds: ThresholdsSnapshot;
+  pillars: PillarsSnapshot;
+  sources: SourcesSnapshot;
+  quality: QualitySnapshot;
+};
+type AnySectionSnapshot = SectionPayloadSnapshot[AutosaveSection];
+
+function snapshotSectionPayload(quarter: PraemienQuarter, section: AutosaveSection): AnySectionSnapshot {
+  if (section === "metadata") {
+    const payload = toPatchPayload(quarter);
+    const { expectedUpdatedAt, ...snapshot } = payload;
+    void expectedUpdatedAt;
+    return snapshot;
+  }
+  if (section === "thresholds") {
+    return toThresholdsPayload(quarter).thresholds.map((entry) => ({ ...entry }));
+  }
+  if (section === "pillars") {
+    return toPillarsPayload(quarter).pillars.map((entry) => ({ ...entry }));
+  }
+  if (section === "sources") {
+    return quarter.pillars.map((pillar) => ({
+      pillarName: pillar.name,
+      sourceRefs: pillar.sourceRefs.map((entry) => ({ ...entry })),
+    }));
+  }
+  return toQualityPayload(quarter).qualityScores.map((entry) => ({ ...entry }));
+}
+
+function sectionPayloadFingerprint(snapshot: AnySectionSnapshot): string {
+  return JSON.stringify(snapshot);
+}
+
+function applySectionPayloadSnapshot(
+  server: PraemienQuarter,
+  section: AutosaveSection,
+  snapshot: AnySectionSnapshot,
+): PraemienQuarter {
+  if (section === "metadata") {
+    const metadata = snapshot as MetadataSnapshot;
+    return {
+      ...server,
+      name: metadata.name,
+      year: metadata.year,
+      quarter: metadata.quarter,
+      status: metadata.status,
+      startDate: metadata.startDate,
+      endDate: metadata.endDate,
+      description: metadata.description,
+      timezone: metadata.timezone,
+    };
+  }
+  if (section === "thresholds") {
+    const thresholds = snapshot as ThresholdsSnapshot;
+    return {
+      ...server,
+      thresholds: thresholds.map((entry) => ({
+        id: entry.id ?? uid(),
+        label: entry.label,
+        minPoints: entry.minPoints,
+        rewardEur: entry.rewardEur,
+      })),
+    };
+  }
+  if (section === "pillars") {
+    const pillars = snapshot as PillarsSnapshot;
+    const sourceRefsById = new Map(server.pillars.map((entry) => [entry.id, entry.sourceRefs]));
+    const sourceRefsByName = new Map(server.pillars.map((entry) => [entry.name, entry.sourceRefs]));
+    return {
+      ...server,
+      pillars: pillars.map((entry) => ({
+        id: entry.id ?? uid(),
+        name: entry.name,
+        description: entry.description,
+        color: entry.color,
+        sourceRefs: sourceRefsById.get(entry.id ?? "") ?? sourceRefsByName.get(entry.name) ?? [],
+      })),
+    };
+  }
+  if (section === "sources") {
+    const sources = snapshot as SourcesSnapshot;
+    const sourceRefsByPillarName = new Map(
+      sources.map((entry) => [entry.pillarName, entry.sourceRefs.map((source) => ({ ...source }))]),
+    );
+    return {
+      ...server,
+      pillars: server.pillars.map((entry) => ({
+        ...entry,
+        sourceRefs: sourceRefsByPillarName.get(entry.name) ?? entry.sourceRefs,
+      })),
+    };
+  }
+  const qualityScores = snapshot as QualitySnapshot;
+  const qualityByGmId = new Map((server.qualitySubmissions ?? []).map((entry) => [entry.gmId, entry]));
+  return {
+    ...server,
+    qualitySubmissions: qualityScores.map((entry) => {
+      const existing = qualityByGmId.get(entry.gmUserId);
+      const scores = {
+        zeiterfassung: entry.zeiterfassung,
+        reporting: entry.reporting,
+        accuracy: entry.accuracy,
+      };
+      return {
+        gmId: entry.gmUserId,
+        gmName: existing?.gmName ?? "",
+        scores,
+        totalPoints: calcQualityTotal(scores),
+        note: entry.note ?? undefined,
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      };
+    }),
+  };
+}
+
+function formatSectionError(error: unknown): string {
+  if (!(error instanceof BackendApiError)) return "Ungültige Daten in diesem Abschnitt.";
+  const code = error.code ?? "validation_error";
+  const codeMap: Record<string, string> = {
+    wave_stale_write: "Zwischenzeitliche Änderung erkannt.",
+    source_not_in_live_catalog: "Quelle ist nicht mehr im aktuellen Boni-Katalog.",
+    source_boni_mismatch: "Boni-Wert ist veraltet. Bitte Quelle neu auswählen.",
+    distribution_rule_invalid_target: "Frequenzregel ist nur in Distributionsziel erlaubt.",
+    quality_invalid_gm: "Mindestens ein GM ist nicht mehr gültig.",
+    invalid_payload: "Eingegebene Daten sind ungültig.",
+  };
+  return `${code}: ${codeMap[code] ?? error.message}`;
+}
+
 // ── GM seed list ──────────────────────────────────────────────
 
-const ALL_GMS: { id: string; name: string; region: string }[] = [
+type GmRosterEntry = { id: string; name: string; region: string };
+
+const ALL_GMS: GmRosterEntry[] = [
   { id: "gm1",  name: "Thomas Huber",  region: "Nord" },
   { id: "gm2",  name: "Anna Gruber",   region: "Süd"  },
   { id: "gm3",  name: "Sandra Mayer",  region: "Ost"  },
@@ -113,9 +506,9 @@ function qualityAvgForQuarter(quarter: PraemienQuarter): number {
   return Math.round(subs.reduce((n, s) => n + s.totalPoints, 0) / subs.length);
 }
 
-function qualityIsComplete(quarter: PraemienQuarter): boolean {
+function qualityIsComplete(quarter: PraemienQuarter, gms: GmRosterEntry[]): boolean {
   const subs = quarter.qualitySubmissions ?? [];
-  return ALL_GMS.every(gm => subs.some(s => s.gmId === gm.id));
+  return gms.every(gm => subs.some(s => s.gmId === gm.id));
 }
 
 // ── Seeded GM pillar progress ─────────────────────────────────
@@ -167,6 +560,7 @@ interface GmProgressRow {
 
 function buildGmProgressRows(
   quarter: PraemienQuarter | null,
+  gms: GmRosterEntry[] = ALL_GMS,
 ): GmProgressRow[] {
   if (!quarter) return [];
   const sorted = [...quarter.thresholds].sort((a, b) => a.minPoints - b.minPoints);
@@ -175,7 +569,7 @@ function buildGmProgressRows(
     return t ?? sorted[0];
   };
 
-  return ALL_GMS.map(gm => {
+  return gms.map(gm => {
     const seed = MOCK_GM_PROGRESS[gm.id] ?? { schuettenPoints: 0, distributionPoints: 0, flexPoints: 0, schuettenMax: 13, distributionMax: 10, flexMax: 6 };
     const qualitySub = (quarter.qualitySubmissions ?? []).find(s => s.gmId === gm.id);
     const p0 = seed.schuettenPoints;
@@ -206,12 +600,13 @@ function buildGmProgressRows(
 function buildGmProgressSummary(
   quarter: PraemienQuarter | null,
   regionFilter: RegionFilter = "Alle",
+  gms: GmRosterEntry[] = ALL_GMS,
 ) {
   if (!quarter) return null;
-  const allRows = buildGmProgressRows(quarter);
+  const allRows = buildGmProgressRows(quarter, gms);
   const rows = regionFilter === "Alle"
     ? allRows
-    : allRows.filter(r => ALL_GMS.find(g => g.id === r.gmId)?.region === regionFilter);
+    : allRows.filter(r => gms.find(g => g.id === r.gmId)?.region === regionFilter);
   if (rows.length === 0) return null;
 
   const finishedCount      = rows.filter(r => r.isFinished).length;
@@ -388,61 +783,6 @@ interface BonusSource {
   displayLabel: string;
 }
 
-function normalizeSources(
-  modules: Module[],
-  fragebogenNames: Record<string, string>,
-  sectionType: SectionType,
-): BonusSource[] {
-  const out: BonusSource[] = [];
-  for (const mod of modules) {
-    for (const q of mod.questions) {
-      if (!q.scoring) continue;
-      for (const [key, sw] of Object.entries(q.scoring)) {
-        if (sw.boni == null) continue;
-        const bv = Number(sw.boni);
-        if (isNaN(bv) || bv === 0) continue;
-        const isFactorMode = key === "__value__";
-        const displayLabel = isFactorMode ? `Wert × ${bv}` : `Antwort: ${key}`;
-        out.push({
-          key: `${sectionType}__${mod.id}__${q.id}__${key}`,
-          sectionType,
-          fragebogenId: mod.id,
-          fragebogenName: fragebogenNames[mod.id] ?? mod.name,
-          moduleId: mod.id,
-          moduleName: mod.name,
-          questionId: q.id,
-          questionText: q.text || "(Kein Fragetext)",
-          scoringKey: key,
-          boniValue: bv,
-          isFactorMode,
-          displayLabel,
-        });
-      }
-    }
-  }
-  return out;
-}
-
-// Mock sources (shown when contexts have no real modules yet)
-const MOCK_SOURCES: BonusSource[] = [
-  { key: "std__m1__q1__Ja",      sectionType: "standard", fragebogenId: "sf1", fragebogenName: "Standardbesuch KW12", moduleId: "m1", moduleName: "Regalprüfung",      questionId: "q1", questionText: "Sind alle Coke-Produkte frontal platziert?",            scoringKey: "Ja",            boniValue: 2,   isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "std__m1__q2__Sehr gut", sectionType: "standard", fragebogenId: "sf1", fragebogenName: "Standardbesuch KW12", moduleId: "m1", moduleName: "Regalprüfung",      questionId: "q2", questionText: "Wie ist der Zustand der Regalfläche?",                    scoringKey: "Sehr gut",      boniValue: 3,   isFactorMode: false, displayLabel: "Antwort: Sehr gut" },
-  { key: "std__m1__q2__Gut",      sectionType: "standard", fragebogenId: "sf1", fragebogenName: "Standardbesuch KW12", moduleId: "m1", moduleName: "Regalprüfung",      questionId: "q2", questionText: "Wie ist der Zustand der Regalfläche?",                    scoringKey: "Gut",           boniValue: 1.5, isFactorMode: false, displayLabel: "Antwort: Gut" },
-  { key: "std__m2__q3__num",      sectionType: "standard", fragebogenId: "sf1", fragebogenName: "Standardbesuch KW12", moduleId: "m2", moduleName: "Aktionsmaterial",   questionId: "q3", questionText: "Anzahl korrekt platzierter Aktionsmaterialien",            scoringKey: "__value__",     boniValue: 1.5, isFactorMode: true,  displayLabel: "Wert × 1.5" },
-  { key: "std__m3__q4__Ja",       sectionType: "standard", fragebogenId: "sf1", fragebogenName: "Standardbesuch KW12", moduleId: "m3", moduleName: "Display-Check",     questionId: "q4", questionText: "Sind alle Schütten korrekt befüllt?",                    scoringKey: "Ja",            boniValue: 3,   isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "std__m3__q5__Ja",       sectionType: "standard", fragebogenId: "sf1", fragebogenName: "Standardbesuch KW12", moduleId: "m3", moduleName: "Display-Check",     questionId: "q5", questionText: "Ist die Display-Aufstellung der Planograms entsprechend?", scoringKey: "Ja",            boniValue: 2,   isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "flex__mf1__qf1__Ja",    sectionType: "flex",     fragebogenId: "ff1", fragebogenName: "Flexbesuch April",    moduleId: "mf1", moduleName: "Flexziele",        questionId: "qf1", questionText: "Wurde das saisonale Ziel im Hauptregal erreicht?",       scoringKey: "Ja",            boniValue: 2.5, isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "flex__mf1__qf2__num",   sectionType: "flex",     fragebogenId: "ff1", fragebogenName: "Flexbesuch April",    moduleId: "mf1", moduleName: "Flexziele",        questionId: "qf2", questionText: "Anzahl korrekt befüllter Flexflächen",                  scoringKey: "__value__",     boniValue: 2,   isFactorMode: true,  displayLabel: "Wert × 2" },
-  { key: "flex__mf2__qf3__Ja",    sectionType: "flex",     fragebogenId: "ff1", fragebogenName: "Flexbesuch April",    moduleId: "mf2", moduleName: "Aktionen",         questionId: "qf3", questionText: "Ist Aktionsmaterial für Frühjahr vorhanden?",            scoringKey: "Ja",            boniValue: 1.5, isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "billa__mb1__qb1__Ja",   sectionType: "billa",    fragebogenId: "bf1", fragebogenName: "Billa Frühjahr 2026", moduleId: "mb1", moduleName: "Distribution",     questionId: "qb1", questionText: "Sind alle Kernliner korrekt gelistet?",                  scoringKey: "Ja",            boniValue: 3,   isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "billa__mb1__qb2__num",  sectionType: "billa",    fragebogenId: "bf1", fragebogenName: "Billa Frühjahr 2026", moduleId: "mb1", moduleName: "Distribution",     questionId: "qb2", questionText: "Anzahl korrekt gelisteter Produkte",                    scoringKey: "__value__",     boniValue: 1,   isFactorMode: true,  displayLabel: "Wert × 1" },
-  { key: "billa__mb2__qb3__Ja",   sectionType: "billa",    fragebogenId: "bf1", fragebogenName: "Billa Frühjahr 2026", moduleId: "mb2", moduleName: "Facings",          questionId: "qb3", questionText: "Sind die Facings-Ziele erreicht?",                       scoringKey: "Ja",            boniValue: 2,   isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "kuehler__mk1__qk1__Sehr voll", sectionType: "kuehler", fragebogenId: "kf1", fragebogenName: "Kühlerinventur Standard", moduleId: "mk1", moduleName: "Befüllung", questionId: "qk1", questionText: "Wie ist der Kühler aktuell befüllt?",               scoringKey: "Sehr voll",     boniValue: 3,   isFactorMode: false, displayLabel: "Antwort: Sehr voll" },
-  { key: "kuehler__mk1__qk1__Halb voll", sectionType: "kuehler", fragebogenId: "kf1", fragebogenName: "Kühlerinventur Standard", moduleId: "mk1", moduleName: "Befüllung", questionId: "qk1", questionText: "Wie ist der Kühler aktuell befüllt?",               scoringKey: "Halb voll",     boniValue: 1.5, isFactorMode: false, displayLabel: "Antwort: Halb voll" },
-  { key: "kuehler__mk2__qk2__Ja", sectionType: "kuehler",  fragebogenId: "kf1", fragebogenName: "Kühlerinventur Standard", moduleId: "mk2", moduleName: "Sauberkeit",   questionId: "qk2", questionText: "Ist der Kühler sauber und gepflegt?",                   scoringKey: "Ja",            boniValue: 1,   isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "mhd__mm1__qm1__Ja",     sectionType: "mhd",      fragebogenId: "mf1", fragebogenName: "MHD Kontrolle Standard", moduleId: "mm1", moduleName: "MHD-Prüfung",  questionId: "qm1", questionText: "Sind alle MHD-Etiketten korrekt und lesbar?",            scoringKey: "Ja",            boniValue: 2,   isFactorMode: false, displayLabel: "Antwort: Ja" },
-  { key: "mhd__mm1__qm2__Sehr gut", sectionType: "mhd",    fragebogenId: "mf1", fragebogenName: "MHD Kontrolle Standard", moduleId: "mm1", moduleName: "MHD-Prüfung",  questionId: "qm2", questionText: "Wie wird der MHD-Prozess im Markt bewertet?",           scoringKey: "Sehr gut",      boniValue: 2.5, isFactorMode: false, displayLabel: "Antwort: Sehr gut" },
-];
 
 // ── Sub-components ─────────────────────────────────────────────
 
@@ -489,19 +829,20 @@ function PrimaryBtn({ onClick, children, disabled }: { onClick?: () => void; chi
   );
 }
 
-function GhostBtn({ onClick, children, danger }: { onClick?: () => void; children: React.ReactNode; danger?: boolean }) {
+function GhostBtn({ onClick, children, danger, disabled }: { onClick?: () => void; children: React.ReactNode; danger?: boolean; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         display: "flex", alignItems: "center", gap: 5, padding: "6px 12px",
-        fontSize: 11, fontWeight: 600, borderRadius: 7, border: "none", cursor: "pointer",
+        fontSize: 11, fontWeight: 600, borderRadius: 7, border: "none", cursor: disabled ? "not-allowed" : "pointer",
         background: "linear-gradient(to bottom, #ffffff, #f5f5f5)", color: danger ? R : "rgba(0,0,0,0.45)",
         boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)",
-        transition: "opacity 0.15s ease",
+        transition: "opacity 0.15s ease", opacity: disabled ? 0.55 : 1,
       }}
-      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.75"; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+      onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.opacity = "0.75"; }}
+      onMouseLeave={e => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
     >
       {children}
     </button>
@@ -627,16 +968,18 @@ const REGION_DISPLAY: Record<RegionFilter, string> = { Alle: "Alle Regionen", No
 
 function GMProgressOverviewPanel({
   quarter,
+  gms,
   regionFilter,
   onRegionChange,
   onOpenDetail,
 }: {
   quarter: PraemienQuarter;
+  gms: GmRosterEntry[];
   regionFilter: RegionFilter;
   onRegionChange: (r: RegionFilter) => void;
   onOpenDetail: () => void;
 }) {
-  const summary = buildGmProgressSummary(quarter, regionFilter);
+  const summary = buildGmProgressSummary(quarter, regionFilter, gms);
   const tierColor = (eur: number) => eur === 0 ? "rgba(0,0,0,0.22)" : eur <= 550 ? "#f97316" : eur <= 880 ? "#eab308" : "#16a34a";
 
   const cycleRegion = () => {
@@ -751,10 +1094,11 @@ function GMProgressOverviewPanel({
 }
 
 function QuarterHeaderCard({
-  quarter, onChange, regionFilter, onRegionChange, onOpenGmDetail,
+  quarter, onChange, gms, regionFilter, onRegionChange, onOpenGmDetail,
 }: {
   quarter: PraemienQuarter;
   onChange: (q: PraemienQuarter) => void;
+  gms: GmRosterEntry[];
   regionFilter: RegionFilter;
   onRegionChange: (r: RegionFilter) => void;
   onOpenGmDetail: () => void;
@@ -839,6 +1183,7 @@ function QuarterHeaderCard({
         {/* Right area — GM progress overview */}
         <GMProgressOverviewPanel
           quarter={quarter}
+          gms={gms}
           regionFilter={regionFilter}
           onRegionChange={onRegionChange}
           onOpenDetail={onOpenGmDetail}
@@ -852,9 +1197,10 @@ function QuarterHeaderCard({
 // ── Overview strip ────────────────────────────────────────────
 
 function OverviewStrip({
-  quarter, totalSources, totalPoints, issues,
+  quarter, gms, totalSources, totalPoints, issues,
 }: {
   quarter: PraemienQuarter;
+  gms: GmRosterEntry[];
   totalSources: number;
   totalPoints: number;
   issues: number;
@@ -862,14 +1208,14 @@ function OverviewStrip({
   const linkedSources = quarter.pillars.reduce((n, p) => n + p.sourceRefs.length, 0);
   const sectionTypes = new Set(quarter.pillars.flatMap(p => p.sourceRefs.map(s => s.sectionType)));
   const qualityDone = (quarter.qualitySubmissions ?? []).length;
-  const qualityComplete = qualityIsComplete(quarter);
+  const qualityComplete = qualityIsComplete(quarter, gms);
 
   const stats = [
     { label: "Säulen",         value: `${quarter.pillars.length}`,                      color: "#1a1a1a" },
     { label: "Sektionen",      value: `${sectionTypes.size} / 5`,                       color: "#1a1a1a" },
     { label: "Quellen",        value: `${linkedSources} / ${totalSources}`,              color: linkedSources > 0 ? "#16a34a" : "rgba(0,0,0,0.4)" },
     { label: "Max. Punkte",    value: `${totalPoints} P`,                                color: totalPoints > 0 ? R : "rgba(0,0,0,0.4)" },
-    { label: "Qualitätsziele", value: `${qualityDone} / ${ALL_GMS.length}`,              color: qualityComplete ? "#16a34a" : qualityDone > 0 ? "#D97706" : "rgba(0,0,0,0.4)" },
+    { label: "Qualitätsziele", value: `${qualityDone} / ${gms.length}`,                   color: qualityComplete ? "#16a34a" : qualityDone > 0 ? "#D97706" : "rgba(0,0,0,0.4)" },
     { label: "Probleme",       value: issues === 0 ? "Keine" : `${issues}`,              color: issues === 0 ? "#16a34a" : "#D97706" },
   ];
 
@@ -906,10 +1252,22 @@ function ThresholdDesignerCard({
   const thresholds = quarter.thresholds;
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
-  const sorted = TIER_ORDER.map(label => thresholds.find(t => t.label === label)).filter(Boolean) as PraemienThreshold[];
-  const vollerBonus = sorted.find(t => t.label === "Voller Bonus");
+  const canonicalSorted = TIER_ORDER.map((label) => thresholds.find((t) => t.label === label)).filter(Boolean) as PraemienThreshold[];
+  const sorted = canonicalSorted.length > 0
+    ? canonicalSorted
+    : [...thresholds].sort((a, b) => a.minPoints - b.minPoints);
+  const vollerBonus = sorted.find((t) => t.label === "Voller Bonus") ?? sorted.at(-1);
   const vollerPts = vollerBonus?.minPoints ?? 0;
   const totalAchievable = vollerPts > 0 ? Math.round(vollerPts / 0.95) : 0;
+  const [vollerPtsInput, setVollerPtsInput] = useState<string>(String(vollerPts));
+  const [rewardInputs, setRewardInputs] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setVollerPtsInput(String(vollerPts));
+    setRewardInputs(
+      Object.fromEntries(sorted.map((entry) => [entry.id, String(entry.rewardEur)])),
+    );
+  }, [thresholds, vollerPts]);
 
   const updateVollerBonus = (newPts: number) => {
     const clamped = Math.max(0, newPts);
@@ -918,6 +1276,23 @@ function ThresholdDesignerCard({
 
   const updateReward = (id: string, eur: number) => {
     onChange({ ...quarter, thresholds: thresholds.map(t => t.id === id ? { ...t, rewardEur: eur } : t) });
+  };
+  const onVollerInputChange = (value: string) => {
+    if (!/^\d*$/.test(value)) return;
+    setVollerPtsInput(value);
+  };
+  const commitVollerInput = () => {
+    const parsed = vollerPtsInput.trim() === "" ? 0 : Number(vollerPtsInput);
+    updateVollerBonus(Number.isFinite(parsed) ? parsed : 0);
+  };
+  const onRewardInputChange = (id: string, value: string) => {
+    if (!/^\d*$/.test(value)) return;
+    setRewardInputs((prev) => ({ ...prev, [id]: value }));
+  };
+  const commitRewardInput = (id: string) => {
+    const raw = rewardInputs[id] ?? "";
+    const parsed = raw.trim() === "" ? 0 : Number(raw);
+    updateReward(id, Number.isFinite(parsed) ? parsed : 0);
   };
 
   const numFld: React.CSSProperties = {
@@ -1060,7 +1435,7 @@ function ThresholdDesignerCard({
                   </span>
                   {isAuto && !isFirst && (
                     <span style={{ fontSize: 7, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(0,0,0,0.22)", background: "rgba(0,0,0,0.04)", padding: "1px 5px", borderRadius: 4 }}>
-                      {Math.round(TIER_PCT[t.label] * 100)}%
+                      {Math.round((TIER_PCT[t.label] ?? 0) * 100)}%
                     </span>
                   )}
                 </div>
@@ -1071,11 +1446,21 @@ function ThresholdDesignerCard({
                   {isVoller ? (
                     <input
                       type="number"
-                      value={t.minPoints}
-                      onChange={e => updateVollerBonus(parseInt(e.target.value) || 0)}
+                      value={vollerPtsInput}
+                      onChange={e => onVollerInputChange(e.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          (event.currentTarget as HTMLInputElement).blur();
+                        }
+                      }}
                       style={{ ...numFld, width: 56, color: R, fontWeight: 800, border: `1px solid rgba(220,38,38,0.3)` }}
                       onFocus={e => { e.currentTarget.style.border = `1px solid rgba(220,38,38,0.6)`; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(220,38,38,0.08)"; }}
-                      onBlur={e => { e.currentTarget.style.border = `1px solid rgba(220,38,38,0.3)`; e.currentTarget.style.boxShadow = "none"; }}
+                      onBlur={e => {
+                        commitVollerInput();
+                        e.currentTarget.style.border = `1px solid rgba(220,38,38,0.3)`;
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
                     />
                   ) : (
                     <span style={{ ...numFld, width: 56, display: "flex", alignItems: "center", justifyContent: "flex-end", color: "rgba(0,0,0,0.35)", background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.06)", cursor: "default", transition: "all 0.25s ease" }}>
@@ -1090,11 +1475,21 @@ function ThresholdDesignerCard({
                   <span style={{ fontSize: 9, fontWeight: 500, color: "rgba(0,0,0,0.28)", flexShrink: 0 }}>=</span>
                   <input
                     type="number"
-                    value={t.rewardEur}
-                    onChange={e => updateReward(t.id, parseInt(e.target.value) || 0)}
+                    value={rewardInputs[t.id] ?? String(t.rewardEur)}
+                    onChange={e => onRewardInputChange(t.id, e.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        (event.currentTarget as HTMLInputElement).blur();
+                      }
+                    }}
                     style={{ ...numFld, width: 62, color: t.rewardEur > 0 ? "#15803d" : "rgba(0,0,0,0.28)", background: t.rewardEur > 0 ? "rgba(22,163,74,0.04)" : "#fff", border: `1px solid ${t.rewardEur > 0 ? "rgba(22,163,74,0.3)" : "rgba(0,0,0,0.08)"}` }}
                     onFocus={e => { e.currentTarget.style.border = "1px solid rgba(22,163,74,0.6)"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(22,163,74,0.07)"; }}
-                    onBlur={e => { e.currentTarget.style.border = `1px solid ${t.rewardEur > 0 ? "rgba(22,163,74,0.3)" : "rgba(0,0,0,0.08)"}`; e.currentTarget.style.boxShadow = "none"; }}
+                    onBlur={e => {
+                      commitRewardInput(t.id);
+                      e.currentTarget.style.border = `1px solid ${t.rewardEur > 0 ? "rgba(22,163,74,0.3)" : "rgba(0,0,0,0.08)"}`;
+                      e.currentTarget.style.boxShadow = "none";
+                    }}
                   />
                   <span style={{ fontSize: 9, fontWeight: 600, color: t.rewardEur > 0 ? "#16a34a" : "rgba(0,0,0,0.28)", flexShrink: 0, transition: "color 0.15s ease" }}>€</span>
                 </div>
@@ -1202,16 +1597,17 @@ function QualityScoreSlider({
 }
 
 function QualityGoalsModal({
-  quarter, onSave, onClose,
+  quarter, gms, onSave, onClose,
 }: {
   quarter: PraemienQuarter;
+  gms: GmRosterEntry[];
   onSave: (submissions: PraemienQualitySubmission[]) => void;
   onClose: () => void;
 }) {
   const subs = quarter.qualitySubmissions ?? [];
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "open" | "done">("all");
-  const [selectedGmId, setSelectedGmId] = useState<string>(ALL_GMS[0]?.id ?? "");
+  const [selectedGmId, setSelectedGmId] = useState<string>(gms[0]?.id ?? "");
   const [draft, setDraft] = useState<PraemienQualityCriteria>(EMPTY_CRITERIA);
   const [draftNote, setDraftNote] = useState("");
   const [localSubs, setLocalSubs] = useState<PraemienQualitySubmission[]>(subs);
@@ -1221,6 +1617,13 @@ function QualityGoalsModal({
   const [showImport, setShowImport] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (gms.length === 0) return;
+    if (!gms.some((entry) => entry.id === selectedGmId)) {
+      setSelectedGmId(gms[0]?.id ?? "");
+    }
+  }, [gms, selectedGmId]);
 
   // Load existing score when GM selection changes
   useEffect(() => {
@@ -1243,9 +1646,10 @@ function QualityGoalsModal({
   };
 
   const handleSaveGm = () => {
+    if (!selectedGmId) return;
     const newSub: PraemienQualitySubmission = {
       gmId: selectedGmId,
-      gmName: ALL_GMS.find(g => g.id === selectedGmId)?.name ?? selectedGmId,
+      gmName: gms.find(g => g.id === selectedGmId)?.name ?? selectedGmId,
       scores: { ...draft },
       totalPoints: total,
       note: draftNote || undefined,
@@ -1255,7 +1659,7 @@ function QualityGoalsModal({
     setLocalSubs(next);
     setUnsaved(false);
     // Auto-advance to next unscored GM
-    const nextOpen = ALL_GMS.find(g => !next.some(s => s.gmId === g.id) && g.id !== selectedGmId);
+    const nextOpen = gms.find(g => !next.some(s => s.gmId === g.id) && g.id !== selectedGmId);
     if (nextOpen) setSelectedGmId(nextOpen.id);
   };
 
@@ -1270,7 +1674,7 @@ function QualityGoalsModal({
     onClose();
   };
 
-  const filteredGms = ALL_GMS.filter(gm => {
+  const filteredGms = gms.filter(gm => {
     const q = search.toLowerCase().trim();
     if (q && !gm.name.toLowerCase().includes(q)) return false;
     const done = localSubs.some(s => s.gmId === gm.id);
@@ -1281,7 +1685,7 @@ function QualityGoalsModal({
 
   const doneCount = localSubs.length;
   const totalColor = total >= 80 ? "#16a34a" : total >= 50 ? "#D97706" : "#DC2626";
-  const selectedGm = ALL_GMS.find(g => g.id === selectedGmId);
+  const selectedGm = gms.find(g => g.id === selectedGmId);
   const selectedSub = localSubs.find(s => s.gmId === selectedGmId);
 
   if (!mounted || typeof document === "undefined") return null;
@@ -1309,7 +1713,7 @@ function QualityGoalsModal({
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>Qualitätsziele erfassen</div>
-            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>{quarter.name} · {doneCount} / {ALL_GMS.length} GMs bewertet</div>
+            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>{quarter.name} · {doneCount} / {gms.length} GMs bewertet</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
@@ -1501,11 +1905,13 @@ function QualityGoalsModal({
 // ── Quality pillar card (manual, no boni sources) ─────────────
 
 function QualityPillarCard({
-  pillar, pillarIndex, quarter, onUpdateQuarter,
+  pillar, pillarIndex, quarter, gms, qualityPersistenceReady, onUpdateQuarter,
 }: {
   pillar: PraemienPillar;
   pillarIndex: number;
   quarter: PraemienQuarter;
+  gms: GmRosterEntry[];
+  qualityPersistenceReady: boolean;
   onUpdateQuarter: (q: PraemienQuarter) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1514,7 +1920,7 @@ function QualityPillarCard({
   const subs = quarter.qualitySubmissions ?? [];
   const doneCount = subs.length;
   const avgPts = qualityAvgForQuarter(quarter);
-  const complete = qualityIsComplete(quarter);
+  const complete = qualityIsComplete(quarter, gms);
 
   return (
     <div style={{ backgroundColor: "#fff", borderRadius: 12, border: `1px solid rgba(0,0,0,0.07)`, boxShadow: "0 1px 6px rgba(0,0,0,0.04)", overflow: "hidden" }}>
@@ -1538,7 +1944,7 @@ function QualityPillarCard({
             <div style={{ fontSize: 8, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.3)" }}>Ø Punkte</div>
           </div>
           <QualityCompletionPill done={complete} />
-          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)" }}>{doneCount} / {ALL_GMS.length} GMs</span>
+          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)" }}>{doneCount} / {gms.length} GMs</span>
           <ChevronDown size={13} strokeWidth={2} color="rgba(0,0,0,0.3)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }} />
         </div>
       </div>
@@ -1554,18 +1960,21 @@ function QualityPillarCard({
                 {complete ? "Qualitätsziele vollständig erfasst" : "Qualitätsziele noch nicht fertig"}
               </div>
               <div style={{ fontSize: 9, color: "rgba(0,0,0,0.4)", fontWeight: 500 }}>
-                {doneCount} von {ALL_GMS.length} GMs bewertet · Ø {avgPts} / 100 Punkte
+                {qualityPersistenceReady
+                  ? `${doneCount} von ${gms.length} GMs bewertet · Ø ${avgPts} / 100 Punkte`
+                  : "GM-Daten werden geladen. Qualitätsziele sind vorübergehend schreibgeschützt."}
               </div>
             </div>
             <button
-              onClick={e => { e.stopPropagation(); setModalOpen(true); }}
+              onClick={e => { e.stopPropagation(); if (qualityPersistenceReady) setModalOpen(true); }}
+              disabled={!qualityPersistenceReady}
               style={{
                 display: "flex", alignItems: "center", gap: 5, padding: "7px 14px",
                 fontSize: 10, fontWeight: 700, borderRadius: 7, border: "none", cursor: "pointer",
                 background: `linear-gradient(to bottom, ${R}, ${RD})`,
                 color: "#fff", letterSpacing: "-0.01em",
                 boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 5px rgba(180,20,20,0.12)`,
-                flexShrink: 0, transition: "opacity 0.15s ease",
+                flexShrink: 0, transition: "opacity 0.15s ease", opacity: qualityPersistenceReady ? 1 : 0.5,
               }}
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
@@ -1609,6 +2018,7 @@ function QualityPillarCard({
       {modalOpen && (
         <QualityGoalsModal
           quarter={quarter}
+          gms={gms}
           onSave={submissions => {
             onUpdateQuarter({ ...quarter, qualitySubmissions: submissions });
           }}
@@ -2045,11 +2455,11 @@ function BonusSourceExplorer({
   const [filterSection, setFilterSection] = useState<SectionType | null>(null);
   const [filterAssigned, setFilterAssigned] = useState<"all" | "assigned" | "unassigned">("all");
 
-  // Map source.key → pillarId
+  // Map source.catalogKey → pillarId
   const assignmentMap: Record<string, string> = {};
   for (const p of quarter.pillars) {
     for (const r of p.sourceRefs) {
-      assignmentMap[r.id] = p.id;
+      assignmentMap[r.catalogKey] = p.id;
     }
   }
 
@@ -2066,6 +2476,7 @@ function BonusSourceExplorer({
   const assignToPillar = (src: BonusSource, pillarId: string, freqRule?: "lt8" | "gt8") => {
     const ref: PraemienSourceRef = {
       id: src.key,
+      catalogKey: src.key,
       sectionType: src.sectionType,
       fragebogenId: src.fragebogenId,
       fragebogenName: src.fragebogenName,
@@ -2083,7 +2494,7 @@ function BonusSourceExplorer({
     // Remove from any existing pillar first
     const cleanedPillars = quarter.pillars.map(p => ({
       ...p,
-      sourceRefs: p.sourceRefs.filter(r => r.id !== src.key),
+      sourceRefs: p.sourceRefs.filter(r => r.catalogKey !== src.key),
     }));
     if (!pillarId) {
       onChange({ ...quarter, pillars: cleanedPillars });
@@ -2196,7 +2607,7 @@ function BonusSourceExplorer({
                     <PillarSelect
                       value={currentPillarId ?? ""}
                       pillars={quarter.pillars}
-                      currentFreqRule={(quarter.pillars.find(p => p.id === currentPillarId)?.sourceRefs.find(r => r.id === src.key))?.distributionFreqRule}
+                      currentFreqRule={(quarter.pillars.find(p => p.id === currentPillarId)?.sourceRefs.find(r => r.catalogKey === src.key))?.distributionFreqRule}
                       onChange={(id, freqRule) => assignToPillar(src, id, freqRule)}
                     />
                   </div>
@@ -2228,13 +2639,14 @@ function GMCompletionPill({ done }: { done: boolean }) {
 }
 
 function GMProgressModal({
-  quarter, onClose, initialRegion = "Alle",
+  quarter, gms, onClose, initialRegion = "Alle",
 }: {
   quarter: PraemienQuarter;
+  gms: GmRosterEntry[];
   onClose: () => void;
   initialRegion?: RegionFilter;
 }) {
-  const rows = buildGmProgressRows(quarter);
+  const rows = buildGmProgressRows(quarter, gms);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "done" | "open">("all");
   const [regionFilter, setRegionFilter] = useState<RegionFilter>(initialRegion);
@@ -2247,7 +2659,7 @@ function GMProgressModal({
     if (q && !r.gmName.toLowerCase().includes(q)) return false;
     if (filter === "done" && !r.isFinished) return false;
     if (filter === "open" && r.isFinished) return false;
-    if (regionFilter !== "Alle" && ALL_GMS.find(g => g.id === r.gmId)?.region !== regionFilter) return false;
+    if (regionFilter !== "Alle" && gms.find(g => g.id === r.gmId)?.region !== regionFilter) return false;
     return true;
   });
 
@@ -2292,7 +2704,7 @@ function GMProgressModal({
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>GM Fortschritt</div>
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>
-              {quarter.name} · {doneCount} / {ALL_GMS.length} fertig · Ø Prämie: {avgReward}€
+              {quarter.name} · {doneCount} / {gms.length} fertig · Ø Prämie: {avgReward}€
             </div>
           </div>
           <button
@@ -2541,15 +2953,15 @@ function GMProgressModal({
 // ── Tier gradient styles ──────────────────────────────────────
 
 const GOLD_GRAD: React.CSSProperties = {
-  background: "linear-gradient(135deg, #EFB54E 0%, #FFED96 22%, #FCD94C 54%, #F9F793 80%, #EFB94D 100%)",
+  backgroundImage: "linear-gradient(135deg, #EFB54E 0%, #FFED96 22%, #FCD94C 54%, #F9F793 80%, #EFB94D 100%)",
   WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
 };
 const SILVER_GRAD: React.CSSProperties = {
-  background: "linear-gradient(135deg, #6B7280 0%, #9CA3AF 30%, #4B5563 60%, #8B9CB0 100%)",
+  backgroundImage: "linear-gradient(135deg, #6B7280 0%, #9CA3AF 30%, #4B5563 60%, #8B9CB0 100%)",
   WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
 };
 const BRONZE_GRAD: React.CSSProperties = {
-  background: "linear-gradient(135deg, #BD965D 0%, #99774A 26%, #DEBF93 64%, #AC9071 100%)",
+  backgroundImage: "linear-gradient(135deg, #BD965D 0%, #99774A 26%, #DEBF93 64%, #AC9071 100%)",
   WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
 };
 const CUMULATIVE_GREEN = "#15803d";
@@ -2943,7 +3355,7 @@ interface ValidationIssue {
   message: string;
 }
 
-function computeIssues(quarter: PraemienQuarter, sources: BonusSource[]): ValidationIssue[] {
+function computeIssues(quarter: PraemienQuarter, sources: BonusSource[], gms: GmRosterEntry[]): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (quarter.thresholds.length < 2) issues.push({ severity: "error", message: "Weniger als 2 Schwellwerte konfiguriert." });
   const sorted = [...quarter.thresholds].sort((a, b) => a.minPoints - b.minPoints);
@@ -2958,24 +3370,24 @@ function computeIssues(quarter: PraemienQuarter, sources: BonusSource[]): Valida
   const dupes = new Set<string>();
   for (const p of quarter.pillars) {
     for (const r of p.sourceRefs) {
-      if (usedKeys.has(r.id)) dupes.add(r.id);
-      usedKeys.add(r.id);
+      if (usedKeys.has(r.catalogKey)) dupes.add(r.catalogKey);
+      usedKeys.add(r.catalogKey);
     }
   }
   if (dupes.size > 0) issues.push({ severity: "error", message: `${dupes.size} Quelle(n) mehrfach zugewiesen.` });
   const totalAssigned = quarter.pillars.reduce((n, p) => n + p.sourceRefs.length, 0);
   if (sources.length > 0 && totalAssigned === 0) issues.push({ severity: "info", message: "Noch keine Quellen zugewiesen." });
   // Quality goals completion
-  if (!qualityIsComplete(quarter)) {
+  if (!qualityIsComplete(quarter, gms)) {
     const doneCount = (quarter.qualitySubmissions ?? []).length;
-    issues.push({ severity: "warning", message: `Qualitätsziele: ${doneCount} / ${ALL_GMS.length} GMs bewertet.` });
+    issues.push({ severity: "warning", message: `Qualitätsziele: ${doneCount} / ${gms.length} GMs bewertet.` });
   }
   return issues;
 }
 
-function ValidationRail({ quarter, sources }: { quarter: PraemienQuarter | null; sources: BonusSource[] }) {
+function ValidationRail({ quarter, sources, gms }: { quarter: PraemienQuarter | null; sources: BonusSource[]; gms: GmRosterEntry[] }) {
   if (!quarter) return null;
-  const issues = computeIssues(quarter, sources);
+  const issues = computeIssues(quarter, sources, gms);
   const errors = issues.filter(i => i.severity === "error");
   const warnings = issues.filter(i => i.severity === "warning");
   const infos = issues.filter(i => i.severity === "info");
@@ -3131,87 +3543,401 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 // ── Main page ─────────────────────────────────────────────────
 
 export default function PraemienPage() {
-  const { modules } = useModules();
-  const { fragebogenList } = useFragebogen();
-  const { modules: flexModules } = useFlexModules();
-  const { modules: billaModules } = useBillaModules();
-  const { modules: kuehlerModules } = useKuehlerModules();
-  const { modules: mhdModules } = useMhdModules();
-
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [showReloadAction, setShowReloadAction] = useState(false);
+  const [sectionErrors, setSectionErrors] = useState<Partial<Record<AutosaveSection, string>>>({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [conflictSection, setConflictSection] = useState<AutosaveSection | null>(null);
   const [quarters, setQuarters] = useState<PraemienQuarter[]>([]);
   const [activeQuarterId, setActiveQuarterId] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const [bonusSources, setBonusSources] = useState<BonusSource[]>([]);
+  const [gmUsers, setGmUsers] = useState<GmRosterEntry[]>([]);
   const [showGmProgress, setShowGmProgress] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [gmRegionFilter, setGmRegionFilter] = useState<RegionFilter>("Alle");
+  const [dirtyVersion, setDirtyVersion] = useState(0);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHydratingRef = useRef(false);
+  const saveInFlightRef = useRef(false);
+  const queuedAfterSaveRef = useRef(false);
+  const dirtySectionsRef = useRef<Set<AutosaveSection>>(new Set());
+  const sectionStatesRef = useRef<Record<AutosaveSection, AutosaveSectionState>>({ ...INITIAL_SECTION_STATES });
+  const queuedSectionSnapshotsRef = useRef<Partial<Record<AutosaveSection, AnySectionSnapshot>>>({});
+  const pendingSectionSnapshotRef = useRef<Partial<Record<AutosaveSection, AnySectionSnapshot>>>({});
+  const blockedFingerprintRef = useRef<Map<AutosaveSection, string>>(new Map());
+  const staleRetryRef = useRef<Map<string, number>>(new Map());
+  const deletedWaveIdsRef = useRef<Set<string>>(new Set());
 
-  // Load from localStorage on mount
-  useEffect(() => {
-    setMounted(true);
-    try {
-      const stored = JSON.parse(localStorage.getItem(LS_KEY) || "[]") as PraemienQuarter[];
-      if (stored.length > 0) {
-        setQuarters(stored);
-        setActiveQuarterId(stored[0].id);
-      }
-    } catch {}
+  const transitionSectionState = useCallback((section: AutosaveSection, event: "dirty" | "saving" | "saved" | "blocked" | "conflict" | "clear") => {
+    if (event === "dirty") {
+      sectionStatesRef.current[section] = "dirty";
+      dirtySectionsRef.current.add(section);
+      return;
+    }
+    if (event === "saving") {
+      sectionStatesRef.current[section] = "saving";
+      dirtySectionsRef.current.delete(section);
+      return;
+    }
+    if (event === "saved" || event === "clear") {
+      sectionStatesRef.current[section] = "clean";
+      dirtySectionsRef.current.delete(section);
+      blockedFingerprintRef.current.delete(section);
+      pendingSectionSnapshotRef.current[section] = undefined;
+      queuedSectionSnapshotsRef.current[section] = undefined;
+      staleRetryRef.current.delete(`${activeQuarterId ?? ""}:${section}`);
+      return;
+    }
+    if (event === "blocked") {
+      sectionStatesRef.current[section] = "blocked";
+      dirtySectionsRef.current.delete(section);
+      return;
+    }
+    sectionStatesRef.current[section] = "conflict";
+    dirtySectionsRef.current.delete(section);
+  }, [activeQuarterId]);
+
+  const clearTransientAutosaveState = useCallback((targetWaveId?: string | null) => {
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    dirtySectionsRef.current.clear();
+    queuedAfterSaveRef.current = false;
+    queuedSectionSnapshotsRef.current = {};
+    pendingSectionSnapshotRef.current = {};
+    blockedFingerprintRef.current.clear();
+    setSectionErrors({});
+    setConflictSection(null);
+    setShowReloadAction(false);
+    staleRetryRef.current = targetWaveId
+      ? new Map(Array.from(staleRetryRef.current.entries()).filter(([key]) => !key.startsWith(`${targetWaveId}:`)))
+      : new Map();
+    sectionStatesRef.current = { ...INITIAL_SECTION_STATES };
   }, []);
 
-  // Save to localStorage on quarters change
+  const loadFromBackend = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    setSaveError(null);
+    setShowReloadAction(false);
+    clearTransientAutosaveState();
+    deletedWaveIdsRef.current.clear();
+    try {
+      const [waveList, sourceRows, gmRows] = await Promise.all([
+        fetchAdminPraemienWaves({ limit: 200, offset: 0 }),
+        fetchAdminPraemienSources(),
+        fetchGmUsers().catch(() => []),
+      ]);
+      const mappedSources: BonusSource[] = sourceRows.map((row) => ({
+        key: row.key,
+        sectionType: row.sectionType,
+        fragebogenId: row.fragebogenId ?? "",
+        fragebogenName: row.fragebogenName ?? "",
+        moduleId: row.moduleId ?? "",
+        moduleName: row.moduleName ?? "",
+        questionId: row.questionId,
+        questionText: row.questionText ?? "",
+        scoringKey: row.scoringKey,
+        boniValue: Number(row.boniValue ?? 0),
+        isFactorMode: Boolean(row.isFactorMode),
+        displayLabel: row.displayLabel ?? "",
+      }));
+      setBonusSources(mappedSources);
+      const mappedGmUsers: GmRosterEntry[] = gmRows.map((gm) => ({
+        id: gm.id,
+        name: `${gm.firstName} ${gm.lastName}`.trim(),
+        region: gm.region || "Unbekannt",
+      }));
+      setGmUsers(mappedGmUsers);
+
+      const waveIds = (waveList.waves ?? []).map((entry) => entry.id);
+      if (waveIds.length === 0) {
+        setQuarters([]);
+        setActiveQuarterId(null);
+        clearTransientAutosaveState();
+        return;
+      }
+      const loadedWavesRaw = await Promise.all(waveIds.map((waveId) => fetchAdminPraemienWave(waveId)));
+      const loadedWaves = loadedWavesRaw.map(toUiQuarter);
+      const activeWave = loadedWaves[0];
+      if (!activeWave) return;
+      isHydratingRef.current = true;
+      setQuarters(loadedWaves);
+      setActiveQuarterId(activeWave.id);
+      isHydratingRef.current = false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Praemien-Daten konnten nicht geladen werden.";
+      setLoadError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [clearTransientAutosaveState]);
+
   useEffect(() => {
-    if (!mounted) return;
-    try { localStorage.setItem(LS_KEY, JSON.stringify(quarters)); } catch {}
-  }, [quarters, mounted]);
+    loadFromBackend();
+  }, [loadFromBackend]);
 
-  // Normalize sources from all contexts
-  const fbNameMap: Record<string, string> = {};
-  for (const fb of fragebogenList) {
-    for (const mid of fb.moduleIds) fbNameMap[mid] = fb.name;
-  }
-
-  const realSources: BonusSource[] = [
-    ...normalizeSources(modules, fbNameMap, "standard"),
-    ...normalizeSources(flexModules, {}, "flex"),
-    ...normalizeSources(billaModules, {}, "billa"),
-    ...normalizeSources(kuehlerModules, {}, "kuehler"),
-    ...normalizeSources(mhdModules, {}, "mhd"),
-  ];
-
-  // Use real sources if available, otherwise mock
-  const bonusSources = realSources.length > 0 ? realSources : MOCK_SOURCES;
-
-  const totalPoints = bonusSources.reduce((n, s) => n + s.boniValue, 0);
+  useEffect(() => {
+    const activeId = activeQuarterId;
+    if (!activeId) return;
+    if (quarters.some((entry) => entry.id === activeId)) return;
+    setActiveQuarterId(quarters[0]?.id ?? null);
+  }, [quarters, activeQuarterId]);
 
   const activeQuarter = quarters.find(q => q.id === activeQuarterId) ?? null;
+  const gmRoster = gmUsers.length > 0 ? gmUsers : ALL_GMS;
+  const qualityPersistenceReady = gmUsers.length > 0;
+
+  useEffect(() => {
+    clearTransientAutosaveState();
+  }, [activeQuarterId, clearTransientAutosaveState]);
 
   const updateQuarter = useCallback((updated: PraemienQuarter) => {
-    setQuarters(prev => prev.map(q => q.id === updated.id ? updated : q));
-  }, []);
+    setSaveError(null);
+    setShowReloadAction(false);
+    setConflictSection(null);
+    setQuarters(prev => prev.map((q) => {
+      if (q.id !== updated.id) return q;
+      if (!isHydratingRef.current) {
+        const dirtySections = detectDirtySections(q, updated);
+        if (dirtySections.length > 0) {
+          let queuedNewWork = false;
+          for (const section of dirtySections) {
+            const snapshot = snapshotSectionPayload(updated, section);
+            const fingerprint = sectionPayloadFingerprint(snapshot);
+            const blockedFingerprint = blockedFingerprintRef.current.get(section);
+            if (blockedFingerprint && blockedFingerprint === fingerprint) {
+              continue;
+            }
+            if (blockedFingerprint && blockedFingerprint !== fingerprint) {
+              blockedFingerprintRef.current.delete(section);
+              setSectionErrors((prevErrors) => ({ ...prevErrors, [section]: undefined }));
+            }
+            queuedSectionSnapshotsRef.current[section] = snapshot;
+            transitionSectionState(section, "dirty");
+            queuedNewWork = true;
+          }
+          if (queuedNewWork) {
+            setDirtyVersion((version) => version + 1);
+          }
+        }
+      }
+      return updated;
+    }));
+  }, [transitionSectionState]);
 
-  const createNewQuarter = () => {
+  const createNewQuarter = async () => {
+    setSaveError(null);
+    setShowReloadAction(false);
     const now = new Date();
     const year = now.getFullYear();
     const q = (Math.floor(now.getMonth() / 3) + 1) as 1 | 2 | 3 | 4;
     const { startDate, endDate } = getQuarterDates(year, q);
-    const newQ: PraemienQuarter = {
-      id: uid(),
-      name: `Prämien Q${q} ${year}`,
-      year,
-      quarter: q,
-      status: "draft",
-      startDate,
-      endDate,
-      description: "",
-      pillars: buildDefaultPillars(),
-      thresholds: buildDefaultThresholds(bonusSources.reduce((n, s) => n + s.boniValue, 0)),
-      qualitySubmissions: [],
-      createdAt: new Date().toISOString(),
-    };
-    setQuarters(prev => [newQ, ...prev]);
-    setActiveQuarterId(newQ.id);
+    const defaultPillars = buildDefaultPillars();
+    const totalSourcePoints = bonusSources.reduce((n, s) => n + s.boniValue, 0);
+    const defaultThresholds = buildDefaultThresholds(totalSourcePoints);
+    try {
+      const createdRaw = await createAdminPraemienWave(toCreatePayload({
+        name: `Prämien Q${q} ${year}`,
+        year,
+        quarter: q,
+        startDate,
+        endDate,
+        description: "",
+        status: "draft",
+        thresholds: defaultThresholds,
+        pillars: defaultPillars,
+      }));
+      const created = toUiQuarter(createdRaw);
+      isHydratingRef.current = true;
+      setQuarters(prev => [created, ...prev.filter((entry) => entry.id !== created.id)]);
+      setActiveQuarterId(created.id);
+      isHydratingRef.current = false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Quartal konnte nicht erstellt werden.";
+      setSaveError(message);
+    }
   };
 
-  const issues = activeQuarter ? computeIssues(activeQuarter, bonusSources) : [];
+  const saveSection = useCallback(async (quarter: PraemienQuarter, section: AutosaveSection) => {
+    if (!quarter.id || !isUuid(quarter.id)) return quarter;
+    try {
+      if (section === "metadata") {
+        return await patchAdminPraemienWave(quarter.id, toPatchPayload(quarter));
+      }
+      if (section === "thresholds") {
+        return await replaceAdminPraemienThresholds(quarter.id, toThresholdsPayload(quarter));
+      }
+      if (section === "pillars") {
+        return await replaceAdminPraemienPillars(quarter.id, toPillarsPayload(quarter));
+      }
+      if (section === "sources") {
+        const serverPillarByName = new Map(quarter.pillars.map((entry) => [entry.name, entry.id]));
+        return await replaceAdminPraemienSources(quarter.id, toSourcesPayload(quarter, serverPillarByName));
+      }
+      return await replaceAdminPraemienQualityScores(quarter.id, toQualityPayload(quarter));
+    } catch (error) {
+      (error as { __praemienSection?: AutosaveSection }).__praemienSection = section;
+      throw error;
+    }
+  }, []);
+
+  const flushAutosaveQueue = useCallback(async () => {
+    if (saveInFlightRef.current) {
+      queuedAfterSaveRef.current = true;
+      return;
+    }
+    const currentQuarter = quarters.find((entry) => entry.id === activeQuarterId) ?? null;
+    if (!currentQuarter) return;
+    if (deletedWaveIdsRef.current.has(currentQuarter.id)) return;
+    const hasQueuedSections = AUTOSAVE_SECTION_ORDER.some((section) => Boolean(queuedSectionSnapshotsRef.current[section]));
+    if (!hasQueuedSections) return;
+
+    saveInFlightRef.current = true;
+    setIsSaving(true);
+    setSaveError(null);
+    setShowReloadAction(false);
+    try {
+      let latest = currentQuarter;
+      const sections = AUTOSAVE_SECTION_ORDER.filter((entry) => Boolean(queuedSectionSnapshotsRef.current[entry]));
+      for (const section of sections) {
+        const snapshot = queuedSectionSnapshotsRef.current[section];
+        if (!snapshot) continue;
+        const inFlightFingerprint = sectionPayloadFingerprint(snapshot);
+        queuedSectionSnapshotsRef.current[section] = undefined;
+        pendingSectionSnapshotRef.current[section] = snapshot;
+        transitionSectionState(section, "saving");
+        try {
+          const composedQuarter = applySectionPayloadSnapshot({ ...latest }, section, snapshot);
+          latest = await saveSection(composedQuarter, section);
+          setSectionErrors((prev) => ({ ...prev, [section]: undefined }));
+          pendingSectionSnapshotRef.current[section] = undefined;
+          if (latest.id) staleRetryRef.current.delete(`${latest.id}:${section}`);
+          const queuedSnapshot = queuedSectionSnapshotsRef.current[section];
+          if (!queuedSnapshot) {
+            transitionSectionState(section, "saved");
+          } else if (sectionPayloadFingerprint(queuedSnapshot) !== inFlightFingerprint) {
+            transitionSectionState(section, "dirty");
+          } else {
+            queuedSectionSnapshotsRef.current[section] = undefined;
+            transitionSectionState(section, "saved");
+          }
+        } catch (error) {
+          if (error instanceof BackendApiError && error.code === "wave_stale_write") {
+            transitionSectionState(section, "conflict");
+            throw error;
+          }
+          const sectionName = (error as { __praemienSection?: AutosaveSection }).__praemienSection ?? section;
+          const queuedSnapshot = queuedSectionSnapshotsRef.current[section];
+          const queuedFingerprint = queuedSnapshot ? sectionPayloadFingerprint(queuedSnapshot) : null;
+          if (!queuedFingerprint || queuedFingerprint === inFlightFingerprint) {
+            blockedFingerprintRef.current.set(sectionName, inFlightFingerprint);
+            transitionSectionState(sectionName, "blocked");
+          } else {
+            transitionSectionState(sectionName, "dirty");
+          }
+          setSectionErrors((prev) => ({
+            ...prev,
+            [sectionName]: formatSectionError(error),
+          }));
+          throw error;
+        }
+      }
+
+      isHydratingRef.current = true;
+      setQuarters((prev) => prev.map((entry) => (entry.id === latest.id ? latest : entry)));
+      isHydratingRef.current = false;
+    } finally {
+      setIsSaving(false);
+      saveInFlightRef.current = false;
+      const hasMoreQueued = AUTOSAVE_SECTION_ORDER.some((section) => Boolean(queuedSectionSnapshotsRef.current[section]));
+      if (queuedAfterSaveRef.current || hasMoreQueued) {
+        queuedAfterSaveRef.current = false;
+        setDirtyVersion((value) => value + 1);
+      }
+    }
+  }, [activeQuarterId, quarters, saveSection, transitionSectionState]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (isHydratingRef.current) return;
+    if (!activeQuarterId) return;
+    if (deletedWaveIdsRef.current.has(activeQuarterId)) return;
+    const hasQueuedSections = AUTOSAVE_SECTION_ORDER.some((section) => Boolean(queuedSectionSnapshotsRef.current[section]));
+    if (!hasQueuedSections) return;
+
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+
+    autosaveTimerRef.current = setTimeout(() => {
+      (async () => {
+        try {
+          await flushAutosaveQueue();
+        } catch (error) {
+          if (error instanceof BackendApiError && error.code === "wave_stale_write" && activeQuarterId) {
+            try {
+              const refreshed = await fetchAdminPraemienWave(activeQuarterId);
+              const section = (error as { __praemienSection?: AutosaveSection }).__praemienSection ?? "metadata";
+              const retryKey = `${activeQuarterId}:${section}`;
+              const retryCount = staleRetryRef.current.get(retryKey) ?? 0;
+              const pendingSnapshot = pendingSectionSnapshotRef.current[section];
+              if (pendingSnapshot && retryCount < 1) {
+                const merged = applySectionPayloadSnapshot(refreshed, section, pendingSnapshot);
+                staleRetryRef.current.set(retryKey, retryCount + 1);
+                queuedSectionSnapshotsRef.current[section] = pendingSnapshot;
+                transitionSectionState(section, "dirty");
+                isHydratingRef.current = true;
+                setQuarters((prev) => prev.map((entry) => (entry.id === merged.id ? merged : entry)));
+                isHydratingRef.current = false;
+                setConflictSection(section);
+                setSaveError(`Konflikt in ${AUTOSAVE_SECTION_LABELS[section]} erkannt: Neueste Server-Version geladen und lokale Änderung erneut angewendet.`);
+                setShowReloadAction(false);
+                setDirtyVersion((value) => value + 1);
+                return;
+              }
+              isHydratingRef.current = true;
+              setQuarters((prev) => prev.map((entry) => (entry.id === refreshed.id ? refreshed : entry)));
+              isHydratingRef.current = false;
+              setConflictSection(section);
+              transitionSectionState(section, "conflict");
+              setSaveError(`Konflikt in ${AUTOSAVE_SECTION_LABELS[section]}: Bitte lokale Änderung erneut anwenden oder Server-Version laden.`);
+              setShowReloadAction(true);
+              return;
+            } catch {
+              // fall through to generic handling
+            }
+          }
+          const section = (error as { __praemienSection?: AutosaveSection }).__praemienSection;
+          if (section) {
+            setSectionErrors((prev) => ({
+              ...prev,
+              [section]: formatSectionError(error),
+            }));
+          }
+          const message = error instanceof Error ? error.message : "Autosave fehlgeschlagen.";
+          setSaveError(message);
+        }
+      })();
+    }, WAVE_AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [activeQuarterId, dirtyVersion, flushAutosaveQueue, isLoading, transitionSectionState]);
+
+  const issues = activeQuarter ? computeIssues(activeQuarter, bonusSources, gmRoster) : [];
+  const unsavedSections = AUTOSAVE_SECTION_ORDER.filter((section) => {
+    const state = sectionStatesRef.current[section];
+    return state === "dirty" || state === "saving";
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -3229,6 +3955,7 @@ export default function PraemienPage() {
           onNew={createNewQuarter}
         />
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {isSaving && <span style={{ fontSize: 11, color: "rgba(0,0,0,0.45)", fontWeight: 600 }}>Speichert…</span>}
           <GhostBtn onClick={() => setShowLeaderboard(true)}>
             <Trophy size={11} strokeWidth={2} />
             Leaderboard
@@ -3236,29 +3963,151 @@ export default function PraemienPage() {
           {activeQuarter && (
             <>
               <GhostBtn onClick={() => {
-                const copy: PraemienQuarter = { ...activeQuarter, id: uid(), name: `Kopie von ${activeQuarter.name}`, status: "draft", createdAt: new Date().toISOString() };
-                setQuarters(prev => [copy, ...prev]);
-                setActiveQuarterId(copy.id);
+                void (async () => {
+                  try {
+                    const copy = await createAdminPraemienWave(toCreatePayload({
+                      name: `Kopie von ${activeQuarter.name}`,
+                      year: activeQuarter.year,
+                      quarter: activeQuarter.quarter,
+                      startDate: activeQuarter.startDate,
+                      endDate: activeQuarter.endDate,
+                      description: activeQuarter.description,
+                      status: "draft",
+                      thresholds: activeQuarter.thresholds,
+                      pillars: activeQuarter.pillars,
+                    }));
+                    isHydratingRef.current = true;
+                    setQuarters(prev => [copy, ...prev.filter((entry) => entry.id !== copy.id)]);
+                    setActiveQuarterId(copy.id);
+                    isHydratingRef.current = false;
+                  } catch (error) {
+                    setSaveError(error instanceof Error ? error.message : "Kopie konnte nicht erstellt werden.");
+                  }
+                })();
               }}>
                 <Copy size={11} strokeWidth={2} />
                 Duplizieren
               </GhostBtn>
-              <GhostBtn danger onClick={() => {
-                const filtered = quarters.filter(q => q.id !== activeQuarterId);
-                setQuarters(filtered);
-                setActiveQuarterId(filtered[0]?.id ?? null);
-              }}>
+              <GhostBtn
+                danger
+                disabled={isDeleting}
+                onClick={() => {
+                void (async () => {
+                  if (!activeQuarterId) return;
+                  const deletedWaveId = activeQuarterId;
+                  setIsDeleting(true);
+                  try {
+                    deletedWaveIdsRef.current.add(deletedWaveId);
+                    clearTransientAutosaveState(deletedWaveId);
+                    await deleteAdminPraemienWave(deletedWaveId);
+                    isHydratingRef.current = true;
+                    setQuarters((prev) => {
+                      const filtered = prev.filter((entry) => entry.id !== deletedWaveId);
+                      setActiveQuarterId((prevActive) => (
+                        prevActive === deletedWaveId ? (filtered[0]?.id ?? null) : prevActive
+                      ));
+                      return filtered;
+                    });
+                    isHydratingRef.current = false;
+                    setSaveError(null);
+                    setShowReloadAction(false);
+                    setConflictSection(null);
+                    staleRetryRef.current = new Map(
+                      Array.from(staleRetryRef.current.entries()).filter(([key]) => !key.startsWith(`${deletedWaveId}:`)),
+                    );
+                  } catch (error) {
+                    deletedWaveIdsRef.current.delete(deletedWaveId);
+                    setSaveError(error instanceof Error ? error.message : "Welle konnte nicht gelöscht werden.");
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                })();
+              }}
+              >
                 <Trash2 size={11} strokeWidth={2} />
-                Löschen
+                {isDeleting ? "Löscht…" : "Löschen"}
               </GhostBtn>
             </>
           )}
         </div>
       </div>
 
-      {!activeQuarter ? (
+      {loadError && (
+        <div style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.05)", color: "#991b1b", fontSize: 12 }}>
+          {loadError}
+        </div>
+      )}
+      {saveError && (
+        <div style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(245,158,11,0.28)", background: "rgba(245,158,11,0.08)", color: "#92400e", fontSize: 12 }}>
+          <div>{saveError}</div>
+          {showReloadAction && activeQuarterId && conflictSection && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={() => {
+                  void (async () => {
+                    const pendingSnapshot = pendingSectionSnapshotRef.current[conflictSection];
+                    if (!pendingSnapshot) return;
+                    try {
+                      const refreshed = await fetchAdminPraemienWave(activeQuarterId);
+                      const merged = applySectionPayloadSnapshot(refreshed, conflictSection, pendingSnapshot);
+                      queuedSectionSnapshotsRef.current[conflictSection] = pendingSnapshot;
+                      transitionSectionState(conflictSection, "dirty");
+                      isHydratingRef.current = true;
+                      setQuarters((prev) => prev.map((entry) => (entry.id === merged.id ? merged : entry)));
+                      isHydratingRef.current = false;
+                      setShowReloadAction(false);
+                      setSaveError(`Lokale Änderung für ${AUTOSAVE_SECTION_LABELS[conflictSection]} erneut vorgemerkt.`);
+                      setDirtyVersion((value) => value + 1);
+                    } catch (error) {
+                      setSaveError(error instanceof Error ? error.message : "Lokale Wiederholung fehlgeschlagen.");
+                    }
+                  })();
+                }}
+                style={{ border: "none", borderRadius: 6, padding: "6px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700, color: "#92400e", background: "rgba(146,64,14,0.14)" }}
+              >
+                Lokale Änderung erneut anwenden
+              </button>
+              <button
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const refreshed = await fetchAdminPraemienWave(activeQuarterId);
+                      isHydratingRef.current = true;
+                      setQuarters((prev) => prev.map((entry) => (entry.id === refreshed.id ? refreshed : entry)));
+                      isHydratingRef.current = false;
+                      transitionSectionState(conflictSection, "clear");
+                      setSectionErrors((prev) => ({ ...prev, [conflictSection]: undefined }));
+                      setShowReloadAction(false);
+                      setConflictSection(null);
+                      setSaveError(null);
+                    } catch (error) {
+                      setSaveError(error instanceof Error ? error.message : "Neu laden fehlgeschlagen.");
+                    }
+                  })();
+                }}
+                style={{ border: "none", borderRadius: 6, padding: "6px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700, color: "#92400e", background: "rgba(146,64,14,0.08)" }}
+              >
+                Neueste Version laden
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {unsavedSections.length > 0 && (
+        <div style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid rgba(59,130,246,0.2)", background: "rgba(59,130,246,0.06)", color: "#1d4ed8", fontSize: 11 }}>
+          Ungespeichert: {unsavedSections.map((section) => AUTOSAVE_SECTION_LABELS[section]).join(", ")}
+        </div>
+      )}
+
+      {isLoading ? (
+        <Card>
+          <div style={{ padding: "40px 24px", color: "rgba(0,0,0,0.45)", fontSize: 13 }}>Prämien werden geladen…</div>
+        </Card>
+      ) : null}
+
+      {!isLoading && !activeQuarter ? (
         <EmptyState onNew={createNewQuarter} />
-      ) : (
+      ) : !isLoading && activeQuarter ? (
         <div className="praemien-main" style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
 
           {/* ── Left main column ── */}
@@ -3267,19 +4116,27 @@ export default function PraemienPage() {
             <QuarterHeaderCard
               quarter={activeQuarter}
               onChange={updateQuarter}
+              gms={gmRoster}
               regionFilter={gmRegionFilter}
               onRegionChange={setGmRegionFilter}
               onOpenGmDetail={() => setShowGmProgress(true)}
             />
+            {sectionErrors.metadata && (
+              <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>Metadaten: {sectionErrors.metadata}</div>
+            )}
 
             <OverviewStrip
               quarter={activeQuarter}
+              gms={gmRoster}
               totalSources={bonusSources.length}
               totalPoints={Math.round(activeQuarter.pillars.reduce((n, p) => n + p.sourceRefs.reduce((s, r) => s + r.boniValue, 0), 0) * 10) / 10}
               issues={issues.length}
             />
 
             <ThresholdDesignerCard quarter={activeQuarter} onChange={updateQuarter} />
+            {sectionErrors.thresholds && (
+              <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>Schwellen: {sectionErrors.thresholds}</div>
+            )}
 
             {/* Pillars grid */}
             <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
@@ -3287,7 +4144,7 @@ export default function PraemienPage() {
               <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>4 Säulen · Boni-Gewichtung</span>
                 <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>
-                  Punkte pro Antwort — Ziel: {activeQuarter.thresholds.find(t => t.label === "Voller Bonus")?.minPoints ?? 0} P
+                  Punkte pro Antwort — Ziel: {activeQuarter.thresholds.find((t) => t.label === "Voller Bonus")?.minPoints ?? [...activeQuarter.thresholds].sort((a, b) => a.minPoints - b.minPoints).at(-1)?.minPoints ?? 0} P
                 </span>
               </div>
               {/* White inner card */}
@@ -3299,6 +4156,8 @@ export default function PraemienPage() {
                       pillar={p}
                       pillarIndex={i}
                       quarter={activeQuarter}
+                      gms={gmRoster}
+                      qualityPersistenceReady={qualityPersistenceReady}
                       onUpdateQuarter={updateQuarter}
                     />
                   ) : (
@@ -3320,26 +4179,35 @@ export default function PraemienPage() {
               </div>
               {/* end white inner card */}
             </div>
+            {(sectionErrors.pillars || sectionErrors.sources) && (
+              <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>
+                {sectionErrors.pillars ? `Säulen: ${sectionErrors.pillars}` : `Quellen: ${sectionErrors.sources}`}
+              </div>
+            )}
 
             <BonusSourceExplorer
               sources={bonusSources}
               quarter={activeQuarter}
               onChange={updateQuarter}
             />
+            {sectionErrors.quality && (
+              <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>Qualität: {sectionErrors.quality}</div>
+            )}
           </div>
 
           {/* ── Right sticky rail ── */}
           <div style={{ width: 288, flexShrink: 0, position: "sticky", top: 20 }}>
-            <ValidationRail quarter={activeQuarter} sources={bonusSources} />
+            <ValidationRail quarter={activeQuarter} sources={bonusSources} gms={gmRoster} />
             <GMPreviewCard quarter={activeQuarter} />
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* GM Progress Modal */}
       {showGmProgress && activeQuarter && (
         <GMProgressModal
           quarter={activeQuarter}
+          gms={gmRoster}
           initialRegion={gmRegionFilter}
           onClose={() => setShowGmProgress(false)}
         />

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { X, GripVertical, Plus, Search, Calendar, Check, ChevronDown, Trophy, Zap } from "lucide-react";
-import type { Fragebogen, MarketAssignment, Module } from "@/types/fragebogen";
+import type { Fragebogen, Module } from "@/types/fragebogen";
 import { typeBadgeColor, typeLabel } from "@/utils/fragebogen";
 
 // ── Purple accent colours ──────────────────────────────────────
@@ -194,23 +194,6 @@ function chainColor(key: string): { bg: string; text: string } {
   return { bg: "rgba(0,0,0,0.04)", text: "#6b7280" };
 }
 
-function buildRedMonats(): { label: string; start: Date; end: Date }[] {
-  const anchor = new Date(new Date().getFullYear(), 0, 1);
-  const pattern = [4, 4, 5];
-  const result: { label: string; start: Date; end: Date }[] = [];
-  let cursor = new Date(anchor);
-  for (let i = 0; i < 13; i++) {
-    const weeks = pattern[i % 3];
-    const start = new Date(cursor);
-    const end = new Date(cursor);
-    end.setDate(end.getDate() + weeks * 7 - 1);
-    result.push({ label: `RED Monat ${i + 1}`, start, end });
-    cursor = new Date(cursor);
-    cursor.setDate(cursor.getDate() + weeks * 7);
-  }
-  return result;
-}
-const RED_MONATS = buildRedMonats();
 const ALL_CHAINS = Array.from(new Set(TEMP_MARKETS.map((m) => m.chain))).sort();
 const ALL_PLZS = Array.from(new Set(TEMP_MARKETS.map((m) => m.address.match(/\d{4}/)?.[0] ?? ""))).filter(Boolean).sort();
 
@@ -517,7 +500,7 @@ export function MhdFragebogenEditor({
   availableModules,
 }: {
   onClose: () => void;
-  onSave: (f: Fragebogen) => void;
+  onSave: (f: Fragebogen) => Promise<void> | void;
   existingFragebogen?: Fragebogen;
   availableModules: Module[];
 }) {
@@ -528,19 +511,11 @@ export function MhdFragebogenEditor({
     if (!existingFragebogen) return [];
     return existingFragebogen.moduleIds.map((id) => availableModules.find((m) => m.id === id)).filter((m): m is Module => !!m);
   });
-  const [selectedMarketIds, setSelectedMarketIds] = useState<Set<string>>(new Set(existingFragebogen?.markets.map((m) => m.marketId) ?? []));
-  const [scheduleType, setScheduleType] = useState<"always" | "scheduled">(existingFragebogen?.scheduleType ?? "always");
-  const [startDate, setStartDate] = useState(existingFragebogen?.startDate ?? "");
-  const [endDate, setEndDate] = useState(existingFragebogen?.endDate ?? "");
   const [moduleSearch, setModuleSearch] = useState("");
-  const [marketSearch, setMarketSearch] = useState("");
-  const [filterChain, setFilterChain] = useState<string[]>([]);
-  const [filterPlz, setFilterPlz] = useState<string[]>([]);
-  const [filterRedMonat, setFilterRedMonat] = useState<string | null>(null);
-  const [openFilter, setOpenFilter] = useState<"chain" | "plz" | "redmonat" | null>(null);
   const [expandedRowIds, setExpandedRowIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ moduleId: string; x: number; y: number } | null>(null);
   const [previewModule, setPreviewModule] = useState<Module | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const dragFrom = useRef<number | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -575,48 +550,32 @@ export function MhdFragebogenEditor({
     setExpandedRowIds((prev) => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s; });
   };
 
-  const toggleMarket = (id: string) => {
-    setSelectedMarketIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  };
-
-  const computeStatus = (): "active" | "scheduled" | "inactive" => {
-    if (scheduleType === "always") return "active";
-    const now = new Date();
-    const start = startDate ? new Date(startDate) : null;
-    const end = endDate ? new Date(endDate) : null;
-    if (end && now > end) return "inactive";
-    if (start && now < start) return "scheduled";
-    return "active";
-  };
-
-  const handleSave = () => {
-    const markets: MarketAssignment[] = TEMP_MARKETS
-      .filter((m) => selectedMarketIds.has(m.id))
-      .map((m) => ({ marketId: m.id, name: `${m.chain} ${m.address.split(",")[0]}`, chain: m.chain }));
+  const handleSave = async () => {
+    if (isSaving) return;
     const fb: Fragebogen = {
       id: existingFragebogen?.id ?? nextId(),
       name: name || "Unbenannter Fragebogen",
       description,
       moduleIds: selectedModules.map((m) => m.id),
-      markets,
-      scheduleType,
-      startDate: scheduleType === "scheduled" ? startDate : undefined,
-      endDate: scheduleType === "scheduled" ? endDate : undefined,
+      markets: existingFragebogen?.markets ?? [],
+      scheduleType: existingFragebogen?.scheduleType ?? "always",
+      startDate: existingFragebogen?.startDate,
+      endDate: existingFragebogen?.endDate,
       createdAt: existingFragebogen?.createdAt ?? new Date().toISOString(),
-      status: computeStatus(),
+      status: existingFragebogen?.status ?? "active",
       nurEinmalAusfuellbar: nurEinmal,
+      spezialfragen: existingFragebogen?.spezialfragen ?? [],
+      sectionKeywords: existingFragebogen?.sectionKeywords,
     };
-    onSave(fb);
+    setIsSaving(true);
+    try {
+      await onSave(fb);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const filteredLibraryModules = availableModules.filter((m) => (m.name || "").toLowerCase().includes(moduleSearch.toLowerCase()));
-  const filteredMarkets = TEMP_MARKETS.filter((m) => {
-    const matchSearch = !marketSearch || m.chain.toLowerCase().includes(marketSearch.toLowerCase()) || m.address.toLowerCase().includes(marketSearch.toLowerCase());
-    const matchChain = filterChain.length === 0 || filterChain.includes(m.chain);
-    const matchPlz = filterPlz.length === 0 || filterPlz.some((p) => m.address.includes(p));
-    return matchSearch && matchChain && matchPlz;
-  });
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape" && !previewModule && !contextMenu) onClose(); };
     window.addEventListener("keydown", handler);
@@ -639,7 +598,13 @@ export function MhdFragebogenEditor({
           <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em", flex: 1 }}>
             {existingFragebogen ? "MHD-Fragebogen bearbeiten" : "Neuer MHD-Fragebogen"}
           </span>
-          <button onClick={handleSave} style={{ ...btnBase, padding: "7px 18px", fontSize: 11, ...btnActive }}>Speichern</button>
+          <button
+            onClick={() => { void handleSave(); }}
+            disabled={isSaving}
+            style={{ ...btnBase, padding: "7px 18px", fontSize: 11, ...btnActive, cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.8 : 1 }}
+          >
+            {isSaving ? "Speichern..." : "Speichern"}
+          </button>
         </div>
 
         {/* Body */}
@@ -749,156 +714,9 @@ export function MhdFragebogenEditor({
               )}
             </div>
 
-            {/* Section 3: Zuweisung & Zeitplan */}
-            <div style={sectionStyle}>
-              <div style={sectionHeadingStyle}>Zuweisung &amp; Zeitplan</div>
-              <div style={{ display: "flex", gap: 24 }}>
-                {/* Markets */}
-                <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Märkte{selectedMarketIds.size > 0 ? ` · ${selectedMarketIds.size} ausgewählt` : ""}</label>
-
-                  <div style={{ position: "relative", marginBottom: 8 }}>
-                    <Search size={11} strokeWidth={1.8} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "rgba(0,0,0,0.3)", pointerEvents: "none" }} />
-                    <input type="text" placeholder="Märkte suchen..." value={marketSearch} onChange={(e) => setMarketSearch(e.target.value)} style={searchInputStyle} />
-                  </div>
-
-                  {/* Filter bar */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-                    {/* Handelskette */}
-                    <div style={{ position: "relative" }}>
-                      <button onClick={() => setOpenFilter(openFilter === "chain" ? null : "chain")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, fontSize: 10, fontWeight: 500, border: filterChain.length > 0 ? `1px solid rgba(124,58,237,0.25)` : "1px solid rgba(0,0,0,0.08)", backgroundColor: filterChain.length > 0 ? P_BG_FAINT : "#fff", color: filterChain.length > 0 ? PD : "rgba(0,0,0,0.55)", cursor: "pointer", transition: "all 0.15s ease", fontFamily: "inherit" }}>
-                        Handelskette
-                        {filterChain.length > 0 && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 10, backgroundColor: PD, color: "#fff", lineHeight: 1.4 }}>{filterChain.length}</span>}
-                        <ChevronDown size={10} strokeWidth={2} style={{ transition: "transform 0.2s ease", transform: openFilter === "chain" ? "rotate(180deg)" : "rotate(0deg)" }} />
-                      </button>
-                      {openFilter === "chain" && (
-                        <FilterDropdown mode="multi" options={ALL_CHAINS.map((c) => { const clr = chainColor(c); return { value: c, label: c, badge: { bg: clr.bg, text: clr.text } }; })} selected={filterChain} onToggle={(v) => setFilterChain((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])} onClear={() => setFilterChain([])} onClose={() => setOpenFilter(null)} />
-                      )}
-                    </div>
-
-                    {/* PLZ */}
-                    <div style={{ position: "relative" }}>
-                      <button onClick={() => setOpenFilter(openFilter === "plz" ? null : "plz")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, fontSize: 10, fontWeight: 500, border: filterPlz.length > 0 ? `1px solid rgba(124,58,237,0.25)` : "1px solid rgba(0,0,0,0.08)", backgroundColor: filterPlz.length > 0 ? P_BG_FAINT : "#fff", color: filterPlz.length > 0 ? PD : "rgba(0,0,0,0.55)", cursor: "pointer", transition: "all 0.15s ease", fontFamily: "inherit" }}>
-                        PLZ
-                        {filterPlz.length > 0 && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 10, backgroundColor: PD, color: "#fff", lineHeight: 1.4 }}>{filterPlz.length}</span>}
-                        <ChevronDown size={10} strokeWidth={2} style={{ transition: "transform 0.2s ease", transform: openFilter === "plz" ? "rotate(180deg)" : "rotate(0deg)" }} />
-                      </button>
-                      {openFilter === "plz" && (
-                        <FilterDropdown mode="multi" options={ALL_PLZS.map((p) => ({ value: p, label: `${p} Wien` }))} selected={filterPlz} onToggle={(v) => setFilterPlz((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])} onClear={() => setFilterPlz([])} onClose={() => setOpenFilter(null)} />
-                      )}
-                    </div>
-
-                    {/* RED Monat */}
-                    <div style={{ position: "relative" }}>
-                      <button onClick={() => setOpenFilter(openFilter === "redmonat" ? null : "redmonat")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, fontSize: 10, fontWeight: 500, border: filterRedMonat ? `1px solid rgba(124,58,237,0.25)` : "1px solid rgba(0,0,0,0.08)", backgroundColor: filterRedMonat ? P_BG_FAINT : "#fff", color: filterRedMonat ? PD : "rgba(0,0,0,0.55)", cursor: "pointer", transition: "all 0.15s ease", fontFamily: "inherit" }}>
-                        {filterRedMonat ?? "RED Monat"}
-                        <ChevronDown size={10} strokeWidth={2} style={{ transition: "transform 0.2s ease", transform: openFilter === "redmonat" ? "rotate(180deg)" : "rotate(0deg)" }} />
-                      </button>
-                      {openFilter === "redmonat" && (
-                        <FilterDropdown mode="single" options={RED_MONATS.map((rm) => ({ value: rm.label, label: rm.label, sub: `${fmtDate(rm.start)} – ${fmtDate(rm.end)}` }))} selected={filterRedMonat} onSelect={(v) => setFilterRedMonat(v)} onClose={() => setOpenFilter(null)} />
-                      )}
-                    </div>
-
-                    {/* Alle auswählen + reset */}
-                    <div style={{ marginLeft: "auto", display: "flex", alignItems: "stretch", gap: 5 }}>
-                      {(() => {
-                        const allFilteredSelected = filteredMarkets.length > 0 && filteredMarkets.every((m) => selectedMarketIds.has(m.id));
-                        return (
-                          <button
-                            onClick={() => {
-                              if (allFilteredSelected) { setSelectedMarketIds((prev) => { const next = new Set(prev); filteredMarkets.forEach((m) => next.delete(m.id)); return next; }); }
-                              else { setSelectedMarketIds((prev) => { const next = new Set(prev); filteredMarkets.forEach((m) => next.add(m.id)); return next; }); }
-                            }}
-                            style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 7, fontSize: 10, fontWeight: 600, background: `linear-gradient(to bottom, ${P}, ${PD})`, color: "#fff", boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${PR}, 0 1px 6px rgba(124,58,237,0.25)`, border: "none", cursor: "pointer", fontFamily: "inherit", transition: "opacity 0.15s ease" }}
-                            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
-                            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-                          >
-                            {allFilteredSelected ? "Alle abwählen" : "Alle auswählen"}
-                            {filteredMarkets.length < TEMP_MARKETS.length && <span style={{ opacity: 0.8, fontWeight: 400 }}>({filteredMarkets.length})</span>}
-                          </button>
-                        );
-                      })()}
-                      {(filterChain.length > 0 || filterPlz.length > 0 || filterRedMonat) && (
-                        <button onClick={() => { setFilterChain([]); setFilterPlz([]); setFilterRedMonat(null); setOpenFilter(null); }} title="Filter zurücksetzen" style={{ display: "flex", alignItems: "center", justifyContent: "center", alignSelf: "stretch", padding: "0 10px", borderRadius: 7, flexShrink: 0, background: "linear-gradient(to bottom, #1a1a1a, #111111)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.12), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 0 1px #000, 0 1px 6px rgba(0,0,0,0.22)", border: "none", cursor: "pointer", color: "#fff", transition: "opacity 0.15s ease" }} onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.75")} onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}>
-                          <X size={11} strokeWidth={2.5} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Active filter summary */}
-                  {(filterChain.length > 0 || filterPlz.length > 0 || filterRedMonat) && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8, padding: "6px 10px", borderRadius: 8, backgroundColor: P_BG_FAINT }}>
-                      <span style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", fontWeight: 500, flexShrink: 0 }}>{filteredMarkets.length} / {TEMP_MARKETS.length} Märkte</span>
-                      {filterChain.length > 0 && <button onClick={() => setFilterChain([])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 5, fontSize: 9, fontWeight: 600, backgroundColor: P_BG, color: PD, border: "none", cursor: "pointer", fontFamily: "inherit" }}>{filterChain.join(", ")}<X size={8} strokeWidth={2.5} /></button>}
-                      {filterPlz.length > 0 && <button onClick={() => setFilterPlz([])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 5, fontSize: 9, fontWeight: 600, backgroundColor: P_BG, color: PD, border: "none", cursor: "pointer", fontFamily: "inherit" }}>PLZ: {filterPlz.join(", ")}<X size={8} strokeWidth={2.5} /></button>}
-                      {filterRedMonat && <button onClick={() => setFilterRedMonat(null)} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 5, fontSize: 9, fontWeight: 600, backgroundColor: P_BG, color: PD, border: "none", cursor: "pointer", fontFamily: "inherit" }}>{filterRedMonat}<X size={8} strokeWidth={2.5} /></button>}
-                    </div>
-                  )}
-
-                  {/* Market list */}
-                  <div style={{ maxHeight: 220, overflowY: "auto", scrollbarWidth: "none" as const }}>
-                    {filteredMarkets.length === 0 ? (
-                      <div style={{ textAlign: "center", padding: "20px 0", fontSize: 10, color: "rgba(0,0,0,0.25)" }}>Keine Märkte gefunden</div>
-                    ) : (
-                      filteredMarkets.map((m) => {
-                        const c = chainColor(m.chain);
-                        const checked = selectedMarketIds.has(m.id);
-                        return (
-                          <div key={m.id} onClick={() => toggleMarket(m.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 4px", cursor: "pointer", borderBottom: "1px solid rgba(0,0,0,0.03)", transition: "background-color 0.1s ease", borderRadius: 4 }} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.015)")} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}>
-                            <div style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, border: checked ? "none" : "1.5px solid rgba(0,0,0,0.15)", backgroundColor: checked ? PD : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s ease" }}>
-                              {checked && <Check size={8} strokeWidth={3} color="#fff" />}
-                            </div>
-                            <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 4, backgroundColor: c.bg, color: c.text, flexShrink: 0 }}>{m.chain}</span>
-                            <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.address}</span>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-
-                {/* Vertical divider */}
-                <div style={{ width: 1, background: "linear-gradient(to bottom, transparent, rgba(0,0,0,0.06) 50%, transparent)", flexShrink: 0 }} />
-
-                {/* Schedule */}
-                <div style={{ width: 220, flexShrink: 0 }}>
-                  <label style={labelStyle}>Zeitplan</label>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 16, width: "100%" }}>
-                    <button onClick={() => setScheduleType("always")} style={{ ...btnBase, flex: 1, textAlign: "center", ...(scheduleType === "always" ? btnActive : btnInactive) }}>Immer aktiv</button>
-                    <button onClick={() => setScheduleType("scheduled")} style={{ ...btnBase, flex: 1, textAlign: "center", ...(scheduleType === "scheduled" ? btnActive : btnInactive) }}>Zeitraum</button>
-                  </div>
-
-                  {scheduleType === "scheduled" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                      <div>
-                        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 5 }}><Calendar size={9} strokeWidth={2} />Von</label>
-                        <DatePicker value={startDate} onChange={setStartDate} placeholder="Startdatum wählen" />
-                      </div>
-                      <div>
-                        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 5 }}><Calendar size={9} strokeWidth={2} />Bis</label>
-                        <DatePicker value={endDate} onChange={setEndDate} placeholder="Enddatum wählen" />
-                      </div>
-                      {startDate && endDate && (
-                        <div style={{ padding: "8px 12px", borderRadius: 8, backgroundColor: P_BG_FAINT, fontSize: 10, color: "rgba(0,0,0,0.4)", lineHeight: 1.5, textAlign: "center" }}>
-                          {new Date(startDate).toLocaleDateString("de-AT")} → {new Date(endDate).toLocaleDateString("de-AT")}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {scheduleType === "always" && (
-                    <div style={{ padding: "10px 12px", borderRadius: 8, backgroundColor: "rgba(5,150,105,0.05)", fontSize: 10, color: "#059669", fontWeight: 500, lineHeight: 1.5 }}>
-                      Dieser Fragebogen ist dauerhaft aktiv und läuft bis er manuell deaktiviert wird.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
-
       {/* Context menu */}
       {contextMenu && (
         <ContextMenu x={contextMenu.x} y={contextMenu.y}

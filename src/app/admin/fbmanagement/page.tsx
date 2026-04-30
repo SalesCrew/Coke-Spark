@@ -1,160 +1,47 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
+import type { Campaign, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
+import type { ConditionalRule, Fragebogen, Module, Question } from "@/types/fragebogen";
+import {
+  assignCampaignMarketAssignments,
+  assignCampaignMarkets,
+  fetchCampaignMarketVisitSummaries,
+  fetchCampaigns,
+  fetchFragebogen,
+  fetchMarkets,
+  fetchModules,
+  getCampaignOverlapConflicts,
+  migrateCampaignMarkets,
+  removeCampaignMarket,
+  switchCampaignFragebogen,
+} from "@/lib/api/backend";
+import type { CampaignMarketVisitSummary } from "@/lib/api/backend";
 
-// ── Mock data ─────────────────────────────────────────────────
+type FragebogenOption = {
+  id: string;
+  name: string;
+  modules: number;
+  questions: number;
+};
 
-const CAMPAIGNS = [
-  // ── Aktiv ─────────────────────────────────────────────────
-  {
-    id: "1",
-    name: "Standardbesuch KW12",
-    type: "standard",
-    color: "#DC2626",
-    inactive: false,
-    period: "17.03 – 23.03.2026",
-    filled: 1240,
-    total: 2800,
-    todayNew: 87,
-    thisWeek: 412,
-    regions: [
-      { name: "Nord", pct: 94 },
-      { name: "Ost", pct: 38 },
-      { name: "Süd", pct: 31 },
-      { name: "West", pct: 14 },
-    ],
-  },
-  {
-    id: "2",
-    name: "Flexbesuch April",
-    type: "flex",
-    color: "#84CC16",
-    inactive: false,
-    period: "01.04 – 30.04.2026",
-    filled: 640,
-    total: 2800,
-    todayNew: 52,
-    thisWeek: 198,
-    regions: [
-      { name: "Nord", pct: 28 },
-      { name: "Ost", pct: 21 },
-      { name: "Süd", pct: 18 },
-      { name: "West", pct: 24 },
-    ],
-  },
-  {
-    id: "3",
-    name: "Kühlerinventur März",
-    type: "kuehler",
-    color: "#D97706",
-    inactive: false,
-    period: "01.03 – 31.03.2026",
-    filled: 3104,
-    total: 3200,
-    todayNew: 4,
-    thisWeek: 29,
-    regions: [
-      { name: "Nord", pct: 99 },
-      { name: "Ost", pct: 97 },
-      { name: "Süd", pct: 95 },
-      { name: "West", pct: 96 },
-    ],
-  },
-  {
-    id: "4",
-    name: "MHD Kontrolle KW11",
-    type: "mhd",
-    color: "#7C3AED",
-    inactive: false,
-    period: "10.03 – 16.03.2026",
-    filled: 410,
-    total: 1200,
-    todayNew: 33,
-    thisWeek: 140,
-    regions: [
-      { name: "Nord", pct: 41 },
-      { name: "Ost", pct: 35 },
-      { name: "Süd", pct: 30 },
-      { name: "West", pct: 28 },
-    ],
-  },
-  {
-    id: "5",
-    name: "Billa Frühjahr 2026",
-    type: "billa",
-    color: "#0891B2",
-    inactive: false,
-    period: "01.03 – 30.06.2026",
-    filled: 88,
-    total: 540,
-    todayNew: 11,
-    thisWeek: 44,
-    regions: [
-      { name: "Nord", pct: 12 },
-      { name: "Ost", pct: 19 },
-      { name: "Süd", pct: 14 },
-      { name: "West", pct: 17 },
-    ],
-  },
-  // ── Inaktiv ───────────────────────────────────────────────
-  {
-    id: "6",
-    name: "Standardbesuch KW08",
-    type: "standard",
-    color: "#DC2626",
-    inactive: true,
-    period: "17.02 – 23.02.2026",
-    filled: 2800,
-    total: 2800,
-    todayNew: 0,
-    thisWeek: 0,
-    regions: [
-      { name: "Nord", pct: 100 },
-      { name: "Ost", pct: 100 },
-      { name: "Süd", pct: 100 },
-      { name: "West", pct: 100 },
-    ],
-  },
-  {
-    id: "7",
-    name: "Flexbesuch März",
-    type: "flex",
-    color: "#84CC16",
-    inactive: true,
-    period: "01.03 – 31.03.2026",
-    filled: 1820,
-    total: 1950,
-    todayNew: 0,
-    thisWeek: 0,
-    regions: [
-      { name: "Nord", pct: 98 },
-      { name: "Ost", pct: 91 },
-      { name: "Süd", pct: 95 },
-      { name: "West", pct: 88 },
-    ],
-  },
-  {
-    id: "8",
-    name: "Kühlerinventur Februar",
-    type: "kuehler",
-    color: "#D97706",
-    inactive: true,
-    period: "01.02 – 28.02.2026",
-    filled: 3200,
-    total: 3200,
-    todayNew: 0,
-    thisWeek: 0,
-    regions: [
-      { name: "Nord", pct: 100 },
-      { name: "Ost", pct: 100 },
-      { name: "Süd", pct: 100 },
-      { name: "West", pct: 100 },
-    ],
-  },
-];
+const SECTION_COLORS: Record<CampaignSection, string> = {
+  standard: "#DC2626",
+  flex: "#84CC16",
+  kuehler: "#D97706",
+  mhd: "#7C3AED",
+  billa: "#0891B2",
+};
+
+const MARKET_LIST_INITIAL_LIMIT = 120;
+const MARKET_LIST_LOAD_STEP = 120;
+const ADD_PANEL_INITIAL_LIMIT = 80;
+const ADD_PANEL_LOAD_STEP = 80;
+
+// ── Static UI helpers ─────────────────────────────────────────
 
 interface MarketCatalogItem {
   id: string;
@@ -166,6 +53,8 @@ interface MarketCatalogItem {
   gm: string;
   finished: boolean;
 }
+
+type CampaignVisitSummaryByMarket = Record<string, CampaignMarketVisitSummary>;
 
 interface MarketListFilters {
   chain: string | null;
@@ -202,15 +91,6 @@ const MARKET_CATALOG: MarketCatalogItem[] = [
   { id: "m24", name: "Spar Wien Mitte",         chain: "Spar",   city: "Wien",        region: "Ost",  address: "Landstr. Hauptstr. 1b, 1030 Wien",        gm: "Thomas Huber",   finished: false },
 ];
 
-const INITIAL_CAMPAIGN_MARKET_IDS: Record<string, string[]> = {
-  "1": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10","m11","m12","m13","m14","m15","m16"],
-  "2": ["m1","m2","m3","m4","m5","m6","m7","m8"],
-  "3": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10","m11","m12","m13","m14","m15","m16"],
-  "4": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10"],
-  "5": ["m1","m2","m5","m7","m8","m11","m15","m16"],
-  "6": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10","m11","m12","m13","m14","m15","m16"],
-};
-
 function applyMarketFilters(
   markets: MarketCatalogItem[],
   search: string,
@@ -234,62 +114,6 @@ function applyMarketFilters(
 
 // Keep a thin alias so MOCK_MARKET_META still resolves cleanly
 const MOCK_MARKETS = MARKET_CATALOG;
-
-// ── Mock Fragebogen per section type ─────────────────────────
-
-interface MockFragebogen {
-  id: string;
-  name: string;
-  modules: number;
-  questions: number;
-  active: boolean;
-}
-
-const MOCK_FRAGEBOGEN: Record<string, MockFragebogen[]> = {
-  standard: [
-    { id: "sf1", name: "Standardbesuch KW12", modules: 3, questions: 67, active: true },
-    { id: "sf2", name: "Standardbesuch V2", modules: 4, questions: 82, active: false },
-    { id: "sf3", name: "Standardbesuch Basis", modules: 2, questions: 34, active: false },
-    { id: "sf4", name: "Standardbesuch Erweitert", modules: 5, questions: 95, active: false },
-    { id: "sf5", name: "Standardbesuch KW08", modules: 3, questions: 67, active: false },
-    { id: "sf6", name: "Standardbesuch Kompakt", modules: 2, questions: 28, active: false },
-    { id: "sf7", name: "Standardbesuch Premium", modules: 6, questions: 110, active: false },
-    { id: "sf8", name: "Standardbesuch Q1 2026", modules: 4, questions: 74, active: false },
-  ],
-  flex: [
-    { id: "ff1", name: "Flexbesuch April", modules: 3, questions: 42, active: true },
-    { id: "ff2", name: "Flexbesuch Sommer", modules: 2, questions: 28, active: false },
-    { id: "ff3", name: "Flexbesuch Kompakt", modules: 1, questions: 15, active: false },
-    { id: "ff4", name: "Flexbesuch Basis", modules: 2, questions: 22, active: false },
-    { id: "ff5", name: "Flexbesuch Erweitert", modules: 4, questions: 55, active: false },
-    { id: "ff6", name: "Flexbesuch Q2 2026", modules: 3, questions: 38, active: false },
-  ],
-  kuehler: [
-    { id: "kf1", name: "Kühlerinventur Standard", modules: 3, questions: 6, active: true },
-    { id: "kf2", name: "Kühlerinventur Detailliert", modules: 4, questions: 12, active: false },
-    { id: "kf3", name: "Kühlerinventur Express", modules: 2, questions: 4, active: false },
-    { id: "kf4", name: "Kühlerinventur Premium", modules: 5, questions: 18, active: false },
-    { id: "kf5", name: "Kühlerinventur Kompakt", modules: 2, questions: 5, active: false },
-    { id: "kf6", name: "Kühlerinventur Q1 2026", modules: 3, questions: 8, active: false },
-  ],
-  mhd: [
-    { id: "mf1", name: "MHD Kontrolle Standard", modules: 3, questions: 7, active: true },
-    { id: "mf2", name: "MHD Kontrolle Erweitert", modules: 4, questions: 14, active: false },
-    { id: "mf3", name: "MHD Kontrolle Schnell", modules: 2, questions: 5, active: false },
-    { id: "mf4", name: "MHD Kontrolle Detailliert", modules: 5, questions: 20, active: false },
-    { id: "mf5", name: "MHD Kontrolle Basis", modules: 2, questions: 6, active: false },
-    { id: "mf6", name: "MHD Q1 2026", modules: 3, questions: 9, active: false },
-  ],
-  billa: [
-    { id: "bf1", name: "Billa Frühjahr 2026", modules: 4, questions: 8, active: true },
-    { id: "bf2", name: "Billa Sommer Aktion", modules: 3, questions: 10, active: false },
-    { id: "bf3", name: "Billa Standard Check", modules: 2, questions: 6, active: false },
-    { id: "bf4", name: "Billa Premium Audit", modules: 5, questions: 16, active: false },
-    { id: "bf5", name: "Billa Kompakt", modules: 2, questions: 5, active: false },
-    { id: "bf6", name: "Billa Q2 2026", modules: 3, questions: 11, active: false },
-    { id: "bf7", name: "Billa Erweitert", modules: 6, questions: 22, active: false },
-  ],
-};
 
 // ── Fragebogen Vorschau ──────────────────────────────────────
 
@@ -315,6 +139,66 @@ interface PreviewQuestion {
     columns?: string[];
     answers?: string[];
     branches?: { answer: string; options: string[] }[];
+    matrixSubtype?: string;
+  };
+  rules?: ConditionalRule[];
+}
+
+type FragebogenScopeKey = "main" | "kuehler" | "mhd";
+
+function sectionToScope(section: CampaignSection): FragebogenScopeKey {
+  if (section === "kuehler") return "kuehler";
+  if (section === "mhd") return "mhd";
+  return "main";
+}
+
+function getStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.filter((entry): entry is string => typeof entry === "string");
+  return items.length > 0 ? items : undefined;
+}
+
+function toPreviewQuestion(question: Question, moduleId: string, moduleName: string): PreviewQuestion {
+  const config = question.config ?? {};
+  const numericValue = (raw: unknown) => (typeof raw === "number" ? raw : undefined);
+  const stringValue = (raw: unknown) => (typeof raw === "string" ? raw : undefined);
+  const branchesRaw = Array.isArray(config.branches) ? config.branches : [];
+  const branches = branchesRaw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const value = entry as Record<string, unknown>;
+      const answer = typeof value.answer === "string" ? value.answer : "";
+      const options = getStringArray(value.options) ?? [];
+      if (!answer) return null;
+      return { answer, options };
+    })
+    .filter((entry): entry is { answer: string; options: string[] } => Boolean(entry));
+
+  return {
+    id: question.id,
+    type: question.type,
+    text: question.text,
+    options: getStringArray(config.options),
+    required: question.required,
+    moduleId,
+    moduleName,
+    imageUrl: stringValue(config.imageUrl),
+    rules: question.rules ?? [],
+    config: {
+      min: numericValue(config.min),
+      max: numericValue(config.max),
+      minLabel: stringValue(config.minLabel),
+      maxLabel: stringValue(config.maxLabel),
+      step: numericValue(config.step),
+      unit: stringValue(config.unit),
+      decimals: typeof config.decimals === "boolean" ? config.decimals : undefined,
+      instruction: stringValue(config.instruction),
+      rows: getStringArray(config.rows),
+      columns: getStringArray(config.columns),
+      answers: getStringArray(config.answers),
+      branches: branches.length > 0 ? branches : undefined,
+      matrixSubtype: stringValue(config.matrixSubtype),
+    },
   };
 }
 
@@ -2755,13 +2639,93 @@ function FragebogenVorschau({
   const [direction, setDirection] = useState<"forward" | "backward">("forward");
   const [animKey, setAnimKey] = useState("s0-init");
 
-  const currentQ = questions[currentQIndex];
+  const normalizeAnswer = (answer: string | string[] | undefined) => {
+    if (Array.isArray(answer)) return answer.map((value) => String(value).trim().toLowerCase());
+    if (answer == null) return [];
+    return [String(answer).trim().toLowerCase()];
+  };
+
+  const evaluateRule = (rule: ConditionalRule, triggerAnswer: string | string[] | undefined) => {
+    const values = normalizeAnswer(triggerAnswer);
+    if (values.length === 0) return false;
+    const expected = String(rule.triggerValue ?? "").trim().toLowerCase();
+    const expectedMax = String(rule.triggerValueMax ?? "").trim().toLowerCase();
+
+    if (rule.operator === "equals") return values.includes(expected);
+    if (rule.operator === "not_equals") return !values.includes(expected);
+    if (rule.operator === "includes") return values.some((value) => value.includes(expected));
+    if (rule.operator === "not_includes") return values.every((value) => !value.includes(expected));
+
+    const valueNum = Number(values[0]);
+    const expectedNum = Number(expected);
+    const expectedMaxNum = Number(expectedMax);
+    if (Number.isNaN(valueNum) || Number.isNaN(expectedNum)) return false;
+    if (rule.operator === "gt") return valueNum > expectedNum;
+    if (rule.operator === "gte") return valueNum >= expectedNum;
+    if (rule.operator === "lt") return valueNum < expectedNum;
+    if (rule.operator === "lte") return valueNum <= expectedNum;
+    if (rule.operator === "between" && !Number.isNaN(expectedMaxNum)) {
+      return valueNum >= expectedNum && valueNum <= expectedMaxNum;
+    }
+    return false;
+  };
+
+  const visibleQuestions = useMemo(() => {
+    if (showHeatmap) return questions;
+    if (questions.length === 0) return [];
+
+    const visibility = new Map<string, boolean>();
+    for (const question of questions) visibility.set(question.id, true);
+
+    const showTargetIds = new Set<string>();
+    for (const question of questions) {
+      for (const rule of question.rules ?? []) {
+        if (rule.action === "show") {
+          for (const targetId of rule.targetQuestionIds ?? []) {
+            showTargetIds.add(targetId);
+          }
+        }
+      }
+    }
+    for (const targetId of showTargetIds) {
+      if (visibility.has(targetId)) visibility.set(targetId, false);
+    }
+
+    for (const question of questions) {
+      const questionRules = question.rules ?? [];
+      if (questionRules.length === 0) continue;
+      for (const rule of questionRules) {
+        const triggerAnswer = answers[rule.triggerQuestionId];
+        const matched = evaluateRule(rule, triggerAnswer);
+        if (!matched) continue;
+        for (const targetId of rule.targetQuestionIds ?? []) {
+          if (!visibility.has(targetId)) continue;
+          if (rule.action === "hide") visibility.set(targetId, false);
+          if (rule.action === "show") visibility.set(targetId, true);
+        }
+      }
+    }
+
+    return questions.filter((question) => visibility.get(question.id) !== false);
+  }, [answers, questions, showHeatmap]);
+
+  useEffect(() => {
+    if (visibleQuestions.length === 0) {
+      setCurrentQIndex(0);
+      return;
+    }
+    if (currentQIndex > visibleQuestions.length - 1) {
+      setCurrentQIndex(visibleQuestions.length - 1);
+    }
+  }, [currentQIndex, visibleQuestions.length]);
+
+  const currentQ = visibleQuestions[currentQIndex];
   const currentAnswer = answers[currentQ?.id];
-  const answeredCount = questions.filter((q) => answers[q.id] !== undefined).length;
-  const allAnswered = answeredCount === questions.length;
+  const answeredCount = visibleQuestions.filter((q) => answers[q.id] !== undefined).length;
+  const allAnswered = visibleQuestions.length > 0 && answeredCount === visibleQuestions.length;
 
   const goNext = () => {
-    if (currentQIndex < questions.length - 1) {
+    if (currentQIndex < visibleQuestions.length - 1) {
       setDirection("forward");
       setAnimKey(`s${currentQIndex + 1}-fwd`);
       setCurrentQIndex((i) => i + 1);
@@ -2801,8 +2765,8 @@ function FragebogenVorschau({
 
           <div style={{ flex: 1, minWidth: 0, position: "relative", height: 10, display: "flex", alignItems: "center" }}>
             {(() => {
-              const n = questions.length;
-              const lastIdx = questions.reduce((acc, q, i) => answers[q.id] !== undefined ? i : acc, -1);
+              const n = visibleQuestions.length;
+              const lastIdx = visibleQuestions.reduce((acc, q, i) => answers[q.id] !== undefined ? i : acc, -1);
               const fillPct = n <= 1 ? 0 : (lastIdx / (n - 1)) * 100;
               const tColor = allAnswered ? "rgba(34,197,94,0.18)" : "rgba(0,0,0,0.08)";
               const fColor = allAnswered ? "linear-gradient(to right, #16a34a, #22c55e)" : `linear-gradient(to right, #b91c1c, ${accentColor})`;
@@ -2810,7 +2774,7 @@ function FragebogenVorschau({
                 <>
                   <div style={{ position: "absolute", left: 0, right: 0, height: 1.5, borderRadius: 1, backgroundColor: tColor }} />
                   <div style={{ position: "absolute", left: 0, width: `${fillPct}%`, height: 1.5, borderRadius: 1, background: fColor, transition: "width 0.35s ease" }} />
-                  {questions.map((q, i) => {
+                  {visibleQuestions.map((q, i) => {
                     const done = answers[q.id] !== undefined;
                     const cur = i === currentQIndex;
                     const lp = n === 1 ? 50 : (i / (n - 1)) * 100;
@@ -2827,7 +2791,7 @@ function FragebogenVorschau({
             })()}
           </div>
 
-          <span style={{ fontSize: 6.5, fontWeight: 600, color: "rgba(0,0,0,0.3)", whiteSpace: "nowrap" }}>{answeredCount}/{questions.length}</span>
+          <span style={{ fontSize: 6.5, fontWeight: 600, color: "rgba(0,0,0,0.3)", whiteSpace: "nowrap" }}>{answeredCount}/{visibleQuestions.length}</span>
         </div>
       </div>
 
@@ -2847,7 +2811,7 @@ function FragebogenVorschau({
           padding: "8px 8px 7px", boxShadow: "0 2px 12px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.04)",
         }}>
           <div style={{ fontSize: 6, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(0,0,0,0.25)", marginBottom: 5 }}>
-            Frage {currentQIndex + 1} von {questions.length}
+            Frage {currentQIndex + 1} von {visibleQuestions.length}
           </div>
           {showHeatmap ? (
             <HeatmapQuestionCard
@@ -2896,7 +2860,7 @@ function FragebogenVorschau({
           transition: "all 0.18s ease",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 2,
         }}>
-          {currentQIndex < questions.length - 1 ? "Weiter" : "Abschließen"}
+          {currentQIndex < visibleQuestions.length - 1 ? "Weiter" : "Abschließen"}
           <ChevronRight size={8} strokeWidth={2.5} />
         </button>
         </div>
@@ -2907,14 +2871,31 @@ function FragebogenVorschau({
 
 // ── Fragebogen Switcher Overlay ───────────────────────────────
 
-function FragebogenSwitcher({ campaignType, campaignColor }: { campaignType: string; campaignColor: string }) {
+function FragebogenSwitcher({
+  campaignColor,
+  options,
+  activeId,
+  onSwitch,
+  isSwitching,
+  disabled = false,
+}: {
+  campaignColor: string;
+  options: FragebogenOption[];
+  activeId: string | null;
+  onSwitch: (nextId: string) => Promise<void>;
+  isSwitching: boolean;
+  disabled?: boolean;
+}) {
   const [isHovered, setIsHovered] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [closing, setClosing] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const list = MOCK_FRAGEBOGEN[campaignType] || MOCK_FRAGEBOGEN["standard"];
-  const [activeId, setActiveId] = useState(() => list.find((f) => f.active)?.id || list[0].id);
+  const list = useMemo(
+    () =>
+      options.filter((entry, index, all) => all.findIndex((candidate) => candidate.id === entry.id) === index),
+    [options],
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -2923,8 +2904,11 @@ function FragebogenSwitcher({ campaignType, campaignColor }: { campaignType: str
   const VISIBLE = 5;
 
   const getOrderedList = (q: string) => {
-    const activeFbItem = list.find((f) => f.id === activeId) || list[0];
-    const others = list.filter((f) => f.id !== activeId && (!q || f.name.toLowerCase().includes(q.toLowerCase())));
+    const normalizedQuery = q.trim().toLowerCase();
+    const filtered = list.filter((entry) => !normalizedQuery || entry.name.toLowerCase().includes(normalizedQuery));
+    const activeFbItem = activeId ? filtered.find((entry) => entry.id === activeId) ?? null : null;
+    if (!activeFbItem) return filtered;
+    const others = filtered.filter((entry) => entry.id !== activeFbItem.id);
     const half = Math.floor(others.length / 2);
     return [...others.slice(0, half), activeFbItem, ...others.slice(half)];
   };
@@ -2938,7 +2922,7 @@ function FragebogenSwitcher({ campaignType, campaignColor }: { campaignType: str
     listRef.current.scrollTop = Math.max(0, scrollTop);
   }, [activeId, list]); // eslint-disable-line
 
-  const activeFb = list.find((f) => f.id === activeId) || list[0];
+  const activeFb = activeId ? list.find((entry) => entry.id === activeId) ?? null : null;
 
   const close = useCallback(() => {
     setClosing(true);
@@ -2979,9 +2963,20 @@ function FragebogenSwitcher({ campaignType, campaignColor }: { campaignType: str
     return `rgba(${r},${g},${b},${a})`;
   };
 
-  const confirmSwitch = () => {
-    if (pendingSwitch) { setActiveId(pendingSwitch); setPendingSwitch(null); close(); }
+  const confirmSwitch = async () => {
+    if (!pendingSwitch || pendingSwitch === activeId || isSwitching) return;
+    await onSwitch(pendingSwitch);
+    setPendingSwitch(null);
+    close();
   };
+
+  if (list.length === 0) {
+    return (
+      <div style={{ width: 200, flexShrink: 0, borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)", padding: "10px 12px", fontSize: 11, color: "rgba(0,0,0,0.45)" }}>
+        Kein Fragebogen in dieser Sektion.
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} style={{ position: "relative", width: 200, flexShrink: 0 }}>
@@ -2996,29 +2991,44 @@ function FragebogenSwitcher({ campaignType, campaignColor }: { campaignType: str
       <div
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        onClick={() => { if (!isExpanded) { setIsExpanded(true); setIsHovered(false); } }}
+        onClick={() => { if (!isExpanded && !disabled) { setIsExpanded(true); setIsHovered(false); } }}
         style={{
           width: "100%", padding: "13px 16px", borderRadius: 10,
           background: `linear-gradient(135deg, ${accentRgba(0.06)} 0%, ${accentRgba(0.03)} 100%)`,
           border: `1px solid ${isHovered && !isExpanded ? accentRgba(0.35) : accentRgba(0.15)}`,
           display: "flex", flexDirection: "column", justifyContent: "center", gap: 5,
-          cursor: isExpanded ? "default" : "pointer",
+          cursor: isExpanded ? "default" : disabled ? "not-allowed" : "pointer",
           transform: isHovered && !isExpanded ? "scale(1.015)" : "scale(1)",
           transition: "transform 0.22s cubic-bezier(0.4,0,0.2,1), border-color 0.22s ease, box-shadow 0.22s ease, opacity 0.15s ease",
           boxShadow: isHovered && !isExpanded ? `0 0 0 3px ${accentRgba(0.08)}, 0 4px 12px ${accentRgba(0.1)}` : "none",
           position: "relative", zIndex: isExpanded ? 51 : 1,
-          opacity: isExpanded ? 0 : 1, pointerEvents: isExpanded ? "none" : "auto",
+          opacity: isExpanded ? 0 : disabled ? 0.65 : 1, pointerEvents: isExpanded ? "none" : "auto",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.02em", lineHeight: 1.2 }}>{activeFb.name}</span>
-          <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#16a34a", flexShrink: 0, boxShadow: "0 0 0 2px rgba(22,163,74,0.15)" }} />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 9, fontWeight: 500, color: accentRgba(0.5), letterSpacing: "0.02em" }}>{activeFb.modules} Module</span>
-          <div style={{ width: 3, height: 3, borderRadius: "50%", backgroundColor: accentRgba(0.25) }} />
-          <span style={{ fontSize: 9, fontWeight: 500, color: accentRgba(0.5), letterSpacing: "0.02em" }}>{activeFb.questions} Fragen</span>
-        </div>
+        {activeFb ? (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.02em", lineHeight: 1.2 }}>{activeFb.name}</span>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#16a34a", flexShrink: 0, boxShadow: "0 0 0 2px rgba(22,163,74,0.15)" }} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 9, fontWeight: 500, color: accentRgba(0.5), letterSpacing: "0.02em" }}>{activeFb.modules} Module</span>
+              <div style={{ width: 3, height: 3, borderRadius: "50%", backgroundColor: accentRgba(0.25) }} />
+              <span style={{ fontSize: 9, fontWeight: 500, color: accentRgba(0.5), letterSpacing: "0.02em" }}>{activeFb.questions} Fragen</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(0,0,0,0.68)", letterSpacing: "-0.01em", lineHeight: 1.2 }}>
+                Kein Fragebogen zugewiesen
+              </span>
+            </div>
+            <div style={{ fontSize: 9, fontWeight: 500, color: "rgba(0,0,0,0.44)", letterSpacing: "0.02em" }}>
+              Wähle einen Fragebogen für diese Kampagne.
+            </div>
+          </>
+        )}
         {/* Hover hint */}
         <span style={{
           position: "absolute", bottom: 3, right: 8, fontSize: 7, fontWeight: 600,
@@ -3124,14 +3134,15 @@ function FragebogenSwitcher({ campaignType, campaignColor }: { campaignType: str
                     boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)",
                     transition: "all 0.15s ease",
                   }}>Abbrechen</button>
-                  <button onClick={confirmSwitch} style={{
+                  <button onClick={() => { void confirmSwitch(); }} disabled={isSwitching} style={{
                     flex: 1, padding: "6px 10px", borderRadius: 8, border: "none",
                     background: `linear-gradient(to bottom, color-mix(in srgb, ${campaignColor} 70%, white), ${campaignColor})`,
-                    cursor: "pointer",
+                    cursor: isSwitching ? "wait" : "pointer",
                     fontSize: 9, fontWeight: 600, color: "#fff",
                     boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${campaignColor}, 0 1px 6px ${accentRgba(0.27)}`,
                     transition: "all 0.15s ease",
-                  }}>Bestätigen</button>
+                    opacity: isSwitching ? 0.7 : 1,
+                  }}>{isSwitching ? "Wechsel..." : "Bestätigen"}</button>
                 </div>
               </div>
             )}
@@ -3254,16 +3265,17 @@ function computeIPP(answers: Record<string, string | string[]>, questions: Previ
 
 // ── Answer display renderers ──────────────────────────────────
 
-function AnswerYesNo({ answer, color }: { answer: string; color: string }) {
-  const isJa = answer === "Ja" || answer === "ja";
+function AnswerYesNo({ answer, color, options }: { answer: string; color: string; options?: string[] }) {
+  const normalizedOptions = (options ?? []).filter((entry) => entry.trim().length > 0);
+  const optionSet = normalizedOptions.length > 0 ? normalizedOptions : ["Ja", "Nein"];
   const hex = color.replace("#", "");
   const cr = parseInt(hex.substring(0, 2), 16);
   const cg = parseInt(hex.substring(2, 4), 16);
   const cb = parseInt(hex.substring(4, 6), 16);
   return (
     <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
-      {["Ja", "Nein"].map((opt) => {
-        const sel = isJa ? opt === "Ja" : opt === "Nein";
+      {optionSet.map((opt) => {
+        const sel = opt === answer;
         return (
           <div key={opt} style={{
             flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 11, fontWeight: 700,
@@ -3545,7 +3557,28 @@ function AnswerSlider({ answer, config, color }: { answer: string; config: Previ
   );
 }
 
-function AnswerPhoto({ answer }: { answer: string[] }) {
+type AnswerPhotoEntry = {
+  src: string;
+  tags: string[];
+};
+
+function normalizeReplayPhotoSrc(storagePath: string, storageBucket: string): string {
+  const raw = (storagePath ?? "").trim();
+  if (!raw) return "";
+  if (/^(https?:|data:image\/|blob:|\/)/i.test(raw)) return raw;
+
+  const supabaseBase = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim().replace(/\/$/, "");
+  if (!supabaseBase || !storageBucket) return raw;
+
+  const normalizedPath = raw.replace(/^\/+/, "");
+  const bucketPrefix = `${storageBucket}/`;
+  const pathWithinBucket = normalizedPath.toLowerCase().startsWith(bucketPrefix.toLowerCase())
+    ? normalizedPath.slice(bucketPrefix.length)
+    : normalizedPath;
+  return `${supabaseBase}/storage/v1/object/public/${storageBucket}/${pathWithinBucket}`;
+}
+
+function AnswerPhoto({ answer }: { answer: AnswerPhotoEntry[] }) {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [hovered, setHovered] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -3566,13 +3599,22 @@ function AnswerPhoto({ answer }: { answer: string[] }) {
   const overlay = lightbox !== null && mounted ? createPortal(
     <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
-        {isReal(answer[lightbox]) ? (
+        {isReal(answer[lightbox].src) ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={answer[lightbox]} alt="" style={{ maxWidth: "88vw", maxHeight: "78vh", borderRadius: 14, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.5)", display: "block" }} />
+          <img src={answer[lightbox].src} alt="" style={{ maxWidth: "88vw", maxHeight: "78vh", borderRadius: 14, objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.5)", display: "block" }} />
         ) : (
           <div style={{ width: 320, height: 240, borderRadius: 14, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
             <Camera size={32} strokeWidth={1.5} color="rgba(255,255,255,0.35)" />
-            <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", fontWeight: 500 }}>{getFileName(answer[lightbox], lightbox)}</span>
+            <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", fontWeight: 500 }}>{getFileName(answer[lightbox].src, lightbox)}</span>
+          </div>
+        )}
+        {answer[lightbox].tags.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxWidth: "88vw", marginTop: 10 }}>
+            {answer[lightbox].tags.map((tag) => (
+              <span key={`${lightbox}-${tag}`} style={{ fontSize: 11, color: "rgba(255,255,255,0.82)", background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.28)", borderRadius: 999, padding: "2px 8px" }}>
+                {tag}
+              </span>
+            ))}
           </div>
         )}
         <button onClick={() => setLightbox(null)} style={{ position: "absolute", top: -14, right: -14, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
@@ -3592,9 +3634,9 @@ function AnswerPhoto({ answer }: { answer: string[] }) {
     <>
       <div style={{ marginTop: 8, display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
         {Array.from({ length: visibleCount }).map((_, i) => {
-          const src = answer[i];
-          const name = getFileName(src, i);
-          const real = isReal(src);
+          const entry = answer[i];
+          const name = getFileName(entry.src, i);
+          const real = isReal(entry.src);
           return (
             <div
               key={i}
@@ -3614,6 +3656,18 @@ function AnswerPhoto({ answer }: { answer: string[] }) {
                 <Camera size={11} strokeWidth={1.8} color="rgba(0,0,0,0.35)" style={{ flexShrink: 0 }} />
                 <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.55)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 80 }}>{name}</span>
               </div>
+              {entry.tags.length > 0 && (
+                <div style={{ marginTop: 4, display: "flex", gap: 3, flexWrap: "wrap", maxWidth: 140 }}>
+                  {entry.tags.slice(0, 2).map((tag) => (
+                    <span key={`${i}-${tag}`} style={{ fontSize: 8, fontWeight: 600, color: "rgba(0,0,0,0.48)", background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 999, padding: "1px 5px" }}>
+                      {tag}
+                    </span>
+                  ))}
+                  {entry.tags.length > 2 && (
+                    <span style={{ fontSize: 8, fontWeight: 600, color: "rgba(0,0,0,0.45)" }}>+{entry.tags.length - 2}</span>
+                  )}
+                </div>
+              )}
               {/* Hover preview */}
               {hovered === i && real && (
                 <div style={{
@@ -3623,7 +3677,7 @@ function AnswerPhoto({ answer }: { answer: string[] }) {
                   background: "#fff", padding: 3, pointerEvents: "none",
                 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 7, display: "block" }} />
+                  <img src={entry.src} alt="" style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 7, display: "block" }} />
                 </div>
               )}
             </div>
@@ -3638,13 +3692,20 @@ function AnswerPhoto({ answer }: { answer: string[] }) {
   );
 }
 
-function AnswerMatrix({ answer, config, color }: { answer: string[]; config: PreviewQuestion["config"]; color: string }) {
+function AnswerMatrix({ answer, config, color }: { answer: string[] | Record<string, string>; config: PreviewQuestion["config"]; color: string }) {
   const rows = config?.rows || [];
   const cols = config?.columns || [];
+  const subtype = String(config?.matrixSubtype ?? "toggle");
   const hex = color.replace("#", "");
   const r = parseInt(hex.substring(0, 2), 16);
   const g = parseInt(hex.substring(2, 4), 16);
   const b = parseInt(hex.substring(4, 6), 16);
+  const answerMap = !Array.isArray(answer) ? answer : {};
+  const formatDate = (raw: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (!match) return raw;
+    return `${match[3]}.${match[2]}.${match[1]}`;
+  };
   return (
     <div style={{ marginTop: 10, overflowX: "auto" }}>
       <table style={{ borderCollapse: "separate", borderSpacing: 2 }}>
@@ -3662,16 +3723,31 @@ function AnswerMatrix({ answer, config, color }: { answer: string[]; config: Pre
               <td style={{ width: 88, padding: "4px 6px", fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.65)" }}>{row}</td>
               {cols.map((col) => {
                 const key = `${row}: ${col}`;
-                const sel = answer.includes(key);
+                const sel = Array.isArray(answer) && answer.includes(key);
+                const cellValue = answerMap[key] ?? "";
                 return (
                   <td key={col} style={{ textAlign: "center", padding: "2px" }}>
                     <div style={{
-                      width: 28, height: 28, borderRadius: 6, margin: "0 auto",
-                      background: sel ? `rgba(${r},${g},${b},0.10)` : "rgba(0,0,0,0.03)",
-                      boxShadow: sel ? `inset 0 0 0 1.5px rgba(${r},${g},${b},0.4)` : "inset 0 0 0 1px rgba(0,0,0,0.07)",
+                      minWidth: subtype === "toggle" ? 28 : 74,
+                      minHeight: 28,
+                      borderRadius: 6,
+                      margin: "0 auto",
+                      padding: subtype === "toggle" ? 0 : "6px 7px",
+                      background: subtype === "toggle"
+                        ? sel ? `rgba(${r},${g},${b},0.10)` : "rgba(0,0,0,0.03)"
+                        : cellValue ? `rgba(${r},${g},${b},0.08)` : "rgba(0,0,0,0.03)",
+                      boxShadow: subtype === "toggle"
+                        ? sel ? `inset 0 0 0 1.5px rgba(${r},${g},${b},0.4)` : "inset 0 0 0 1px rgba(0,0,0,0.07)"
+                        : cellValue ? `inset 0 0 0 1px rgba(${r},${g},${b},0.24)` : "inset 0 0 0 1px rgba(0,0,0,0.07)",
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}>
-                      {sel && <span style={{ fontSize: 9, fontWeight: 700, color, lineHeight: 1 }}>✓</span>}
+                      {subtype === "toggle" ? (
+                        sel && <span style={{ fontSize: 9, fontWeight: 700, color, lineHeight: 1 }}>✓</span>
+                      ) : (
+                        <span style={{ fontSize: 9, fontWeight: 600, color: cellValue ? "#1f2937" : "rgba(0,0,0,0.24)", lineHeight: 1.15 }}>
+                          {cellValue ? (subtype === "datum" ? formatDate(cellValue) : cellValue) : "—"}
+                        </span>
+                      )}
                     </div>
                   </td>
                 );
@@ -3688,29 +3764,136 @@ function AnswerMatrix({ answer, config, color }: { answer: string[]; config: Pre
 
 function MarketVisitDetail({
   market,
-  campaignType,
   campaignColor,
+  visitSummary,
   onClose,
 }: {
   market: MarketCatalogItem;
-  campaignType: string;
   campaignColor: string;
+  visitSummary: CampaignMarketVisitSummary | null;
   onClose: () => void;
 }) {
-  const meta = MOCK_MARKET_META[market.id];
-  const answers = MOCK_MARKET_ANSWERS[campaignType] || {};
-  const questions: PreviewQuestion[] =
-    campaignType === "flex" ? FLEX_PREVIEW_QUESTIONS :
-    campaignType === "kuehler" ? KUEHLER_PREVIEW_QUESTIONS :
-    campaignType === "mhd" ? MHD_PREVIEW_QUESTIONS :
-    campaignType === "billa" ? BILLA_PREVIEW_QUESTIONS :
-    PREVIEW_QUESTIONS;
+  type SessionQuestionView = PreviewQuestion & {
+    answerStatus: "unanswered" | "answered" | "invalid" | "hidden_by_rule" | "skipped";
+    validationError: string | null;
+    rawAnswer: string | string[] | Record<string, string> | AnswerPhotoEntry[] | undefined;
+  };
 
-  const showIPP = ["standard", "flex", "billa"].includes(campaignType);
-  const ipp = showIPP ? computeIPP(answers, questions) : null;
+  const sections = visitSummary?.sections ?? [];
+  const mappedQuestions = useMemo<SessionQuestionView[]>(() => {
+    const result: SessionQuestionView[] = [];
+    for (const section of sections) {
+      for (const question of section.questions) {
+        const optionValues = Array.isArray((question.config ?? {}).options)
+          ? (question.config.options as string[])
+          : [];
+        const yesNoAnswers = Array.isArray((question.config ?? {}).answers)
+          ? (question.config.answers as string[])
+          : [];
+        let rawAnswer: SessionQuestionView["rawAnswer"] = undefined;
+        if (question.answer) {
+          if (question.type === "multiple") {
+            rawAnswer = (question.answer.options ?? [])
+              .filter((opt) => opt.optionRole === "sub")
+              .sort((a, b) => a.orderIndex - b.orderIndex)
+              .map((opt) => opt.optionValue);
+          } else if (question.type === "yesnomulti") {
+            const top = (question.answer.options ?? []).find((opt) => opt.optionRole === "top")?.optionValue ?? "";
+            const subs = (question.answer.options ?? [])
+              .filter((opt) => opt.optionRole === "sub")
+              .sort((a, b) => a.orderIndex - b.orderIndex)
+              .map((opt) => opt.optionValue);
+            rawAnswer = top ? JSON.stringify({ sel: top, subs }) : undefined;
+          } else if (question.type === "matrix") {
+            const subtype = String((question.config ?? {}).matrixSubtype ?? "toggle");
+            if (subtype === "toggle") {
+              rawAnswer = (question.answer.matrixCells ?? [])
+                .filter((cell) => cell.cellSelected)
+                .sort((a, b) => a.orderIndex - b.orderIndex)
+                .map((cell) => `${cell.rowKey}: ${cell.columnKey}`);
+            } else if (subtype === "datum") {
+              rawAnswer = Object.fromEntries(
+                (question.answer.matrixCells ?? [])
+                  .sort((a, b) => a.orderIndex - b.orderIndex)
+                  .map((cell) => [`${cell.rowKey}: ${cell.columnKey}`, cell.cellValueDate ?? ""]),
+              );
+            } else {
+              rawAnswer = Object.fromEntries(
+                (question.answer.matrixCells ?? [])
+                  .sort((a, b) => a.orderIndex - b.orderIndex)
+                  .map((cell) => [`${cell.rowKey}: ${cell.columnKey}`, cell.cellValueText ?? ""]),
+              );
+            }
+          } else if (question.type === "photo") {
+            rawAnswer = (question.answer.photos ?? []).map((photo) => ({
+              src: normalizeReplayPhotoSrc(photo.storagePath, photo.storageBucket),
+              tags: (photo.tags ?? [])
+                .map((tag) => tag.photoTagLabelSnapshot)
+                .filter((label) => label.trim().length > 0),
+            }));
+          } else if (question.type === "numeric" || question.type === "slider" || question.type === "likert") {
+            rawAnswer = question.answer.valueNumber ?? question.answer.valueText ?? undefined;
+          } else {
+            rawAnswer = question.answer.valueText ?? undefined;
+          }
+        }
 
-  const visitDate = meta ? new Date(meta.visitedAt).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
-  const visitTime = meta ? new Date(meta.visitedAt).toLocaleTimeString("de-AT", { hour: "2-digit", minute: "2-digit" }) : "—";
+        result.push({
+          id: question.id,
+          type: question.type,
+          text: question.text,
+          required: question.required,
+          moduleId: question.moduleId || `${section.id}-${question.id}`,
+          moduleName: question.moduleName || "Modul",
+          options: optionValues.length > 0 ? optionValues : undefined,
+          config: {
+            min: typeof question.config.min === "number" ? question.config.min : undefined,
+            max: typeof question.config.max === "number" ? question.config.max : undefined,
+            minLabel: typeof question.config.minLabel === "string" ? question.config.minLabel : undefined,
+            maxLabel: typeof question.config.maxLabel === "string" ? question.config.maxLabel : undefined,
+            step: typeof question.config.step === "number" ? question.config.step : undefined,
+            unit: typeof question.config.unit === "string" ? question.config.unit : undefined,
+            decimals: typeof question.config.decimals === "boolean" ? question.config.decimals : undefined,
+            instruction: typeof question.config.instruction === "string" ? question.config.instruction : undefined,
+            rows: Array.isArray(question.config.rows) ? (question.config.rows as string[]) : undefined,
+            columns: Array.isArray(question.config.columns) ? (question.config.columns as string[]) : undefined,
+            answers: yesNoAnswers.length > 0 ? yesNoAnswers : undefined,
+            branches: Array.isArray(question.config.branches) ? (question.config.branches as { answer: string; options: string[] }[]) : undefined,
+            matrixSubtype: typeof question.config.matrixSubtype === "string" ? question.config.matrixSubtype : undefined,
+          },
+          rules: [],
+          answerStatus: question.answer?.answerStatus ?? "unanswered",
+          validationError: question.answer?.validationError ?? null,
+          rawAnswer,
+        });
+      }
+    }
+    return result.filter((question) => {
+      const source = sections
+        .flatMap((section) => section.questions)
+        .find((entry) => entry.id === question.id);
+      return source?.visibility?.isVisibleAtSubmit ?? true;
+    });
+  }, [sections]);
+
+  const questions = mappedQuestions;
+
+  const answerByQuestionId = useMemo(() => {
+    const mapped: Record<string, SessionQuestionView["rawAnswer"]> = {};
+    for (const question of questions) {
+      mapped[question.id] = question.rawAnswer;
+    }
+    return mapped;
+  }, [questions]);
+
+  const answeredCount = useMemo(
+    () => questions.filter((question) => question.answerStatus === "answered").length,
+    [questions],
+  );
+
+  const submittedAtRaw = visitSummary?.submittedAt ?? visitSummary?.startedAt ?? null;
+  const visitDate = submittedAtRaw ? new Date(submittedAtRaw).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
+  const visitTime = submittedAtRaw ? new Date(submittedAtRaw).toLocaleTimeString("de-AT", { hour: "2-digit", minute: "2-digit" }) : "—";
 
   const hex = campaignColor.replace("#", "");
   const cr = parseInt(hex.substring(0, 2), 16);
@@ -3718,7 +3901,7 @@ function MarketVisitDetail({
   const cb = parseInt(hex.substring(4, 6), 16);
 
   // Group questions by module
-  const modules: { id: string; name: string; questions: PreviewQuestion[] }[] = [];
+  const modules: { id: string; name: string; questions: SessionQuestionView[] }[] = [];
   for (const q of questions) {
     const existing = modules.find((m) => m.id === q.moduleId);
     if (existing) existing.questions.push(q);
@@ -3766,20 +3949,41 @@ function MarketVisitDetail({
     body.scrollTo({ top: target, behavior: "smooth" });
   };
 
-  const renderAnswer = (q: PreviewQuestion) => {
-    const raw = answers[q.id];
+  const renderAnswer = (q: SessionQuestionView) => {
+    const raw = answerByQuestionId[q.id];
+    if (q.answerStatus === "invalid") {
+      return (
+        <p style={{ margin: "6px 0 0", fontSize: 10, color: "#DC2626", fontWeight: 600 }}>
+          Ungültige Antwort{q.validationError ? `: ${q.validationError}` : ""}
+        </p>
+      );
+    }
     if (raw === undefined) return <p style={{ margin: "6px 0 0", fontSize: 10, color: "rgba(0,0,0,0.3)", fontStyle: "italic" }}>Keine Antwort</p>;
     switch (q.type) {
-      case "yesno": return <AnswerYesNo answer={raw as string} color={campaignColor} />;
+      case "yesno": {
+        const options = Array.isArray(q.options) && q.options.length > 0
+          ? q.options
+          : Array.isArray(q.config?.answers)
+            ? q.config.answers
+            : undefined;
+        return <AnswerYesNo answer={raw as string} color={campaignColor} options={options} />;
+      }
       case "single": return <AnswerSingle answer={raw as string} options={q.options || []} color={campaignColor} />;
-      case "multiple": return <AnswerMultiple answer={Array.isArray(raw) ? raw : []} options={q.options || []} color={campaignColor} />;
+      case "multiple":
+        return (
+          <AnswerMultiple
+            answer={Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === "string") : []}
+            options={q.options || []}
+            color={campaignColor}
+          />
+        );
       case "yesnomulti": return <AnswerYesNoMulti answer={raw as string} color={campaignColor} config={q.config} />;
       case "likert": return <AnswerLikert answer={raw as string} config={q.config} />;
       case "text": return <AnswerText answer={raw as string} />;
       case "numeric": return <AnswerNumeric answer={raw as string} config={q.config} />;
       case "slider": return <AnswerSlider answer={raw as string} config={q.config} color={campaignColor} />;
-      case "photo": return <AnswerPhoto answer={Array.isArray(raw) ? raw : [raw as string]} />;
-      case "matrix": return <AnswerMatrix answer={Array.isArray(raw) ? raw : []} config={q.config} color={campaignColor} />;
+      case "photo": return <AnswerPhoto answer={Array.isArray(raw) ? (raw as AnswerPhotoEntry[]) : []} />;
+      case "matrix": return <AnswerMatrix answer={raw as string[] | Record<string, string>} config={q.config} color={campaignColor} />;
       default: return null;
     }
   };
@@ -3817,17 +4021,11 @@ function MarketVisitDetail({
           <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", lineHeight: 1.2 }}>{market.name}</div>
           <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 2 }}>{market.region}</div>
         </div>
-        {meta && (
+        {visitSummary?.hasSubmittedVisit && (
           <div style={{ display: "flex", gap: 16, flexShrink: 0 }}>
-            {showIPP && ipp !== null && (
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 1 }}>IPP</div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#DC2626" }}>{(ipp / 10).toFixed(1)}</div>
-              </div>
-            )}
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 1 }}>Fragen</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{Object.keys(answers).length}/{questions.length}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{answeredCount}/{questions.length}</div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 1 }}>Besuch</div>
@@ -3835,11 +4033,11 @@ function MarketVisitDetail({
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 1 }}>Dauer</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{meta.duration} Min</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{visitSummary.durationMinutes ?? "—"} Min</div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 1 }}>GM</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{meta.gm}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{visitSummary.gmName ?? market.gm}</div>
             </div>
           </div>
         )}
@@ -3886,7 +4084,11 @@ function MarketVisitDetail({
         <style>{`.mvdBody::-webkit-scrollbar { display: none; }`}</style>
 
         {/* Questions by module */}
-        {modules.map((mod, modIdx) => (
+        {modules.length === 0 ? (
+          <div style={{ padding: "24px 12px", textAlign: "center" }}>
+            <span style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", fontWeight: 600 }}>Keine sichtbaren Fragen für diesen Besuch.</span>
+          </div>
+        ) : modules.map((mod, modIdx) => (
           <div
             key={mod.id}
             ref={(el) => { moduleRefs.current[mod.id] = el; }}
@@ -3931,38 +4133,19 @@ function MarketVisitDetail({
   );
 }
 
-// ── Mock GMs per region ───────────────────────────────────────
-
-const MOCK_GMS_BY_REGION: Record<string, { name: string; pct: number }[]> = {
-  Nord: [
-    { name: "Thomas Huber", pct: 98 },
-    { name: "Anna Berger", pct: 91 },
-    { name: "Max Gruber", pct: 87 },
-    { name: "Lena Fischer", pct: 72 },
-    { name: "Stefan Weiß", pct: 44 },
-  ],
-  Ost: [
-    { name: "Maria Mayer", pct: 66 },
-    { name: "Klaus Brandt", pct: 52 },
-    { name: "Julia Schmid", pct: 38 },
-    { name: "René Hofer", pct: 22 },
-  ],
-  Süd: [
-    { name: "David Reiter", pct: 55 },
-    { name: "Sophie Bauer", pct: 41 },
-    { name: "Felix Wagner", pct: 29 },
-    { name: "Nina Wolf", pct: 18 },
-  ],
-  West: [
-    { name: "Oliver Koch", pct: 31 },
-    { name: "Hannah Lang", pct: 18 },
-    { name: "Lukas Müller", pct: 9 },
-  ],
-};
-
 // ── Region progress bar ───────────────────────────────────────
 
-function RegionBar({ name, pct, onClick }: { name: string; pct: number; onClick?: () => void }) {
+function RegionBar({
+  name,
+  pct,
+  onClick,
+  hideMetrics = false,
+}: {
+  name: string;
+  pct: number;
+  onClick?: () => void;
+  hideMetrics?: boolean;
+}) {
   const color = pct >= 80 ? "#16a34a" : pct >= 40 ? "#d97706" : "#DC2626";
   return (
     <div
@@ -3973,9 +4156,19 @@ function RegionBar({ name, pct, onClick }: { name: string; pct: number; onClick?
     >
       <span style={{ fontSize: 11, color: "rgba(0,0,0,0.5)", fontWeight: 500, width: 130, flexShrink: 0 }}>{name}</span>
       <div style={{ flex: 1, height: 4, borderRadius: 99, backgroundColor: "rgba(0,0,0,0.06)", overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, backgroundColor: color, transition: "width 0.4s ease" }} />
+        <div
+          style={{
+            width: hideMetrics ? "0%" : `${pct}%`,
+            height: "100%",
+            borderRadius: 99,
+            backgroundColor: hideMetrics ? "transparent" : color,
+            transition: "width 0.4s ease",
+          }}
+        />
       </div>
-      <span style={{ fontSize: 11, fontWeight: 600, color, width: 34, textAlign: "right", flexShrink: 0 }}>{pct}%</span>
+      <span style={{ fontSize: 11, fontWeight: 600, color, width: 34, textAlign: "right", flexShrink: 0 }}>
+        {hideMetrics ? "" : `${pct}%`}
+      </span>
     </div>
   );
 }
@@ -3987,7 +4180,14 @@ function CampaignListItem({
   selected,
   onClick,
 }: {
-  campaign: typeof CAMPAIGNS[0];
+  campaign: {
+    id: string;
+    name: string;
+    color: string;
+    inactive: boolean;
+    filled: number;
+    total: number;
+  };
   selected: boolean;
   onClick: () => void;
 }) {
@@ -4028,8 +4228,8 @@ function CampaignListItem({
 
 // ── Market row ────────────────────────────────────────────────
 
-function MarketRow({
-  market, mode = "idle", isRemoving = false, isEntering = false, onRemove, onClick,
+const MarketRow = React.memo(function MarketRow({
+  market, mode = "idle", isRemoving = false, isEntering = false, onRemove, onClick, removeDisabled = false,
 }: {
   market: MarketCatalogItem;
   mode?: "idle" | "remove" | "add";
@@ -4037,6 +4237,7 @@ function MarketRow({
   isEntering?: boolean;
   onRemove?: () => void;
   onClick?: () => void;
+  removeDisabled?: boolean;
 }) {
   const clickable = market.finished && !!onClick && mode === "idle";
   const anim = isRemoving ? "mrSlideOut 0.3s cubic-bezier(0.4,0,0.6,1) forwards"
@@ -4058,15 +4259,24 @@ function MarketRow({
     >
       {mode === "remove" && (
         <button
+          disabled={removeDisabled}
           onClick={(e) => { e.stopPropagation(); onRemove?.(); }}
           style={{
-            width: 20, height: 20, borderRadius: "50%", border: "none", cursor: "pointer",
+            width: 20, height: 20, borderRadius: "50%", border: "none", cursor: removeDisabled ? "not-allowed" : "pointer",
             flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: "rgba(220,38,38,0.08)", color: "#DC2626",
+            background: removeDisabled ? "rgba(0,0,0,0.08)" : "rgba(220,38,38,0.08)", color: removeDisabled ? "rgba(0,0,0,0.35)" : "#DC2626",
             transition: "background 0.15s, transform 0.15s",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.15)"; e.currentTarget.style.transform = "scale(1.1)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.08)"; e.currentTarget.style.transform = "scale(1)"; }}
+          onMouseEnter={(e) => {
+            if (removeDisabled) return;
+            e.currentTarget.style.background = "rgba(220,38,38,0.15)";
+            e.currentTarget.style.transform = "scale(1.1)";
+          }}
+          onMouseLeave={(e) => {
+            if (removeDisabled) return;
+            e.currentTarget.style.background = "rgba(220,38,38,0.08)";
+            e.currentTarget.style.transform = "scale(1)";
+          }}
         >
           <Minus size={10} strokeWidth={2.5} />
         </button>
@@ -4081,11 +4291,23 @@ function MarketRow({
         backgroundColor: market.finished ? "rgba(22,163,74,0.08)" : "rgba(0,0,0,0.04)",
         color: market.finished ? "#16a34a" : "rgba(0,0,0,0.35)",
       }}>
-        {market.finished ? "Abgeschlossen" : "Ausstehend"}
+        {market.finished ? "Besucht" : "Ausstehend"}
       </span>
     </div>
   );
-}
+}, (prev, next) => {
+  return (
+    prev.market.id === next.market.id &&
+    prev.market.finished === next.market.finished &&
+    prev.market.name === next.market.name &&
+    prev.market.city === next.market.city &&
+    prev.mode === next.mode &&
+    prev.isRemoving === next.isRemoving &&
+    prev.isEntering === next.isEntering &&
+    prev.removeDisabled === next.removeDisabled &&
+    Boolean(prev.onClick) === Boolean(next.onClick)
+  );
+});
 
 // ── Market filter chip ─────────────────────────────────────────
 
@@ -4227,19 +4449,21 @@ function MarketEditMenu({
 // ── Market add panel (large anchored popover) ─────────────────
 
 function MarketAddPanel({
-  pos, availableMarkets, onAdd, onUndoAdd, onClose,
+  pos, availableMarkets, onAdd, onUndoAdd, onClose, isPending = false,
 }: {
   pos: { x: number; y: number };
   availableMarkets: MarketCatalogItem[];
   onAdd: (id: string) => void;
   onUndoAdd: (id: string) => void;
   onClose: () => void;
+  isPending?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
   const [addedIds, setAddedIds] = useState<string[]>([]);
   const [expandedAdded, setExpandedAdded] = useState(false);
   const [undoMenu, setUndoMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [candidateLimit, setCandidateLimit] = useState(ADD_PANEL_INITIAL_LIMIT);
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -4300,23 +4524,37 @@ function MarketAddPanel({
     return () => { document.body.style.cursor = ""; };
   }, [onClose]);
 
-  const candidates = applyMarketFilters(
-    availableMarkets.filter((m) => !addedIds.includes(m.id)),
-    search,
-    filters,
+  const filteredAvailableMarkets = useMemo(
+    () => availableMarkets.filter((m) => !addedIds.includes(m.id)),
+    [availableMarkets, addedIds],
   );
+  const candidates = useMemo(
+    () => applyMarketFilters(filteredAvailableMarkets, search, filters),
+    [filteredAvailableMarkets, search, filters],
+  );
+  const visibleCandidates = useMemo(
+    () => candidates.slice(0, candidateLimit),
+    [candidates, candidateLimit],
+  );
+  const hasMoreCandidates = visibleCandidates.length < candidates.length;
 
-  const chains  = Array.from(new Set(availableMarkets.map((m) => m.chain))).sort();
-  const gms     = Array.from(new Set(availableMarkets.map((m) => m.gm))).sort();
-  const cities  = Array.from(new Set(availableMarkets.map((m) => m.city))).sort();
-  const regions = Array.from(new Set(availableMarkets.map((m) => m.region))).sort();
+  const chains  = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.chain))).sort(), [availableMarkets]);
+  const gms     = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.gm))).sort(), [availableMarkets]);
+  const cities  = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.city))).sort(), [availableMarkets]);
+  const regions = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.region))).sort(), [availableMarkets]);
+
+  useEffect(() => {
+    setCandidateLimit(ADD_PANEL_INITIAL_LIMIT);
+  }, [search, filters.chain, filters.gm, filters.city, filters.region, addedIds.length, availableMarkets.length]);
 
   const handleAdd = (id: string) => {
+    if (isPending) return;
     setAddedIds((p) => [...p, id]);
     onAdd(id);
   };
 
   const handleUndoSingle = (id: string) => {
+    if (isPending) return;
     const remaining = addedIds.filter((aid) => aid !== id);
     setAddedIds(remaining);
     setUndoMenu(null);
@@ -4325,13 +4563,28 @@ function MarketAddPanel({
   };
 
   const handleUndoAll = () => {
+    if (isPending) return;
     const toUndo = [...addedIds];
     setAddedIds([]);
     setExpandedAdded(false);
     toUndo.forEach((id) => onUndoAdd(id));
   };
 
-  const addedMarkets = [...addedIds].reverse().map((id) => MARKET_CATALOG.find((m) => m.id === id)).filter(Boolean) as MarketCatalogItem[];
+  const addedMarketLookup = useMemo(() => {
+    const lookup = new Map<string, MarketCatalogItem>();
+    for (const market of MOCK_MARKETS) lookup.set(market.id, market);
+    for (const market of availableMarkets) lookup.set(market.id, market);
+    return lookup;
+  }, [availableMarkets]);
+
+  const addedMarkets = useMemo(
+    () =>
+      [...addedIds]
+        .reverse()
+        .map((id) => addedMarketLookup.get(id))
+        .filter(Boolean) as MarketCatalogItem[],
+    [addedIds, addedMarketLookup],
+  );
 
   if (!mounted || typeof document === "undefined") return null;
   return createPortal(
@@ -4396,10 +4649,11 @@ function MarketAddPanel({
           <>
             <button
               onClick={handleUndoAll}
-              style={{ fontSize: 10, fontWeight: 600, color: "#DC2626", background: "none", border: "none", cursor: "pointer", padding: "2px 4px", transition: "opacity 0.15s ease", letterSpacing: "-0.01em" }}
+              disabled={isPending}
+              style={{ fontSize: 10, fontWeight: 600, color: isPending ? "rgba(0,0,0,0.35)" : "#DC2626", background: "none", border: "none", cursor: isPending ? "not-allowed" : "pointer", padding: "2px 4px", transition: "opacity 0.15s ease", letterSpacing: "-0.01em" }}
               onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.6"; }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
-            >Alles rückgängig</button>
+            >{isPending ? "Rückgängig..." : "Alles rückgängig"}</button>
             <button
               onClick={() => setExpandedAdded((o) => !o)}
               style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 600, color: "#16a34a", background: "none", border: "none", cursor: "pointer", padding: "2px 4px", transition: "opacity 0.15s ease" }}
@@ -4447,11 +4701,12 @@ function MarketAddPanel({
           <div style={{ padding: "32px 20px", textAlign: "center" }}>
             <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>Keine Märkte gefunden</span>
           </div>
-        ) : candidates.map((m) => (
+        ) : visibleCandidates.map((m) => (
           <button
             key={m.id}
             onClick={() => handleAdd(m.id)}
-            style={{ display: "flex", alignItems: "center", width: "100%", padding: "11px 16px", gap: 10, border: "none", cursor: "pointer", borderBottom: "1px solid rgba(0,0,0,0.04)", background: "transparent", textAlign: "left", transition: "background 0.12s ease" }}
+            disabled={isPending}
+            style={{ display: "flex", alignItems: "center", width: "100%", padding: "11px 16px", gap: 10, border: "none", cursor: isPending ? "not-allowed" : "pointer", borderBottom: "1px solid rgba(0,0,0,0.04)", background: "transparent", textAlign: "left", transition: "background 0.12s ease", opacity: isPending ? 0.6 : 1 }}
             onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
           >
@@ -4467,10 +4722,30 @@ function MarketAddPanel({
             </div>
             {/* Add icon */}
             <div style={{ width: 24, height: 24, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(22,163,74,0.07)", color: "#16a34a", flexShrink: 0 }}>
-              <Plus size={12} strokeWidth={2.5} />
+              {isPending ? "..." : <Plus size={12} strokeWidth={2.5} />}
             </div>
           </button>
         ))}
+        {hasMoreCandidates && (
+          <div style={{ padding: "10px 16px", borderTop: "1px solid rgba(0,0,0,0.05)", background: "#fff", position: "sticky", bottom: 0 }}>
+            <button
+              onClick={() => setCandidateLimit((current) => current + ADD_PANEL_LOAD_STEP)}
+              style={{
+                width: "100%",
+                height: 30,
+                borderRadius: 7,
+                border: "1px solid rgba(0,0,0,0.12)",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "rgba(0,0,0,0.6)",
+              }}
+            >
+              Mehr laden ({visibleCandidates.length} / {candidates.length})
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Right-click per-market undo menu */}
@@ -4495,17 +4770,45 @@ function MarketAddPanel({
 // ── Page ──────────────────────────────────────────────────────
 
 export default function FbManagementPage() {
-  const [selectedId, setSelectedId] = useState("1");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [marketFilter, setMarketFilter] = useState<"all" | "finished" | "pending">("all");
   const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
-  const [extraCampaigns, setExtraCampaigns] = useState<typeof CAMPAIGNS>([]);
+  const [campaignsData, setCampaignsData] = useState<Campaign[]>([]);
+  const [marketsData, setMarketsData] = useState<MarketCatalogItem[]>([]);
+  const [fragebogenOptions, setFragebogenOptions] = useState<Record<CampaignSection, FragebogenOption[]>>({
+    standard: [],
+    flex: [],
+    billa: [],
+    kuehler: [],
+    mhd: [],
+  });
+  const [fragebogenByScope, setFragebogenByScope] = useState<Record<FragebogenScopeKey, Fragebogen[]>>({
+    main: [],
+    kuehler: [],
+    mhd: [],
+  });
+  const [modulesByScope, setModulesByScope] = useState<Record<FragebogenScopeKey, Module[]>>({
+    main: [],
+    kuehler: [],
+    mhd: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [visitLoadError, setVisitLoadError] = useState<string | null>(null);
+  const [visitSummariesByCampaignId, setVisitSummariesByCampaignId] = useState<Record<string, CampaignVisitSummaryByMarket>>({});
+  const [visitSummariesLoadingByCampaignId, setVisitSummariesLoadingByCampaignId] = useState<Record<string, boolean>>({});
+  const [switchingCampaignId, setSwitchingCampaignId] = useState<string | null>(null);
+  const [campaignPendingOps, setCampaignPendingOps] = useState<Record<string, number>>({});
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
+  const [overlapConflicts, setOverlapConflicts] = useState<CampaignMarketOverlapConflict[] | null>(null);
+  const [overlapConflictMarketId, setOverlapConflictMarketId] = useState<string | null>(null);
+  const [resolvingOverlap, setResolvingOverlap] = useState(false);
   const regionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Market management state ────────────────────────────────────
-  const [campaignMarketIds, setCampaignMarketIds] = useState<Record<string, string[]>>(INITIAL_CAMPAIGN_MARKET_IDS);
   const [marketSearch, setMarketSearch] = useState("");
   const [marketFilters, setMarketFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
   const [marketEditMode, setMarketEditMode] = useState<"idle" | "remove" | "add">("idle");
@@ -4514,71 +4817,614 @@ export default function FbManagementPage() {
   const [addPanelPos, setAddPanelPos] = useState({ x: 0, y: 0 });
   const [removingIds, setRemovingIds] = useState<string[]>([]);
   const [enteringIds, setEnteringIds] = useState<string[]>([]);
+  const [marketRenderLimit, setMarketRenderLimit] = useState(MARKET_LIST_INITIAL_LIMIT);
   const editBtnRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("fbm_new_campaigns") || "[]");
-      if (stored.length > 0) {
-        setExtraCampaigns(stored);
-        setSelectedId(stored[0].id);
+    const loadData = async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [campaignsRes, marketsRes, mainFragebogen, kuehlerFragebogen, mhdFragebogen, mainModules, kuehlerModules, mhdModules] =
+          await Promise.all([
+            fetchCampaigns(),
+            fetchMarkets(),
+            fetchFragebogen("main"),
+            fetchFragebogen("kuehler"),
+            fetchFragebogen("mhd"),
+            fetchModules("main"),
+            fetchModules("kuehler"),
+            fetchModules("mhd"),
+          ]);
+
+        const toCatalogItem = (market: Awaited<ReturnType<typeof fetchMarkets>>[number]): MarketCatalogItem => {
+          const chainSource = (market.dbName || market.name || "").trim();
+          const chain = chainSource ? chainSource.split(/\s+/)[0] : "Unbekannt";
+          return {
+            id: market.id,
+            name: market.name,
+            chain,
+            city: market.city,
+            region: market.region,
+            address: market.address,
+            gm: market.currentGmName || market.employee || "Unbekannt",
+            finished: Boolean(market.infoFlag),
+          };
+        };
+
+        const moduleQuestionCountMain = new Map(mainModules.map((module) => [module.id, module.questions.length]));
+        const moduleQuestionCountKuehler = new Map(kuehlerModules.map((module) => [module.id, module.questions.length]));
+        const moduleQuestionCountMhd = new Map(mhdModules.map((module) => [module.id, module.questions.length]));
+
+        const toOptions = (fragebogenList: Fragebogen[], moduleCountMap: Map<string, number>) =>
+          fragebogenList
+            .filter((entry, index, all) => all.findIndex((candidate) => candidate.id === entry.id) === index)
+            .map((entry) => ({
+              id: entry.id,
+              name: entry.name,
+              modules: entry.moduleIds.length,
+              questions: entry.moduleIds.reduce((sum, moduleId) => sum + (moduleCountMap.get(moduleId) ?? 0), 0),
+            }));
+        const byMainSection = (section: "standard" | "flex" | "billa") =>
+          toOptions(
+            mainFragebogen.filter((entry) => Array.isArray(entry.sectionKeywords) && entry.sectionKeywords.includes(section)),
+            moduleQuestionCountMain,
+          );
+
+        setCampaignsData(campaignsRes);
+        setMarketsData(marketsRes.map(toCatalogItem));
+        setFragebogenByScope({
+          main: mainFragebogen,
+          kuehler: kuehlerFragebogen,
+          mhd: mhdFragebogen,
+        });
+        setModulesByScope({
+          main: mainModules,
+          kuehler: kuehlerModules,
+          mhd: mhdModules,
+        });
+        setFragebogenOptions({
+          standard: byMainSection("standard"),
+          flex: byMainSection("flex"),
+          billa: byMainSection("billa"),
+          kuehler: toOptions(kuehlerFragebogen, moduleQuestionCountKuehler),
+          mhd: toOptions(mhdFragebogen, moduleQuestionCountMhd),
+        });
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : "Kampagnen konnten nicht geladen werden.");
+      } finally {
+        setLoading(false);
       }
-    } catch {}
+    };
+    void loadData();
   }, []);
 
-  const allCampaigns = [...extraCampaigns, ...CAMPAIGNS];
-  const visibleCampaigns = allCampaigns.filter((c) => showInactive ? c.inactive : !c.inactive);
-  const campaign = allCampaigns.find((c) => c.id === selectedId) ?? allCampaigns[0];
-  const pct = campaign.total > 0 ? Math.round((campaign.filled / campaign.total) * 100) : 0;
+  useEffect(() => {
+    if (campaignsData.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    if (!selectedId || !campaignsData.some((campaign) => campaign.id === selectedId)) {
+      setSelectedId(campaignsData[0]?.id ?? null);
+    }
+  }, [campaignsData, selectedId]);
 
-  const assignedIds = campaignMarketIds[campaign.id] ?? INITIAL_CAMPAIGN_MARKET_IDS[campaign.id] ?? [];
-  const assignedMarkets = MARKET_CATALOG.filter((m) => assignedIds.includes(m.id));
-  const availableMarkets = MARKET_CATALOG.filter((m) => !assignedIds.includes(m.id));
+  const refreshCampaignVisitSummaries = useCallback(async (targetCampaignId: string) => {
+    if (!targetCampaignId) return;
+    setVisitLoadError(null);
+    setVisitSummariesLoadingByCampaignId((current) => ({ ...current, [targetCampaignId]: true }));
+    try {
+      const summaries = await fetchCampaignMarketVisitSummaries(targetCampaignId);
+      const byMarket = Object.fromEntries(
+        summaries.map((summary) => [summary.marketId, summary]),
+      ) as CampaignVisitSummaryByMarket;
+      setVisitSummariesByCampaignId((current) => ({ ...current, [targetCampaignId]: byMarket }));
+    } catch (error) {
+      setVisitLoadError(error instanceof Error ? error.message : "Besuchsstatus konnte nicht geladen werden.");
+      setVisitSummariesByCampaignId((current) => ({ ...current, [targetCampaignId]: {} }));
+    } finally {
+      setVisitSummariesLoadingByCampaignId((current) => ({ ...current, [targetCampaignId]: false }));
+    }
+  }, []);
 
-  const finishedCount = assignedMarkets.filter((m) => m.finished).length;
+  const formatPeriod = (campaign: Campaign) => {
+    if (campaign.scheduleType === "always") return "Immer aktiv";
+    if (!campaign.startDate || !campaign.endDate) return "Geplant";
+    const start = campaign.startDate.split("-").reverse().join(".");
+    const end = campaign.endDate.split("-").reverse().join(".");
+    return `${start} – ${end}`;
+  };
+
+  const marketById = useMemo(() => new Map(marketsData.map((market) => [market.id, market])), [marketsData]);
+
+  const assignedMarketsByCampaignId = useMemo(() => {
+    const byCampaign = new Map<string, MarketCatalogItem[]>();
+    for (const campaignEntry of campaignsData) {
+      const visitSummaryByMarket = visitSummariesByCampaignId[campaignEntry.id] ?? {};
+      const assigned: MarketCatalogItem[] = [];
+      for (const marketId of campaignEntry.marketIds) {
+        const market = marketById.get(marketId);
+        if (!market) continue;
+        const visitSummary = visitSummaryByMarket[marketId] ?? null;
+        assigned.push({
+          ...market,
+          finished: visitSummary ? Boolean(visitSummary.hasSubmittedVisit) : market.finished,
+        });
+      }
+      byCampaign.set(campaignEntry.id, assigned);
+    }
+    return byCampaign;
+  }, [campaignsData, marketById, visitSummariesByCampaignId]);
+
+  const campaignsView = useMemo(
+    () =>
+      campaignsData.map((campaignEntry) => {
+        const assignedMarketsForCampaign = assignedMarketsByCampaignId.get(campaignEntry.id) ?? [];
+        const total = assignedMarketsForCampaign.length;
+        const filled = assignedMarketsForCampaign.filter((market) => market.finished).length;
+        const byRegion = new Map<string, { total: number; filled: number }>();
+        for (const market of assignedMarketsForCampaign) {
+          const current = byRegion.get(market.region) ?? { total: 0, filled: 0 };
+          current.total += 1;
+          if (market.finished) current.filled += 1;
+          byRegion.set(market.region, current);
+        }
+        const regions = Array.from(byRegion.entries())
+          .map(([name, stats]) => ({
+            name,
+            pct: stats.total > 0 ? Math.round((stats.filled / stats.total) * 100) : 0,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+        return {
+          ...campaignEntry,
+          type: campaignEntry.section,
+          color: SECTION_COLORS[campaignEntry.section],
+          inactive: campaignEntry.status === "inactive",
+          period: formatPeriod(campaignEntry),
+          total,
+          filled,
+          todayNew: 0,
+          thisWeek: 0,
+          regions,
+        };
+      }),
+    [assignedMarketsByCampaignId, campaignsData],
+  );
+
+  const visibleCampaigns = useMemo(
+    () => campaignsView.filter((entry) => (showInactive ? entry.inactive : !entry.inactive)),
+    [campaignsView, showInactive],
+  );
+  const campaign = useMemo(
+    () => campaignsView.find((entry) => entry.id === selectedId) ?? campaignsView[0],
+    [campaignsView, selectedId],
+  );
+  const previewQuestions = useMemo(() => {
+    if (!campaign) return PREVIEW_QUESTIONS;
+    if (!campaign.currentFragebogenId) return [];
+    const scope = sectionToScope(campaign.section);
+    const fragebogenList = fragebogenByScope[scope] ?? [];
+    const moduleList = modulesByScope[scope] ?? [];
+    const targetFragebogen = fragebogenList.find((entry) => entry.id === campaign.currentFragebogenId) ?? null;
+    if (!targetFragebogen) {
+      if (campaign.section === "flex") return FLEX_PREVIEW_QUESTIONS;
+      if (campaign.section === "kuehler") return KUEHLER_PREVIEW_QUESTIONS;
+      if (campaign.section === "mhd") return MHD_PREVIEW_QUESTIONS;
+      if (campaign.section === "billa") return BILLA_PREVIEW_QUESTIONS;
+      return PREVIEW_QUESTIONS;
+    }
+    const moduleMap = new Map(moduleList.map((module) => [module.id, module]));
+    const dynamicQuestions: PreviewQuestion[] = [];
+    for (const moduleId of targetFragebogen.moduleIds) {
+      const module = moduleMap.get(moduleId);
+      if (!module) continue;
+      for (const question of module.questions) {
+        dynamicQuestions.push(toPreviewQuestion(question, module.id, module.name));
+      }
+    }
+    if (scope === "main") {
+      for (const spezial of targetFragebogen.spezialfragen ?? []) {
+        dynamicQuestions.push(toPreviewQuestion(spezial, "__spezial__", "Spezialfragen"));
+      }
+    }
+    if (dynamicQuestions.length > 0) return dynamicQuestions;
+    if (campaign.section === "flex") return FLEX_PREVIEW_QUESTIONS;
+    if (campaign.section === "kuehler") return KUEHLER_PREVIEW_QUESTIONS;
+    if (campaign.section === "mhd") return MHD_PREVIEW_QUESTIONS;
+    if (campaign.section === "billa") return BILLA_PREVIEW_QUESTIONS;
+    return PREVIEW_QUESTIONS;
+  }, [campaign, fragebogenByScope, modulesByScope]);
+  const pct = campaign && campaign.total > 0 ? Math.round((campaign.filled / campaign.total) * 100) : 0;
+  const campaignId = campaign?.id ?? null;
+  const campaignMarketIds = campaign?.marketIds ?? [];
+  const campaignCurrentFragebogenId = campaign?.currentFragebogenId ?? null;
+  const isVisitSummaryLoading = campaignId ? Boolean(visitSummariesLoadingByCampaignId[campaignId]) : false;
+
+  const visibleCampaignSource = useMemo(
+    () => campaignsData.filter((entry) => (showInactive ? entry.status === "inactive" : entry.status !== "inactive")),
+    [campaignsData, showInactive],
+  );
+  const visibleCampaignVisitSignature = useMemo(
+    () =>
+      visibleCampaignSource
+        .map((entry) => `${entry.id}:${entry.marketIds.join(",")}`)
+        .sort((a, b) => a.localeCompare(b, "de"))
+        .join("|"),
+    [visibleCampaignSource],
+  );
+
+  useEffect(() => {
+    if (visibleCampaignSource.length === 0) return;
+    void Promise.all(visibleCampaignSource.map((entry) => refreshCampaignVisitSummaries(entry.id)));
+  }, [refreshCampaignVisitSummaries, visibleCampaignVisitSignature, visibleCampaignSource]);
+
+  const assignedIds = campaignMarketIds;
+  const isCampaignBusy = (campaignId: string) => (campaignPendingOps[campaignId] ?? 0) > 0;
+  const campaignBusy = campaignId ? isCampaignBusy(campaignId) : false;
+  const assignedMarkets = useMemo(
+    () => (campaignId ? assignedMarketsByCampaignId.get(campaignId) ?? [] : []),
+    [assignedMarketsByCampaignId, campaignId],
+  );
+  const campaignVisitSummaryByMarket = useMemo(
+    () => (campaignId ? visitSummariesByCampaignId[campaignId] ?? {} : {}),
+    [campaignId, visitSummariesByCampaignId],
+  );
+  const assignedMarketIdSet = useMemo(() => new Set(assignedIds), [assignedIds]);
+  const availableMarkets = useMemo(
+    () => marketsData.filter((m) => !assignedMarketIdSet.has(m.id)),
+    [assignedMarketIdSet, marketsData],
+  );
+
+  const finishedCount = useMemo(() => assignedMarkets.filter((m) => m.finished).length, [assignedMarkets]);
   const pendingCount = assignedMarkets.length - finishedCount;
 
-  const statusFiltered = marketEditMode === "remove"
-    ? assignedMarkets.filter((m) => !m.finished)
-    : marketFilter === "finished" ? assignedMarkets.filter((m) => m.finished)
-    : marketFilter === "pending"  ? assignedMarkets.filter((m) => !m.finished)
-    : assignedMarkets;
+  const statusFiltered = useMemo(
+    () =>
+      marketEditMode === "remove"
+        ? assignedMarkets.filter((m) => !m.finished)
+        : marketFilter === "finished"
+          ? assignedMarkets.filter((m) => m.finished)
+          : marketFilter === "pending"
+            ? assignedMarkets.filter((m) => !m.finished)
+            : assignedMarkets,
+    [assignedMarkets, marketEditMode, marketFilter],
+  );
 
-  const filteredMarkets = applyMarketFilters(statusFiltered, marketSearch, marketFilters);
+  const filteredMarkets = useMemo(
+    () => applyMarketFilters(statusFiltered, marketSearch, marketFilters),
+    [marketFilters, marketSearch, statusFiltered],
+  );
+  const visibleFilteredMarkets = useMemo(
+    () => filteredMarkets.slice(0, marketRenderLimit),
+    [filteredMarkets, marketRenderLimit],
+  );
+  const hasMoreFilteredMarkets = visibleFilteredMarkets.length < filteredMarkets.length;
 
   // Derive filter option lists from the full assigned set
-  const mfChains  = Array.from(new Set(assignedMarkets.map((m) => m.chain))).sort();
-  const mfGms     = Array.from(new Set(assignedMarkets.map((m) => m.gm))).sort();
-  const mfCities  = Array.from(new Set(assignedMarkets.map((m) => m.city))).sort();
-  const mfRegions = Array.from(new Set(assignedMarkets.map((m) => m.region))).sort();
+  const mfChains = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.chain))).sort(), [assignedMarkets]);
+  const mfGms = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.gm))).sort(), [assignedMarkets]);
+  const mfCities = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.city))).sort(), [assignedMarkets]);
+  const mfRegions = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.region))).sort(), [assignedMarkets]);
+  const selectedRegionGms = useMemo(() => {
+    if (!selectedRegion || !campaign) return [];
+    const marketIdsInRegion = new Set(
+      assignedMarkets.filter((market) => market.region === selectedRegion).map((market) => market.id),
+    );
+    const names = Array.from(
+      new Set(
+        (campaign.assignments ?? [])
+          .filter((assignment) => marketIdsInRegion.has(assignment.marketId))
+          .map((assignment) => assignment.gmName?.trim() ?? "")
+          .filter((name) => name.length > 0),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "de"));
+    return names.map((name) => ({ name, pct: 0 }));
+  }, [assignedMarkets, campaign, selectedRegion]);
+
+  useEffect(() => {
+    setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+  }, [campaignId, marketEditMode, marketFilter, marketSearch, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
 
   const handleRemoveMarket = useCallback((id: string) => {
+    if (!campaignId || isCampaignBusy(campaignId)) return;
+    setMutationError(null);
     setRemovingIds((p) => [...p, id]);
     setTimeout(() => {
-      setCampaignMarketIds((p) => ({
-        ...p,
-        [campaign.id]: (p[campaign.id] ?? INITIAL_CAMPAIGN_MARKET_IDS[campaign.id]).filter((mid) => mid !== id),
-      }));
+      const previousMarketIds = campaignMarketIds;
+      setCampaignsData((current) =>
+        current.map((entry) =>
+          entry.id === campaignId ? { ...entry, marketIds: entry.marketIds.filter((marketId) => marketId !== id) } : entry,
+        ),
+      );
+      setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
+      void removeCampaignMarket(campaignId, id)
+        .then((updated) => {
+          setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+        })
+        .catch((error) => {
+          setCampaignsData((current) =>
+            current.map((entry) => (entry.id === campaignId ? { ...entry, marketIds: previousMarketIds } : entry)),
+          );
+          setMutationError(error instanceof Error ? error.message : "Markt konnte nicht entfernt werden.");
+        })
+        .finally(() => {
+          setCampaignPendingOps((current) => {
+            const next = Math.max(0, (current[campaignId] ?? 0) - 1);
+            return { ...current, [campaignId]: next };
+          });
+        });
       setRemovingIds((p) => p.filter((rid) => rid !== id));
     }, 320);
-  }, [campaign.id]);
+  }, [campaignId, campaignMarketIds, campaignPendingOps]);
 
   const handleAddMarket = useCallback((id: string) => {
-    setCampaignMarketIds((p) => ({
-      ...p,
-      [campaign.id]: [id, ...(p[campaign.id] ?? INITIAL_CAMPAIGN_MARKET_IDS[campaign.id])],
-    }));
+    if (!campaignId || isCampaignBusy(campaignId)) return;
+    setMutationError(null);
+    const previousMarketIds = campaignMarketIds;
+    setCampaignsData((current) =>
+      current.map((entry) =>
+        entry.id === campaignId
+          ? { ...entry, marketIds: entry.marketIds.includes(id) ? entry.marketIds : [id, ...entry.marketIds] }
+          : entry,
+      ),
+    );
+    setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
+    void assignCampaignMarkets(campaignId, [id])
+      .then((updated) => {
+        setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      })
+      .catch((error) => {
+        setCampaignsData((current) =>
+          current.map((entry) => (entry.id === campaignId ? { ...entry, marketIds: previousMarketIds } : entry)),
+        );
+        const conflicts = getCampaignOverlapConflicts(error);
+        if (conflicts.length > 0) {
+          setOverlapConflictMarketId(id);
+          setOverlapConflicts(conflicts);
+        } else {
+          setMutationError(error instanceof Error ? error.message : "Markt konnte nicht hinzugefuegt werden.");
+        }
+      })
+      .finally(() => {
+        setCampaignPendingOps((current) => {
+          const next = Math.max(0, (current[campaignId] ?? 0) - 1);
+          return { ...current, [campaignId]: next };
+        });
+      });
     setEnteringIds((p) => [...p, id]);
     setTimeout(() => setEnteringIds((p) => p.filter((eid) => eid !== id)), 320);
-  }, [campaign.id]);
+  }, [campaignId, campaignMarketIds, campaignPendingOps]);
 
   const handleUndoAddMarket = useCallback((id: string) => {
-    setCampaignMarketIds((p) => ({
-      ...p,
-      [campaign.id]: (p[campaign.id] ?? INITIAL_CAMPAIGN_MARKET_IDS[campaign.id]).filter((mid) => mid !== id),
-    }));
+    if (!campaignId || isCampaignBusy(campaignId)) return;
+    setMutationError(null);
+    const previousMarketIds = campaignMarketIds;
+    setCampaignsData((current) =>
+      current.map((entry) =>
+        entry.id === campaignId ? { ...entry, marketIds: entry.marketIds.filter((marketId) => marketId !== id) } : entry,
+      ),
+    );
+    setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
+    void removeCampaignMarket(campaignId, id)
+      .then((updated) => {
+        setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      })
+      .catch((error) => {
+        setCampaignsData((current) =>
+          current.map((entry) => (entry.id === campaignId ? { ...entry, marketIds: previousMarketIds } : entry)),
+        );
+        setMutationError(error instanceof Error ? error.message : "Aenderung konnte nicht rueckgaengig gemacht werden.");
+      })
+      .finally(() => {
+        setCampaignPendingOps((current) => {
+          const next = Math.max(0, (current[campaignId] ?? 0) - 1);
+          return { ...current, [campaignId]: next };
+        });
+      });
     setEnteringIds((p) => p.filter((eid) => eid !== id));
-  }, [campaign.id]);
+  }, [campaignId, campaignMarketIds, campaignPendingOps]);
+
+  const handleSwitchFragebogen = useCallback(
+    async (nextId: string) => {
+      if (!campaignId || switchingCampaignId || isCampaignBusy(campaignId) || campaignCurrentFragebogenId === nextId) return;
+      setMutationError(null);
+      try {
+        setSwitchingCampaignId(campaignId);
+        setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
+        const updated = await switchCampaignFragebogen(campaignId, nextId);
+        setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      } catch (error) {
+        setMutationError(error instanceof Error ? error.message : "Fragebogen konnte nicht gewechselt werden.");
+      } finally {
+        setCampaignPendingOps((current) => {
+          const next = Math.max(0, (current[campaignId] ?? 0) - 1);
+          return { ...current, [campaignId]: next };
+        });
+        setSwitchingCampaignId(null);
+      }
+    },
+    [campaignCurrentFragebogenId, campaignId, campaignPendingOps, switchingCampaignId],
+  );
+
+  if (loading) {
+    return (
+      <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <style>{`
+          @keyframes campaignSkeletonPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.85; }
+          }
+          @keyframes campaignSkeletonShimmer {
+            0% { transform: translate(-120%, -120%) rotate(24deg); opacity: 0; }
+            22% { opacity: 0.7; }
+            70% { opacity: 0.18; }
+            100% { transform: translate(120%, 120%) rotate(24deg); opacity: 0; }
+          }
+          .campaign-skeleton-block {
+            position: relative;
+            overflow: hidden;
+            background: rgba(0,0,0,0.08);
+            animation: campaignSkeletonPulse 1.8s ease-in-out infinite;
+          }
+          .campaign-skeleton-block::after {
+            content: "";
+            position: absolute;
+            inset: -130% -140%;
+            background: linear-gradient(135deg, transparent 43%, rgba(255,255,255,0.92) 50%, transparent 57%);
+            animation: campaignSkeletonShimmer 2.3s ease-in-out infinite;
+            pointer-events: none;
+          }
+        `}</style>
+
+        <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid rgba(0,0,0,0.06)",
+              boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
+              overflow: "hidden",
+              display: "flex",
+              minHeight: 480,
+              margin: "8px 8px 8px",
+            }}
+          >
+            <div
+              style={{
+                width: 240,
+                flexShrink: 0,
+                borderRight: "1px solid rgba(0,0,0,0.06)",
+                padding: "16px 0",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", marginBottom: 8 }}>
+                <div className="campaign-skeleton-block" style={{ height: 10, width: 76, borderRadius: 6 }} />
+                <div className="campaign-skeleton-block" style={{ height: 18, width: 52, borderRadius: 5 }} />
+              </div>
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div
+                  key={`campaign-skeleton-item-${index}`}
+                  style={{ margin: "0 10px", padding: "10px 10px", borderRadius: 9, border: "1px solid rgba(0,0,0,0.045)" }}
+                >
+                  <div className="campaign-skeleton-block" style={{ height: 12, width: "74%", borderRadius: 6 }} />
+                  <div className="campaign-skeleton-block" style={{ height: 9, width: "48%", borderRadius: 5, marginTop: 8 }} />
+                </div>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, padding: "14px", display: "flex", flexDirection: "column", gap: 0, minWidth: 0 }}>
+              <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden", flex: 1, display: "flex", flexDirection: "column" }}>
+                <div style={{ background: "#fff", margin: "8px 8px 8px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", gap: 22 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+                    <div>
+                      <div className="campaign-skeleton-block" style={{ height: 24, width: 280, borderRadius: 7 }} />
+                      <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                        <div className="campaign-skeleton-block" style={{ width: 36, height: 20, borderRadius: 99 }} />
+                        <div className="campaign-skeleton-block" style={{ height: 10, width: 100, borderRadius: 5 }} />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className="campaign-skeleton-block" style={{ height: 10, width: 110, borderRadius: 5 }} />
+                      <div className="campaign-skeleton-block" style={{ height: 22, width: 68, borderRadius: 6 }} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 10 }}>
+                      <div className="campaign-skeleton-block" style={{ height: 32, width: 84, borderRadius: 8 }} />
+                      <div className="campaign-skeleton-block" style={{ height: 13, width: 122, borderRadius: 6 }} />
+                      <div style={{ marginLeft: "auto" }} className="campaign-skeleton-block">
+                        <div style={{ height: 20, width: 52, borderRadius: 7 }} />
+                      </div>
+                    </div>
+                    <div className="campaign-skeleton-block" style={{ height: 6, width: "100%", borderRadius: 99 }} />
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
+                    <div className="campaign-skeleton-block" style={{ width: 250, borderRadius: 10, height: 82 }} />
+                    <div style={{ width: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "0 14px", flexShrink: 0 }} />
+                    <div style={{ flex: 1, display: "flex", gap: 8 }}>
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <div key={`campaign-stat-skeleton-${i}`} style={{ flex: 1, padding: "13px 12px", borderRadius: 10, backgroundColor: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.045)" }}>
+                          <div className="campaign-skeleton-block" style={{ height: 8, width: "58%", borderRadius: 5, marginBottom: 9 }} />
+                          <div className="campaign-skeleton-block" style={{ height: 17, width: "42%", borderRadius: 6 }} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ padding: "14px 16px", borderRadius: 10, background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.05)" }}>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+                      <div className="campaign-skeleton-block" style={{ height: 10, width: 84, borderRadius: 5 }} />
+                    </div>
+                    <div style={{ height: 1, background: "rgba(0,0,0,0.06)", marginBottom: 14 }} />
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div key={`campaign-region-skeleton-${index}`} style={{ marginBottom: index === 2 ? 0 : 10 }}>
+                        <div className="campaign-skeleton-block" style={{ height: 10, width: `${56 + index * 9}%`, borderRadius: 6 }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return <div style={{ padding: 16, fontSize: 13, color: "#DC2626" }}>{loadError}</div>;
+  }
+
+  if (!campaign) {
+    return (
+      <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid rgba(0,0,0,0.06)",
+              boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
+              overflow: "hidden",
+              minHeight: 480,
+              margin: "8px 8px 8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "28px 24px",
+            }}
+          >
+            <div
+              style={{
+                width: "min(560px, 100%)",
+                borderRadius: 12,
+                border: "1px solid rgba(0,0,0,0.08)",
+                background: "rgba(0,0,0,0.02)",
+                padding: "22px 20px",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(0,0,0,0.35)" }}>
+                FB Management
+              </div>
+              <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>
+                Keine Kampagnen vorhanden
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: "rgba(0,0,0,0.45)" }}>
+                Erstelle zuerst eine Kampagne, damit Märkte, Fragebogen und Zuordnungen hier angezeigt werden.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const openEditMenu = () => {
     if (editBtnRef.current) {
@@ -4612,6 +5458,155 @@ export default function FbManagementPage() {
 
   return (
     <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
+      {mutationError && (
+        <div style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.22)", background: "rgba(220,38,38,0.06)", color: "#DC2626", fontSize: 11, fontWeight: 600 }}>
+          {mutationError}
+        </div>
+      )}
+      {visitLoadError && (
+        <div style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(217,119,6,0.24)", background: "rgba(217,119,6,0.07)", color: "#b45309", fontSize: 11, fontWeight: 600 }}>
+          {visitLoadError}
+        </div>
+      )}
+      {overlapConflicts && overlapConflicts.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1300,
+            background: "rgba(10,16,28,0.36)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              width: "min(860px, 95vw)",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              background: "#fff",
+              borderRadius: 14,
+              border: "1px solid rgba(0,0,0,0.08)",
+              boxShadow: "0 24px 70px rgba(0,0,0,0.24)",
+              padding: 18,
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1a1a" }}>Marktkonflikte in derselben Sektion</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: "rgba(0,0,0,0.55)" }}>
+              Dieser Markt ist bereits in einer anderen aktiven Kampagne derselben Sektion enthalten.
+            </div>
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              {overlapConflicts.map((conflict) => (
+                <div
+                  key={`${conflict.marketId}:${conflict.existingCampaignId}`}
+                  style={{
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    background: "rgba(0,0,0,0.015)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>{conflict.marketName}</div>
+                  <div style={{ marginTop: 4, fontSize: 11, color: "rgba(0,0,0,0.6)" }}>
+                    Aktuell in: <strong>{conflict.existingCampaignName}</strong> · Zeitraum: {conflict.existingPeriodLabel}
+                  </div>
+                  <div style={{ marginTop: 2, fontSize: 11, color: "rgba(0,0,0,0.6)" }}>
+                    Zugewiesener GM: {conflict.existingGmName ?? "Kein GM"}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setOverlapConflicts(null);
+                  setOverlapConflictMarketId(null);
+                }}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(0,0,0,0.12)",
+                  background: "#fff",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "rgba(0,0,0,0.6)",
+                  cursor: "pointer",
+                }}
+                disabled={resolvingOverlap}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOverlapConflicts(null);
+                  setOverlapConflictMarketId(null);
+                }}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "rgba(0,0,0,0.08)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#1f2937",
+                  cursor: resolvingOverlap ? "not-allowed" : "pointer",
+                  opacity: resolvingOverlap ? 0.7 : 1,
+                }}
+                disabled={resolvingOverlap}
+              >
+                Nur konfliktfreie übernehmen
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!campaignId || resolvingOverlap || !overlapConflictMarketId) return;
+                  setResolvingOverlap(true);
+                  setMutationError(null);
+                  try {
+                    const relevantConflicts = overlapConflicts.filter(
+                      (conflict) => conflict.marketId === overlapConflictMarketId,
+                    );
+                    const updated = await migrateCampaignMarkets(
+                      campaignId,
+                      relevantConflicts.map((conflict) => ({
+                        marketId: conflict.marketId,
+                        fromCampaignId: conflict.existingCampaignId,
+                        gmUserId: conflict.existingGmUserId ?? null,
+                        reason: "campaign_overlap_resolution",
+                      })),
+                    );
+                    setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+                    setOverlapConflicts(null);
+                    setOverlapConflictMarketId(null);
+                  } catch (error) {
+                    setMutationError(error instanceof Error ? error.message : "Migration konnte nicht durchgeführt werden.");
+                  } finally {
+                    setResolvingOverlap(false);
+                  }
+                }}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#fff",
+                  cursor: resolvingOverlap ? "not-allowed" : "pointer",
+                  opacity: resolvingOverlap ? 0.7 : 1,
+                }}
+                disabled={resolvingOverlap || !campaignId || !overlapConflictMarketId}
+              >
+                Markt(e) migrieren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Main card ─────────────────────────────────────── */}
       <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
@@ -4639,7 +5634,7 @@ export default function FbManagementPage() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", marginBottom: 8 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.3)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Kampagnen</span>
             <button
-              onClick={() => { setShowInactive(!showInactive); setSelectedId(showInactive ? "1" : "4"); }}
+              onClick={() => { setShowInactive((prev) => !prev); }}
               style={{
                 fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: 5, border: "none", cursor: "pointer",
                 backgroundColor: showInactive ? "rgba(220,38,38,0.1)" : "rgba(22,163,74,0.1)",
@@ -4674,12 +5669,12 @@ export default function FbManagementPage() {
               <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{
                   width: 36, height: 20, borderRadius: 99, cursor: "pointer",
-                  backgroundColor: !campaign.inactive ? campaign.color : "rgba(0,0,0,0.12)",
+                  backgroundColor: campaign.status !== "inactive" ? campaign.color : "rgba(0,0,0,0.12)",
                   position: "relative", transition: "background-color 0.2s ease",
                   flexShrink: 0,
                 }}>
                   <div style={{
-                    position: "absolute", top: 2, left: !campaign.inactive ? 18 : 2,
+                    position: "absolute", top: 2, left: campaign.status !== "inactive" ? 18 : 2,
                     width: 16, height: 16, borderRadius: "50%", backgroundColor: "#fff",
                     boxShadow: "0 1px 4px rgba(0,0,0,0.18)", transition: "left 0.2s ease",
                   }} />
@@ -4689,15 +5684,13 @@ export default function FbManagementPage() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              {"period" in campaign && (
-                <span style={{ fontSize: 10, fontWeight: 400, color: "rgba(0,0,0,0.35)", letterSpacing: "0" }}>{(campaign as typeof campaign & { period: string }).period}</span>
-              )}
+              <span style={{ fontSize: 10, fontWeight: 400, color: "rgba(0,0,0,0.35)", letterSpacing: "0" }}>{campaign.period}</span>
               <span style={{
                 fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 6, letterSpacing: "0.01em",
-                backgroundColor: !campaign.inactive ? "rgba(22,163,74,0.08)" : "rgba(220,38,38,0.08)",
-                color: !campaign.inactive ? "#16a34a" : "#DC2626",
+                backgroundColor: campaign.status === "inactive" ? "rgba(220,38,38,0.08)" : campaign.status === "active" ? "rgba(22,163,74,0.08)" : "rgba(217,119,6,0.08)",
+                color: campaign.status === "inactive" ? "#DC2626" : campaign.status === "active" ? "#16a34a" : "#d97706",
               }}>
-                {!campaign.inactive ? "Aktiv" : "Inaktiv"}
+                {campaign.status === "active" ? "Aktiv" : campaign.status === "scheduled" ? "Geplant" : "Inaktiv"}
               </span>
             </div>
           </div>
@@ -4728,8 +5721,15 @@ export default function FbManagementPage() {
           <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
             {/* Fragebogen assigned card — interactive switcher */}
-            <FragebogenSwitcher key={campaign.type} campaignType={campaign.type} campaignColor={campaign.color} />
-
+            <FragebogenSwitcher
+              key={campaign.id}
+              campaignColor={campaign.color}
+              options={fragebogenOptions[campaign.section] ?? []}
+              activeId={campaign.currentFragebogenId}
+              onSwitch={handleSwitchFragebogen}
+              isSwitching={switchingCampaignId === campaign.id || campaignBusy}
+              disabled={campaignBusy}
+            />
             {/* Divider */}
             <div style={{ width: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "0 14px", flexShrink: 0 }} />
 
@@ -4766,14 +5766,15 @@ export default function FbManagementPage() {
             </div>
             <div style={{ height: 1, background: "rgba(0,0,0,0.06)", marginBottom: 14 }} />
             {selectedRegion
-              ? (MOCK_GMS_BY_REGION[selectedRegion] ?? []).map((gm) => (
-                  <RegionBar key={gm.name} name={gm.name} pct={gm.pct} />
+              ? selectedRegionGms.map((gm) => (
+                  <RegionBar key={gm.name} name={gm.name} pct={gm.pct} hideMetrics />
                 ))
               : campaign.regions.map((r) => (
                   <RegionBar
                     key={r.name}
                     name={r.name}
                     pct={r.pct}
+                    hideMetrics
                     onClick={() => {
                       if (regionTimerRef.current) clearTimeout(regionTimerRef.current);
                       setSelectedRegion(r.name);
@@ -4800,28 +5801,55 @@ export default function FbManagementPage() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.25)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Fragebogen Vorschau</span>
             <button
+              disabled={!campaignCurrentFragebogenId}
               onClick={() => setShowHeatmap((h) => !h)}
               style={{
                 fontSize: 8, fontWeight: 600, padding: "3px 8px", borderRadius: 5, cursor: "pointer",
-                color: showHeatmap ? "#DC2626" : "rgba(0,0,0,0.35)",
-                background: showHeatmap ? "rgba(220,38,38,0.08)" : "transparent",
-                border: showHeatmap ? "1px solid rgba(220,38,38,0.2)" : "1px solid transparent",
+                color: !campaignCurrentFragebogenId ? "rgba(0,0,0,0.2)" : showHeatmap ? "#DC2626" : "rgba(0,0,0,0.35)",
+                background: !campaignCurrentFragebogenId ? "transparent" : showHeatmap ? "rgba(220,38,38,0.08)" : "transparent",
+                border: !campaignCurrentFragebogenId ? "1px solid transparent" : showHeatmap ? "1px solid rgba(220,38,38,0.2)" : "1px solid transparent",
                 letterSpacing: "0.01em", transition: "all 0.15s ease",
+                opacity: !campaignCurrentFragebogenId ? 0.65 : 1,
               }}
-              onMouseEnter={(e) => { if (!showHeatmap) e.currentTarget.style.color = "rgba(0,0,0,0.55)"; }}
-              onMouseLeave={(e) => { if (!showHeatmap) e.currentTarget.style.color = "rgba(0,0,0,0.35)"; }}
+              onMouseEnter={(e) => { if (!showHeatmap && campaignCurrentFragebogenId) e.currentTarget.style.color = "rgba(0,0,0,0.55)"; }}
+              onMouseLeave={(e) => { if (!showHeatmap && campaignCurrentFragebogenId) e.currentTarget.style.color = "rgba(0,0,0,0.35)"; }}
             >Antworten anzeigen</button>
           </div>
-          {campaign.type === "flex"
-            ? <FlexFragebogenVorschau key="flex" showHeatmap={showHeatmap} />
-            : campaign.type === "kuehler"
-            ? <KuehlerFragebogenVorschau key="kuehler" showHeatmap={showHeatmap} />
-            : campaign.type === "mhd"
-            ? <MhdFragebogenVorschau key="mhd" showHeatmap={showHeatmap} />
-            : campaign.type === "billa"
-            ? <BillaFragebogenVorschau key="billa" showHeatmap={showHeatmap} />
-            : <FragebogenVorschau key="standard" showHeatmap={showHeatmap} />
-          }
+          {!campaignCurrentFragebogenId ? (
+            <div
+              style={{
+                flex: 1,
+                minHeight: 380,
+                borderRadius: 12,
+                border: "1px dashed rgba(0,0,0,0.14)",
+                background: "rgba(0,0,0,0.02)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "20px 18px",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(0,0,0,0.62)", letterSpacing: "-0.01em" }}>
+                  Kein Fragebogen zugewiesen
+                </span>
+                <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)", fontWeight: 500 }}>
+                  Wähle links einen Fragebogen, um die Vorschau zu sehen.
+                </span>
+              </div>
+            </div>
+          ) : campaign.section === "flex" ? (
+            <FlexFragebogenVorschau key="flex" questions={previewQuestions} showHeatmap={showHeatmap} />
+          ) : campaign.section === "kuehler" ? (
+            <KuehlerFragebogenVorschau key="kuehler" questions={previewQuestions} showHeatmap={showHeatmap} />
+          ) : campaign.section === "mhd" ? (
+            <MhdFragebogenVorschau key="mhd" questions={previewQuestions} showHeatmap={showHeatmap} />
+          ) : campaign.section === "billa" ? (
+            <BillaFragebogenVorschau key="billa" questions={previewQuestions} showHeatmap={showHeatmap} />
+          ) : (
+            <FragebogenVorschau key="standard" questions={previewQuestions} showHeatmap={showHeatmap} />
+          )}
         </div>
       </div>{/* end white inner */}
       </div>{/* end grey outer */}
@@ -4834,6 +5862,9 @@ export default function FbManagementPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>Zugewiesene Märkte</span>
             <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{assignedMarkets.length} Märkte gesamt</span>
+            {isVisitSummaryLoading && (
+              <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.42)" }}>Besuchsstatus lädt...</span>
+            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {/* Status tabs */}
@@ -4852,25 +5883,26 @@ export default function FbManagementPage() {
             {marketEditMode === "remove" ? (
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <span style={{ fontSize: 10, fontWeight: 600, color: "#DC2626", padding: "4px 8px", borderRadius: 6, background: "rgba(220,38,38,0.07)" }}>Entfernen-Modus</span>
-                <button onClick={exitEditMode}
-                  style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "transparent", transition: "all 0.15s ease" }}
+                <button onClick={exitEditMode} disabled={campaignBusy}
+                  style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", cursor: campaignBusy ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "transparent", transition: "all 0.15s ease", opacity: campaignBusy ? 0.7 : 1 }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                 >Fertig</button>
               </div>
             ) : marketEditMode === "add" ? (
-              <button onClick={exitEditMode}
-                style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "transparent", transition: "all 0.15s ease" }}
+              <button onClick={exitEditMode} disabled={campaignBusy}
+                style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", cursor: campaignBusy ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "transparent", transition: "all 0.15s ease", opacity: campaignBusy ? 0.7 : 1 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-              >Fertig</button>
+              >{campaignBusy ? "Speichern..." : "Fertig"}</button>
             ) : (
-              <button ref={editBtnRef} onClick={openEditMenu}
+              <button ref={editBtnRef} onClick={() => { if (!campaignBusy) openEditMenu(); }}
                 style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "transparent", transition: "all 0.15s ease" }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; e.currentTarget.style.color = "#1a1a1a"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(0,0,0,0.5)"; }}
+                disabled={campaignBusy}
               >
-                Bearbeiten
+                {campaignBusy ? "Speichern..." : "Bearbeiten"}
               </button>
             )}
           </div>
@@ -4914,7 +5946,7 @@ export default function FbManagementPage() {
         </div>
 
         {/* Market list */}
-        <div style={{ position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "relative", overflow: "hidden", minHeight: selectedMarket ? 520 : undefined }}>
           {filteredMarkets.length === 0 && (
             <div style={{ padding: "28px 20px", textAlign: "center" }}>
               <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>
@@ -4922,7 +5954,7 @@ export default function FbManagementPage() {
               </span>
             </div>
           )}
-          {filteredMarkets.map((m) => (
+          {visibleFilteredMarkets.map((m) => (
             <MarketRow
               key={m.id}
               market={m}
@@ -4930,21 +5962,42 @@ export default function FbManagementPage() {
               isRemoving={removingIds.includes(m.id)}
               isEntering={enteringIds.includes(m.id)}
               onRemove={() => handleRemoveMarket(m.id)}
+              removeDisabled={campaignBusy}
               onClick={m.finished && marketEditMode === "idle" ? () => setSelectedMarket(m.id) : undefined}
             />
           ))}
           {selectedMarket && (() => {
-            const m = MARKET_CATALOG.find((x) => x.id === selectedMarket);
+            const m = marketsData.find((x) => x.id === selectedMarket);
             if (!m) return null;
             return (
               <MarketVisitDetail
                 market={m}
-                campaignType={campaign.type}
                 campaignColor={campaign.color}
+                visitSummary={campaignVisitSummaryByMarket[m.id] ?? null}
                 onClose={() => setSelectedMarket(null)}
               />
             );
           })()}
+          {hasMoreFilteredMarkets && (
+            <div style={{ padding: "10px 14px", borderTop: "1px solid rgba(0,0,0,0.05)", background: "#fff", position: "sticky", bottom: 0 }}>
+              <button
+                onClick={() => setMarketRenderLimit((current) => current + MARKET_LIST_LOAD_STEP)}
+                style={{
+                  width: "100%",
+                  height: 30,
+                  borderRadius: 7,
+                  border: "1px solid rgba(0,0,0,0.12)",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "rgba(0,0,0,0.6)",
+                }}
+              >
+                Mehr laden ({visibleFilteredMarkets.length} / {filteredMarkets.length})
+              </button>
+            </div>
+          )}
         </div>
         </div>{/* end white inner */}
       </div>{/* end grey outer */}
@@ -4965,6 +6018,7 @@ export default function FbManagementPage() {
           onAdd={handleAddMarket}
           onUndoAdd={handleUndoAddMarket}
           onClose={exitEditMode}
+          isPending={campaignBusy}
         />
       )}
 

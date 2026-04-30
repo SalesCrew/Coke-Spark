@@ -2,8 +2,12 @@
 
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { Search, UserCheck } from "lucide-react";
+import { fetchGmAssignedActiveCampaignMarkets } from "@/lib/api/backend";
+import { useRedMonth } from "@/context/RedMonthContext";
+import type { MarketRecord } from "@/types/markets";
 
 interface Market {
+  id: string;
   chain: string;
   address: string;
   visited: number;
@@ -15,26 +19,7 @@ interface Market {
 interface MarketListProps {
   visited?: number;
   total?: number;
-  markets?: Market[];
 }
-
-const defaultMarkets: Market[] = [
-  { chain: "BILLA+", address: "Hauptstraße 12, 1010 Wien", visited: 2, frequency: 12, visitedThisMonth: true, nextSM: "04.03.2026" },
-  { chain: "ADEG", address: "Landstraße 45, 1030 Wien", visited: 3, frequency: 6, visitedThisMonth: false },
-  { chain: "SPAR", address: "Mariahilfer Str. 88, 1060 Wien", visited: 3, frequency: 12, visitedThisMonth: true, nextSM: "06.03.2026" },
-  { chain: "BILLA+", address: "Favoritenstr. 22, 1100 Wien", visited: 2, frequency: 4, visitedThisMonth: false },
-  { chain: "PENNY", address: "Simmeringer Hptstr. 5, 1110 Wien", visited: 2, frequency: 6, visitedThisMonth: true, nextSM: "10.03.2026" },
-  { chain: "ADEG", address: "Brünner Str. 130, 1210 Wien", visited: 7, frequency: 12, visitedThisMonth: false },
-  { chain: "SPAR", address: "Laxenburger Str. 67, 1100 Wien", visited: 1, frequency: 4, visitedThisMonth: true, nextSM: "12.03.2026" },
-  { chain: "BILLA+", address: "Thaliastraße 90, 1160 Wien", visited: 5, frequency: 12, visitedThisMonth: false },
-  { chain: "HOFER", address: "Gudrunstraße 18, 1100 Wien", visited: 2, frequency: 6, visitedThisMonth: true, nextSM: "05.03.2026" },
-  { chain: "PENNY", address: "Ottakringer Str. 44, 1170 Wien", visited: 3, frequency: 6, visitedThisMonth: false },
-  { chain: "SPAR", address: "Hütteldorfer Str. 130, 1140 Wien", visited: 5, frequency: 12, visitedThisMonth: true, nextSM: "08.03.2026" },
-  { chain: "ADEG", address: "Hernalser Hauptstr. 77, 1170 Wien", visited: 2, frequency: 4, visitedThisMonth: false },
-  { chain: "BILLA+", address: "Wiedner Hauptstr. 56, 1040 Wien", visited: 2, frequency: 12, visitedThisMonth: true },
-  { chain: "HOFER", address: "Johnstraße 42, 1150 Wien", visited: 4, frequency: 6, visitedThisMonth: false, nextSM: "11.03.2026" },
-  { chain: "SPAR", address: "Döblinger Hauptstr. 2, 1190 Wien", visited: 1, frequency: 4, visitedThisMonth: true },
-];
 
 function chainColors(chain: string): { bg: string; text: string } {
   const key = chain.toUpperCase();
@@ -46,24 +31,72 @@ function chainColors(chain: string): { bg: string; text: string } {
   return { bg: "rgba(0,0,0,0.04)", text: "#6b7280" };
 }
 
-function daysUntilEndOfMonth(): number {
-  const now = new Date();
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return lastDay.getDate() - now.getDate();
+function deriveChainLabel(record: MarketRecord): string {
+  const source = `${record.name} ${record.dbName}`.toUpperCase();
+  if (source.includes("BILLA+")) return "BILLA+";
+  if (source.includes("BILLA")) return "BILLA";
+  if (source.includes("SPAR")) return "SPAR";
+  if (source.includes("ADEG")) return "ADEG";
+  if (source.includes("PENNY")) return "PENNY";
+  if (source.includes("HOFER")) return "HOFER";
+  if (source.includes("MERKUR")) return "MERKUR";
+  return record.name.split(" ")[0]?.toUpperCase() || "MARKT";
+}
+
+function toMarketListEntry(record: MarketRecord): Market {
+  return {
+    id: record.id,
+    chain: deriveChainLabel(record),
+    address: `${record.address}, ${record.postalCode} ${record.city}`.trim(),
+    // Keep visit circle/numbers rendered; backend visit stats follow later.
+    visited: 0,
+    frequency: Math.max(1, record.visitFrequencyPerYear || 1),
+    visitedThisMonth: false,
+  };
 }
 
 export function MarketList({
-  visited = 40,
-  total = 70,
-  markets = defaultMarkets,
+  visited = 0,
+  total,
 }: MarketListProps) {
+  const { current } = useRedMonth();
   const [search, setSearch] = useState("");
-  const [revealedIdx, setRevealedIdx] = useState<number | null>(null);
+  const [markets, setMarkets] = useState<Market[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [revealedId, setRevealedId] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [cardMaxH, setCardMaxH] = useState<number | undefined>(undefined);
   const cardRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const daysLeft = daysUntilEndOfMonth();
+  const daysLeft = current?.daysUntilEnd ?? 0;
+  const totalMarkets = total ?? markets.length;
+  const isDataEmpty = !isLoading && !loadError && markets.length === 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setLoadError(null);
+    void fetchGmAssignedActiveCampaignMarkets()
+      .then((rows) => {
+        if (cancelled) return;
+        const mapped = rows.map(toMarketListEntry);
+        const deduped = Array.from(new Map(mapped.map((entry) => [entry.id, entry])).values());
+        setMarkets(deduped);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Märkte konnten nicht geladen werden.";
+        setLoadError(message);
+        setMarkets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function calc() {
@@ -77,16 +110,15 @@ export function MarketList({
     return () => window.removeEventListener("resize", calc);
   }, []);
 
-  const clearReveal = useCallback(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = null;
-    setRevealedIdx(null);
-    setCountdown(0);
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, []);
 
-  const handleReveal = useCallback((idx: number) => {
+  const handleReveal = useCallback((id: string) => {
     if (intervalRef.current) clearInterval(intervalRef.current);
-    setRevealedIdx(idx);
+    setRevealedId(id);
     setCountdown(5);
     let c = 5;
     intervalRef.current = setInterval(() => {
@@ -95,7 +127,7 @@ export function MarketList({
       if (c <= 0) {
         clearInterval(intervalRef.current!);
         intervalRef.current = null;
-        setRevealedIdx(null);
+        setRevealedId(null);
         setCountdown(0);
       }
     }, 1000);
@@ -120,6 +152,7 @@ export function MarketList({
         boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
         padding: "20px",
         maxHeight: cardMaxH ? `${cardMaxH}px` : undefined,
+        minHeight: cardMaxH ? `${cardMaxH}px` : undefined,
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
@@ -136,7 +169,7 @@ export function MarketList({
         <span className="text-[11px] font-medium text-gray-500">
           Märkte besucht{" "}
           <span className="font-semibold text-gray-700">
-            {visited}/{total}
+            {visited}/{totalMarkets}
           </span>
         </span>
       </div>
@@ -178,9 +211,9 @@ export function MarketList({
           minHeight: 0,
         }}
       >
-        {filtered.map((m, i) => (
+        {!isLoading && !loadError && filtered.map((m, i) => (
           <div
-            key={i}
+            key={m.id}
             className="flex items-center justify-between"
             style={{
               padding: "8px 10px",
@@ -213,7 +246,7 @@ export function MarketList({
                 {m.chain}
               </span>
 
-              {revealedIdx === i && m.nextSM ? (
+              {revealedId === m.id && m.nextSM ? (
                 <span
                   className="text-[10px] font-medium truncate"
                   style={{ color: "#DC2626" }}
@@ -230,13 +263,13 @@ export function MarketList({
             <div className="shrink-0 ml-3 flex items-center gap-2">
               {m.nextSM && (
                 <button
-                  onClick={() => handleReveal(i)}
+                  onClick={() => handleReveal(m.id)}
                   className="shrink-0 flex items-center justify-center"
                   style={{
                     width: 18,
                     height: 18,
                     borderRadius: "50%",
-                    backgroundColor: revealedIdx === i
+                    backgroundColor: revealedId === m.id
                       ? "rgba(34,197,94,0.15)"
                       : "rgba(220,38,38,0.08)",
                     border: "none",
@@ -244,13 +277,13 @@ export function MarketList({
                     transition: "all 0.2s ease",
                   }}
                   onMouseEnter={(e) => {
-                    if (revealedIdx !== i) e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.15)";
+                    if (revealedId !== m.id) e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.15)";
                   }}
                   onMouseLeave={(e) => {
-                    if (revealedIdx !== i) e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.08)";
+                    if (revealedId !== m.id) e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.08)";
                   }}
                 >
-                  {revealedIdx === i ? (
+                  {revealedId === m.id ? (
                     <span style={{ fontSize: 8, fontWeight: 700, color: "#16a34a" }}>{countdown}</span>
                   ) : (
                     <UserCheck size={9} strokeWidth={2} color="#DC2626" />
@@ -282,7 +315,28 @@ export function MarketList({
           </div>
         ))}
 
-        {filtered.length === 0 && (
+        {isLoading && (
+          <div className="text-center py-8">
+            <span className="text-[10px] text-gray-400">Märkte werden geladen...</span>
+          </div>
+        )}
+
+        {!isLoading && loadError && (
+          <div className="text-center py-8">
+            <span className="text-[10px] text-gray-400">Märkte konnten nicht geladen werden</span>
+          </div>
+        )}
+
+        {!isLoading && !loadError && markets.length === 0 && (
+          <div className="text-center py-10">
+            <div className="text-[11px] font-medium text-gray-500">Noch keine zugewiesenen Märkte</div>
+            <div className="mt-1 text-[10px] text-gray-400">
+              Sobald aktive Kampagnen-Märkte für dich zugewiesen sind, erscheinen sie hier.
+            </div>
+          </div>
+        )}
+
+        {!isLoading && !loadError && markets.length > 0 && filtered.length === 0 && (
           <div className="text-center py-4">
             <span className="text-[10px] text-gray-400">
               Keine Märkte gefunden

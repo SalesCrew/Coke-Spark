@@ -167,6 +167,7 @@ function QuestionAuditRow({ row }: { row: IppQuestionAuditRow }) {
   const answerStr = Array.isArray(row.selectedAnswer)
     ? row.selectedAnswer.join(", ")
     : row.selectedAnswer;
+  const rowSections = row.sourceSections.filter((value): value is SectionType => value in SECTION_META);
 
   const isNumeric = row.questionType === "numeric";
 
@@ -202,7 +203,7 @@ function QuestionAuditRow({ row }: { row: IppQuestionAuditRow }) {
           </div>
         )}
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
-          {row.sourceSections.map(s => <SectionPill key={s} type={s} />)}
+          {rowSections.map(s => <SectionPill key={s} type={s} />)}
         </div>
       </div>
 

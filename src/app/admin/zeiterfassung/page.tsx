@@ -10,7 +10,7 @@ import {
   fetchAdminZeiterfassungGmAggregates,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
-import type { TimeDaySession } from "@/types/zeiterfassung";
+import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
@@ -57,6 +57,24 @@ function gmAvatarColor(name: string): { bg: string; text: string } {
   ];
   const hash = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   return palettes[hash % palettes.length];
+}
+
+const ENTRY_SUBTYPE_VALUES: readonly EntrySubtype[] = [
+  "schulung",
+  "sonderaufgabe",
+  "arztbesuch",
+  "werkstatt",
+  "homeoffice",
+  "lager",
+  "hoteluebernachtung",
+];
+
+function toEntrySubtype(value: string | undefined): EntrySubtype | null {
+  if (!value) return null;
+  if (value === "hotel") return "hoteluebernachtung";
+  return (ENTRY_SUBTYPE_VALUES as readonly string[]).includes(value)
+    ? (value as EntrySubtype)
+    : null;
 }
 
 // ── Display segment types ─────────────────────────────────────
@@ -529,7 +547,20 @@ export default function ZeiterfassungPage() {
             endTime: session.endTime,
             startKm: session.startKm,
             endKm: session.endKm,
-            entries: session.entries,
+            entries: session.entries.map((entry) => {
+              const subtype = toEntrySubtype(entry.subtype);
+              return {
+                id: entry.id,
+                kind: entry.kind,
+                startTime: entry.startTime,
+                endTime: entry.endTime,
+                durationMin: entry.durationMin,
+                ...(entry.marketName ? { marketName: entry.marketName } : {}),
+                ...(entry.marketAddress ? { marketAddress: entry.marketAddress } : {}),
+                ...(entry.questionnaireType ? { questionnaireType: entry.questionnaireType } : {}),
+                ...(subtype ? { subtype } : {}),
+              };
+            }),
             timeline: session.timeline,
             stats: session.stats,
           })),

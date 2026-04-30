@@ -182,7 +182,7 @@ function ClockOverlay({ onSelect, onCancel }: {
 
 // ── KM input: raw digits while focused, formatted when blurred ───────────────
 function KmInput({ inputRef, rawValue, isValid, isFocused, placeholder, onChange, onKeyDown, onFocus, onBlur }: {
-  inputRef?: React.RefObject<HTMLInputElement>;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
   rawValue: string; isValid: boolean; isFocused: boolean; placeholder?: string;
   onChange: (digits: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;

@@ -868,6 +868,48 @@ function CardHeader({ label, right }: { label: string; right?: React.ReactNode }
   );
 }
 
+function PraemienPageSkeleton() {
+  const shimmer: React.CSSProperties = {
+    backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 37%, rgba(0,0,0,0.04) 63%)",
+    backgroundSize: "400% 100%",
+    animation: "praemienSkeletonShimmer 1.25s ease-in-out infinite",
+    borderRadius: 8,
+  };
+
+  return (
+    <Card>
+      <style>{`
+        @keyframes praemienSkeletonShimmer {
+          0% { background-position: 100% 0; }
+          100% { background-position: 0 0; }
+        }
+      `}</style>
+      <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ ...shimmer, height: 14, width: "38%" }} />
+        <div style={{ ...shimmer, height: 10, width: "62%" }} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ border: "1px solid rgba(0,0,0,0.05)", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ ...shimmer, height: 10, width: "45%" }} />
+            <div style={{ ...shimmer, height: 28, width: "100%", borderRadius: 10 }} />
+            <div style={{ ...shimmer, height: 10, width: "70%" }} />
+          </div>
+          <div style={{ border: "1px solid rgba(0,0,0,0.05)", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ ...shimmer, height: 10, width: "50%" }} />
+            <div style={{ ...shimmer, height: 28, width: "100%", borderRadius: 10 }} />
+            <div style={{ ...shimmer, height: 10, width: "62%" }} />
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ ...shimmer, height: 10, width: "28%" }} />
+          <div style={{ ...shimmer, height: 9, width: "100%" }} />
+          <div style={{ ...shimmer, height: 9, width: "94%" }} />
+          <div style={{ ...shimmer, height: 9, width: "88%" }} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // ── Quarter switcher ──────────────────────────────────────────
 
 function QuarterSwitcher({
@@ -4100,9 +4142,7 @@ export default function PraemienPage() {
       )}
 
       {isLoading ? (
-        <Card>
-          <div style={{ padding: "40px 24px", color: "rgba(0,0,0,0.45)", fontSize: 13 }}>Prämien werden geladen…</div>
-        </Card>
+        <PraemienPageSkeleton />
       ) : null}
 
       {!isLoading && !activeQuarter ? (

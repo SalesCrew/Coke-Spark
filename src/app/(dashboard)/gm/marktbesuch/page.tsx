@@ -6,10 +6,12 @@ import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   BackendApiError,
+  clearGmVisitPreloadCache,
   commitGmVisitPhotos,
   createGmVisitSession,
   fetchGmVisitSession,
   presignGmVisitPhoto,
+  readGmVisitPreloadCache,
   saveGmVisitAnswer,
   submitGmVisitSession,
   type GmVisitSessionReadPayload,
@@ -2360,6 +2362,7 @@ function MarktbesuchInner() {
   const marketId = params.get("marketId") || "";
   const campaignIdsParam = params.get("campaignIds") || "";
   const sessionIdFromParams = params.get("sessionId") || "";
+  const paramsString = params.toString();
   const campaignIds = useMemo(
     () =>
       campaignIdsParam
@@ -2432,13 +2435,15 @@ function MarktbesuchInner() {
   const persistFlushersRef = useRef<Record<string, () => Promise<void>>>({});
   const persistInFlightRef = useRef<Record<string, Promise<void>>>({});
   const lastPersistSigRef = useRef<Record<string, string>>({});
+  const bootstrapRequestSeqRef = useRef(0);
+  const bootstrapRunKeyRef = useRef<string | null>(null);
 
   const setSessionIdInUrl = useCallback((sessionId: string) => {
-    const next = new URLSearchParams(params.toString());
+    const next = new URLSearchParams(paramsString);
     if (next.get("sessionId") === sessionId) return;
     next.set("sessionId", sessionId);
     router.replace(`?${next.toString()}`, { scroll: false });
-  }, [params, router]);
+  }, [paramsString, router]);
 
   const hydrateFromSessionPayload = useCallback((payload: GmVisitSessionReadPayload) => {
     const nextFragebogenAnswers: Record<string, string | string[]> = {};
@@ -2584,38 +2589,58 @@ function MarktbesuchInner() {
     setPhotoMetaByQuestionId(nextPhotoMetaByQuestionId);
     setPhotoAnswerIdByQuestionId(nextPhotoAnswerIdByQuestionId);
     setSessionIdInUrl(payload.session.id);
-  }, [params, setSessionIdInUrl]);
+  }, [setSessionIdInUrl]);
 
   useEffect(() => {
     if (!hasVisitStartParams || visitBootstrapDone) return;
+    const runKey = `${marketId}|${campaignIdsParam}|${sessionIdFromParams.trim()}|${visitStartRetryNonce}`;
+    if (bootstrapRunKeyRef.current === runKey) return;
+    bootstrapRunKeyRef.current = runKey;
     let active = true;
+    const requestSeq = ++bootstrapRequestSeqRef.current;
+    const isStale = () => !active || bootstrapRequestSeqRef.current !== requestSeq;
+    const resumeId = sessionIdFromParams.trim();
+
+    if (resumeId) {
+      const preloaded = readGmVisitPreloadCache(resumeId);
+      if (preloaded && preloaded.session?.id === resumeId && Array.isArray(preloaded.sections)) {
+        hydrateFromSessionPayload(preloaded);
+        clearGmVisitPreloadCache(resumeId);
+        setVisitStartError(null);
+        setVisitStartLoading(false);
+        setVisitBootstrapDone(true);
+        return () => {
+          active = false;
+        };
+      }
+    }
+
     setVisitStartLoading(true);
     setVisitStartError(null);
     const run = async () => {
       try {
-        const resumeId = sessionIdFromParams.trim();
         if (resumeId) {
           const payload = await fetchGmVisitSession(resumeId);
-          if (!active) return;
+          if (isStale()) return;
           hydrateFromSessionPayload(payload);
           setVisitBootstrapDone(true);
           return;
         }
         const clientSessionToken = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).slice(0, 120);
         const payload = await createGmVisitSession({ marketId, campaignIds, clientSessionToken });
-        if (!active) return;
+        if (isStale()) return;
         const hydratedPayload = await fetchGmVisitSession(payload.session.id);
-        if (!active) return;
+        if (isStale()) return;
         hydrateFromSessionPayload(hydratedPayload);
         setVisitBootstrapDone(true);
       } catch (error) {
-        if (!active) return;
+        if (isStale()) return;
         setVisitSessionId(null);
         setVisitSections([]);
         const message = error instanceof Error ? error.message : "Visit-Start Daten konnten nicht geladen werden.";
         setVisitStartError(message);
       } finally {
-        if (!active) return;
+        if (isStale()) return;
         setVisitStartLoading(false);
       }
     };
@@ -2624,12 +2649,12 @@ function MarktbesuchInner() {
       active = false;
     };
   }, [
+    campaignIdsParam,
     campaignIds,
     hasVisitStartParams,
     hydrateFromSessionPayload,
     marketId,
     sessionIdFromParams,
-    setSessionIdInUrl,
     visitBootstrapDone,
     visitStartRetryNonce,
   ]);
@@ -3499,6 +3524,7 @@ function MarktbesuchInner() {
                     </div>
                     <button
                       onClick={() => {
+                        bootstrapRunKeyRef.current = null;
                         setVisitBootstrapDone(false);
                         setVisitStartRetryNonce((prev) => prev + 1);
                       }}

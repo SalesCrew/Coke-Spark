@@ -629,6 +629,10 @@ export default function ZeiterfassungPage() {
   const totalDays = dateGroups.length;
   const totalGmDays = dateGroups.reduce((s, g) => s + g.sessions.length, 0);
 
+  if (loading) {
+    return <ZeiterfassungPageSkeleton />;
+  }
+
   const isBodyEmpty = loading || (view === "tage" ? dateGroups.length === 0 : gmRows.length === 0);
 
   return (
@@ -731,6 +735,69 @@ export default function ZeiterfassungPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ZeiterfassungPageSkeleton() {
+  const shimmer: React.CSSProperties = {
+    backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 37%, rgba(0,0,0,0.04) 63%)",
+    backgroundSize: "400% 100%",
+    animation: "zeitSkeletonShimmer 1.25s ease-in-out infinite",
+    borderRadius: 8,
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      <style>{`
+        @keyframes zeitSkeletonShimmer {
+          0% { background-position: 100% 0; }
+          100% { background-position: 0 0; }
+        }
+      `}</style>
+
+      <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
+        <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ ...shimmer, height: 10, width: 120 }} />
+          <div style={{ ...shimmer, height: 10, width: 110 }} />
+        </div>
+
+        <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", background: "rgba(0,0,0,0.04)", borderRadius: 8, padding: 3, gap: 2 }}>
+              <div style={{ ...shimmer, height: 22, width: 58, borderRadius: 6 }} />
+              <div style={{ ...shimmer, height: 22, width: 86, borderRadius: 6 }} />
+            </div>
+            <div style={{ ...shimmer, height: 28, width: 220, borderRadius: 7 }} />
+          </div>
+
+          <div style={{ padding: "4px 0 0" }}>
+            {Array.from({ length: 7 }).map((_, index) => (
+              <div
+                key={index}
+                style={{
+                  borderBottom: "1px solid rgba(0,0,0,0.04)",
+                  padding: "12px 18px",
+                  display: "grid",
+                  gridTemplateColumns: "1.1fr 0.7fr 0.7fr 0.7fr 0.55fr 0.55fr",
+                  gap: 12,
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ ...shimmer, height: 12, width: `${40 + (index % 4) * 10}%` }} />
+                  <div style={{ ...shimmer, height: 9, width: `${55 + (index % 3) * 10}%` }} />
+                </div>
+                <div style={{ ...shimmer, height: 12, width: "85%" }} />
+                <div style={{ ...shimmer, height: 12, width: "75%" }} />
+                <div style={{ ...shimmer, height: 12, width: "72%" }} />
+                <div style={{ ...shimmer, height: 12, width: "62%" }} />
+                <div style={{ ...shimmer, height: 12, width: "62%" }} />
+              </div>
+            ))}
           </div>
         </div>
       </div>

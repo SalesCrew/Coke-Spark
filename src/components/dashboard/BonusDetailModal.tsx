@@ -112,6 +112,9 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
   const totalMaxPoints = summary?.totalMaxPoints && summary.totalMaxPoints > 0
     ? Math.round(summary.totalMaxPoints * 10) / 10
     : TOTAL_MAX_PTS;
+  const equalCategoryMaxPoints = goals.length > 0
+    ? totalMaxPoints / goals.length
+    : 0;
 
   // ── Derived values ─────────────────────────────────────────────────────
   const avg = goals.length
@@ -299,7 +302,13 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {goals.map((g) => (
-              <CategoryRow key={g.name} goal={g} avg={avg} showPts={showPts} />
+              <CategoryRow
+                key={g.name}
+                goal={g}
+                avg={avg}
+                showPts={showPts}
+                equalCategoryMaxPoints={equalCategoryMaxPoints}
+              />
             ))}
           </div>
         </div>
@@ -470,11 +479,20 @@ function ClusterTrack({ avg, totalPts, showPts, pointThresholds = PT_THRESHOLDS 
 }
 
 /* ── Category row ── */
-function CategoryRow({ goal, showPts }: { goal: Goal; avg: number; showPts: boolean }) {
+function CategoryRow({
+  goal,
+  showPts,
+  equalCategoryMaxPoints,
+}: {
+  goal: Goal;
+  avg: number;
+  showPts: boolean;
+  equalCategoryMaxPoints: number;
+}) {
   const color  = categoryColor(goal.percent);
-  const maxPts = goal.maxPoints ?? CATEGORY_MAX_PTS[goal.name] ?? 10;
+  const maxPts = equalCategoryMaxPoints > 0 ? equalCategoryMaxPoints : (goal.maxPoints ?? CATEGORY_MAX_PTS[goal.name] ?? 10);
   const curPts = goal.points ?? (Math.round((goal.percent / 100) * maxPts * 10) / 10);
-  const barPct = showPts ? (curPts / maxPts) * 100 : goal.percent;
+  const barPct = showPts ? Math.max(0, Math.min(100, (curPts / maxPts) * 100)) : goal.percent;
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

@@ -13,7 +13,14 @@ import {
   FIELD_SPECS, validateMapping, draftToMarketRecord,
   type ColumnMapping, type WorkbookResult, type ImportSummary,
 } from "@/utils/marketImport";
-import { createMarket, fetchMarkets, importMarkets, updateMarket } from "@/lib/api/backend";
+import {
+  createMarket,
+  fetchMarkets,
+  importMarkets,
+  normalizeAllMarketRegions,
+  updateMarket,
+  type NormalizeMarketRegionsResult,
+} from "@/lib/api/backend";
 import { useRedMonth } from "@/context/RedMonthContext";
 
 // ── Constants ─────────────────────────────────────────────────
@@ -1222,6 +1229,9 @@ export default function MaerktePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [isNormalizingRegions, setIsNormalizingRegions] = useState(false);
+  const [normalizeError, setNormalizeError] = useState<string | null>(null);
+  const [normalizeSummary, setNormalizeSummary] = useState<NormalizeMarketRegionsResult | null>(null);
 
   const reloadMarkets = useCallback(async () => {
     setIsLoadingMarkets(true);
@@ -1237,20 +1247,6 @@ export default function MaerktePage() {
       setIsLoadingMarkets(false);
     }
   }, []);
-
-  // ── Initial data load ──────────────────────────────────────
-  useEffect(() => {
-    setMounted(true);
-    void reloadMarkets();
-    try {
-      const storedV = localStorage.getItem(LS_VISITS);
-      setVisits(storedV ? JSON.parse(storedV) : []);
-    } catch { /* start empty */ }
-    // Listen for import trigger from header button
-    const handler = () => setShowImport(true);
-    window.addEventListener("maerkte:openImport", handler);
-    return () => window.removeEventListener("maerkte:openImport", handler);
-  }, [reloadMarkets]);
 
   const handleImport = useCallback(async (payload: { fileName: string; sheetName: string; rows: string[][]; mapping: ColumnMapping }) => {
     setImportError(null);
@@ -1288,6 +1284,45 @@ export default function MaerktePage() {
       throw new Error(message);
     }
   }, []);
+
+  const handleNormalizeRegions = useCallback(async () => {
+    if (isNormalizingRegions) return;
+    const confirmed = typeof window !== "undefined"
+      ? window.confirm("Alle bestehenden Markt-Regionen jetzt normalisieren?")
+      : false;
+    if (!confirmed) return;
+    setNormalizeError(null);
+    setNormalizeSummary(null);
+    setIsNormalizingRegions(true);
+    try {
+      const result = await normalizeAllMarketRegions({ batchSize: 500, reportLimit: 200 });
+      setNormalizeSummary(result);
+      await reloadMarkets();
+    } catch (err) {
+      setNormalizeError(err instanceof Error ? err.message : "Regionen konnten nicht normalisiert werden.");
+    } finally {
+      setIsNormalizingRegions(false);
+    }
+  }, [isNormalizingRegions, reloadMarkets]);
+
+  // ── Initial data load ──────────────────────────────────────
+  useEffect(() => {
+    setMounted(true);
+    void reloadMarkets();
+    try {
+      const storedV = localStorage.getItem(LS_VISITS);
+      setVisits(storedV ? JSON.parse(storedV) : []);
+    } catch { /* start empty */ }
+    // Listen for import trigger from header button
+    const handler = () => setShowImport(true);
+    const normalizeHandler = () => { void handleNormalizeRegions(); };
+    window.addEventListener("maerkte:openImport", handler);
+    window.addEventListener("maerkte:normalizeRegions", normalizeHandler);
+    return () => {
+      window.removeEventListener("maerkte:openImport", handler);
+      window.removeEventListener("maerkte:normalizeRegions", normalizeHandler);
+    };
+  }, [handleNormalizeRegions, reloadMarkets]);
 
   // ── Derived filter options ─────────────────────────────────
   const opts = useMemo(() => ({
@@ -1390,6 +1425,10 @@ export default function MaerktePage() {
 
   const hasFilters = !!search.trim() || activeFilterCount > 0;
 
+  if (isLoadingMarkets) {
+    return <MaerktePageSkeleton />;
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, position: "relative" }}>
       <style>{`
@@ -1427,7 +1466,7 @@ export default function MaerktePage() {
         {/* White inner card */}
         <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
 
-        {(loadError || saveError || importError) && (
+        {(loadError || saveError || importError || normalizeError || normalizeSummary || isNormalizingRegions) && (
           <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", gap: 6 }}>
             {loadError && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)" }}>
@@ -1447,14 +1486,36 @@ export default function MaerktePage() {
                 Import fehlgeschlagen: {importError}
               </div>
             )}
+            {isNormalizingRegions && (
+              <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(8,145,178,0.06)", border: "1px solid rgba(8,145,178,0.14)", fontSize: 10, color: "#0e7490", fontWeight: 600 }}>
+                Regionen werden normalisiert…
+              </div>
+            )}
+            {normalizeError && (
+              <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", fontSize: 10, color: R, fontWeight: 600 }}>
+                Regionen-Normalisierung fehlgeschlagen: {normalizeError}
+              </div>
+            )}
+            {normalizeSummary && (
+              <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(22,163,74,0.06)", border: "1px solid rgba(22,163,74,0.14)", fontSize: 10, color: "#166534", fontWeight: 600, display: "flex", flexDirection: "column", gap: 4 }}>
+                <span>
+                  Regionen normalisiert: {normalizeSummary.updatedCount} aktualisiert, {normalizeSummary.unchangedCount} unverändert, {normalizeSummary.unmatchedCount} nicht zuordenbar.
+                </span>
+                {normalizeSummary.unmatched.length > 0 && (
+                  <span style={{ color: "#92400e", fontWeight: 600 }}>
+                    Nicht zuordenbar (erste {normalizeSummary.unmatched.length}):{" "}
+                    {normalizeSummary.unmatched
+                      .slice(0, 10)
+                      .map((entry) => `${entry.marketName} [${entry.region || "leer"}]`)
+                      .join(" · ")}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {isLoadingMarkets ? (
-          <div style={{ padding: "60px 40px", textAlign: "center" }}>
-            <span style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", fontWeight: 600 }}>Märkte werden geladen…</span>
-          </div>
-        ) : markets.length === 0 ? (
+        {markets.length === 0 ? (
           <div style={{ padding: "60px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
             <div style={{ width: 52, height: 52, borderRadius: 14, background: "rgba(220,38,38,0.07)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <MapPin size={22} strokeWidth={1.5} color={R} />
@@ -1553,6 +1614,83 @@ export default function MaerktePage() {
           onClose={() => setShowImport(false)}
         />
       )}
+    </div>
+  );
+}
+
+function MaerktePageSkeleton() {
+  const shimmer: React.CSSProperties = {
+    backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 37%, rgba(0,0,0,0.04) 63%)",
+    backgroundSize: "400% 100%",
+    animation: "maerkteSkeletonShimmer 1.25s ease-in-out infinite",
+    borderRadius: 8,
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, position: "relative" }}>
+      <style>{`
+        @keyframes maerkteSkeletonShimmer {
+          0% { background-position: 100% 0; }
+          100% { background-position: 0 0; }
+        }
+      `}</style>
+
+      <div />
+
+      <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
+        <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ ...shimmer, height: 10, width: 90 }} />
+          <div style={{ ...shimmer, height: 10, width: 120 }} />
+        </div>
+
+        <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ ...shimmer, height: 28, width: 200, borderRadius: 7 }} />
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {Array.from({ length: 8 }).map((_, index) => (
+                  <div key={index} style={{ ...shimmer, height: 24, width: `${58 + (index % 3) * 10}px`, borderRadius: 6 }} />
+                ))}
+              </div>
+            </div>
+            <div style={{ ...shimmer, height: 16, width: 170, borderRadius: 999 }} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px", gap: "0 12px", padding: "7px 18px", background: "rgba(0,0,0,0.018)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+            {Array.from({ length: 8 }).map((_, index) => (
+              <div key={index} style={{ ...shimmer, height: 9, width: `${72 + (index % 2) * 16}%` }} />
+            ))}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {Array.from({ length: 10 }).map((_, index) => (
+              <div
+                key={index}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px",
+                  gap: "0 12px",
+                  padding: "10px 18px",
+                  borderBottom: "1px solid rgba(0,0,0,0.04)",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <div style={{ ...shimmer, height: 14, width: 44, borderRadius: 4 }} />
+                  <div style={{ ...shimmer, height: 11, width: `${44 + (index % 4) * 10}%` }} />
+                </div>
+                <div style={{ ...shimmer, height: 10, width: 26 }} />
+                <div style={{ ...shimmer, height: 10, width: `${56 + (index % 3) * 10}%` }} />
+                <div style={{ ...shimmer, height: 10, width: `${54 + (index % 2) * 12}%` }} />
+                <div style={{ ...shimmer, height: 10, width: 38 }} />
+                <div style={{ ...shimmer, height: 10, width: `${62 + (index % 2) * 14}%` }} />
+                <div style={{ ...shimmer, height: 10, width: 22 }} />
+                <div style={{ ...shimmer, height: 10, width: 20 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

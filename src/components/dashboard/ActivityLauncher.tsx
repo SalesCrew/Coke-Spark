@@ -19,6 +19,8 @@ import {
   Search,
 } from "lucide-react";
 import {
+  createGmVisitSession,
+  fetchGmVisitSession,
   fetchCurrentDaySession,
   fetchActiveTimeTrackingDrafts,
   fetchGmAssignedStartMarkets,
@@ -29,6 +31,7 @@ import {
   commentTimeTrackingDraft,
   submitTimeTrackingEntry,
   cancelTimeTrackingEntry,
+  setGmVisitPreloadCache,
   type TimeTrackingActivityType,
   type TimeTrackingEntry,
 } from "@/lib/api/backend";
@@ -1045,6 +1048,7 @@ export function ActivityLauncher() {
   const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>([]);
   const [isLaunching, setIsLaunching] = useState(false);
   const [launchProgress, setLaunchProgress] = useState(0);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const [cardMaxH, setCardMaxH] = useState<number | undefined>(undefined);
   const [clockHandler, setClockHandler] = useState<((h: number, m: number) => void) | null>(null);
   const [marketSearch, setMarketSearch] = useState("");
@@ -1055,6 +1059,7 @@ export function ActivityLauncher() {
   const cardRef = useRef<HTMLDivElement>(null);
   const launchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const launchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const launchRequestSeqRef = useRef(0);
 
   const filteredMarkets = useMemo(() => {
     if (!marketSearch.trim()) return markets;
@@ -1190,6 +1195,7 @@ export function ActivityLauncher() {
   const handleMarketSelect = useCallback((market: Market) => {
     if (isLaunching) return;
     setMarketSearch("");
+    setLaunchError(null);
     setSelectedMarket(market);
     setSelectedSectionIds([]);
     setView("selectSections");
@@ -1204,29 +1210,49 @@ export function ActivityLauncher() {
 
   const handleConfirmSections = useCallback(() => {
     if (!selectedMarket || selectedSectionIds.length === 0 || isLaunching) return;
+    const requestSeq = ++launchRequestSeqRef.current;
     if (launchIntervalRef.current) clearInterval(launchIntervalRef.current);
     if (launchTimeoutRef.current) clearTimeout(launchTimeoutRef.current);
     setIsLaunching(true);
-    setLaunchProgress(0);
+    setLaunchError(null);
+    setLaunchProgress(8);
 
-    const durationMs = 1150;
-    const tickMs = 24;
-    const start = Date.now();
     launchIntervalRef.current = setInterval(() => {
-      const elapsed = Date.now() - start;
-      const pct = Math.min(100, (elapsed / durationMs) * 100);
-      setLaunchProgress(pct);
-      if (pct >= 100 && launchIntervalRef.current) {
-        clearInterval(launchIntervalRef.current);
-        launchIntervalRef.current = null;
-      }
-    }, tickMs);
+      setLaunchProgress((current) => (current >= 90 ? 90 : current + 2.5));
+    }, 80);
 
-    launchTimeoutRef.current = setTimeout(() => {
-      router.push(
-        `/gm/marktbesuch?chain=${encodeURIComponent(selectedMarket.chain)}&address=${encodeURIComponent(selectedMarket.address)}&marketId=${encodeURIComponent(selectedMarket.id)}&campaignIds=${encodeURIComponent(selectedSectionIds.join(","))}`,
-      );
-    }, durationMs + 120);
+    void (async () => {
+      const isStale = () => launchRequestSeqRef.current !== requestSeq;
+      try {
+        const clientSessionToken = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).slice(0, 120);
+        const session = await createGmVisitSession({
+          marketId: selectedMarket.id,
+          campaignIds: selectedSectionIds,
+          clientSessionToken,
+        });
+        if (isStale()) return;
+        const payload = await fetchGmVisitSession(session.session.id);
+        if (isStale()) return;
+        setGmVisitPreloadCache(payload);
+        if (launchIntervalRef.current) {
+          clearInterval(launchIntervalRef.current);
+          launchIntervalRef.current = null;
+        }
+        setLaunchProgress(100);
+        router.push(
+          `/gm/marktbesuch?chain=${encodeURIComponent(selectedMarket.chain)}&address=${encodeURIComponent(selectedMarket.address)}&marketId=${encodeURIComponent(selectedMarket.id)}&campaignIds=${encodeURIComponent(selectedSectionIds.join(","))}&sessionId=${encodeURIComponent(session.session.id)}`,
+        );
+      } catch {
+        if (isStale()) return;
+        if (launchIntervalRef.current) {
+          clearInterval(launchIntervalRef.current);
+          launchIntervalRef.current = null;
+        }
+        setIsLaunching(false);
+        setLaunchProgress(0);
+        setLaunchError("Marktbesuch konnte nicht vorbereitet werden. Bitte erneut versuchen.");
+      }
+    })();
   }, [isLaunching, router, selectedMarket, selectedSectionIds]);
 
   const canConfirmSections = selectedSectionIds.length > 0 && !isLaunching && !!selectedMarket;
@@ -1535,6 +1561,22 @@ export function ActivityLauncher() {
               {selectedMarket.chain}
             </span>
             <span className="text-[10px] font-medium text-gray-600 truncate">{selectedMarket.address}</span>
+          </div>
+        )}
+        {launchError && (
+          <div
+            style={{
+              marginBottom: 10,
+              borderRadius: 8,
+              border: "1px solid rgba(220,38,38,0.24)",
+              background: "rgba(220,38,38,0.06)",
+              color: "#991b1b",
+              fontSize: 10,
+              fontWeight: 600,
+              padding: "7px 9px",
+            }}
+          >
+            {launchError}
           </div>
         )}
 

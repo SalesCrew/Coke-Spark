@@ -718,7 +718,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     transition: "opacity 0.2s ease, transform 0.2s ease",
     display: "flex", flexDirection: "column", flex: 1, minHeight: 0,
   };
-  const feedItems = [...todayItems].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  const feedItems = todayItems;
 
   function kindLabel(kind: TodaySubmissionItem["kind"]): string {
     if (kind === "day") return "Tag";

@@ -12,7 +12,14 @@ import { MarketList } from "@/components/dashboard/MarketList";
 import { ActivityLauncher } from "@/components/dashboard/ActivityLauncher";
 import Aurora from "@/components/ui/Aurora";
 import { RedMonthProvider } from "@/context/RedMonthContext";
-import { fetchGmBonusSummary, fetchGmKuehlerMhdProgress, type GmKuehlerMhdProgressPayload } from "@/lib/api/backend";
+import {
+  fetchGmBonusSummary,
+  fetchGmKpiSummary,
+  fetchGmKuehlerMhdProgress,
+  readCachedGmKpiSummary,
+  type GmKpiSummary,
+  type GmKuehlerMhdProgressPayload,
+} from "@/lib/api/backend";
 import type { PraemienGmBonusSummary } from "@/types/praemien";
 
 const gmMenuItems = [
@@ -26,20 +33,29 @@ const gmMenuItems = [
 export default function GMDashboard() {
   const [bonusModalOpen, setBonusModalOpen] = useState(false);
   const [bonusSummary, setBonusSummary] = useState<PraemienGmBonusSummary | null>(null);
+  const [gmKpiSummary, setGmKpiSummary] = useState<GmKpiSummary | null>(null);
   const [kuehlerMhdProgress, setKuehlerMhdProgress] = useState<GmKuehlerMhdProgressPayload | null>(null);
   const [bonusLoading, setBonusLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    const cached = readCachedGmKpiSummary();
+    if (cached && !cancelled) {
+      setGmKpiSummary(cached);
+    }
     setBonusLoading(true);
     void (async () => {
-      const [bonusResult, progressResult] = await Promise.allSettled([
+      const [bonusResult, progressResult, kpiResult] = await Promise.allSettled([
         fetchGmBonusSummary(),
         fetchGmKuehlerMhdProgress(),
+        fetchGmKpiSummary(),
       ]);
       if (!cancelled) {
         setBonusSummary(bonusResult.status === "fulfilled" ? bonusResult.value : null);
         setKuehlerMhdProgress(progressResult.status === "fulfilled" ? progressResult.value : null);
+        if (kpiResult.status === "fulfilled") {
+          setGmKpiSummary(kpiResult.value);
+        }
         setBonusLoading(false);
       }
     })();
@@ -67,7 +83,8 @@ export default function GMDashboard() {
     { label: "Kühlerinventur", value: `${kuehlerCurrent}/${kuehlerTotal}`, percent: kuehlerPercent, color: "#E86B5A" },
     { label: "MHD", value: `${mhdPercent}%`, percent: mhdPercent, color: "#DC2626" },
   ];
-  const roundedBonus = Math.round((bonusSummary?.currentRewardEur ?? 0) * 100) / 100;
+  const cumulativeBonus = Math.round((gmKpiSummary?.bonusCumulativeEur ?? 0) * 100) / 100;
+  const averageIpp = Math.round((gmKpiSummary?.ippAllTimeAvg ?? 0) * 10) / 10;
 
   return (
     <RedMonthProvider>
@@ -96,7 +113,7 @@ export default function GMDashboard() {
         className="mx-auto px-6 pt-6 lg:px-10 lg:pt-8"
         style={{ maxWidth: 960, position: "relative", zIndex: 1 }}
       >
-        <GMStatusCard bars={statusBars} praemie={roundedBonus} />
+        <GMStatusCard bars={statusBars} ipp={averageIpp} praemie={cumulativeBonus} />
 
         <div className="mt-5 flex gap-5 items-stretch">
           <div className="flex-1">

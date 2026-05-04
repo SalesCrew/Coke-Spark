@@ -769,6 +769,10 @@ export default function IppBerechnungPage() {
 
   const clearFilters = () => { setSearch(""); setFilterRegion(null); setFilterGm(null); setFilterChain(null); setFilterMonat(null); };
 
+  if (isLoading) {
+    return <IppPageSkeleton />;
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <style>{`
@@ -778,9 +782,6 @@ export default function IppBerechnungPage() {
         .ipp-insp { animation: inspFade 0.18s ease both; }
       `}</style>
 
-      {isLoading && (
-        <div style={{ fontSize: 12, color: "rgba(0,0,0,0.45)" }}>IPP Daten werden geladen…</div>
-      )}
       {loadError && (
         <div style={{ fontSize: 12, color: "#DC2626" }}>{loadError}</div>
       )}
@@ -958,6 +959,92 @@ export default function IppBerechnungPage() {
                 inspectorMonthLabel={inspectorMonthLabel ?? selectedRecord?.redMonatLabel ?? null}
                 onMonthChange={(label) => setInspectorMonthLabel(label)}
               />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IppPageSkeleton() {
+  const shimmer: React.CSSProperties = {
+    backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 37%, rgba(0,0,0,0.04) 63%)",
+    backgroundSize: "400% 100%",
+    animation: "ippSkeletonShimmer 1.25s ease-in-out infinite",
+    borderRadius: 8,
+  };
+
+  const tile = (
+    <div style={{ flex: 1, minWidth: 0, background: "#fff", borderRadius: 8, border: "1px solid rgba(0,0,0,0.05)", padding: 10, display: "flex", flexDirection: "column", gap: 7 }}>
+      <div style={{ ...shimmer, height: 8, width: "42%" }} />
+      <div style={{ ...shimmer, height: 18, width: "56%" }} />
+      <div style={{ ...shimmer, height: 7, width: "72%" }} />
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <style>{`
+        @keyframes ippSkeletonShimmer {
+          0% { background-position: 100% 0; }
+          100% { background-position: 0 0; }
+        }
+      `}</style>
+
+      <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
+        <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ ...shimmer, height: 10, width: 170 }} />
+          <div style={{ ...shimmer, height: 10, width: 90 }} />
+        </div>
+        <div style={{ margin: "0 10px 10px", display: "flex", gap: 7, background: "rgba(0,0,0,0.022)", border: "1px solid rgba(0,0,0,0.055)", borderRadius: 10, padding: 6 }}>
+          {tile}
+          {tile}
+          {tile}
+          {tile}
+          {tile}
+          {tile}
+        </div>
+      </div>
+
+      <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
+        <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ ...shimmer, height: 10, width: 120 }} />
+          <div style={{ ...shimmer, height: 10, width: 200 }} />
+        </div>
+        <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ ...shimmer, height: 28, width: 220, borderRadius: 7 }} />
+              <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                <div style={{ ...shimmer, height: 24, width: 78, borderRadius: 6 }} />
+                <div style={{ ...shimmer, height: 24, width: 78, borderRadius: 6 }} />
+                <div style={{ ...shimmer, height: 24, width: 78, borderRadius: 6 }} />
+              </div>
+            </div>
+            <div style={{ ...shimmer, height: 16, width: 260, borderRadius: 999 }} />
+          </div>
+          <div style={{ display: "flex", height: "calc(100vh - 340px)", minHeight: 480 }}>
+            <div style={{ width: 420, flexShrink: 0, borderRight: "1px solid rgba(0,0,0,0.05)", padding: "6px 14px 10px" }}>
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div key={index} style={{ padding: "10px 0", borderBottom: "1px solid rgba(0,0,0,0.04)", display: "grid", gridTemplateColumns: "1fr 28px 60px", gap: "0 12px", alignItems: "center" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ ...shimmer, height: 14, width: 48, borderRadius: 4 }} />
+                      <div style={{ ...shimmer, height: 12, width: `${45 + ((index % 4) * 10)}%` }} />
+                    </div>
+                    <div style={{ ...shimmer, height: 9, width: "72%" }} />
+                  </div>
+                  <div style={{ ...shimmer, height: 10, width: 10, borderRadius: 999, justifySelf: "center" }} />
+                  <div style={{ ...shimmer, height: 16, width: "100%" }} />
+                </div>
+              ))}
+            </div>
+            <div style={{ flex: 1, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ ...shimmer, height: 12, width: "32%" }} />
+              <div style={{ ...shimmer, height: 10, width: "58%" }} />
+              <div style={{ ...shimmer, height: 28, width: "100%", borderRadius: 10 }} />
+              <div style={{ ...shimmer, height: 180, width: "100%", borderRadius: 10 }} />
             </div>
           </div>
         </div>

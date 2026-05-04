@@ -1,23 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Lock, Mail, Settings2, Store, UsersRound } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
-import { loginWithBackend, saveAuthSession } from "@/lib/api/backend";
+import { fetchGmKpiSummary, loginWithBackend, saveAuthSession } from "@/lib/api/backend";
 
 type LoginRole = "gm" | "sm" | "admin" | "coke";
-
-const PRIMARY_ROLES: Array<{ id: LoginRole; label: string }> = [
-  { id: "gm", label: "Gebietsmanagement" },
-  { id: "sm", label: "Shelf Merchandising" },
-];
-
-const HIDDEN_ROLES: Array<{ id: LoginRole; label: string }> = [
-  { id: "admin", label: "Admin" },
-  { id: "coke", label: "Coke" },
-];
+const LOGIN_ROLES: LoginRole[] = ["gm", "sm", "admin"];
 
 const landingFont = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -41,40 +32,13 @@ function innerCardStyle(): React.CSSProperties {
   };
 }
 
-function roleButtonStyle(active: boolean): React.CSSProperties {
-  if (active) {
-    return {
-      background: "linear-gradient(to bottom, #DC2626, #e84040)",
-      color: "#ffffff",
-      border: "1px solid #c42020",
-      boxShadow:
-        "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 1px 7px rgba(180,20,20,0.16)",
-    };
-  }
-  return {
-    background: "#ffffff",
-    color: "#1f2937",
-    border: "1px solid rgba(0,0,0,0.08)",
-    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-  };
-}
-
 export default function Home() {
   const router = useRouter();
 
-  const [selectedRole, setSelectedRole] = useState<LoginRole>("gm");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [hiddenRolesOpen, setHiddenRolesOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [inlineNotice, setInlineNotice] = useState<string | null>(null);
-
-  const roleLabel = useMemo(() => {
-    if (selectedRole === "gm") return "Gebietsmanager Zugang";
-    if (selectedRole === "sm") return "Shelf Merchandiser Zugang";
-    if (selectedRole === "admin") return "Admin Zugang";
-    return "Coke Zugang";
-  }, [selectedRole]);
 
   async function submitLogin(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -82,28 +46,36 @@ export default function Home() {
     setSubmitting(true);
 
     try {
-      if (selectedRole === "coke") {
-        setInlineNotice("Coke Zugang vorbereitet.");
-        return;
+      let result: Awaited<ReturnType<typeof loginWithBackend>> | null = null;
+      let lastError: unknown = null;
+      for (const role of LOGIN_ROLES) {
+        try {
+          result = await loginWithBackend({ email, password, role });
+          break;
+        } catch (error) {
+          lastError = error;
+        }
       }
-
-      const result = await loginWithBackend({
-        email,
-        password,
-        role: selectedRole,
-      });
+      if (!result) {
+        throw (lastError instanceof Error ? lastError : new Error("Login fehlgeschlagen."));
+      }
 
       saveAuthSession(result);
 
-      if (selectedRole === "gm") {
+      if (result.user.role === "gm") {
+        try {
+          await fetchGmKpiSummary();
+        } catch {
+          // Keep login flow resilient even if KPI prefetch fails.
+        }
         router.push("/gm");
         return;
       }
-      if (selectedRole === "sm") {
+      if (result.user.role === "sm") {
         router.push("/sm");
         return;
       }
-      if (selectedRole === "admin") {
+      if (result.user.role === "admin") {
         router.push("/admin");
         return;
       }
@@ -204,25 +176,7 @@ export default function Home() {
                   background: "rgba(244,0,9,0.045)",
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => setHiddenRolesOpen((v) => !v)}
-                  aria-label="Versteckte Logins anzeigen"
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    font: "inherit",
-                    color: "inherit",
-                    margin: 0,
-                    padding: 0,
-                    cursor: "pointer",
-                    textShadow: hiddenRolesOpen ? "0 0 14px rgba(220,38,38,0.28)" : "none",
-                    transition: "text-shadow 0.2s ease",
-                  }}
-                >
-                  O
-                </button>
-                perational Access
+                Operational Access
               </p>
               <h1
                 style={{
@@ -371,45 +325,8 @@ export default function Home() {
                       fontWeight: 800,
                     }}
                   >
-                    Rolle wählen und anmelden
+                    Einloggen
                   </p>
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 6,
-                    padding: 4,
-                    borderRadius: 12,
-                    border: "1px solid rgba(0,0,0,0.06)",
-                    background: "rgba(0,0,0,0.025)",
-                  }}
-                >
-                  {PRIMARY_ROLES.map((role) => {
-                    const active = selectedRole === role.id;
-                    return (
-                      <button
-                        key={role.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedRole(role.id);
-                          setInlineNotice(null);
-                        }}
-                        style={{
-                          minHeight: 42,
-                          borderRadius: 10,
-                          cursor: "pointer",
-                          textAlign: "left",
-                          padding: "10px 12px",
-                          transition: "all 0.2s ease",
-                          ...roleButtonStyle(active),
-                        }}
-                      >
-                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "-0.01em" }}>{role.label}</div>
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
 
@@ -427,77 +344,6 @@ export default function Home() {
                     gap: 12,
                   }}
                 >
-                  <div
-                    style={{
-                      padding: "11px 12px",
-                      borderRadius: 12,
-                      border: "1px solid rgba(0,0,0,0.06)",
-                      background:
-                        "linear-gradient(180deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.03) 100%)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        letterSpacing: "0.07em",
-                        textTransform: "uppercase",
-                        color: "rgba(0,0,0,0.42)",
-                      }}
-                    >
-                      Aktiver Bereich
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 6,
-                        fontSize: 13,
-                        color: "#111827",
-                        fontWeight: 700,
-                        letterSpacing: "-0.01em",
-                      }}
-                    >
-                      {roleLabel}
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      maxHeight: hiddenRolesOpen ? 72 : 0,
-                      opacity: hiddenRolesOpen ? 1 : 0,
-                      overflow: "hidden",
-                      transition: "max-height 0.25s ease, opacity 0.2s ease",
-                      display: "flex",
-                      gap: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {HIDDEN_ROLES.map((role) => {
-                      const active = selectedRole === role.id;
-                      return (
-                        <button
-                          key={role.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedRole(role.id);
-                            setInlineNotice(null);
-                          }}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: 8,
-                            border: active ? "1px solid rgba(220,38,38,0.32)" : "1px solid rgba(0,0,0,0.08)",
-                            background: active ? "rgba(220,38,38,0.06)" : "#fff",
-                            color: active ? "#b91c1c" : "rgba(0,0,0,0.52)",
-                            fontSize: 11,
-                            fontWeight: 600,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {role.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
                   <div
                     style={{
                       borderRadius: 14,

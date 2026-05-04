@@ -782,6 +782,63 @@ export async function fetchGmBonusSummary(): Promise<PraemienGmBonusSummary> {
   };
 }
 
+export type GmKpiSummary = {
+  ippAllTimeAvg: number;
+  ippSampleCount: number;
+  bonusCumulativeEur: number;
+  lastComputedAt: string;
+};
+
+const GM_KPI_SUMMARY_CACHE_KEY = "gm_kpi_summary_v1";
+
+export function readCachedGmKpiSummary(): GmKpiSummary | null {
+  if (typeof window === "undefined") return null;
+  let raw: string | null = null;
+  try {
+    raw = window.sessionStorage.getItem(GM_KPI_SUMMARY_CACHE_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<GmKpiSummary>;
+    if (!parsed) return null;
+    const lastComputedAt = typeof parsed.lastComputedAt === "string" ? parsed.lastComputedAt : "";
+    if (!lastComputedAt) return null;
+    return {
+      ippAllTimeAvg: Number(parsed.ippAllTimeAvg ?? 0),
+      ippSampleCount: Number(parsed.ippSampleCount ?? 0),
+      bonusCumulativeEur: Number(parsed.bonusCumulativeEur ?? 0),
+      lastComputedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedGmKpiSummary(summary: GmKpiSummary): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(GM_KPI_SUMMARY_CACHE_KEY, JSON.stringify(summary));
+  } catch {
+    // noop
+  }
+}
+
+export async function fetchGmKpiSummary(): Promise<GmKpiSummary> {
+  const data = (await authedFetch("/markets/gm/kpi-summary")) as Partial<GmKpiSummary>;
+  const normalized: GmKpiSummary = {
+    ippAllTimeAvg: Number(data.ippAllTimeAvg ?? 0),
+    ippSampleCount: Number(data.ippSampleCount ?? 0),
+    bonusCumulativeEur: Number(data.bonusCumulativeEur ?? 0),
+    lastComputedAt: typeof data.lastComputedAt === "string" && data.lastComputedAt.length > 0
+      ? data.lastComputedAt
+      : new Date(0).toISOString(),
+  };
+  writeCachedGmKpiSummary(normalized);
+  return normalized;
+}
+
 async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
   const current = readAuthSession();
   if (!current?.session.refreshToken) {
@@ -854,6 +911,21 @@ type ImportMarketsInput = {
   sheetName: string;
   rows: string[][];
   mapping: ColumnMapping;
+};
+
+export type NormalizeMarketRegionsResult = {
+  ok: boolean;
+  processedCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  unmatchedCount: number;
+  unmatched: Array<{
+    marketId: string;
+    marketName: string;
+    region: string;
+    normalizedToken: string;
+  }>;
+  allowedRegions: string[];
 };
 
 export async function fetchMarkets(): Promise<MarketRecord[]> {
@@ -1189,6 +1261,90 @@ export type GmVisitSessionPayload = GmVisitStartPayload & {
   };
 };
 
+export type GmVisitPreloadCachePayload = GmVisitSessionReadPayload;
+
+const GM_VISIT_PRELOAD_CACHE_PREFIX = "gm_visit_preload_v1:";
+const GM_VISIT_PRELOAD_CACHE_TTL_MS = 10 * 60 * 1000;
+
+type GmVisitPreloadCacheEnvelope = {
+  sessionId: string;
+  createdAtMs: number;
+  payload: GmVisitPreloadCachePayload;
+};
+
+const gmVisitPreloadMemoryCache: Record<string, GmVisitPreloadCacheEnvelope> = {};
+
+export function getGmVisitPreloadCacheKey(sessionId: string): string {
+  return `${GM_VISIT_PRELOAD_CACHE_PREFIX}${sessionId}`;
+}
+
+export function setGmVisitPreloadCache(payload: GmVisitPreloadCachePayload): void {
+  const sessionId = payload?.session?.id;
+  if (!sessionId) return;
+  const envelope: GmVisitPreloadCacheEnvelope = {
+    sessionId,
+    createdAtMs: Date.now(),
+    payload,
+  };
+  gmVisitPreloadMemoryCache[sessionId] = envelope;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(getGmVisitPreloadCacheKey(sessionId), JSON.stringify(envelope));
+  } catch {
+    // Keep in-memory cache as best-effort fallback.
+  }
+}
+
+export function readGmVisitPreloadCache(sessionId: string): GmVisitPreloadCachePayload | null {
+  const inMemory = gmVisitPreloadMemoryCache[sessionId];
+  if (inMemory) {
+    if (Date.now() - inMemory.createdAtMs <= GM_VISIT_PRELOAD_CACHE_TTL_MS && Array.isArray(inMemory.payload.sections) && inMemory.payload.session?.id === sessionId) {
+      return inMemory.payload;
+    }
+    delete gmVisitPreloadMemoryCache[sessionId];
+  }
+  if (typeof window === "undefined") return null;
+  const key = getGmVisitPreloadCacheKey(sessionId);
+  let raw: string | null = null;
+  try {
+    raw = window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<GmVisitPreloadCacheEnvelope>;
+    if (!parsed || parsed.sessionId !== sessionId) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    const createdAtMs = Number(parsed.createdAtMs ?? 0);
+    if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs > GM_VISIT_PRELOAD_CACHE_TTL_MS) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    const payload = parsed.payload;
+    if (!payload || payload.session?.id !== sessionId || !Array.isArray(payload.sections)) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return payload;
+  } catch {
+    window.sessionStorage.removeItem(key);
+    return null;
+  }
+}
+
+export function clearGmVisitPreloadCache(sessionId: string): void {
+  delete gmVisitPreloadMemoryCache[sessionId];
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(getGmVisitPreloadCacheKey(sessionId));
+  } catch {
+    // noop
+  }
+}
+
 export async function fetchGmVisitSession(sessionId: string): Promise<GmVisitSessionReadPayload> {
   return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`)) as GmVisitSessionReadPayload;
 }
@@ -1272,6 +1428,19 @@ export async function importMarkets(input: ImportMarketsInput): Promise<{ market
     markets: (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market)),
     summary: data.summary,
   };
+}
+
+export async function normalizeAllMarketRegions(input?: {
+  batchSize?: number;
+  reportLimit?: number;
+}): Promise<NormalizeMarketRegionsResult> {
+  return (await authedFetch("/admin/markets/normalize-regions", {
+    method: "POST",
+    body: JSON.stringify({
+      batchSize: input?.batchSize,
+      reportLimit: input?.reportLimit,
+    }),
+  }, 300000)) as NormalizeMarketRegionsResult;
 }
 
 export async function createMarket(payload: MarketRecord): Promise<MarketRecord> {

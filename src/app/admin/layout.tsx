@@ -65,6 +65,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isFbNeu = pathname === "/admin/fbmanagement/neu";
   const isPraemien = pathname.startsWith("/admin/praemien");
   const isMaerkte = pathname.startsWith("/admin/maerkte");
+  const isLager = pathname.startsWith("/admin/lager");
   const isGebietsmanager = pathname.startsWith("/admin/gebietsmanager");
   const isZeiterfassung = pathname.startsWith("/admin/zeiterfassung");
   const isIppBerechnung = pathname.startsWith("/admin/ipp-berechnung");
@@ -456,7 +457,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = collectUniqueQuestionsFromModules(flexModules);
   const billaExistingQuestions = collectUniqueQuestionsFromModules(billaModules);
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : "Standardbesuch";
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : "Standardbesuch";
   return (
     <RedMonthProvider>
     <BillaCtx.Provider value={billaCtxValue}>
@@ -577,7 +578,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Download size={12} strokeWidth={2} />
                   Exportieren
                 </button>
-              ) : isIppBerechnung ? null : isMaerkte ? (
+              ) : isIppBerechnung ? null : isLager ? null : isMaerkte ? (
                 <>
                   <button
                     onClick={() => window.dispatchEvent(new CustomEvent("maerkte:normalizeRegions"))}

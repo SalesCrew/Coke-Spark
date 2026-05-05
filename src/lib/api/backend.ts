@@ -13,6 +13,7 @@ import type {
 import type { PraemienGmBonusSummary, PraemienQuarter, PraemienSourceRef } from "@/types/praemien";
 import type { ColumnMapping, ImportSummary } from "@/utils/marketImport";
 import type { IppQuestionAuditRow } from "@/types/ipp";
+import type { CreateLagerInput, LagerRecord } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod } from "@/types/red-month";
 
 export type LoginRole = "gm" | "sm" | "admin" | "coke";
@@ -78,6 +79,18 @@ type BackendMarket = {
     section: "standard" | "flex" | "kuehler" | "mhd" | "billa";
   }>;
   isDeleted?: boolean | null;
+};
+
+type BackendLager = {
+  id: string;
+  name: string;
+  address: string;
+  postalCode: string;
+  city: string;
+  gmUserId: string | null;
+  gmName: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type BackendPhotoTag = {
@@ -327,6 +340,20 @@ function mapBackendMarketToMarketRecord(market: BackendMarket): MarketRecord {
     importedAt: market.importedAt ?? new Date().toISOString(),
     plannedToId: market.plannedToId ?? null,
     isDeleted: Boolean(market.isDeleted ?? false),
+  };
+}
+
+function mapBackendLagerToLagerRecord(input: BackendLager): LagerRecord {
+  return {
+    id: input.id,
+    name: input.name,
+    address: input.address,
+    postalCode: input.postalCode,
+    city: input.city,
+    gmUserId: input.gmUserId ?? null,
+    gmName: input.gmName ?? null,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
   };
 }
 
@@ -906,6 +933,25 @@ export async function updateGmUser(payload: GMRecord): Promise<GMRecord> {
     }),
   })) as { user: BackendUser };
   return mapBackendUserToGmRecord(data.user);
+}
+
+export async function fetchAdminLager(): Promise<LagerRecord[]> {
+  const data = (await authedFetch("/admin/lager")) as { lagers?: BackendLager[] };
+  return (data.lagers ?? []).map((entry) => mapBackendLagerToLagerRecord(entry));
+}
+
+export async function createAdminLager(input: CreateLagerInput): Promise<LagerRecord> {
+  const data = (await authedFetch("/admin/lager", {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name,
+      address: input.address,
+      postalCode: input.postalCode,
+      city: input.city,
+      gmUserId: input.gmUserId ?? null,
+    }),
+  })) as { lager: BackendLager };
+  return mapBackendLagerToLagerRecord(data.lager);
 }
 
 type ImportMarketsInput = {

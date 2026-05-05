@@ -20,7 +20,7 @@ const RD = "#b91c1c";
 const R_BG = "rgba(220,38,38,0.06)";
 const R_BORDER = "rgba(220,38,38,0.18)";
 
-// ── Mock data ─────────────────────────────────────────────────
+// ── Local flow types ──────────────────────────────────────────
 type NeuMarketItem = {
   id: string;
   name: string;
@@ -35,6 +35,7 @@ type NeuMarketCandidate = NeuMarketItem & {
   standardMarketNumber?: string;
   cokeMasterNumber?: string;
   flexNumber?: string;
+  isActive?: boolean;
 };
 
 type MarketMatchStatus = "matched" | "unmatched" | "ambiguous";
@@ -54,31 +55,6 @@ type GmMatchIssue = {
   kind: GmMatchIssueKind;
   candidateUserIds: string[];
 };
-
-const MOCK_MARKETS: NeuMarketItem[] = [
-  { id: "m1",  name: "Billa Wien 10",          region: "Ost",  gm: "Thomas Maier" },
-  { id: "m2",  name: "Billa Wien 12",          region: "Ost",  gm: "Thomas Maier" },
-  { id: "m3",  name: "Merkur Graz Hauptplatz", region: "Süd",  gm: "Anna Gruber" },
-  { id: "m4",  name: "Spar Linz Nord",         region: "West", gm: "Michael Huber" },
-  { id: "m5",  name: "Billa Wien 6",           region: "Ost",  gm: "Thomas Maier" },
-  { id: "m6",  name: "Billa Mödling",          region: "Ost",  gm: "Sandra Koch" },
-  { id: "m7",  name: "Merkur Wien 22",         region: "Ost",  gm: "Thomas Maier" },
-  { id: "m8",  name: "Spar Graz West",         region: "Süd",  gm: "Anna Gruber" },
-  { id: "m9",  name: "Billa Baden",            region: "Ost",  gm: "Sandra Koch" },
-  { id: "m10", name: "Merkur Salzburg",        region: "West", gm: "Peter Wimmer" },
-  { id: "m11", name: "Billa Wien 15",          region: "Ost",  gm: "Thomas Maier" },
-  { id: "m12", name: "Spar Wels",              region: "West", gm: "Michael Huber" },
-  { id: "m13", name: "Billa Klagenfurt",       region: "Süd",  gm: "Anna Gruber" },
-  { id: "m14", name: "Merkur Innsbruck",       region: "Nord", gm: "Klaus Berger" },
-  { id: "m15", name: "Billa Wien 3",           region: "Ost",  gm: "Thomas Maier" },
-  { id: "m16", name: "Spar St. Pölten",        region: "Ost",  gm: "Sandra Koch" },
-  { id: "m17", name: "Billa Salzburg Mitte",   region: "West", gm: "Peter Wimmer" },
-  { id: "m18", name: "Merkur Villach",         region: "Süd",  gm: "Anna Gruber" },
-  { id: "m19", name: "Spar Innsbruck Ost",     region: "Nord", gm: "Klaus Berger" },
-  { id: "m20", name: "Billa Bregenz",          region: "Nord", gm: "Klaus Berger" },
-];
-
-const FLEX_MARKETS_COUNT = 2800;
 
 function normalizeMatcherValue(value: string | undefined | null) {
   return String(value ?? "").trim().toLowerCase();
@@ -1000,7 +976,7 @@ function StepMaerkte({ typeId, markets, onLoad }: {
         <div>
           <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", margin: "0 0 6px" }}>Märkte importieren</h3>
           <p style={{ fontSize: 13, color: "rgba(0,0,0,0.4)", margin: 0 }}>
-            {isAuto ? "Alle Märkte sind automatisch enthalten." : hasMarkets ? `${markets.length} Märkte geladen · ${uniqueGms} GMs · ${uniqueRegions} Regionen` : "Importiere die Märkte per Excel."}
+            {isAuto ? `${markets.length} aktive Märkte automatisch enthalten · ${uniqueGms} GMs · ${uniqueRegions} Regionen` : hasMarkets ? `${markets.length} Märkte geladen · ${uniqueGms} GMs · ${uniqueRegions} Regionen` : "Importiere die Märkte per Excel."}
           </p>
         </div>
         {hasMarkets && !isAuto && (
@@ -1031,7 +1007,7 @@ function StepMaerkte({ typeId, markets, onLoad }: {
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.015em", marginBottom: 2 }}>
-              {FLEX_MARKETS_COUNT.toLocaleString("de-AT")} Märkte automatisch enthalten
+              {markets.length.toLocaleString("de-AT")} aktive Märkte automatisch enthalten
             </div>
             <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", fontWeight: 400 }}>Bei Flexbesuchen werden alle aktiven Märkte automatisch zugewiesen.</div>
           </div>
@@ -1142,11 +1118,10 @@ function StepMaerkte({ typeId, markets, onLoad }: {
 // ── Step 4: Review ────────────────────────────────────────────
 function StepUebersicht({ typeId, name, startDate, endDate, startNow, markets }: {
   typeId: string; name: string; startDate: string; endDate: string; startNow: boolean;
-  markets: NeuMarketItem[];
+  markets: NeuMarketCandidate[];
 }) {
   const t = CAMPAIGN_TYPES.find(c => c.id === typeId);
-  const isAuto = t?.autoMarkets ?? false;
-  const count = isAuto ? FLEX_MARKETS_COUNT : markets.length;
+  const count = markets.length;
 
   function fmt(iso: string) {
     if (!iso) return "—";
@@ -1172,7 +1147,7 @@ function StepUebersicht({ typeId, name, startDate, endDate, startNow, markets }:
     { label: "Enddatum", value: fmt(endDate) },
     ...(durationDays !== null && durationDays > 0 ? [{ label: "Laufzeit", value: `${durationDays} Tage` }] : []),
     { label: "Märkte", value: `${count.toLocaleString("de-AT")} Märkte` },
-    ...(!isAuto && Object.keys(gmMap).length > 0 ? [{ label: "GMs", value: `${Object.keys(gmMap).length} Gebietsmanager` }] : []),
+    ...(Object.keys(gmMap).length > 0 ? [{ label: "GMs", value: `${Object.keys(gmMap).length} Gebietsmanager` }] : []),
   ];
 
   return (
@@ -1195,8 +1170,8 @@ function StepUebersicht({ typeId, name, startDate, endDate, startNow, markets }:
         ))}
       </div>
 
-      {/* Region + GM breakdown — only if markets imported */}
-      {!isAuto && markets.length > 0 && (
+      {/* Region + GM breakdown */}
+      {markets.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
           {/* Region cards */}
@@ -1260,59 +1235,8 @@ function StepUebersicht({ typeId, name, startDate, endDate, startNow, markets }:
         </div>
       )}
 
-      {/* Flex — fixed region stats for all 2 800 markets */}
-      {isAuto && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-
-          {/* Region cards */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Regionen (alle Märkte)</span>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-              {([
-                { name: "Nord", count: 420,  pct: 15, col: "#0891B2" },
-                { name: "Ost",  count: 980,  pct: 35, col: "#DC2626" },
-                { name: "Süd",  count: 700,  pct: 25, col: "#16a34a" },
-                { name: "West", count: 700,  pct: 25, col: "#D97706" },
-              ]).map(r => (
-                <div key={r.name} style={{
-                  padding: "12px 14px", borderRadius: 10, border: `1px solid ${r.col}20`,
-                  backgroundColor: `${r.col}07`, display: "flex", flexDirection: "column", gap: 8,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: r.col, letterSpacing: "0.03em" }}>{r.name}</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: "#1a1a1a", letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{r.count.toLocaleString("de-AT")}</span>
-                  </div>
-                  <div style={{ height: 3, borderRadius: 99, backgroundColor: `${r.col}18` }}>
-                    <div style={{ height: "100%", width: `${r.pct}%`, borderRadius: 99, backgroundColor: r.col }} />
-                  </div>
-                  <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>{r.pct}% der Märkte</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* GM summary */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Gebietsmanager</span>
-              <span style={{ fontSize: 10, color: "rgba(0,0,0,0.28)", fontWeight: 500 }}>ca. 140 gesamt</span>
-            </div>
-            <div style={{ borderRadius: 11, border: "1px solid rgba(0,0,0,0.06)", overflow: "hidden", padding: "14px 18px", backgroundColor: "#fff", display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Users size={16} strokeWidth={1.6} color="rgba(0,0,0,0.3)" />
-              </div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em", marginBottom: 2 }}>Alle GMs automatisch enthalten</div>
-                <div style={{ fontSize: 11, color: "rgba(0,0,0,0.38)", fontWeight: 400 }}>Bei Flexbesuchen werden sämtliche aktiven Gebietsmanager einbezogen.</div>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      )}
-
       {/* Warnings */}
-      {(!name || (!isAuto && markets.length === 0)) && (
+      {(!name || markets.length === 0) && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {!name && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 9, backgroundColor: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)" }}>
@@ -1320,7 +1244,7 @@ function StepUebersicht({ typeId, name, startDate, endDate, startNow, markets }:
               <span style={{ fontSize: 11, color: "#b45309", fontWeight: 500 }}>Kampagnenname fehlt</span>
             </div>
           )}
-          {!isAuto && markets.length === 0 && (
+          {markets.length === 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 9, backgroundColor: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)" }}>
               <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#d97706", flexShrink: 0 }} />
               <span style={{ fontSize: 11, color: "#b45309", fontWeight: 500 }}>Keine Märkte importiert</span>
@@ -1379,14 +1303,20 @@ export default function NeuKampagnePage() {
             standardMarketNumber: row.standardMarketNumber,
             cokeMasterNumber: row.cokeMasterNumber,
             flexNumber: row.flexNumber,
+            isActive: row.isActive,
           })),
         );
       } catch {
-        setAllMarkets(MOCK_MARKETS);
+        setAllMarkets([]);
       }
     };
     void loadMarkets();
   }, []);
+
+  const assignableMarkets = useMemo(
+    () => allMarkets.filter((market) => market.isActive !== false),
+    [allMarkets],
+  );
 
   useEffect(() => {
     const loadGmUsers = async () => {
@@ -1446,10 +1376,13 @@ export default function NeuKampagnePage() {
     return true;
   })();
 
-  const matcherReport = useMemo(() => buildMarketMatchReport(markets, allMarkets, isAuto), [markets, allMarkets, isAuto]);
+  const matcherReport = useMemo(
+    () => buildMarketMatchReport(markets, assignableMarkets, isAuto),
+    [assignableMarkets, isAuto, markets],
+  );
   const matchedMarketRows = useMemo<NeuMarketCandidate[]>(() => {
-    if (isAuto) return markets;
-    const allById = new Map(allMarkets.map((market) => [market.id, market]));
+    if (isAuto) return assignableMarkets;
+    const allById = new Map(assignableMarkets.map((market) => [market.id, market]));
     const seenIds = new Set<string>();
     const resolved: NeuMarketCandidate[] = [];
     for (const result of matcherReport.results) {
@@ -1460,7 +1393,7 @@ export default function NeuKampagnePage() {
       resolved.push(matched);
     }
     return resolved.length > 0 ? resolved : markets;
-  }, [allMarkets, isAuto, markets, matcherReport.results]);
+  }, [assignableMarkets, isAuto, markets, matcherReport.results]);
   const matcherIssueRows = useMemo(
     () => matcherReport.results.filter((result) => result.status !== "matched"),
     [matcherReport.results],
@@ -1656,7 +1589,7 @@ export default function NeuKampagnePage() {
       if (!campaign.startDate || !campaign.endDate) return "Geplant";
       return `${campaign.startDate} - ${campaign.endDate}`;
     };
-    const marketNameById = new Map(allMarkets.map((market) => [market.id, market.name]));
+    const marketNameById = new Map(assignableMarkets.map((market) => [market.id, market.name]));
     const conflicts: CampaignMarketOverlapConflict[] = [];
     for (const assignment of assignmentBuild.assignments) {
       for (const campaign of existingCampaigns) {
@@ -1690,7 +1623,7 @@ export default function NeuKampagnePage() {
       if (!deduped.has(key)) deduped.set(key, conflict);
     }
     return Array.from(deduped.values());
-  }, [allMarkets, assignmentBuild.assignments, endDate, existingCampaigns, isAuto, name, startDate, startNow, typeId]);
+  }, [assignableMarkets, assignmentBuild.assignments, endDate, existingCampaigns, isAuto, name, startDate, startNow, typeId]);
 
   const submitCampaign = useCallback(
     async (

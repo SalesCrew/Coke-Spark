@@ -599,7 +599,11 @@ function StepDetails({
               </div>
             ) : (
               <>
-                <div style={{ maxHeight: 170, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 2, scrollbarWidth: "none", msOverflowStyle: "none" }}>
+                <div
+                  className="redMonthList"
+                  style={{ maxHeight: "clamp(220px, 52vh, 560px)", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 2, scrollbarWidth: "none", msOverflowStyle: "none" }}
+                >
+                  <style>{`.redMonthList::-webkit-scrollbar{display:none}`}</style>
                   {redMonthPeriods.map((period) => {
                     const selected = selectedRedMonthId === period.id;
                     return (

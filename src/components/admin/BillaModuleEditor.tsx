@@ -846,6 +846,8 @@ export function BillaModuleEditor({ onClose, onSave, existingModule, existingQue
         @keyframes billaModuleEditorIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
         input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         input[type="number"] { -moz-appearance: textfield; }
+        .existing-question-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+        .existing-question-scroll::-webkit-scrollbar { width: 0; height: 0; }
       `}</style>
 
       <div style={{ height: 56, borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", flexShrink: 0 }}>
@@ -880,7 +882,7 @@ export function BillaModuleEditor({ onClose, onSave, existingModule, existingQue
       </div>
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        <div style={{ width: 220, backgroundColor: "rgba(0,0,0,0.02)", borderRight: "1px solid rgba(0,0,0,0.06)", padding: "20px 12px", flexShrink: 0, overflowY: "auto" }}>
+        <div style={{ width: 220, backgroundColor: "rgba(0,0,0,0.02)", borderRight: "1px solid rgba(0,0,0,0.06)", padding: "20px 12px", flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
           <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "rgba(0,0,0,0.35)", padding: "0 6px" }}>Fragentypen</span>
           <div style={{ marginTop: 10 }}>
             {QUESTION_TYPES.map((qt) => {
@@ -901,7 +903,7 @@ export function BillaModuleEditor({ onClose, onSave, existingModule, existingQue
             <Import size={13} strokeWidth={1.5} />
             Frage importieren
           </div>
-          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto", paddingRight: 2 }}>
+          <div className="existing-question-scroll" style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4, overflowY: "auto", paddingRight: 2, flex: 1, minHeight: 0 }}>
             {existingQuestions.length === 0 ? (
               <span style={{ padding: "0 6px", fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Keine bestehenden Fragen</span>
             ) : (

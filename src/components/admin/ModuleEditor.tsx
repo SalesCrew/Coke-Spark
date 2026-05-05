@@ -2073,6 +2073,14 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
         input[type="number"] {
           -moz-appearance: textfield;
         }
+        .existing-question-scroll {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .existing-question-scroll::-webkit-scrollbar {
+          width: 0;
+          height: 0;
+        }
       `}</style>
 
       {/* Top bar */}
@@ -2193,7 +2201,10 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
             borderRight: "1px solid rgba(0,0,0,0.06)",
             padding: "20px 12px",
             flexShrink: 0,
-            overflowY: "auto",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
           }}
         >
           <span
@@ -2271,7 +2282,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
             <Import size={13} strokeWidth={1.5} />
             Frage importieren
           </div>
-          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto", paddingRight: 2 }}>
+          <div className="existing-question-scroll" style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4, overflowY: "auto", paddingRight: 2, flex: 1, minHeight: 0 }}>
             {existingQuestions.length === 0 ? (
               <span style={{ padding: "0 6px", fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Keine bestehenden Fragen</span>
             ) : (

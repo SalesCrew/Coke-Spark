@@ -20,6 +20,7 @@ export interface MarketRecord {
   standardMarketNumber: string;
   employee: string;
   universeMarket: boolean;
+  isActive: boolean;
   infoNote: string;
   ipp: number | null;
   importSourceFileName: string;

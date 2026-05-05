@@ -18,6 +18,8 @@ import {
 import type { QuestionType, Question, ConditionalRule, ScoringWeight } from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
 import { useFragebogen } from "@/context/FragebogenContext";
+import { QuestionTypeContextMenu } from "@/components/admin/QuestionTypeContextMenu";
+import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
 
 let _sqid = 0;
 function nextId(): string {
@@ -758,11 +760,12 @@ function ImageAttachment({
 
 function QuestionCard({
   question, index, isExpanded, onToggle, onUpdate, onDelete,
-  onDragStart, onDragOver, onDrop, dropTarget, allQuestions,
+  onDragStart, onDragOver, onDrop, onContextTypeMenu, dropTarget, allQuestions,
 }: {
   question: Question; index: number; isExpanded: boolean; onToggle: () => void;
   onUpdate: (q: Question) => void; onDelete: () => void;
   onDragStart: (i: number) => void; onDragOver: (i: number) => void; onDrop: () => void;
+  onContextTypeMenu: (questionId: string, x: number, y: number) => void;
   dropTarget: boolean; allQuestions: Question[];
 }) {
   const badge = typeBadgeColor(question.type);
@@ -776,6 +779,11 @@ function QuestionCard({
       <div
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragOver(index); }}
         onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onDrop(); }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onContextTypeMenu(question.id, e.clientX, e.clientY);
+        }}
         data-question-card
         style={{ backgroundColor: "#ffffff", borderRadius: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)", marginBottom: 10, overflow: "hidden", transition: "box-shadow 0.15s ease" }}
       >
@@ -881,6 +889,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [typeMenu, setTypeMenu] = useState<{ questionId: string; x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Collect all existing spezialfragen from other Fragebogen for reuse
@@ -999,6 +1008,9 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
               );
             })}
           </div>
+          <p style={{ margin: "8px 6px 0", fontSize: 10, lineHeight: 1.35, color: "rgba(0,0,0,0.42)" }}>
+            Hinweis: Rechtsklick auf eine Frage zum Typwechsel. Antworten/Optionen werden zurueckgesetzt, Fragetext und Foto bleiben.
+          </p>
 
           <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "12px 6px" }} />
 
@@ -1100,6 +1112,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
                 onDragStart={setDragIdx}
                 onDragOver={setDropIdx}
                 onDrop={handleDrop}
+                onContextTypeMenu={(questionId, x, y) => setTypeMenu({ questionId, x, y })}
                 dropTarget={dropIdx === i && dragIdx !== null && dragIdx !== i}
                 allQuestions={questions}
               />
@@ -1120,6 +1133,22 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
           </div>
         </div>
       </div>
+      {typeMenu && (
+        <QuestionTypeContextMenu
+          x={typeMenu.x}
+          y={typeMenu.y}
+          currentType={questions.find((question) => question.id === typeMenu.questionId)?.type ?? "text"}
+          onClose={() => setTypeMenu(null)}
+          onSelect={(nextType) => {
+            setQuestions((prev) =>
+              prev.map((question) =>
+                question.id === typeMenu.questionId ? applyQuestionTypeSwitch(question, nextType) : question,
+              ),
+            );
+            setTypeMenu(null);
+          }}
+        />
+      )}
     </div>
   );
 }

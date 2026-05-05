@@ -99,12 +99,13 @@ const MarketRow = React.memo(function MarketRow({
   onSelect: (id: string | null) => void;
 }) {
   const ci = chainInitials(market.name);
+  const rowBaseBackground = market.isActive ? "transparent" : "rgba(220,38,38,0.02)";
   return (
     <div
       onClick={() => onSelect(active ? null : market.id)}
-      style={{ display: "grid", gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px", gap: "0 12px", padding: "10px 18px", borderBottom: "1px solid rgba(0,0,0,0.04)", cursor: "pointer", background: active ? "rgba(220,38,38,0.04)" : "transparent", borderLeft: active ? `3px solid ${R}` : "3px solid transparent", transition: "background 0.1s ease, border-left-color 0.1s ease", alignItems: "center", height: MARKET_ROW_H, boxSizing: "border-box" }}
-      onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.018)"; }}
-      onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px", gap: "0 12px", padding: "10px 18px", borderBottom: "1px solid rgba(0,0,0,0.04)", cursor: "pointer", background: active ? "rgba(220,38,38,0.04)" : rowBaseBackground, borderLeft: active ? `3px solid ${R}` : "3px solid transparent", transition: "background 0.1s ease, border-left-color 0.1s ease", alignItems: "center", height: MARKET_ROW_H, boxSizing: "border-box" }}
+      onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(220,38,38,0.04)"; }}
+      onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = rowBaseBackground; }}
     >
       {/* Markt */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -1126,6 +1127,49 @@ function MarketDetailDrawer({ market, visits, currentRedPeriod, onClose, onSave 
               <InfoRow label="EM/EH" value={market.emEh} edit={editing} editValue={draft.emEh} onEdit={v => set({ emEh: v })} />
               <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
               <InfoRow label="Aktuell verplant an" value={market.currentGmName} edit={editing} editValue={draft.currentGmName} onEdit={v => set({ currentGmName: v })} />
+              <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Status</span>
+                {editing ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button
+                      onClick={() => set({ isActive: !draft.isActive })}
+                      style={{
+                        width: 32,
+                        height: 18,
+                        borderRadius: 9,
+                        backgroundColor: draft.isActive ? "#DC2626" : "rgba(0,0,0,0.12)",
+                        border: "none",
+                        cursor: "pointer",
+                        position: "relative",
+                        transition: "background-color 0.2s ease",
+                        flexShrink: 0,
+                      }}
+                      aria-label="Marktstatus umschalten"
+                    >
+                      <div
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: "50%",
+                          backgroundColor: "#fff",
+                          position: "absolute",
+                          top: 2,
+                          left: draft.isActive ? 16 : 2,
+                          transition: "left 0.2s ease",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                        }}
+                      />
+                    </button>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: draft.isActive ? "#166534" : R }}>
+                      {draft.isActive ? "Aktiv" : "Inaktiv"}
+                    </span>
+                  </div>
+                ) : (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: market.isActive ? "#166534" : R }}>
+                    {market.isActive ? "Aktiv" : "Inaktiv"}
+                  </span>
+                )}
+              </div>
               <InfoRow label="Universums-markt" value={market.universeMarket ? "Ja" : "Nein"} />
               <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v) || market.visitFrequencyPerYear })} />
             </InfoSection>
@@ -1358,7 +1402,7 @@ export default function MaerktePage() {
   // ── Filtering ──────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
-    return markets.filter(m => {
+    const filteredMarkets = markets.filter(m => {
       if (q) {
         const hay = `${m.name} ${m.dbName} ${m.address} ${m.postalCode} ${m.city} ${m.flexNumber} ${m.cokeMasterNumber} ${m.standardMarketNumber} ${m.currentGmName}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -1392,6 +1436,9 @@ export default function MaerktePage() {
       }
       return true;
     });
+    const activeMarkets = filteredMarkets.filter((market) => market.isActive);
+    const inactiveMarkets = filteredMarkets.filter((market) => !market.isActive);
+    return [...activeMarkets, ...inactiveMarkets];
   }, [markets, debouncedSearch, filters, visitedInRedMonatSet]);
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length;

@@ -59,6 +59,7 @@ interface SampleQuestion {
   moduleId: string;
   moduleName: string;
   imageUrl?: string;
+  imageUrls?: string[];
   rules?: Array<Record<string, unknown>>;
   chains?: string[];
   appliesToMarketChain?: boolean;
@@ -90,6 +91,10 @@ function mapVisitQuestionToSample(
   const rawConfig = (question.config ?? {}) as Record<string, unknown>;
   const configOptions = Array.isArray(rawConfig.options) ? (rawConfig.options as string[]) : undefined;
   const imageList = Array.isArray(rawConfig.images) ? (rawConfig.images as string[]) : [];
+  const normalizedImages = imageList
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
   const config = rawConfig as SampleQuestion["config"];
   return {
     id: question.id,
@@ -100,7 +105,8 @@ function mapVisitQuestionToSample(
     required: question.required,
     moduleId: question.moduleId,
     moduleName: `${section.campaignName} · ${question.moduleName}`,
-    imageUrl: imageList[0],
+    imageUrl: normalizedImages[0],
+    imageUrls: normalizedImages,
     rules: question.rules ?? [],
     chains: question.chains ?? [],
     appliesToMarketChain: question.appliesToMarketChain ?? true,
@@ -1314,6 +1320,46 @@ function QuestionImage({ url, compact }: { url: string; compact?: boolean }) {
   );
 }
 
+function RotatingQuestionImage({
+  urls,
+  fallbackUrl,
+  compact,
+  resetKey,
+}: {
+  urls?: string[];
+  fallbackUrl?: string;
+  compact?: boolean;
+  resetKey: string;
+}) {
+  const normalized = React.useMemo(() => {
+    const list = (urls ?? [])
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (list.length > 0) return list;
+    if (fallbackUrl && fallbackUrl.trim().length > 0) return [fallbackUrl.trim()];
+    return [];
+  }, [urls, fallbackUrl]);
+  const signature = normalized.join("||");
+  const [index, setIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    setIndex(0);
+  }, [resetKey, signature]);
+
+  React.useEffect(() => {
+    if (normalized.length <= 1) return;
+    const interval = window.setInterval(() => {
+      setIndex((prev) => (prev + 1) % normalized.length);
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [normalized.length, signature]);
+
+  if (normalized.length === 0) return null;
+
+  return <QuestionImage url={normalized[index] ?? normalized[0]} compact={compact} />;
+}
+
 function QuestionCard({
   question,
   answer,
@@ -1396,9 +1442,12 @@ function QuestionCard({
         )}
       </p>
 
-      {question.imageUrl && (
-        <QuestionImage url={question.imageUrl} compact={compact} />
-      )}
+      <RotatingQuestionImage
+        urls={question.imageUrls}
+        fallbackUrl={question.imageUrl}
+        compact={compact}
+        resetKey={question.id}
+      />
 
       {/* ── YA / NEIN ── */}
       {question.type === "yesno" && (

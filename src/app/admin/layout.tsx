@@ -17,7 +17,7 @@ import { BillaFragebogenEditor } from "@/components/admin/BillaFragebogenEditor"
 import { ModuleProvider, useModules } from "@/context/ModuleContext";
 import { FragebogenProvider, useFragebogen } from "@/context/FragebogenContext";
 import { RedMonthProvider } from "@/context/RedMonthContext";
-import type { Module, Fragebogen } from "@/types/fragebogen";
+import type { Module, Fragebogen, Question } from "@/types/fragebogen";
 import { usePathname } from "next/navigation";
 import {
   createFragebogen,
@@ -40,6 +40,18 @@ import {
 import { RedMonthHeaderControl } from "@/components/admin/RedMonthHeaderControl";
 
 // ── Purple accent colours (used by MHD) ───────────────────────
+
+function collectUniqueQuestionsFromModules(inputModules: Module[]): Question[] {
+  const byId = new Map<string, Question>();
+  for (const moduleRow of inputModules) {
+    for (const question of moduleRow.questions ?? []) {
+      if (!byId.has(question.id)) {
+        byId.set(question.id, question);
+      }
+    }
+  }
+  return Array.from(byId.values());
+}
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { addModule, updateModule, deleteModule, setEditHandler: setModuleEditHandler, modules } = useModules();
@@ -438,6 +450,12 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     };
   }, [addFragebogen, addModule, fragebogenList.length, modules.length]);
 
+  const standardExistingQuestions = collectUniqueQuestionsFromModules([...modules, ...flexModules, ...billaModules]);
+  const kuehlerExistingQuestions = collectUniqueQuestionsFromModules(kuehlerModules);
+  const mhdExistingQuestions = collectUniqueQuestionsFromModules(mhdModules);
+  const flexExistingQuestions = collectUniqueQuestionsFromModules(flexModules);
+  const billaExistingQuestions = collectUniqueQuestionsFromModules(billaModules);
+
   const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : "Standardbesuch";
   return (
     <RedMonthProvider>
@@ -620,6 +638,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           <ModuleEditor
             existingModule={editingModule ?? undefined}
             availableChains={availableMarketChains}
+            existingQuestions={standardExistingQuestions}
             onSave={handleModuleSave}
             onClose={() => { setModuleEditorOpen(false); setEditingModule(null); }}
           />
@@ -637,6 +656,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {kuehlerModuleEditorOpen && (
           <KuehlerModuleEditor
             existingModule={kuehlerEditingModule ?? undefined}
+            existingQuestions={kuehlerExistingQuestions}
             onSave={handleKuehlerModuleSave}
             onClose={() => { setKuehlerModuleEditorOpen(false); setKuehlerEditingModule(null); }}
           />
@@ -654,6 +674,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {mhdModuleEditorOpen && (
           <MhdModuleEditor
             existingModule={mhdEditingModule ?? undefined}
+            existingQuestions={mhdExistingQuestions}
             onSave={handleMhdModuleSave}
             onClose={() => { setMhdModuleEditorOpen(false); setMhdEditingModule(null); }}
           />
@@ -671,6 +692,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {flexModuleEditorOpen && (
           <FlexModuleEditor
             existingModule={flexEditingModule ?? undefined}
+            existingQuestions={flexExistingQuestions}
             onSave={handleFlexModuleSave}
             onClose={() => { setFlexModuleEditorOpen(false); setFlexEditingModule(null); }}
           />
@@ -688,6 +710,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {billaModuleEditorOpen && (
           <BillaModuleEditor
             existingModule={billaEditingModule ?? undefined}
+            existingQuestions={billaExistingQuestions}
             onSave={handleBillaModuleSave}
             onClose={() => { setBillaModuleEditorOpen(false); setBillaEditingModule(null); }}
           />

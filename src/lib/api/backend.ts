@@ -67,6 +67,7 @@ type BackendMarket = {
   infoFlag?: boolean | null;
   infoNote?: string | null;
   universeMarket?: boolean | null;
+  isActive?: boolean | null;
   importSourceFileName?: string | null;
   importedAt?: string | null;
   plannedToId?: string | null;
@@ -319,6 +320,7 @@ function mapBackendMarketToMarketRecord(market: BackendMarket): MarketRecord {
     standardMarketNumber: market.standardMarketNumber ?? "",
     employee: market.employee ?? "",
     universeMarket: Boolean(market.universeMarket ?? false),
+    isActive: Boolean(market.isActive ?? true),
     infoNote: market.infoNote ?? "",
     ipp: null,
     importSourceFileName: market.importSourceFileName ?? "",
@@ -1463,6 +1465,7 @@ export async function createMarket(payload: MarketRecord): Promise<MarketRecord>
       infoFlag: payload.infoFlag,
       infoNote: payload.infoNote,
       universeMarket: payload.universeMarket,
+      isActive: payload.isActive,
       importSourceFileName: payload.importSourceFileName,
       importedAt: payload.importedAt,
       plannedToId: payload.plannedToId ?? null,
@@ -1492,6 +1495,7 @@ export async function updateMarket(payload: MarketRecord): Promise<MarketRecord>
       infoFlag: payload.infoFlag,
       infoNote: payload.infoNote,
       universeMarket: payload.universeMarket,
+      isActive: payload.isActive,
       importSourceFileName: payload.importSourceFileName,
       importedAt: payload.importedAt,
       plannedToId: payload.plannedToId ?? null,

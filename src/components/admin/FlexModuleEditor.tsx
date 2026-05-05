@@ -17,6 +17,10 @@ import {
 import type { QuestionType, Question, ConditionalRule, Module, ScoringWeight } from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
 import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
+import { QuestionTypeContextMenu } from "@/components/admin/QuestionTypeContextMenu";
+import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
+import { ExistingQuestionPreviewModal } from "@/components/admin/ExistingQuestionPreviewModal";
+import { cloneQuestionForModuleInsert, hasQuestionInModule } from "@/utils/existingQuestionPicker";
 
 // Lime green accent colours
 const G = "#84CC16";
@@ -718,11 +722,11 @@ function FlexImageAttachment({ value, onChange }: { value: string[]; onChange: (
   );
 }
 
-function FlexQuestionCard({ question, index, isExpanded, onToggle, onUpdate, onDelete, onDragStart, onDragOver, onDrop, dropTarget, allQuestions }: {
+function FlexQuestionCard({ question, index, isExpanded, onToggle, onUpdate, onDelete, onDragStart, onDragOver, onDrop, onContextTypeMenu, dropTarget, allQuestions }: {
   question: Question; index: number; isExpanded: boolean; onToggle: () => void;
   onUpdate: (q: Question) => void; onDelete: () => void;
   onDragStart: (i: number) => void; onDragOver: (i: number) => void;
-  onDrop: () => void; dropTarget: boolean; allQuestions: Question[];
+  onDrop: () => void; onContextTypeMenu: (questionId: string, x: number, y: number) => void; dropTarget: boolean; allQuestions: Question[];
 }) {
   const badge = typeBadgeColor(question.type);
   const [logicOpen, setLogicOpen] = useState(false);
@@ -733,6 +737,11 @@ function FlexQuestionCard({ question, index, isExpanded, onToggle, onUpdate, onD
       <div
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragOver(index); }}
         onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onDrop(); }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onContextTypeMenu(question.id, e.clientX, e.clientY);
+        }}
         data-flex-question-card
         style={{ backgroundColor: "#ffffff", borderRadius: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)", marginBottom: 10, overflow: "hidden" }}
       >
@@ -795,9 +804,10 @@ interface FlexModuleEditorProps {
   onClose: () => void;
   onSave: (m: Module) => Promise<void> | void;
   existingModule?: Module;
+  existingQuestions?: Question[];
 }
 
-export function FlexModuleEditor({ onClose, onSave, existingModule }: FlexModuleEditorProps) {
+export function FlexModuleEditor({ onClose, onSave, existingModule, existingQuestions = [] }: FlexModuleEditorProps) {
   const [moduleName, setModuleName] = useState(existingModule?.name ?? "");
   const [description, setDescription] = useState(existingModule?.description ?? "");
   const [questions, setQuestions] = useState<Question[]>(
@@ -807,6 +817,8 @@ export function FlexModuleEditor({ onClose, onSave, existingModule }: FlexModule
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [typeMenu, setTypeMenu] = useState<{ questionId: string; x: number; y: number } | null>(null);
+  const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const addQuestion = useCallback((type: QuestionType) => {
@@ -824,6 +836,13 @@ export function FlexModuleEditor({ onClose, onSave, existingModule }: FlexModule
   const deleteQuestion = useCallback((id: string) => {
     setQuestions((prev) => prev.filter((q) => q.id !== id));
     setExpandedId((prev) => (prev === id ? null : prev));
+  }, []);
+
+  const insertExistingQuestion = useCallback((source: Question) => {
+    setQuestions((prev) => {
+      if (hasQuestionInModule(prev, source.id)) return prev;
+      return [...prev, cloneQuestionForModuleInsert(source)];
+    });
   }, []);
 
   const handleDrop = useCallback(() => {
@@ -895,11 +914,46 @@ export function FlexModuleEditor({ onClose, onSave, existingModule }: FlexModule
               );
             })}
           </div>
+          <p style={{ margin: "8px 6px 0", fontSize: 10, lineHeight: 1.35, color: "rgba(0,0,0,0.42)" }}>
+            Hinweis: Rechtsklick auf eine Frage zum Typwechsel. Antworten/Optionen werden zurueckgesetzt, Fragetext und Foto bleiben.
+          </p>
           <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "12px 6px" }} />
-          <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, fontWeight: 500, color: GD, background: "none", border: "none", cursor: "pointer" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, fontWeight: 500, color: GD }}>
             <Import size={13} strokeWidth={1.5} />
             Frage importieren
-          </button>
+          </div>
+          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto", paddingRight: 2 }}>
+            {existingQuestions.length === 0 ? (
+              <span style={{ padding: "0 6px", fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Keine bestehenden Fragen</span>
+            ) : (
+              existingQuestions.map((existing) => {
+                const badge = typeBadgeColor(existing.type);
+                return (
+                  <button
+                    key={`existing-${existing.id}`}
+                    type="button"
+                    onClick={() => insertExistingQuestion(existing)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setPreviewQuestion(existing);
+                    }}
+                    style={{ border: "none", background: "rgba(0,0,0,0.02)", borderRadius: 6, padding: "6px 7px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", textAlign: "left" }}
+                    onMouseEnter={(event) => (event.currentTarget.style.background = "rgba(0,0,0,0.05)")}
+                    onMouseLeave={(event) => (event.currentTarget.style.background = "rgba(0,0,0,0.02)")}
+                    title={existing.text || "Ohne Fragetext"}
+                  >
+                    <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 4, color: badge.text, background: badge.bg, flexShrink: 0 }}>
+                      {typeLabel(existing.type)}
+                    </span>
+                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.64)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                      {existing.text || "Ohne Fragetext"}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
 
         {/* Right workspace */}
@@ -929,6 +983,7 @@ export function FlexModuleEditor({ onClose, onSave, existingModule }: FlexModule
                 onDragStart={setDragIdx}
                 onDragOver={setDropIdx}
                 onDrop={handleDrop}
+                onContextTypeMenu={(questionId, x, y) => setTypeMenu({ questionId, x, y })}
                 dropTarget={dropIdx === i && dragIdx !== null && dragIdx !== i}
                 allQuestions={questions}
               />
@@ -943,6 +998,23 @@ export function FlexModuleEditor({ onClose, onSave, existingModule }: FlexModule
           </div>
         </div>
       </div>
+      {typeMenu && (
+        <QuestionTypeContextMenu
+          x={typeMenu.x}
+          y={typeMenu.y}
+          currentType={questions.find((question) => question.id === typeMenu.questionId)?.type ?? "text"}
+          onClose={() => setTypeMenu(null)}
+          onSelect={(nextType) => {
+            setQuestions((prev) =>
+              prev.map((question) =>
+                question.id === typeMenu.questionId ? applyQuestionTypeSwitch(question, nextType) : question,
+              ),
+            );
+            setTypeMenu(null);
+          }}
+        />
+      )}
+      <ExistingQuestionPreviewModal question={previewQuestion} allQuestions={existingQuestions} onClose={() => setPreviewQuestion(null)} />
     </div>
   );
 }

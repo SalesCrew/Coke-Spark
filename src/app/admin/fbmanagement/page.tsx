@@ -5675,14 +5675,25 @@ export default function FbManagementPage() {
               {showInactive ? "Inaktiv" : "Aktiv"}
             </button>
           </div>
-          {visibleCampaigns.map((c) => (
-            <CampaignListItem
-              key={c.id}
-              campaign={c}
-              selected={c.id === selectedId}
-              onClick={() => { setSelectedId(c.id); setSelectedRegion(null); if (regionTimerRef.current) clearTimeout(regionTimerRef.current); setMarketEditMode("idle"); setEditMenuOpen(false); setMarketSearch(""); setMarketFilters({ chain: null, gm: null, city: null, region: null }); setMarketFilter("all"); }}
-            />
-          ))}
+          <div
+            className="fbmCampaignList"
+            style={{
+              maxHeight: 486,
+              overflowY: "auto",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+            }}
+          >
+            <style>{`.fbmCampaignList::-webkit-scrollbar{display:none}`}</style>
+            {visibleCampaigns.map((c) => (
+              <CampaignListItem
+                key={c.id}
+                campaign={c}
+                selected={c.id === selectedId}
+                onClick={() => { setSelectedId(c.id); setSelectedRegion(null); if (regionTimerRef.current) clearTimeout(regionTimerRef.current); setMarketEditMode("idle"); setEditMenuOpen(false); setMarketSearch(""); setMarketFilters({ chain: null, gm: null, city: null, region: null }); setMarketFilter("all"); }}
+              />
+            ))}
+          </div>
         </div>
 
         {/* Right: campaign detail */}

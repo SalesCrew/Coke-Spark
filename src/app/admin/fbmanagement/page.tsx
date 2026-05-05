@@ -5108,18 +5108,48 @@ export default function FbManagementPage() {
   const mfRegions = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.region))).sort(), [assignedMarkets]);
   const selectedRegionGms = useMemo(() => {
     if (!selectedRegion || !campaign) return [];
-    const marketIdsInRegion = new Set(
-      assignedMarkets.filter((market) => market.region === selectedRegion).map((market) => market.id),
-    );
-    const names = Array.from(
-      new Set(
-        (campaign.assignments ?? [])
-          .filter((assignment) => marketIdsInRegion.has(assignment.marketId))
-          .map((assignment) => assignment.gmName?.trim() ?? "")
-          .filter((name) => name.length > 0),
-      ),
-    ).sort((a, b) => a.localeCompare(b, "de"));
-    return names.map((name) => ({ name, pct: 0 }));
+    const marketsInRegion = assignedMarkets.filter((market) => market.region === selectedRegion);
+    const marketById = new Map(marketsInRegion.map((market) => [market.id, market] as const));
+    const statsByGm = new Map<string, { name: string; total: number; filled: number }>();
+    const normalizeGmKey = (value: string) => value.trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
+
+    const ensure = (name: string) => {
+      const trimmed = name.trim().replace(/\s+/g, " ");
+      if (!trimmed) return null;
+      const key = normalizeGmKey(trimmed);
+      const current = statsByGm.get(key) ?? { name: trimmed, total: 0, filled: 0 };
+      if (!statsByGm.has(key)) {
+        statsByGm.set(key, current);
+      }
+      return current;
+    };
+
+    for (const assignment of campaign.assignments ?? []) {
+      const market = marketById.get(assignment.marketId);
+      if (!market) continue;
+      const current = ensure(assignment.gmName?.trim() ?? "");
+      if (!current) continue;
+      current.total += 1;
+      if (market.finished) current.filled += 1;
+    }
+
+    // Fallback for rows that have no explicit assignment but do carry market GM metadata.
+    for (const market of marketsInRegion) {
+      const gmName = market.gm?.trim() ?? "";
+      if (!gmName) continue;
+      if (campaign.assignments?.some((assignment) => assignment.marketId === market.id)) continue;
+      const current = ensure(gmName);
+      if (!current) continue;
+      current.total += 1;
+      if (market.finished) current.filled += 1;
+    }
+
+    return Array.from(statsByGm.values())
+      .map((stats) => ({
+        name: stats.name,
+        pct: stats.total > 0 ? Math.round((stats.filled / stats.total) * 100) : 0,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "de"));
   }, [assignedMarkets, campaign, selectedRegion]);
 
   useEffect(() => {
@@ -5766,15 +5796,20 @@ export default function FbManagementPage() {
             </div>
             <div style={{ height: 1, background: "rgba(0,0,0,0.06)", marginBottom: 14 }} />
             {selectedRegion
-              ? selectedRegionGms.map((gm) => (
-                  <RegionBar key={gm.name} name={gm.name} pct={gm.pct} hideMetrics />
-                ))
+              ? selectedRegionGms.length > 0
+                ? selectedRegionGms.map((gm) => (
+                    <RegionBar key={gm.name} name={gm.name} pct={gm.pct} />
+                  ))
+                : (
+                    <div style={{ padding: "2px 0", fontSize: 11, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>
+                      Keine GM-Zuordnung für diese Region verfügbar.
+                    </div>
+                  )
               : campaign.regions.map((r) => (
                   <RegionBar
                     key={r.name}
                     name={r.name}
                     pct={r.pct}
-                    hideMetrics
                     onClick={() => {
                       if (regionTimerRef.current) clearTimeout(regionTimerRef.current);
                       setSelectedRegion(r.name);

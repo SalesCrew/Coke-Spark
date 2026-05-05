@@ -11,6 +11,8 @@ import { readWorkbook, buildPreviewGrid, getColHeader, getColSample, isValidColL
 import { createCampaign, fetchCampaigns, fetchGmUsers, fetchMarkets, getCampaignOverlapConflicts, migrateCampaignMarkets } from "@/lib/api/backend";
 import type { Campaign, CampaignMarketAssignmentInput, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { GMRecord } from "@/types/gebietsmanager";
+import type { RedMonthPeriod } from "@/types/red-month";
+import { useRedMonth } from "@/context/RedMonthContext";
 
 // ── Colors ────────────────────────────────────────────────────
 const R = "#DC2626";
@@ -428,11 +430,36 @@ function StepTyp({ selected, onSelect, onNext, onCancel, accentColor, accentBg }
 }
 
 // ── Step 2: Details ───────────────────────────────────────────
-function StepDetails({ name, setName, startDate, setStartDate, endDate, setEndDate, startNow, setStartNow, accentColor = R, accentBg = R_BG }: {
+function StepDetails({
+  name,
+  setName,
+  startDate,
+  setStartDate,
+  endDate,
+  setEndDate,
+  startNow,
+  setStartNow,
+  timeframeMode,
+  setTimeframeMode,
+  redMonthPeriods,
+  selectedRedMonthId,
+  onSelectRedMonth,
+  redMonthLoading,
+  redMonthError,
+  accentColor = R,
+  accentBg = R_BG,
+}: {
   name: string; setName: (v: string) => void;
   startDate: string; setStartDate: (v: string) => void;
   endDate: string; setEndDate: (v: string) => void;
   startNow: boolean; setStartNow: (v: boolean) => void;
+  timeframeMode: "dates" | "redmonth";
+  setTimeframeMode: (v: "dates" | "redmonth") => void;
+  redMonthPeriods: RedMonthPeriod[];
+  selectedRedMonthId: string;
+  onSelectRedMonth: (period: RedMonthPeriod) => void;
+  redMonthLoading: boolean;
+  redMonthError: string | null;
   accentColor?: string; accentBg?: string;
 }) {
   const today = new Date().toISOString().split("T")[0];
@@ -496,7 +523,14 @@ function StepDetails({ name, setName, startDate, setStartDate, endDate, setEndDa
           {/* Jetzt starten toggle */}
           <button
             type="button"
-            onClick={() => { setStartNow(!startNow); if (!startNow) setStartDate(today); }}
+            onClick={() => {
+              const nextStartNow = !startNow;
+              setStartNow(nextStartNow);
+              if (nextStartNow) {
+                setStartDate(today);
+                setTimeframeMode("dates");
+              }
+            }}
             style={{
               display: "flex", alignItems: "center", gap: 8, padding: "5px 12px 5px 8px",
               borderRadius: 20, border: `1px solid ${startNow ? accentColor : "rgba(0,0,0,0.09)"}`,
@@ -518,29 +552,115 @@ function StepDetails({ name, setName, startDate, setStartDate, endDate, setEndDa
           </button>
         </div>
 
-        {/* Date pickers row */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 0, alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.04em" }}>Von</span>
-            <DatePicker value={startDate} onChange={setStartDate} placeholder="Startdatum wählen" disabled={startNow} accentColor={accentColor} accentBg={accentBg} />
-            {startNow && (
-              <span style={{ fontSize: 10, color: accentColor, fontWeight: 600, letterSpacing: "-0.005em", display: "flex", alignItems: "center", gap: 4 }}>
-                <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: accentColor, flexShrink: 0 }} />
-                Startet heute
-              </span>
+        <div style={{ display: "inline-flex", borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", padding: 3, background: "rgba(0,0,0,0.02)", marginBottom: 12 }}>
+          {([
+            { id: "dates", label: "Datum" },
+            { id: "redmonth", label: "Red-Monat" },
+          ] as const).map((mode) => {
+            const active = timeframeMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => {
+                  if (mode.id === "redmonth" && startNow) {
+                    setStartNow(false);
+                  }
+                  setTimeframeMode(mode.id);
+                }}
+                style={{
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "5px 10px",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  background: active ? "#fff" : "transparent",
+                  color: active ? accentColor : "rgba(0,0,0,0.45)",
+                  boxShadow: active ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05)" : "none",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {mode.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {timeframeMode === "redmonth" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {redMonthLoading ? (
+              <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.42)" }}>Red-Monate werden geladen...</div>
+            ) : redMonthPeriods.length === 0 ? (
+              <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.42)" }}>
+                Keine Red-Monat-Perioden verfügbar. Bitte Datumsauswahl verwenden.
+              </div>
+            ) : (
+              <>
+                <div style={{ maxHeight: 170, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 2, scrollbarWidth: "none", msOverflowStyle: "none" }}>
+                  {redMonthPeriods.map((period) => {
+                    const selected = selectedRedMonthId === period.id;
+                    return (
+                      <button
+                        key={period.id}
+                        type="button"
+                        onClick={() => onSelectRedMonth(period)}
+                        style={{
+                          border: `1px solid ${selected ? accentColor : "rgba(0,0,0,0.08)"}`,
+                          background: selected ? accentBg : "#fff",
+                          color: selected ? accentColor : "rgba(0,0,0,0.68)",
+                          borderRadius: 8,
+                          padding: "8px 10px",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "-0.01em" }}>{period.label}</div>
+                        <div style={{ fontSize: 10, fontWeight: 500, marginTop: 2 }}>
+                          {fmt(period.start)} → {fmt(period.end)}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedRedMonthId && (
+                  <div style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 600, letterSpacing: "-0.005em" }}>
+                    Zeitraum gesetzt auf ausgewählten Red-Monat.
+                  </div>
+                )}
+              </>
+            )}
+            {redMonthError && (
+              <div style={{ fontSize: 10, color: "#b91c1c", fontWeight: 600 }}>{redMonthError}</div>
             )}
           </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 0, alignItems: "start" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.04em" }}>Von</span>
+              <DatePicker value={startDate} onChange={setStartDate} placeholder="Startdatum wählen" disabled={startNow} accentColor={accentColor} accentBg={accentBg} />
+              {startNow && (
+                <span style={{ fontSize: 10, color: accentColor, fontWeight: 600, letterSpacing: "-0.005em", display: "flex", alignItems: "center", gap: 4 }}>
+                  <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: accentColor, flexShrink: 0 }} />
+                  Startet heute
+                </span>
+              )}
+            </div>
 
-          {/* Arrow between */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "30px 16px 0" }}>
-            <svg width="16" height="2" viewBox="0 0 16 2" fill="none"><line x1="0" y1="1" x2="16" y2="1" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" strokeLinecap="round" /></svg>
-          </div>
+            {/* Arrow between */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "30px 16px 0" }}>
+              <svg width="16" height="2" viewBox="0 0 16 2" fill="none"><line x1="0" y1="1" x2="16" y2="1" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" strokeLinecap="round" /></svg>
+            </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.04em" }}>Bis</span>
-            <DatePicker value={endDate} onChange={setEndDate} placeholder="Enddatum wählen" accentColor={accentColor} accentBg={accentBg} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.04em" }}>Bis</span>
+              <DatePicker value={endDate} onChange={setEndDate} placeholder="Enddatum wählen" accentColor={accentColor} accentBg={accentBg} />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Duration hint */}
         {startDate && endDate && (
@@ -1217,6 +1337,10 @@ export default function NeuKampagnePage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [startNow, setStartNow] = useState(false);
+  const [timeframeMode, setTimeframeMode] = useState<"dates" | "redmonth">("dates");
+  const [selectedRedMonthId, setSelectedRedMonthId] = useState("");
+  const [redMonthLoading, setRedMonthLoading] = useState(false);
+  const [redMonthLoadAttempted, setRedMonthLoadAttempted] = useState(false);
   const [markets, setMarkets] = useState<NeuMarketItem[]>([]);
   const [allMarkets, setAllMarkets] = useState<NeuMarketCandidate[]>([]);
   const [gmUsers, setGmUsers] = useState<GMRecord[]>([]);
@@ -1227,6 +1351,7 @@ export default function NeuKampagnePage() {
   const [overlapConflicts, setOverlapConflicts] = useState<CampaignMarketOverlapConflict[] | null>(null);
   const [selectedMigrationKeys, setSelectedMigrationKeys] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const { calendar: redMonthCalendar, loadCalendar, error: redMonthError } = useRedMonth();
 
   const activetype = CAMPAIGN_TYPES.find(t => t.id === typeId) ?? CAMPAIGN_TYPES[0];
   const AC = activetype.color;                           // accent color
@@ -1281,6 +1406,33 @@ export default function NeuKampagnePage() {
       }
     };
     void loadCampaigns();
+  }, []);
+
+  useEffect(() => {
+    if (step !== 2) return;
+    if (timeframeMode !== "redmonth") return;
+    if (redMonthCalendar.length > 0) return;
+    setRedMonthLoadAttempted(true);
+    setRedMonthLoading(true);
+    void loadCalendar()
+      .finally(() => setRedMonthLoading(false));
+  }, [loadCalendar, redMonthCalendar.length, step, timeframeMode]);
+
+  const redMonthScopedError = redMonthLoadAttempted ? redMonthError : null;
+
+  useEffect(() => {
+    if (redMonthCalendar.length === 0) return;
+    if (!startDate || !endDate) return;
+    const matched = redMonthCalendar.find((period) => period.start === startDate && period.end === endDate);
+    if (matched) {
+      setSelectedRedMonthId(matched.id);
+    }
+  }, [endDate, redMonthCalendar, startDate]);
+
+  const handleSelectRedMonth = useCallback((period: RedMonthPeriod) => {
+    setSelectedRedMonthId(period.id);
+    setStartDate(period.start);
+    setEndDate(period.end);
   }, []);
 
   const canProceed = (() => {
@@ -1665,6 +1817,13 @@ export default function NeuKampagnePage() {
                 startDate={startDate} setStartDate={setStartDate}
                 endDate={endDate} setEndDate={setEndDate}
                 startNow={startNow} setStartNow={setStartNow}
+                timeframeMode={timeframeMode}
+                setTimeframeMode={setTimeframeMode}
+                redMonthPeriods={redMonthCalendar}
+                selectedRedMonthId={selectedRedMonthId}
+                onSelectRedMonth={handleSelectRedMonth}
+                redMonthLoading={redMonthLoading}
+                redMonthError={redMonthScopedError}
                 accentColor={AC} accentBg={AC_BG}
               />
             )}

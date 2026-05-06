@@ -13,12 +13,15 @@ export type CampaignMarketAssignmentInput = {
   marketId: string;
   gmUserId: string | null;
   gmNameRaw?: string;
+  visitTargetCount?: number;
 };
 
 export type CampaignMarketAssignment = {
   marketId: string;
   gmUserId: string | null;
   gmName: string | null;
+  visitTargetCount: number;
+  currentVisitsCount: number;
 };
 
 export type CampaignMarketOverlapConflict = {

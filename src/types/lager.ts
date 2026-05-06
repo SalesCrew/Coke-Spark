@@ -1,6 +1,5 @@
 export type LagerRecord = {
   id: string;
-  name: string;
   address: string;
   postalCode: string;
   city: string;
@@ -11,7 +10,6 @@ export type LagerRecord = {
 };
 
 export type CreateLagerInput = {
-  name: string;
   address: string;
   postalCode: string;
   city: string;

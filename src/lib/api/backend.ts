@@ -83,7 +83,6 @@ type BackendMarket = {
 
 type BackendLager = {
   id: string;
-  name: string;
   address: string;
   postalCode: string;
   city: string;
@@ -121,6 +120,8 @@ type BackendCampaign = {
     marketId: string;
     gmUserId: string | null;
     gmName: string | null;
+    visitTargetCount?: number;
+    currentVisitsCount?: number;
   }>;
   history: BackendCampaignHistory[];
   createdAt: string;
@@ -346,7 +347,6 @@ function mapBackendMarketToMarketRecord(market: BackendMarket): MarketRecord {
 function mapBackendLagerToLagerRecord(input: BackendLager): LagerRecord {
   return {
     id: input.id,
-    name: input.name,
     address: input.address,
     postalCode: input.postalCode,
     city: input.city,
@@ -944,7 +944,6 @@ export async function createAdminLager(input: CreateLagerInput): Promise<LagerRe
   const data = (await authedFetch("/admin/lager", {
     method: "POST",
     body: JSON.stringify({
-      name: input.name,
       address: input.address,
       postalCode: input.postalCode,
       city: input.city,
@@ -1647,6 +1646,8 @@ function normalizeCampaign(input: BackendCampaign): Campaign {
       marketId: assignment.marketId,
       gmUserId: assignment.gmUserId ?? null,
       gmName: assignment.gmName ?? null,
+      visitTargetCount: assignment.visitTargetCount ?? 1,
+      currentVisitsCount: assignment.currentVisitsCount ?? 0,
     })),
     history: (input.history ?? []).map((entry) => ({
       id: entry.id,

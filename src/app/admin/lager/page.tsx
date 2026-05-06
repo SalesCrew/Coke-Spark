@@ -10,7 +10,6 @@ const R = "#DC2626";
 const R_D = "#b91c1c";
 
 type LagerFormState = {
-  name: string;
   address: string;
   postalCode: string;
   city: string;
@@ -18,7 +17,6 @@ type LagerFormState = {
 };
 
 const EMPTY_FORM: LagerFormState = {
-  name: "",
   address: "",
   postalCode: "",
   city: "",
@@ -125,7 +123,7 @@ export default function LagerPage() {
     return () => window.removeEventListener("mousedown", onPointerDown);
   }, [gmDropdownOpen]);
 
-  const canSubmit = form.name.trim() && form.address.trim() && form.postalCode.trim() && form.city.trim();
+  const canSubmit = form.address.trim() && form.postalCode.trim() && form.city.trim();
 
   const resetForm = useCallback(() => {
     setForm(EMPTY_FORM);
@@ -138,7 +136,6 @@ export default function LagerPage() {
     setError(null);
     try {
       const created = await createAdminLager({
-        name: form.name.trim(),
         address: form.address.trim(),
         postalCode: form.postalCode.trim(),
         city: form.city.trim(),
@@ -211,8 +208,7 @@ export default function LagerPage() {
 
         {createOpen && (
           <div style={{ borderRadius: 11, border: "1px solid rgba(0,0,0,0.08)", background: "#fff", padding: "12px 12px 10px", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 0.6fr 0.8fr", gap: 8 }}>
-              <InputField label="Lager" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.6fr 0.8fr", gap: 8 }}>
               <InputField label="Adresse" value={form.address} onChange={(value) => setForm((current) => ({ ...current, address: value }))} />
               <InputField label="PLZ" value={form.postalCode} onChange={(value) => setForm((current) => ({ ...current, postalCode: value }))} />
               <InputField label="Ort" value={form.city} onChange={(value) => setForm((current) => ({ ...current, city: value }))} />
@@ -331,8 +327,8 @@ export default function LagerPage() {
         )}
 
         <div style={{ borderRadius: 11, border: "1px solid rgba(0,0,0,0.06)", overflow: "hidden", background: "#fff" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.4fr 0.5fr 0.8fr 1fr", gap: 0, padding: "8px 14px", background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
-            {["Lager", "Adresse", "PLZ", "Ort", "GM"].map((label) => (
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.5fr 0.8fr 1fr", gap: 0, padding: "8px 14px", background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+            {["Adresse", "PLZ", "Ort", "GM"].map((label) => (
               <span key={label} style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</span>
             ))}
           </div>
@@ -347,7 +343,7 @@ export default function LagerPage() {
                 key={entry.id}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1.1fr 1.4fr 0.5fr 0.8fr 1fr",
+                  gridTemplateColumns: "1.4fr 0.5fr 0.8fr 1fr",
                   gap: 0,
                   padding: "10px 14px",
                   borderBottom: index < lagers.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
@@ -355,7 +351,6 @@ export default function LagerPage() {
                   alignItems: "center",
                 }}
               >
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{entry.name}</span>
                 <span style={{ fontSize: 11, color: "rgba(0,0,0,0.56)" }}>{entry.address}</span>
                 <span style={{ fontSize: 11, color: "rgba(0,0,0,0.56)" }}>{entry.postalCode}</span>
                 <span style={{ fontSize: 11, color: "rgba(0,0,0,0.56)" }}>{entry.city}</span>

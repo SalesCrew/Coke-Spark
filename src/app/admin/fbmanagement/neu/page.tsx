@@ -1423,7 +1423,7 @@ export default function NeuKampagnePage() {
     }
 
     const matchedRows = matcherReport.results.filter((result) => result.status === "matched" && result.marketId);
-    const assignmentByMarketId = new Map<string, CampaignMarketAssignmentInput>();
+    const assignmentByMarketAndGm = new Map<string, CampaignMarketAssignmentInput>();
     const issues: GmMatchIssue[] = [];
 
     for (const result of matchedRows) {
@@ -1497,27 +1497,23 @@ export default function NeuKampagnePage() {
         continue;
       }
 
-      const existing = assignmentByMarketId.get(marketId);
-      if (existing && existing.gmUserId !== resolvedGmId) {
-        issues.push({
-          rowId,
-          marketId,
-          gmName,
-          kind: "conflict",
-          candidateUserIds: [existing.gmUserId ?? "", resolvedGmId].filter(Boolean),
-        });
+      const assignmentKey = `${marketId}:${resolvedGmId}`;
+      const existing = assignmentByMarketAndGm.get(assignmentKey);
+      if (existing) {
+        existing.visitTargetCount = (existing.visitTargetCount ?? 1) + 1;
         continue;
       }
 
-      assignmentByMarketId.set(marketId, {
+      assignmentByMarketAndGm.set(assignmentKey, {
         marketId,
         gmUserId: resolvedGmId,
         gmNameRaw: gmName,
+        visitTargetCount: 1,
       });
     }
 
     return {
-      assignments: Array.from(assignmentByMarketId.values()),
+      assignments: Array.from(assignmentByMarketAndGm.values()),
       issues,
     };
   }, [gmNameIndex, gmOverridesByRowId, gmUsers, isAuto, matcherReport.results]);
@@ -1650,12 +1646,18 @@ export default function NeuKampagnePage() {
         scheduleType,
         startDate: scheduleType === "scheduled" ? startDate : undefined,
         endDate: scheduleType === "scheduled" ? endDate : undefined,
-        marketIds,
+        marketIds: isAuto ? marketIds : [],
         assignments: isAuto ? undefined : assignments,
       });
 
       if (mode === "migrate" && conflictsToMigrate.length > 0) {
-        const assignmentByMarketId = new Map(allAssignments.map((assignment) => [assignment.marketId, assignment]));
+        const assignmentByMarketId = new Map<string, CampaignMarketAssignmentInput>();
+        for (const assignment of allAssignments) {
+          // Keep first-seen assignment per market for deterministic migrate payloads.
+          if (!assignmentByMarketId.has(assignment.marketId)) {
+            assignmentByMarketId.set(assignment.marketId, assignment);
+          }
+        }
         await migrateCampaignMarkets(
           created.id,
           conflictsToMigrate.map((conflict) => ({

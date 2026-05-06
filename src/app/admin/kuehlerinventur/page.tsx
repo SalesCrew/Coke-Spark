@@ -840,6 +840,20 @@ function EmptyState({ tab }: { tab: Tab }) {
   );
 }
 
+function FragebogenPageSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ height: 20, width: 360, borderRadius: 8, background: "rgba(0,0,0,0.06)" }} />
+      <div style={{ height: 1, background: "rgba(0,0,0,0.07)" }} />
+      <div style={{ borderRadius: 12, background: "#fff", border: "1px solid rgba(0,0,0,0.06)", padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        {Array.from({ length: 7 }).map((_, index) => (
+          <div key={index} style={{ height: 40, borderRadius: 8, background: index % 2 === 0 ? "rgba(0,0,0,0.05)" : "rgba(0,0,0,0.035)" }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────
 
 export default function KuehlerinventurPage() {
@@ -849,6 +863,17 @@ export default function KuehlerinventurPage() {
   const [filterType, setFilterType] = useState<string | null>(null);
   const [typeDropOpen, setTypeDropOpen] = useState(false);
   const typeDropRef = useRef<HTMLDivElement>(null);
+  const hasLoadedContent = modules.length > 0 || fragebogenList.length > 0;
+  const [initialLoadCompleted, setInitialLoadCompleted] = useState(false);
+
+  useEffect(() => {
+    if (hasLoadedContent) setInitialLoadCompleted(true);
+  }, [hasLoadedContent]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setInitialLoadCompleted(true), 1200);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     if (!typeDropOpen) return;
@@ -889,6 +914,10 @@ export default function KuehlerinventurPage() {
     module: visibleModules.length,
     fragebogen: fragebogenList.length,
   };
+
+  if (!initialLoadCompleted && !hasLoadedContent) {
+    return <FragebogenPageSkeleton />;
+  }
 
   return (
     <div>

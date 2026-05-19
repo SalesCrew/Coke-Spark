@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useState, type FormEvent, type ReactNode } from "react";
+import RotatingText from "./RotatingText";
 import "./login.css";
 
 export interface LoginCredentials {
@@ -66,14 +66,12 @@ export default function Login({
   headline,
   subHeadline = "Sign in to access markets, campaigns and performance - all in one place.",
 }: LoginProps) {
-  const rotatingWords = ["shelf.", "visit."] as const;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [wordIndex, setWordIndex] = useState(0);
 
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
@@ -97,19 +95,6 @@ export default function Login({
     [email, password, remember, onSubmit],
   );
 
-  useEffect(() => {
-    if (headline) return;
-    const intervalId = window.setInterval(() => {
-      setWordIndex((current) => (current + 1) % rotatingWords.length);
-    }, 5000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [headline]);
-
-  const activeWord = rotatingWords[wordIndex] ?? rotatingWords[0];
-
   return (
     <div className="cs-login-page">
       <aside className="cs-brand">
@@ -121,20 +106,20 @@ export default function Login({
                 Coke Spark
                 <em>
                   Every{" "}
-                  <span className="cs-switch-wrap accent" aria-live="polite">
-                    <AnimatePresence mode="wait" initial={false}>
-                      <motion.span
-                        key={activeWord}
-                        initial={{ y: 24, opacity: 0, filter: "blur(8px)" }}
-                        animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
-                        exit={{ y: -24, opacity: 0, filter: "blur(8px)" }}
-                        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-                        className="cs-switch-word"
-                      >
-                        {activeWord}
-                      </motion.span>
-                    </AnimatePresence>
-                  </span>
+                  <RotatingText
+                    texts={["shelf.", "visit."]}
+                    rotationInterval={3000}
+                    staggerFrom="last"
+                    initial={{ y: "100%" }}
+                    animate={{ y: 0 }}
+                    exit={{ y: "-120%" }}
+                    staggerDuration={0.025}
+                    transition={{ type: "spring", damping: 30, stiffness: 400 }}
+                    mainClassName="cs-switch-wrap accent"
+                    splitLevelClassName="cs-switch-word"
+                    elementLevelClassName="cs-switch-element"
+                    aria-live="polite"
+                  />
                 </em>
               </>
             )}

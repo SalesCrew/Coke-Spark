@@ -105,6 +105,7 @@ function RegionBadge({ region }: { region: string }) {
 // ── GM Card ───────────────────────────────────────────────────
 function GMCard({ gm, isNew, onClick, active }: { gm: GMRecord; isNew?: boolean; onClick: () => void; active?: boolean }) {
   const av = avatarColor(gm);
+  const hasIppData = (gm.ippSampleCount ?? 0) > 0;
   return (
     <div
       onClick={onClick}
@@ -136,7 +137,11 @@ function GMCard({ gm, isNew, onClick, active }: { gm: GMRecord; isNew?: boolean;
       <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
         <div style={{ padding: "16px 16px 12px", textAlign: "center", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 4 }}>IPP</div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "#16a34a", letterSpacing: "-0.05em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{gm.ipp.toFixed(1)}</div>
+          {hasIppData ? (
+            <div style={{ fontSize: 32, fontWeight: 900, color: "#16a34a", letterSpacing: "-0.05em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{gm.ipp.toFixed(1)}</div>
+          ) : (
+            <div style={{ fontSize: 21, fontWeight: 800, color: "rgba(0,0,0,0.22)", letterSpacing: "0.08em", lineHeight: 1.1 }}>IPP</div>
+          )}
         </div>
         <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
@@ -356,6 +361,7 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
   };
 
   const av = avatarColor(draft);
+  const hasIppData = (draft.ippSampleCount ?? 0) > 0;
 
   // Group visits by session (same day + same GM)
   const gmVisits = visits
@@ -405,7 +411,11 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div>
               <div style={{ fontSize: 7.5, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)" }}>IPP</div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: "#16a34a", letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{draft.ipp.toFixed(1)}</div>
+              {hasIppData ? (
+                <div style={{ fontSize: 22, fontWeight: 900, color: "#16a34a", letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{draft.ipp.toFixed(1)}</div>
+              ) : (
+                <div style={{ fontSize: 16, fontWeight: 800, color: "rgba(0,0,0,0.22)", letterSpacing: "0.08em", lineHeight: 1.1 }}>IPP</div>
+              )}
             </div>
             <div style={{ width: 1, height: 28, background: "rgba(0,0,0,0.07)" }} />
             <div>
@@ -829,7 +839,6 @@ export default function GebietsmanagerPage() {
       city: form.city,
       postalCode: form.postalCode,
       region: form.region,
-      ipp: parseFloat((Math.random() * 3 + 4.5).toFixed(1)),
     });
     setGms((prev) => [created, ...prev]);
     setNewId(created.id);

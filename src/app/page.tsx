@@ -18,7 +18,7 @@ export default function Home() {
   return (
     <div className={loginFont.className}>
       <Login
-        onSubmit={async ({ email, password }) => {
+        onSubmit={async ({ email, password, remember }) => {
           let result: Awaited<ReturnType<typeof loginWithBackend>> | null = null;
           let lastError: unknown = null;
 
@@ -35,7 +35,7 @@ export default function Home() {
             throw (lastError instanceof Error ? lastError : new Error("Login fehlgeschlagen."));
           }
 
-          saveAuthSession(result);
+          saveAuthSession(result, { remember });
 
           if (result.user.role === "gm") {
             try {

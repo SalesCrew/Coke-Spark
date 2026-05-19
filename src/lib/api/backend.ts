@@ -21,6 +21,7 @@ export type LoginRole = "gm" | "sm" | "admin" | "coke";
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000").replace(/\/$/, "");
 export const AUTH_STORAGE_KEY = "coke_spark_auth_v1";
+type AuthStorageTarget = "local" | "session";
 
 export class BackendApiError extends Error {
   status: number;
@@ -47,6 +48,7 @@ type BackendUser = {
   postalCode?: string | null;
   region?: string | null;
   ipp?: number | null;
+  ippSampleCount?: number | null;
   createdAt?: string;
   isActive?: boolean;
 };
@@ -260,22 +262,56 @@ export type AuthSessionPayload = {
   };
 };
 
-export function saveAuthSession(payload: AuthSessionPayload) {
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
-}
-
-export function clearAuthSession() {
-  localStorage.removeItem(AUTH_STORAGE_KEY);
-}
-
-export function readAuthSession(): AuthSessionPayload | null {
+function getAuthStorage(target: AuthStorageTarget): Storage | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    return target === "local" ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readAuthSessionFromStorage(target: AuthStorageTarget): AuthSessionPayload | null {
+  const storage = getAuthStorage(target);
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as AuthSessionPayload;
   } catch {
     return null;
   }
+}
+
+function readAuthSessionWithTarget(): { payload: AuthSessionPayload; target: AuthStorageTarget } | null {
+  const sessionPayload = readAuthSessionFromStorage("session");
+  if (sessionPayload) {
+    return { payload: sessionPayload, target: "session" };
+  }
+  const localPayload = readAuthSessionFromStorage("local");
+  if (localPayload) {
+    return { payload: localPayload, target: "local" };
+  }
+  return null;
+}
+
+export function saveAuthSession(payload: AuthSessionPayload, options?: { remember?: boolean }) {
+  const target: AuthStorageTarget = options?.remember === false ? "session" : "local";
+  const targetStorage = getAuthStorage(target);
+  const otherStorage = getAuthStorage(target === "local" ? "session" : "local");
+  const serialized = JSON.stringify(payload);
+
+  targetStorage?.setItem(AUTH_STORAGE_KEY, serialized);
+  otherStorage?.removeItem(AUTH_STORAGE_KEY);
+}
+
+export function clearAuthSession() {
+  getAuthStorage("local")?.removeItem(AUTH_STORAGE_KEY);
+  getAuthStorage("session")?.removeItem(AUTH_STORAGE_KEY);
+}
+
+export function readAuthSession(): AuthSessionPayload | null {
+  return readAuthSessionWithTarget()?.payload ?? null;
 }
 
 export function getAccessToken(): string | null {
@@ -300,6 +336,8 @@ export async function loginWithBackend(input: {
 }
 
 function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): GMRecord {
+  const ippValue = Number(user.ipp ?? 0);
+  const ippSampleCountValue = Number(user.ippSampleCount ?? 0);
   return {
     id: user.id,
     firstName: user.firstName,
@@ -310,7 +348,8 @@ function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): 
     city: user.city ?? "",
     postalCode: user.postalCode ?? "",
     region: user.region ?? "",
-    ipp: user.ipp ?? 0,
+    ipp: Number.isFinite(ippValue) ? ippValue : 0,
+    ippSampleCount: Number.isFinite(ippSampleCountValue) && ippSampleCountValue > 0 ? Math.trunc(ippSampleCountValue) : 0,
     createdAt: user.createdAt ?? new Date().toISOString(),
     password: oneTimePassword,
   };
@@ -950,8 +989,8 @@ export async function fetchGmKpiSummary(): Promise<GmKpiSummary> {
 }
 
 async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
-  const current = readAuthSession();
-  if (!current?.session.refreshToken) {
+  const currentSession = readAuthSessionWithTarget();
+  if (!currentSession?.payload.session.refreshToken) {
     clearAuthSession();
     return null;
   }
@@ -959,7 +998,7 @@ async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
   const res = await fetch(`${BACKEND_URL}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken: current.session.refreshToken }),
+    body: JSON.stringify({ refreshToken: currentSession.payload.session.refreshToken }),
   });
 
   const data = (await res.json().catch(() => ({}))) as { error?: string } & Partial<AuthSessionPayload>;
@@ -969,7 +1008,7 @@ async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
   }
 
   const refreshed = data as AuthSessionPayload;
-  saveAuthSession(refreshed);
+  saveAuthSession(refreshed, { remember: currentSession.target === "local" });
   return refreshed;
 }
 
@@ -979,7 +1018,9 @@ export async function fetchGmUsers(): Promise<GMRecord[]> {
   return users.map((u) => mapBackendUserToGmRecord(u));
 }
 
-export async function createGmUser(payload: Omit<GMRecord, "id" | "createdAt" | "password">): Promise<GMRecord> {
+export async function createGmUser(
+  payload: Omit<GMRecord, "id" | "createdAt" | "password" | "ipp"> & { ipp?: number },
+): Promise<GMRecord> {
   const data = (await authedFetch("/admin/users", {
     method: "POST",
     body: JSON.stringify({

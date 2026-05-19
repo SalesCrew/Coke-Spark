@@ -177,16 +177,23 @@
 }
 
 .cs-switch-wrap {
-  display: inline;
+  display: inline-flex;
+  flex-wrap: nowrap;
   white-space: nowrap;
   vertical-align: baseline;
   line-height: inherit;
+  align-items: baseline;
 }
 
 .cs-switch-word {
-  display: inline-block;
+  display: inline-flex;
+  overflow: hidden;
   white-space: nowrap;
   line-height: inherit;
+}
+
+.cs-switch-element {
+  display: inline-block;
 }
 
 .cs-sub {
@@ -311,12 +318,12 @@
 
 .cs-input-wrap:focus-within {
   border-color: var(--coke-red);
-  box-shadow: 0 0 0 4px var(--coke-red-soft);
+  box-shadow: none;
 }
 
 .cs-input-wrap.has-error {
   border-color: var(--coke-red);
-  box-shadow: 0 0 0 4px var(--coke-red-soft);
+  box-shadow: none;
 }
 
 .cs-input-icon {

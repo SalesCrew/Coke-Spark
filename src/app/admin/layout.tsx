@@ -18,7 +18,7 @@ import { ModuleProvider, useModules } from "@/context/ModuleContext";
 import { FragebogenProvider, useFragebogen } from "@/context/FragebogenContext";
 import { RedMonthProvider } from "@/context/RedMonthContext";
 import type { Module, Fragebogen, Question } from "@/types/fragebogen";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   createFragebogen,
   createModule,
@@ -29,6 +29,7 @@ import {
   fetchFragebogen,
   fetchMarketChains,
   fetchModules,
+  readAuthSession,
   updateFragebogenBackend,
   updateModuleBackend,
   type FragebogenScope,
@@ -56,7 +57,9 @@ function collectUniqueQuestionsFromModules(inputModules: Module[]): Question[] {
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { addModule, updateModule, deleteModule, setEditHandler: setModuleEditHandler, modules } = useModules();
   const { addFragebogen, updateFragebogen, deleteFragebogen, setEditHandler: setFbEditHandler, fragebogenList } = useFragebogen();
+  const router = useRouter();
   const pathname = usePathname();
+  const [authChecked, setAuthChecked] = useState(false);
   const isKuehler = pathname.startsWith("/admin/kuehlerinventur");
   const isMhd = pathname.startsWith("/admin/mhd");
   const isFlex = pathname.startsWith("/admin/flexbesuche");
@@ -74,6 +77,20 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [availableMarketChains, setAvailableMarketChains] = useState<string[]>([]);
   const importTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const session = readAuthSession();
+    if (!session) {
+      router.replace("/");
+      return;
+    }
+    if (session.user.role !== "admin") {
+      const target = session.user.role === "gm" ? "/gm" : session.user.role === "sm" ? "/sm" : "/";
+      router.replace(target);
+      return;
+    }
+    setAuthChecked(true);
+  }, [router]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -491,6 +508,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    if (!authChecked) return;
     if (fragebogenLoadedRef.current) return;
     fragebogenLoadedRef.current = true;
     let cancelled = false;
@@ -538,7 +556,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [addFragebogen, addModule, fragebogenList.length, modules.length]);
+  }, [addFragebogen, addModule, authChecked, fragebogenList.length, modules.length]);
+
+  if (!authChecked) return null;
 
   const sharedPoolExistingQuestions = collectUniqueQuestionsFromModules([...modules, ...flexModules, ...billaModules]);
   const standardExistingQuestions = sharedPoolExistingQuestions;

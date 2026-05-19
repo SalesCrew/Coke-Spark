@@ -9,6 +9,7 @@ export interface GMRecord {
   postalCode: string;
   region: string;
   ipp: number;
+  ippSampleCount?: number;
   createdAt: string;
   password?: string;
 }

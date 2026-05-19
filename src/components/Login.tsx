@@ -64,7 +64,7 @@ export default function Login({
   onSubmit,
   onForgot,
   headline,
-  subHeadline = "Sign in to access markets, campaigns and performance - wherever you are.",
+  subHeadline = "Sign in to access markets, campaigns and performance - all in one place.",
 }: LoginProps) {
   const rotatingWords = ["shelf.", "visit."] as const;
   const [email, setEmail] = useState("");

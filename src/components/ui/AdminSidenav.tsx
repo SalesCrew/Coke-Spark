@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse, LayoutDashboard, LogOut } from "lucide-react";
+import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse, LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Plasma } from "@/components/ui/Plasma";
@@ -11,7 +11,6 @@ const NAV_GROUPS = [
   {
     label: "Analyse",
     items: [
-      { label: "GM Dashboard",   icon: LayoutDashboard, href: "/admin/gm-dashboard",   color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
       { label: "IPP Berechnung", icon: TrendingUp,      href: "/admin/ipp-berechnung", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
     ],
   },

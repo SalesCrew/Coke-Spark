@@ -15,6 +15,7 @@ import type { ColumnMapping, ImportSummary } from "@/utils/marketImport";
 import type { IppQuestionAuditRow } from "@/types/ipp";
 import type { CreateLagerInput, LagerRecord } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod } from "@/types/red-month";
+import { emitClientTelemetry } from "@/lib/clientTelemetry";
 
 export type LoginRole = "gm" | "sm" | "admin" | "coke";
 
@@ -379,6 +380,24 @@ function mapBackendRedMonthConfig(config: BackendRedMonthConfig): RedMonthConfig
   };
 }
 
+function shouldTrackClientAction(path: string, method: string): boolean {
+  const normalizedMethod = method.toUpperCase();
+  if (path.startsWith("/telemetry/events")) return false;
+  if (normalizedMethod !== "GET") return true;
+  return path === "/markets/gm/visit-start" || path === "/gm/bonus-summary" || path === "/gm/kpi-summary";
+}
+
+function buildClientActionName(path: string, method: string): string {
+  const methodPart = method.toLowerCase();
+  const pathPart = path
+    .replace(/^\/+/, "")
+    .replace(/[^a-zA-Z0-9/:-]+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 80);
+  return `ui_api_${methodPart}_${pathPart || "root"}`;
+}
+
 async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 30000) {
   const token = getAccessToken();
   if (!token) {
@@ -387,6 +406,9 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAtMs = Date.now();
+  const method = String(init.method ?? "GET").toUpperCase();
+  const shouldTrack = shouldTrackClientAction(path, method);
 
   const requestWithToken = (accessToken: string) =>
     fetch(`${BACKEND_URL}${path}`, {
@@ -400,25 +422,84 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
     });
 
   try {
+    let telemetryToken = token;
     let res = await requestWithToken(token);
     let data = await res.json().catch(() => ({}));
+    let refreshedAfter401 = false;
 
     if (res.status === 401) {
       const refreshed = await refreshAuthSession();
       if (refreshed) {
+        telemetryToken = refreshed.session.accessToken;
         res = await requestWithToken(refreshed.session.accessToken);
         data = await res.json().catch(() => ({}));
+        refreshedAfter401 = true;
       }
     }
 
     if (!res.ok) {
+      if (shouldTrack) {
+        emitClientTelemetry({
+          backendUrl: BACKEND_URL,
+          accessToken: telemetryToken,
+          event: {
+            event: `${buildClientActionName(path, method)}_failed`,
+            action: `${method} ${path}`,
+            result: "failure",
+            statusCode: res.status,
+            durationMs: Date.now() - startedAtMs,
+            details: {
+              path,
+              method,
+              retriedAfter401: refreshedAfter401,
+              errorCode: typeof data?.code === "string" ? data.code : null,
+            },
+          },
+        });
+      }
       const msg = typeof data?.error === "string" ? data.error : "Backend request failed.";
       const code = typeof data?.code === "string" ? data.code : null;
       throw new BackendApiError(msg, res.status, code, data);
     }
 
+    if (shouldTrack) {
+      emitClientTelemetry({
+        backendUrl: BACKEND_URL,
+        accessToken: telemetryToken,
+        event: {
+          event: `${buildClientActionName(path, method)}_success`,
+          action: `${method} ${path}`,
+          result: "success",
+          statusCode: res.status,
+          durationMs: Date.now() - startedAtMs,
+          details: {
+            path,
+            method,
+            retriedAfter401: refreshedAfter401,
+          },
+        },
+      });
+    }
+
     return data;
   } catch (error) {
+    if (shouldTrack && !(error instanceof BackendApiError)) {
+      emitClientTelemetry({
+        backendUrl: BACKEND_URL,
+        accessToken: token,
+        event: {
+          event: `${buildClientActionName(path, method)}_failed`,
+          action: `${method} ${path}`,
+          result: "failure",
+          durationMs: Date.now() - startedAtMs,
+          details: {
+            path,
+            method,
+            errorName: error instanceof Error ? error.name : typeof error,
+          },
+        },
+      });
+    }
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("Die Anfrage hat zu lange gedauert. Bitte erneut versuchen.");
     }
@@ -1771,11 +1852,18 @@ export async function duplicateFragebogenBackend(
   sourceScope: FragebogenScope,
   fragebogenId: string,
   targetScope: FragebogenScope,
-  sectionKeywords?: Array<"standard" | "flex" | "billa">,
+  options?: {
+    sectionKeywords?: Array<"standard" | "flex" | "billa">;
+    duplicateModulesToTargetSection?: boolean;
+  },
 ): Promise<Fragebogen> {
   const data = (await authedFetch(`/admin/fragebogen/${sourceScope}/${fragebogenId}/duplicate`, {
     method: "POST",
-    body: JSON.stringify({ targetScope, sectionKeywords }),
+    body: JSON.stringify({
+      targetScope,
+      sectionKeywords: options?.sectionKeywords,
+      duplicateModulesToTargetSection: options?.duplicateModulesToTargetSection,
+    }),
   })) as { fragebogen: Fragebogen };
   return normalizeFragebogen(data.fragebogen);
 }

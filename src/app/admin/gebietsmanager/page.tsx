@@ -624,6 +624,51 @@ function SelectField({ label, value, onChange, options }: { label: string; value
   );
 }
 
+function GmCardsSkeleton() {
+  return (
+    <div style={{ padding: 14 }}>
+      <style>{`
+        @keyframes gmSkeletonPulse {
+          0% { opacity: 0.55; }
+          50% { opacity: 1; }
+          100% { opacity: 0.55; }
+        }
+      `}</style>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+        {Array.from({ length: 8 }).map((_, idx) => (
+          <div
+            key={idx}
+            style={{
+              borderRadius: 14,
+              border: "1px solid rgba(0,0,0,0.07)",
+              background: "rgba(0,0,0,0.018)",
+              padding: 10,
+              animation: "gmSkeletonPulse 1.25s ease-in-out infinite",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 9, background: "rgba(0,0,0,0.08)" }} />
+                <div style={{ display: "grid", gap: 4 }}>
+                  <div style={{ width: 84, height: 9, borderRadius: 5, background: "rgba(0,0,0,0.1)" }} />
+                  <div style={{ width: 64, height: 7, borderRadius: 4, background: "rgba(0,0,0,0.08)" }} />
+                </div>
+              </div>
+              <div style={{ width: 52, height: 16, borderRadius: 999, background: "rgba(0,0,0,0.09)" }} />
+            </div>
+            <div style={{ borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", background: "#fff", padding: 10, display: "grid", gap: 8 }}>
+              <div style={{ width: "100%", height: 48, borderRadius: 8, background: "rgba(0,0,0,0.06)" }} />
+              <div style={{ width: "100%", height: 8, borderRadius: 5, background: "rgba(0,0,0,0.08)" }} />
+              <div style={{ width: "86%", height: 8, borderRadius: 5, background: "rgba(0,0,0,0.08)" }} />
+              <div style={{ width: "72%", height: 8, borderRadius: 5, background: "rgba(0,0,0,0.08)" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Create Modal ──────────────────────────────────────────────
 function CreateModal({
   onClose,
@@ -734,6 +779,7 @@ function CreateModal({
 export default function GebietsmanagerPage() {
   const [gms, setGms] = useState<GMRecord[]>([]);
   const [visits, setVisits] = useState<MarketVisitLog[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newId, setNewId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -741,6 +787,7 @@ export default function GebietsmanagerPage() {
   const selectedGm = gms.find(g => g.id === selectedId) ?? null;
 
   useEffect(() => {
+    setLoading(true);
     fetchGmUsers()
       .then((rows) => {
         setGms(rows);
@@ -750,6 +797,9 @@ export default function GebietsmanagerPage() {
         const msg = err instanceof Error ? err.message : "GM-Liste konnte nicht geladen werden.";
         setBackendError(msg);
         setGms([]);
+      })
+      .finally(() => {
+        setLoading(false);
       });
 
     // Load visits from Märkte page storage, supplement with seed GM visits
@@ -814,7 +864,9 @@ export default function GebietsmanagerPage() {
         ) : null}
 
         <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
-          {gms.length === 0 ? (
+          {loading ? (
+            <GmCardsSkeleton />
+          ) : gms.length === 0 ? (
             <div style={{ padding: "64px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
               <div style={{ width: 52, height: 52, borderRadius: 14, background: "rgba(220,38,38,0.07)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <UserCheck size={22} strokeWidth={1.5} color={R} />

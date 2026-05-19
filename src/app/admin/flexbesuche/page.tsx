@@ -45,13 +45,16 @@ function daysUntil(iso?: string): number | null {
 
 // ── Context menu (shared) ────────────────────────────────────
 
-function FlexContextMenu({ x, y, onDuplicate, onDelete, onClose }: {
+function FlexContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDelete, onClose }: {
   x: number; y: number;
-  onDuplicate: () => void;
-  onDelete: () => void;
+  onDuplicate: () => Promise<void> | void;
+  onDuplicateToStd: () => Promise<void> | void;
+  onDuplicateToBilla: () => Promise<void> | void;
+  onDelete: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [dupOpen, setDupOpen] = useState(false);
   useEffect(() => {
     function down(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); }
     function key(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
@@ -61,15 +64,52 @@ function FlexContextMenu({ x, y, onDuplicate, onDelete, onClose }: {
   }, [onClose]);
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 160 }}>
-      <button onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
-        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
-        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.03)")}
-        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 175 }}>
+      <div
+        style={{ position: "relative" }}
+        onMouseEnter={() => setDupOpen(true)}
+        onMouseLeave={() => setDupOpen(false)}
       >
-        <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
-        Duplizieren
-      </button>
+        <button
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: dupOpen ? "rgba(0,0,0,0.03)" : "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+        >
+          <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
+          Duplizieren
+          <span style={{ marginLeft: "auto", opacity: 0.4, fontSize: 10 }}>▶</span>
+        </button>
+
+        {dupOpen && (
+          <div style={{ position: "absolute", left: "100%", top: 0, zIndex: 10000, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10)", padding: 4, minWidth: 185, marginLeft: 2 }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = L_BG)}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: L, flexShrink: 0 }} />
+              Hier (Flexbesuche)
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicateToStd(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#DC2626", flexShrink: 0 }} />
+              Zu Standardbesuch kopieren
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicateToBilla(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(8,145,178,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#0891B2", flexShrink: 0 }} />
+              Zu Billa kopieren
+            </button>
+          </div>
+        )}
+      </div>
       <div style={{ height: 1, margin: "3px 6px", backgroundColor: "rgba(0,0,0,0.05)" }} />
       <button onClick={(e) => { e.stopPropagation(); onDelete(); onClose(); }}
         style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#DC2626", textAlign: "left" }}
@@ -298,10 +338,12 @@ function FlexFragebogenDeleteDialog({ fragebogen, onDeleteOnly, onClose }: {
 
 // ── Module Card ───────────────────────────────────────────────
 
-function FlexModuleCard({ module, onEdit, onDuplicate, onDelete, usedInFragebogen }: {
+function FlexModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDelete, usedInFragebogen }: {
   module: FlexModule;
   onEdit: () => void;
   onDuplicate: () => void;
+  onDuplicateToStd: () => void;
+  onDuplicateToBilla: () => void;
   onDelete: () => void;
   usedInFragebogen: { count: number; names: string[] };
 }) {
@@ -318,6 +360,8 @@ function FlexModuleCard({ module, onEdit, onDuplicate, onDelete, usedInFrageboge
       {ctxMenu && (
         <FlexContextMenu x={ctxMenu.x} y={ctxMenu.y}
           onDuplicate={onDuplicate}
+          onDuplicateToStd={onDuplicateToStd}
+          onDuplicateToBilla={onDuplicateToBilla}
           onDelete={() => { setDeleteDialog(true); setCtxMenu(null); }}
           onClose={() => setCtxMenu(null)}
         />
@@ -665,7 +709,20 @@ function FragebogenPageSkeleton() {
 // ── Page ──────────────────────────────────────────────────────
 
 export default function FlexbesuchePage() {
-  const { modules, fragebogenList, onEdit, onUpdate, onDelete, onDuplicate, onEditFb, onDeleteFb, onDuplicateFb, duplicateFbToStd } = useFlexModules();
+  const {
+    modules,
+    fragebogenList,
+    onEdit,
+    onUpdate,
+    onDelete,
+    onDuplicate,
+    duplicateModuleToStd,
+    duplicateModuleToBilla,
+    onEditFb,
+    onDeleteFb,
+    onDuplicateFb,
+    duplicateFbToStd,
+  } = useFlexModules();
   // Merge Standardbesuch and Billa questions into the shared question view
   const { modules: stdModules } = useModules();
   const { modules: billaModules, duplicateFbToBilla } = useBillaModules();
@@ -840,6 +897,8 @@ export default function FlexbesuchePage() {
                     onEdit={() => onEdit(m)}
                     usedInFragebogen={{ count: usedIn.length, names: usedIn.map((fb) => fb.name) }}
                     onDuplicate={() => onDuplicate(m)}
+                    onDuplicateToStd={() => duplicateModuleToStd(m)}
+                    onDuplicateToBilla={() => duplicateModuleToBilla(m)}
                     onDelete={() => onDelete(m.id)}
                   />
                 );

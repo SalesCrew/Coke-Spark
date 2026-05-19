@@ -67,8 +67,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isMaerkte = pathname.startsWith("/admin/maerkte");
   const isLager = pathname.startsWith("/admin/lager");
   const isGebietsmanager = pathname.startsWith("/admin/gebietsmanager");
-  const isZeiterfassung = pathname.startsWith("/admin/zeiterfassung");
-  const isIppBerechnung = pathname.startsWith("/admin/ipp-berechnung");
+  const isZeiterfassung  = pathname.startsWith("/admin/zeiterfassung");
+  const isIppBerechnung  = pathname.startsWith("/admin/ipp-berechnung");
+  const isGmDashboard    = pathname.startsWith("/admin/gm-dashboard");
 
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [availableMarketChains, setAvailableMarketChains] = useState<string[]>([]);
@@ -289,6 +290,38 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     setFlexModules((prev) => prev.filter((m) => m.id !== id));
   };
 
+  const mergeModuleList = (current: Module[], incoming: Module[]): Module[] => {
+    if (incoming.length === 0) return current;
+    const byId = new Map(current.map((entry) => [entry.id, entry]));
+    for (const entry of incoming) {
+      byId.set(entry.id, entry);
+    }
+    const incomingIds = new Set(incoming.map((entry) => entry.id));
+    const next = [...incoming, ...current.filter((entry) => !incomingIds.has(entry.id))];
+    return next.map((entry) => byId.get(entry.id) ?? entry);
+  };
+
+  const fetchMainModulesByIds = async (moduleIds: string[]): Promise<Module[]> => {
+    const uniqueIds = Array.from(new Set(moduleIds));
+    if (uniqueIds.length === 0) return [];
+    const allMainModules = await fetchModules("main");
+    const moduleById = new Map(allMainModules.map((entry) => [entry.id, entry]));
+    return uniqueIds.map((id) => moduleById.get(id)).filter((entry): entry is Module => Boolean(entry));
+  };
+
+  const syncStandardModulesByIds = async (moduleIds: string[]): Promise<void> => {
+    const targetModules = await fetchMainModulesByIds(moduleIds);
+    if (targetModules.length === 0) return;
+    const existingModuleById = new Map(modules.map((entry) => [entry.id, entry]));
+    for (const entry of targetModules) {
+      if (existingModuleById.has(entry.id)) {
+        await updateModule(entry, { persist: false });
+      } else {
+        await addModule(entry, { persist: false });
+      }
+    }
+  };
+
   const flexCtxValue: FlexCtxValue = {
     modules: flexModules,
     onEdit: (m) => { setFlexEditingModule(m); setFlexModuleEditorOpen(true); },
@@ -298,6 +331,18 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       const duplicated = await duplicateModuleBackend("main", m.id, "main", ["flex"]);
       setFlexModules((prev) => [duplicated, ...prev]);
     },
+    duplicateModuleToStd: async (m) => {
+      const duplicated = await duplicateModuleBackend("main", m.id, "main", ["standard"]);
+      await syncStandardModulesByIds([duplicated.id]);
+    },
+    duplicateModuleToFlex: async (m) => {
+      const duplicated = await duplicateModuleBackend("main", m.id, "main", ["flex"]);
+      setFlexModules((prev) => [duplicated, ...prev]);
+    },
+    duplicateModuleToBilla: async (m) => {
+      const duplicated = await duplicateModuleBackend("main", m.id, "main", ["billa"]);
+      setBillaModules((prev) => [duplicated, ...prev]);
+    },
     fragebogenList: flexFragebogenList,
     onEditFb: (f) => { setFlexEditingFb(f); setFlexFbEditorOpen(true); },
     onDeleteFb: async (id) => {
@@ -305,19 +350,35 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       setFlexFragebogenList((prev) => prev.filter((x) => x.id !== id));
     },
     onDuplicateFb: async (f) => {
-      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["flex"]);
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", {
+        sectionKeywords: ["flex"],
+      });
       setFlexFragebogenList((prev) => [duplicated, ...prev]);
     },
     duplicateFbToFlex: async (f) => {
-      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["flex"]);
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", {
+        sectionKeywords: ["flex"],
+        duplicateModulesToTargetSection: true,
+      });
+      const duplicatedModules = await fetchMainModulesByIds(duplicated.moduleIds);
+      setFlexModules((prev) => mergeModuleList(prev, duplicatedModules));
       setFlexFragebogenList((prev) => [duplicated, ...prev]);
     },
     duplicateFbToStd: async (f) => {
-      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["standard"]);
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", {
+        sectionKeywords: ["standard"],
+        duplicateModulesToTargetSection: true,
+      });
+      await syncStandardModulesByIds(duplicated.moduleIds);
       addFragebogen(duplicated);
     },
     duplicateFbToBilla: async (f) => {
-      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["billa"]);
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", {
+        sectionKeywords: ["billa"],
+        duplicateModulesToTargetSection: true,
+      });
+      const duplicatedModules = await fetchMainModulesByIds(duplicated.moduleIds);
+      setBillaModules((prev) => mergeModuleList(prev, duplicatedModules));
       setBillaFragebogenList((prev) => [duplicated, ...prev]);
     },
   };
@@ -377,6 +438,18 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       const duplicated = await duplicateModuleBackend("main", m.id, "main", ["billa"]);
       setBillaModules((prev) => [duplicated, ...prev]);
     },
+    duplicateModuleToStd: async (m) => {
+      const duplicated = await duplicateModuleBackend("main", m.id, "main", ["standard"]);
+      await syncStandardModulesByIds([duplicated.id]);
+    },
+    duplicateModuleToFlex: async (m) => {
+      const duplicated = await duplicateModuleBackend("main", m.id, "main", ["flex"]);
+      setFlexModules((prev) => [duplicated, ...prev]);
+    },
+    duplicateModuleToBilla: async (m) => {
+      const duplicated = await duplicateModuleBackend("main", m.id, "main", ["billa"]);
+      setBillaModules((prev) => [duplicated, ...prev]);
+    },
     fragebogenList: billaFragebogenList,
     onEditFb: (f) => { setBillaEditingFb(f); setBillaFbEditorOpen(true); },
     onDeleteFb: async (id) => {
@@ -384,19 +457,35 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       setBillaFragebogenList((prev) => prev.filter((x) => x.id !== id));
     },
     onDuplicateFb: async (f) => {
-      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["billa"]);
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", {
+        sectionKeywords: ["billa"],
+      });
       setBillaFragebogenList((prev) => [duplicated, ...prev]);
     },
     duplicateFbToStd: async (f) => {
-      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["standard"]);
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", {
+        sectionKeywords: ["standard"],
+        duplicateModulesToTargetSection: true,
+      });
+      await syncStandardModulesByIds(duplicated.moduleIds);
       addFragebogen(duplicated);
     },
     duplicateFbToFlex: async (f) => {
-      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["flex"]);
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", {
+        sectionKeywords: ["flex"],
+        duplicateModulesToTargetSection: true,
+      });
+      const duplicatedModules = await fetchMainModulesByIds(duplicated.moduleIds);
+      setFlexModules((prev) => mergeModuleList(prev, duplicatedModules));
       setFlexFragebogenList((prev) => [duplicated, ...prev]);
     },
     duplicateFbToBilla: async (f) => {
-      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", ["billa"]);
+      const duplicated = await duplicateFragebogenBackend("main", f.id, "main", {
+        sectionKeywords: ["billa"],
+        duplicateModulesToTargetSection: true,
+      });
+      const duplicatedModules = await fetchMainModulesByIds(duplicated.moduleIds);
+      setBillaModules((prev) => mergeModuleList(prev, duplicatedModules));
       setBillaFragebogenList((prev) => [duplicated, ...prev]);
     },
   };
@@ -451,13 +540,14 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     };
   }, [addFragebogen, addModule, fragebogenList.length, modules.length]);
 
-  const standardExistingQuestions = collectUniqueQuestionsFromModules([...modules, ...flexModules, ...billaModules]);
+  const sharedPoolExistingQuestions = collectUniqueQuestionsFromModules([...modules, ...flexModules, ...billaModules]);
+  const standardExistingQuestions = sharedPoolExistingQuestions;
   const kuehlerExistingQuestions = collectUniqueQuestionsFromModules(kuehlerModules);
   const mhdExistingQuestions = collectUniqueQuestionsFromModules(mhdModules);
-  const flexExistingQuestions = collectUniqueQuestionsFromModules(flexModules);
-  const billaExistingQuestions = collectUniqueQuestionsFromModules(billaModules);
+  const flexExistingQuestions = sharedPoolExistingQuestions;
+  const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : "Standardbesuch";
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : "Standardbesuch";
   return (
     <RedMonthProvider>
     <BillaCtx.Provider value={billaCtxValue}>
@@ -470,7 +560,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           <header style={{ height: 80, backgroundColor: "#ffffff", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", flexShrink: 0, position: "relative" }}>
             <div>
               <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", margin: 0 }}>{pageTitle}</h1>
-              <RedMonthHeaderControl />
+              {!isGmDashboard ? <RedMonthHeaderControl /> : null}
             </div>
 
             {/* Centered import notice */}
@@ -569,7 +659,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Neue Kampagne
                   </button>
                 </Link>
-              ) : isPraemien ? null : isZeiterfassung ? (
+              ) : isPraemien ? null : isGmDashboard ? null : isZeiterfassung ? (
                 <button
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.85"; }}

@@ -127,11 +127,18 @@ function BillaContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToFl
   );
 }
 
-// ── Module context menu (simple) ──────────────────────────────
-function BillaModuleContextMenu({ x, y, onDuplicate, onDelete, onClose }: {
-  x: number; y: number; onDuplicate: () => void; onDelete: () => void; onClose: () => void;
+// ── Module context menu (cross-dup flyout) ─────────────────────
+function BillaModuleContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToFlex, onDelete, onClose }: {
+  x: number;
+  y: number;
+  onDuplicate: () => Promise<void> | void;
+  onDuplicateToStd: () => Promise<void> | void;
+  onDuplicateToFlex: () => Promise<void> | void;
+  onDelete: () => Promise<void> | void;
+  onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [dupOpen, setDupOpen] = useState(false);
   useEffect(() => {
     function down(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); }
     function key(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
@@ -141,15 +148,55 @@ function BillaModuleContextMenu({ x, y, onDuplicate, onDelete, onClose }: {
   }, [onClose]);
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 160 }}>
-      <button onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
-        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
-        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.03)")}
-        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-      >
-        <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
-        Duplizieren
-      </button>
+    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 180 }}>
+      <div style={{ position: "relative" }}>
+        <button
+          onMouseEnter={() => setDupOpen(true)}
+          onMouseLeave={() => setDupOpen(false)}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+          onFocus={() => setDupOpen(true)}
+          onBlur={() => setDupOpen(false)}
+        >
+          <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
+          <span style={{ flex: 1 }}>Duplizieren</span>
+          <ChevronDown size={11} strokeWidth={2} color="rgba(0,0,0,0.3)" style={{ transform: "rotate(-90deg)" }} />
+        </button>
+        {dupOpen && (
+          <div
+            onMouseEnter={() => setDupOpen(true)}
+            onMouseLeave={() => setDupOpen(false)}
+            style={{ position: "absolute", top: 0, left: "100%", marginLeft: 4, zIndex: 10000, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 200 }}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = T_BG)}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: T, flexShrink: 0 }} />
+              Hier (Billa)
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicateToStd(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#DC2626", flexShrink: 0 }} />
+              Zu Standardbesuch kopieren
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicateToFlex(); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(132,204,22,0.08)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#84CC16", flexShrink: 0 }} />
+              Zu Flexbesuche kopieren
+            </button>
+          </div>
+        )}
+      </div>
       <div style={{ height: 1, margin: "3px 6px", backgroundColor: "rgba(0,0,0,0.05)" }} />
       <button onClick={(e) => { e.stopPropagation(); onDelete(); onClose(); }}
         style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#DC2626", textAlign: "left" }}
@@ -299,10 +346,12 @@ function BillaFragebogenDeleteDialog({ fragebogen, onDeleteOnly, onClose }: {
 
 // ── Module Card ───────────────────────────────────────────────
 
-function BillaModuleCard({ module, onEdit, onDuplicate, onDelete, usedInFragebogen }: {
+function BillaModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDuplicateToFlex, onDelete, usedInFragebogen }: {
   module: BillaModule;
   onEdit: () => void;
   onDuplicate: () => void;
+  onDuplicateToStd: () => void;
+  onDuplicateToFlex: () => void;
   onDelete: () => void;
   usedInFragebogen: { count: number; names: string[] };
 }) {
@@ -319,6 +368,8 @@ function BillaModuleCard({ module, onEdit, onDuplicate, onDelete, usedInFragebog
       {ctxMenu && (
         <BillaModuleContextMenu x={ctxMenu.x} y={ctxMenu.y}
           onDuplicate={onDuplicate}
+          onDuplicateToStd={onDuplicateToStd}
+          onDuplicateToFlex={onDuplicateToFlex}
           onDelete={() => { setDeleteDialog(true); setCtxMenu(null); }}
           onClose={() => setCtxMenu(null)}
         />
@@ -658,7 +709,21 @@ function FragebogenPageSkeleton() {
 // ── Page ──────────────────────────────────────────────────────
 
 export default function BillaPage() {
-  const { modules, fragebogenList, onEdit, onUpdate, onDelete, onDuplicate, onEditFb, onDeleteFb, onDuplicateFb, duplicateFbToStd, duplicateFbToFlex } = useBillaModules();
+  const {
+    modules,
+    fragebogenList,
+    onEdit,
+    onUpdate,
+    onDelete,
+    onDuplicate,
+    duplicateModuleToStd,
+    duplicateModuleToFlex,
+    onEditFb,
+    onDeleteFb,
+    onDuplicateFb,
+    duplicateFbToStd,
+    duplicateFbToFlex,
+  } = useBillaModules();
   const { modules: stdModules } = useModules();
   const { modules: flexModules } = useFlexModules();
   const [activeTab, setActiveTab] = useState<Tab>("module");
@@ -834,6 +899,8 @@ export default function BillaPage() {
                     onEdit={() => onEdit(m)}
                     usedInFragebogen={{ count: usedIn.length, names: usedIn.map((fb) => fb.name) }}
                     onDuplicate={() => onDuplicate(m)}
+                    onDuplicateToStd={() => duplicateModuleToStd(m)}
+                    onDuplicateToFlex={() => duplicateModuleToFlex(m)}
                     onDelete={() => onDelete(m.id)}
                   />
                 );

@@ -1,16 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse } from "lucide-react";
+import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse, LayoutDashboard, LogOut } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Plasma } from "@/components/ui/Plasma";
+import { clearAuthSession } from "@/lib/api/backend";
 
 const NAV_GROUPS = [
   {
     label: "Analyse",
     items: [
-      { label: "IPP Berechnung", icon: TrendingUp, href: "/admin/ipp-berechnung", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
+      { label: "GM Dashboard",   icon: LayoutDashboard, href: "/admin/gm-dashboard",   color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
+      { label: "IPP Berechnung", icon: TrendingUp,      href: "/admin/ipp-berechnung", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
     ],
   },
   {
@@ -47,6 +49,13 @@ const EXPANDED_W = 200;
 export function AdminSidenav() {
   const [hovered, setHovered] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    clearAuthSession();
+    router.push("/");
+    router.refresh();
+  };
 
   const plasmaColor = pathname.startsWith("/admin/kuehlerinventur")
     ? "#D97706"
@@ -215,6 +224,61 @@ export function AdminSidenav() {
             )}
           </div>
         ))}
+      </div>
+
+      {/* Logout */}
+      <div
+        style={{
+          padding: "8px",
+          borderTop: "1px solid rgba(0,0,0,0.06)",
+          flexShrink: 0,
+        }}
+      >
+        <button
+          type="button"
+          onClick={handleLogout}
+          style={{
+            width: "100%",
+            height: 34,
+            borderRadius: 10,
+            border: "none",
+            background: "transparent",
+            color: "rgba(185,28,28,0.85)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: hovered ? "flex-start" : "center",
+            paddingLeft: hovered ? 12 : 0,
+            gap: hovered ? 10 : 0,
+            fontFamily: "inherit",
+            transition: "all 0.2s ease",
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(220,38,38,0.08)";
+            e.currentTarget.style.color = "#b91c1c";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color = "rgba(185,28,28,0.85)";
+          }}
+        >
+          <div style={{ width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <LogOut size={16} strokeWidth={1.9} />
+          </div>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              width: hovered ? "auto" : 0,
+              opacity: hovered ? 1 : 0,
+              transition: "opacity 0.2s ease, width 0.25s ease",
+            }}
+          >
+            Logout
+          </span>
+        </button>
       </div>
     </nav>
   );

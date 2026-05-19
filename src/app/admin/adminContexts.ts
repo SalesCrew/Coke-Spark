@@ -68,6 +68,9 @@ export interface FlexCtxValue {
   onUpdate: (m: Module) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
   onDuplicate: (m: Module) => void | Promise<void>;
+  duplicateModuleToStd: (m: Module) => void | Promise<void>;
+  duplicateModuleToFlex: (m: Module) => void | Promise<void>;
+  duplicateModuleToBilla: (m: Module) => void | Promise<void>;
   fragebogenList: Fragebogen[];
   onEditFb: (f: Fragebogen) => void | Promise<void>;
   onDeleteFb: (id: string) => void | Promise<void>;
@@ -83,6 +86,9 @@ export const FlexCtx = createContext<FlexCtxValue>({
   onUpdate: () => {},
   onDelete: () => {},
   onDuplicate: () => {},
+  duplicateModuleToStd: () => {},
+  duplicateModuleToFlex: () => {},
+  duplicateModuleToBilla: () => {},
   fragebogenList: [],
   onEditFb: () => {},
   onDeleteFb: () => {},
@@ -103,6 +109,9 @@ export interface BillaCtxValue {
   onUpdate: (m: Module) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
   onDuplicate: (m: Module) => void | Promise<void>;
+  duplicateModuleToStd: (m: Module) => void | Promise<void>;
+  duplicateModuleToFlex: (m: Module) => void | Promise<void>;
+  duplicateModuleToBilla: (m: Module) => void | Promise<void>;
   fragebogenList: Fragebogen[];
   onEditFb: (f: Fragebogen) => void | Promise<void>;
   onDeleteFb: (id: string) => void | Promise<void>;
@@ -118,6 +127,9 @@ export const BillaCtx = createContext<BillaCtxValue>({
   onUpdate: () => {},
   onDelete: () => {},
   onDuplicate: () => {},
+  duplicateModuleToStd: () => {},
+  duplicateModuleToFlex: () => {},
+  duplicateModuleToBilla: () => {},
   fragebogenList: [],
   onEditFb: () => {},
   onDeleteFb: () => {},

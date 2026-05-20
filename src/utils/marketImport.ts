@@ -108,7 +108,9 @@ export interface FieldSpec {
   isIdentity: boolean; // any one identity field satisfies the identity requirement
 }
 
-export const FIELD_SPECS: FieldSpec[] = [
+export type ImportDatasetType = "universum" | "kuehler";
+
+export const UNIVERSUM_FIELD_SPECS: FieldSpec[] = [
   { key: "standardMarketNumber", label: "Standardmarkt Nr",    required: false, isIdentity: true  },
   { key: "cokeMasterNumber",     label: "Stammnr. von Coke",   required: false, isIdentity: true  },
   { key: "flexNumber",           label: "Flex-Nummer",         required: false, isIdentity: true  },
@@ -125,6 +127,27 @@ export const FIELD_SPECS: FieldSpec[] = [
   { key: "infoFlag",             label: "Info",                required: false, isIdentity: false },
 ];
 
+export const KUEHLER_FIELD_SPECS: FieldSpec[] = [
+  { key: "kuehlerStammnr",            label: "Stammnr",               required: true,  isIdentity: true  },
+  { key: "kuehlerInternalId",         label: "internal_id",           required: true,  isIdentity: false },
+  { key: "kuehlerBd",                 label: "BD",                    required: false, isIdentity: false },
+  { key: "kuehlerAnzahlKsAmStandort", label: "Anzahl KS am Standort", required: false, isIdentity: false },
+  { key: "kuehlerSerialNumber",       label: "Serial Number",         required: false, isIdentity: false },
+  { key: "name",                      label: "Name",                  required: true,  isIdentity: false },
+  { key: "address",                   label: "Street name",           required: true,  isIdentity: false },
+  { key: "postalCode",                label: "PLZ",                   required: true,  isIdentity: false },
+  { key: "city",                      label: "Ort",                   required: true,  isIdentity: false },
+  { key: "region",                    label: "Region",                required: true,  isIdentity: false },
+  { key: "kuehlerModel",              label: "Model",                 required: false, isIdentity: false },
+  { key: "employee",                  label: "Mitarbeiter",           required: false, isIdentity: false },
+];
+
+export const FIELD_SPECS: FieldSpec[] = UNIVERSUM_FIELD_SPECS;
+
+export function getFieldSpecsForImportType(importType: ImportDatasetType): FieldSpec[] {
+  return importType === "kuehler" ? KUEHLER_FIELD_SPECS : UNIVERSUM_FIELD_SPECS;
+}
+
 // key → column letter  (empty string = not mapped)
 export type ColumnMapping = Partial<Record<keyof MarketRecord, string>>;
 
@@ -137,12 +160,12 @@ export interface MappingValidation {
   canImport: boolean;
 }
 
-export function validateMapping(mapping: ColumnMapping): MappingValidation {
+export function validateMapping(mapping: ColumnMapping, fieldSpecs: FieldSpec[] = FIELD_SPECS): MappingValidation {
   const fieldErrors: Partial<Record<keyof MarketRecord, string>> = {};
   const duplicateErrors: Partial<Record<keyof MarketRecord, string>> = {};
 
   // Check each required field has a valid letter
-  for (const spec of FIELD_SPECS) {
+  for (const spec of fieldSpecs) {
     const val = mapping[spec.key] ?? "";
     if (spec.required && !val) {
       fieldErrors[spec.key] = "Pflichtfeld";
@@ -153,7 +176,7 @@ export function validateMapping(mapping: ColumnMapping): MappingValidation {
 
   // Check duplicates across all mapped fields
   const seen: Map<number, keyof MarketRecord> = new Map();
-  for (const spec of FIELD_SPECS) {
+  for (const spec of fieldSpecs) {
     const val = mapping[spec.key] ?? "";
     if (!val || !isValidColLetter(val)) continue;
     const idx = excelColToIndex(val);
@@ -167,10 +190,10 @@ export function validateMapping(mapping: ColumnMapping): MappingValidation {
   }
 
   // Identity requirement: at least one identity field mapped
-  const hasIdentity = FIELD_SPECS.filter((s) => s.isIdentity).some(
+  const hasIdentity = fieldSpecs.filter((s) => s.isIdentity).some(
     (s) => mapping[s.key] && isValidColLetter(mapping[s.key]!)
   );
-  const requiredOk = FIELD_SPECS.filter((s) => s.required).every(
+  const requiredOk = fieldSpecs.filter((s) => s.required).every(
     (s) => mapping[s.key] && isValidColLetter(mapping[s.key]!) && !fieldErrors[s.key]
   );
   const noDuplicates = Object.keys(duplicateErrors).length === 0;
@@ -198,9 +221,13 @@ function normNum(v: string): number {
 /** Raw "draft" produced from one spreadsheet row before merge */
 export type MarketDraft = Partial<Record<keyof MarketRecord, string | number | boolean>>;
 
-export function mapRowToDraft(row: string[], mapping: ColumnMapping): MarketDraft {
+export function mapRowToDraft(
+  row: string[],
+  mapping: ColumnMapping,
+  fieldSpecs: FieldSpec[] = FIELD_SPECS,
+): MarketDraft {
   const draft: MarketDraft = {};
-  for (const spec of FIELD_SPECS) {
+  for (const spec of fieldSpecs) {
     const col = mapping[spec.key];
     if (!col || !isValidColLetter(col)) continue;
     const idx = excelColToIndex(col);
@@ -208,6 +235,8 @@ export function mapRowToDraft(row: string[], mapping: ColumnMapping): MarketDraf
     if (!raw) continue;
     if (spec.key === "universeMarket" || spec.key === "infoFlag") {
       (draft as Record<string, unknown>)[spec.key] = normBool(raw);
+    } else if (spec.key === "kuehlerAnzahlKsAmStandort") {
+      (draft as Record<string, unknown>)[spec.key] = normNum(raw);
     } else if (spec.key === "visitFrequencyPerYear") {
       (draft as Record<string, unknown>)[spec.key] = normNum(raw);
     } else {
@@ -222,6 +251,7 @@ export function mapRowToDraft(row: string[], mapping: ColumnMapping): MarketDraf
 export interface ImportSummary {
   fileName: string;
   sheetName: string;
+  importType: ImportDatasetType;
   totalParsedRows: number;
   created: number;
   updated: number;
@@ -242,12 +272,13 @@ export interface ImportSummary {
 function buildSkipMeta(
   draft: MarketDraft,
   mapping: ColumnMapping,
+  fieldSpecs: FieldSpec[] = FIELD_SPECS,
 ): { missingFields: string[]; missingFieldKeys: (keyof MarketRecord)[]; fetchedFields: { label: string; value: string }[] } {
   const missingFields: string[] = [];
   const missingFieldKeys: (keyof MarketRecord)[] = [];
   const fetchedFields: { label: string; value: string }[] = [];
 
-  for (const spec of FIELD_SPECS) {
+  for (const spec of fieldSpecs) {
     const col = mapping[spec.key] ?? "";
     const val = draft[spec.key];
     if (!col || !isValidColLetter(col)) {
@@ -269,7 +300,14 @@ function buildSkipMeta(
 }
 
 /** Create a MarketRecord from a completed draft */
-export function draftToMarketRecord(draft: MarketDraft, fileName: string): MarketRecord {
+export function draftToMarketRecord(
+  draft: MarketDraft,
+  fileName: string,
+  importType: ImportDatasetType = "universum",
+): MarketRecord {
+  const marketType = importType === "kuehler" ? "kuehler" : "universum";
+  const kuehlerStammnr = String(draft.kuehlerStammnr ?? "");
+  const kuehlerInternalId = String(draft.kuehlerInternalId ?? "");
   return {
     id: `m-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`,
     name:                 String(draft.name ?? ""),
@@ -277,13 +315,23 @@ export function draftToMarketRecord(draft: MarketDraft, fileName: string): Marke
     postalCode:           String(draft.postalCode ?? ""),
     city:                 String(draft.city ?? ""),
     region:               String(draft.region ?? ""),
-    emEh:                 String(draft.emEh ?? ""),
-    dbName:               String(draft.dbName ?? ""),
-    flexNumber:           String(draft.flexNumber ?? ""),
-    cokeMasterNumber:     String(draft.cokeMasterNumber ?? ""),
-    standardMarketNumber: String(draft.standardMarketNumber ?? ""),
+    emEh:                 importType === "kuehler" ? "" : String(draft.emEh ?? ""),
+    dbName:               importType === "kuehler" ? "" : String(draft.dbName ?? ""),
+    flexNumber:           importType === "kuehler" ? "" : String(draft.flexNumber ?? ""),
+    cokeMasterNumber:     importType === "kuehler" ? kuehlerStammnr : String(draft.cokeMasterNumber ?? ""),
+    standardMarketNumber: importType === "kuehler" ? "" : String(draft.standardMarketNumber ?? ""),
     employee:             String(draft.employee ?? ""),
-    universeMarket:       Boolean(draft.universeMarket ?? false),
+    universeMarket:       marketType !== "kuehler",
+    marketType,
+    kuehlerStammnr:       importType === "kuehler" ? kuehlerStammnr : "",
+    kuehlerBd:            importType === "kuehler" ? String(draft.kuehlerBd ?? "") : "",
+    kuehlerAnzahlKsAmStandort:
+      importType === "kuehler"
+        ? (draft.kuehlerAnzahlKsAmStandort == null ? null : Number(draft.kuehlerAnzahlKsAmStandort))
+        : null,
+    kuehlerInternalId:    importType === "kuehler" ? kuehlerInternalId : "",
+    kuehlerSerialNumber:  importType === "kuehler" ? String(draft.kuehlerSerialNumber ?? "") : "",
+    kuehlerModel:         importType === "kuehler" ? String(draft.kuehlerModel ?? "") : "",
     isActive:             true,
     visitFrequencyPerYear:Number(draft.visitFrequencyPerYear ?? 0),
     infoFlag:             Boolean(draft.infoFlag ?? false),
@@ -309,7 +357,10 @@ export function mergeImportedMarkets(
   mapping: ColumnMapping,
   fileName: string,
   sheetName: string,
+  importType: ImportDatasetType = "universum",
 ): { nextMarkets: MarketRecord[]; summary: ImportSummary } {
+  // Deprecated helper path: backend import is authoritative for production behavior.
+  // Keep this aligned enough for fallback/local usage.
 
   // Build lookup maps for fast matching
   const byStandard = new Map<string, MarketRecord>();
@@ -319,7 +370,13 @@ export function mergeImportedMarkets(
 
   for (const m of existing) {
     if (m.standardMarketNumber) byStandard.set(normStr(m.standardMarketNumber), m);
-    if (m.cokeMasterNumber)     byCoke.set(normStr(m.cokeMasterNumber), m);
+    if (m.cokeMasterNumber) {
+      const cokeKey =
+        importType === "kuehler"
+          ? normStr(m.cokeMasterNumber.replace(/\s+/g, ""))
+          : normStr(m.cokeMasterNumber);
+      if (cokeKey) byCoke.set(cokeKey, m);
+    }
     if (m.flexNumber)           byFlex.set(normStr(m.flexNumber), m);
     const namePlzKey = normStr(m.name) + "|" + normStr(m.postalCode);
     byNamePlz.set(namePlzKey, m);
@@ -331,6 +388,7 @@ export function mergeImportedMarkets(
 
   const summary: ImportSummary = {
     fileName, sheetName,
+    importType,
     totalParsedRows: 0,
     created: 0, updated: 0, skipped: 0,
     matchedBy: { standardMarketNumber: 0, cokeMasterNumber: 0, flexNumber: 0, namePLZ: 0 },
@@ -340,6 +398,7 @@ export function mergeImportedMarkets(
   const importedAt = new Date().toISOString();
   const dataRows = rows.slice(1); // skip header
   summary.totalParsedRows = dataRows.length;
+  const fieldSpecs = getFieldSpecsForImportType(importType);
 
   for (let i = 0; i < dataRows.length; i++) {
     const row = dataRows[i];
@@ -351,19 +410,22 @@ export function mergeImportedMarkets(
       continue;
     }
 
-    const draft = mapRowToDraft(row, mapping);
+    const draft = mapRowToDraft(row, mapping, fieldSpecs);
     const sampleText = String(draft.name ?? draft.city ?? row.find((c) => c?.trim()) ?? "");
+    const normalizedKuehlerStammnr = normStr(String(draft.kuehlerStammnr ?? "").replace(/\s+/g, ""));
 
     // Check minimum identity
     const hasDraftIdentity =
-      draft.standardMarketNumber || draft.cokeMasterNumber || draft.flexNumber;
+      importType === "kuehler"
+        ? normalizedKuehlerStammnr
+        : draft.standardMarketNumber || draft.cokeMasterNumber || draft.flexNumber;
     const hasDraftVisibles =
       draft.name && (draft.postalCode || draft.city) && draft.region;
 
     if (!hasDraftIdentity && !hasDraftVisibles) {
       summary.skipped++;
       if (summary.skippedReasons.length < 50) {
-        const { missingFields, missingFieldKeys, fetchedFields } = buildSkipMeta(draft, mapping);
+        const { missingFields, missingFieldKeys, fetchedFields } = buildSkipMeta(draft, mapping, fieldSpecs);
         summary.skippedReasons.push({ row: rowNum, reason: "Keine Identität und fehlende Pflichtfelder", sample: sampleText, draft, missingFields, missingFieldKeys, fetchedFields });
       }
       continue;
@@ -374,11 +436,16 @@ export function mergeImportedMarkets(
     let matchKey: keyof typeof summary.matchedBy | null = null;
 
     const stdKey = normStr(String(draft.standardMarketNumber ?? ""));
-    const cokeKey = normStr(String(draft.cokeMasterNumber ?? ""));
+    const cokeKey =
+      importType === "kuehler"
+        ? normalizedKuehlerStammnr
+        : normStr(String(draft.cokeMasterNumber ?? ""));
     const flexKey = normStr(String(draft.flexNumber ?? ""));
     const namePlzKey = normStr(String(draft.name ?? "")) + "|" + normStr(String(draft.postalCode ?? ""));
 
-    if (stdKey  && byStandard.has(stdKey))  { matched = byStandard.get(stdKey)!;  matchKey = "standardMarketNumber"; }
+    if (importType === "kuehler") {
+      if (cokeKey && byCoke.has(cokeKey)) { matched = byCoke.get(cokeKey)!; matchKey = "cokeMasterNumber"; }
+    } else if (stdKey  && byStandard.has(stdKey))  { matched = byStandard.get(stdKey)!;  matchKey = "standardMarketNumber"; }
     else if (cokeKey && byCoke.has(cokeKey)) { matched = byCoke.get(cokeKey)!;     matchKey = "cokeMasterNumber"; }
     else if (flexKey && byFlex.has(flexKey)) { matched = byFlex.get(flexKey)!;     matchKey = "flexNumber"; }
     else if (namePlzKey && byNamePlz.has(namePlzKey)) { matched = byNamePlz.get(namePlzKey)!; matchKey = "namePLZ"; }
@@ -407,33 +474,15 @@ export function mergeImportedMarkets(
       if (!hasDraftVisibles) {
         summary.skipped++;
         if (summary.skippedReasons.length < 50) {
-          const { missingFields, missingFieldKeys, fetchedFields } = buildSkipMeta(draft, mapping);
+          const { missingFields, missingFieldKeys, fetchedFields } = buildSkipMeta(draft, mapping, fieldSpecs);
           summary.skippedReasons.push({ row: rowNum, reason: "Neuer Markt ohne Pflichtfelder (Name, PLZ, Region)", sample: sampleText, draft, missingFields, missingFieldKeys, fetchedFields });
         }
         continue;
       }
       const newId = uid();
       const newMarket: MarketRecord = {
+        ...draftToMarketRecord(draft, fileName, importType),
         id: newId,
-        name:                  String(draft.name ?? ""),
-        address:               String(draft.address ?? ""),
-        postalCode:            String(draft.postalCode ?? ""),
-        city:                  String(draft.city ?? ""),
-        region:                String(draft.region ?? ""),
-        emEh:                  String(draft.emEh ?? ""),
-        dbName:                String(draft.dbName ?? ""),
-        flexNumber:            String(draft.flexNumber ?? ""),
-        cokeMasterNumber:      String(draft.cokeMasterNumber ?? ""),
-        standardMarketNumber:  String(draft.standardMarketNumber ?? ""),
-        employee:              String(draft.employee ?? ""),
-        universeMarket:        Boolean(draft.universeMarket ?? false),
-        isActive:              true,
-        visitFrequencyPerYear: Number(draft.visitFrequencyPerYear ?? 0),
-        infoFlag:              Boolean(draft.infoFlag ?? false),
-        infoNote:              "",
-        currentGmName:         "",
-        ipp:                   null,
-        importSourceFileName:  fileName,
         importedAt,
       };
       nextMap.set(newId, newMarket);

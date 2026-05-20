@@ -10,8 +10,8 @@ import {
 import type { MarketRecord, MarketVisitLog, MarketFilters, SectionType } from "@/types/markets";
 import {
   readWorkbook, buildPreviewGrid, getColHeader, getColSample,
-  FIELD_SPECS, validateMapping, draftToMarketRecord,
-  type ColumnMapping, type WorkbookResult, type ImportSummary,
+  getFieldSpecsForImportType, validateMapping, draftToMarketRecord,
+  type ColumnMapping, type WorkbookResult, type ImportSummary, type FieldSpec, type ImportDatasetType,
 } from "@/utils/marketImport";
 import {
   createMarket,
@@ -220,18 +220,25 @@ function VirtualMarketList({
 
 // ── Import Modal ──────────────────────────────────────────────
 
-type ImportStep = "upload" | "review" | "summary";
+type ImportStep = "type" | "upload" | "review" | "summary";
 
 function ImportModal({
   onImport,
   onSaveFixedRow,
   onClose,
 }: {
-  onImport: (payload: { fileName: string; sheetName: string; rows: string[][]; mapping: ColumnMapping }) => Promise<{ markets: MarketRecord[]; summary: ImportSummary }>;
+  onImport: (payload: {
+    importType: ImportDatasetType;
+    fileName: string;
+    sheetName: string;
+    rows: string[][];
+    mapping: ColumnMapping;
+  }) => Promise<{ markets: MarketRecord[]; summary: ImportSummary }>;
   onSaveFixedRow: (market: MarketRecord) => Promise<MarketRecord>;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState<ImportStep>("upload");
+  const [step, setStep] = useState<ImportStep>("type");
+  const [selectedImportType, setSelectedImportType] = useState<ImportDatasetType | null>(null);
   const [dragging, setDragging] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [parsing, setParsing] = useState(false);
@@ -267,11 +274,12 @@ function ImportModal({
   }, []);
 
   const handleImportClick = useCallback(async () => {
-    if (!wb || isSubmitting) return;
+    if (!wb || isSubmitting || !selectedImportType) return;
     setIsSubmitting(true);
     setSubmitError(null);
     try {
       const result = await onImport({
+        importType: selectedImportType,
         fileName,
         sheetName: wb.sheetName,
         rows: wb.rows,
@@ -284,7 +292,7 @@ function ImportModal({
     } finally {
       setIsSubmitting(false);
     }
-  }, [wb, mapping, fileName, onImport, isSubmitting]);
+  }, [wb, mapping, fileName, onImport, isSubmitting, selectedImportType]);
 
   // Called from summary when user manually fills a skipped row and presses save
   const handleSaveFixedRow = useCallback(async (market: MarketRecord) => {
@@ -292,13 +300,17 @@ function ImportModal({
     // We don't close the modal — the summary view manages the local display state
   }, [onSaveFixedRow]);
 
-  const validation = useMemo(() => validateMapping(mapping), [mapping]);
+  const activeFieldSpecs = useMemo(
+    () => getFieldSpecsForImportType(selectedImportType ?? "universum"),
+    [selectedImportType],
+  );
+  const validation = useMemo(() => validateMapping(mapping, activeFieldSpecs), [mapping, activeFieldSpecs]);
   const preview = useMemo(() => wb ? buildPreviewGrid(wb.rows) : null, [wb]);
 
   if (!mounted || typeof document === "undefined") return null;
 
   // ── Shared modal shell ─────────────────────────────────────
-  const widths: Record<ImportStep, number> = { upload: 520, review: 860, summary: 580 };
+  const widths: Record<ImportStep, number> = { type: 520, upload: 520, review: 860, summary: 580 };
   const modalW = widths[step];
 
   return createPortal(
@@ -329,20 +341,23 @@ function ImportModal({
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>
-              {step === "upload"  && "Märkte importieren"}
+              {step === "type"    && "Datensatz auswählen"}
+              {step === "upload"  && `${selectedImportType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"} importieren`}
               {step === "review"  && "Spalten zuweisen"}
               {step === "summary" && "Import abgeschlossen"}
             </div>
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500, marginTop: 1 }}>
+              {step === "type"    && "Universumsmärkte oder Kühlermärkte wählen"}
               {step === "upload"  && "Excel-Datei ziehen oder auswählen"}
-              {step === "review"  && `${fileName} · ${wb?.sheetName ?? ""} · ${(wb?.rows.length ?? 1) - 1} Datenzeilen`}
-              {step === "summary" && `${fileName} · ${wb?.sheetName ?? ""}`}
+              {step === "review"  && `${selectedImportType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"} · ${fileName} · ${wb?.sheetName ?? ""} · ${(wb?.rows.length ?? 1) - 1} Datenzeilen`}
+              {step === "summary" && `${selectedImportType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"} · ${fileName} · ${wb?.sheetName ?? ""}`}
             </div>
           </div>
           {/* Step indicator dots */}
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginRight: 8 }}>
-            {(["upload", "review", "summary"] as ImportStep[]).map((s, i) => {
-              const done = step === "summary" || (step === "review" && i === 0);
+            {(["type", "upload", "review", "summary"] as ImportStep[]).map((s) => {
+              const orderedSteps: ImportStep[] = ["type", "upload", "review", "summary"];
+              const done = orderedSteps.indexOf(step) > orderedSteps.indexOf(s);
               const active = step === s;
               return (
                 <div key={s} style={{ width: active ? 18 : 6, height: 6, borderRadius: 99, transition: "all 0.2s ease", background: done ? "#16a34a" : active ? R : "rgba(0,0,0,0.12)" }} />
@@ -361,6 +376,60 @@ function ImportModal({
 
         {/* Body */}
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+
+          {/* ── STEP 0: Dataset type selection ── */}
+          {step === "type" && (
+            <div style={{ padding: "22px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ fontSize: 11, color: "rgba(0,0,0,0.52)", lineHeight: 1.5 }}>
+                Wähle zuerst den Datensatztyp. Danach startet der normale Excel-Upload mit passender Spaltenzuweisung.
+              </div>
+              <div style={{ display: "grid", gap: 10 }}>
+                <button
+                  onClick={() => { setSelectedImportType("universum"); setStep("upload"); }}
+                  style={{
+                    padding: "14px 14px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    background: "linear-gradient(to bottom,#fff,#f8f8f8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Universumsmärkte</span>
+                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Standardimport mit vorhandener Feldstruktur</span>
+                  </span>
+                  <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
+                </button>
+                <button
+                  onClick={() => { setSelectedImportType("kuehler"); setStep("upload"); }}
+                  style={{
+                    padding: "14px 14px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    background: "linear-gradient(to bottom,#fff,#f8f8f8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Kühlermärkte</span>
+                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Stammnr-Matching mit Kühler-Feldern</span>
+                  </span>
+                  <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
+                </button>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button onClick={onClose} style={{ padding: "8px 16px", fontSize: 11, fontWeight: 600, borderRadius: 8, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)" }}>Abbrechen</button>
+              </div>
+            </div>
+          )}
 
           {/* ── STEP 1: Upload ── */}
           {step === "upload" && (
@@ -394,7 +463,7 @@ function ImportModal({
                 </div>
               )}
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button onClick={onClose} style={{ padding: "8px 16px", fontSize: 11, fontWeight: 600, borderRadius: 8, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)" }}>Abbrechen</button>
+                <button onClick={() => setStep("type")} style={{ padding: "8px 16px", fontSize: 11, fontWeight: 600, borderRadius: 8, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)" }}>Zurück</button>
               </div>
             </div>
           )}
@@ -448,7 +517,7 @@ function ImportModal({
                 <div style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(0,0,0,0.22)", marginBottom: 8 }}>Pflichtfelder</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 10px" }}>
-                    {FIELD_SPECS.filter(s => s.required || s.isIdentity).map(spec => (
+                    {activeFieldSpecs.filter(s => s.required || s.isIdentity).map(spec => (
                       <MappingRow key={spec.key} spec={spec} value={mapping[spec.key] ?? ""} rows={wb.rows} validation={validation} onChange={v => setMapping(m => ({ ...m, [spec.key]: v.toUpperCase() }))} />
                     ))}
                   </div>
@@ -458,7 +527,7 @@ function ImportModal({
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(0,0,0,0.22)", marginBottom: 8 }}>Optionale Felder</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 10px" }}>
-                    {FIELD_SPECS.filter(s => !s.required && !s.isIdentity).map(spec => (
+                    {activeFieldSpecs.filter(s => !s.required && !s.isIdentity).map(spec => (
                       <MappingRow key={spec.key} spec={spec} value={mapping[spec.key] ?? ""} rows={wb.rows} validation={validation} onChange={v => setMapping(m => ({ ...m, [spec.key]: v.toUpperCase() }))} />
                     ))}
                   </div>
@@ -502,7 +571,7 @@ function ImportModal({
 
           {/* ── STEP 3: Summary ── */}
           {step === "summary" && summary && (
-            <ImportSummaryView summary={summary} fileName={fileName} onClose={onClose} onSaveFixedRow={handleSaveFixedRow} onRestart={() => { setStep("upload"); setWb(null); setMapping({}); setSummary(null); setFileName(""); }} />
+            <ImportSummaryView summary={summary} fileName={fileName} onClose={onClose} onSaveFixedRow={handleSaveFixedRow} onRestart={() => { setStep("type"); setSelectedImportType(null); setWb(null); setMapping({}); setSummary(null); setFileName(""); }} />
           )}
         </div>
       </div>
@@ -516,7 +585,7 @@ function ImportModal({
 function MappingRow({
   spec, value, rows, validation, onChange,
 }: {
-  spec: (typeof FIELD_SPECS)[0];
+  spec: FieldSpec;
   value: string;
   rows: string[][];
   validation: ReturnType<typeof validateMapping>;
@@ -584,6 +653,10 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
   // which rows have been saved (shown as success)
   const [savedRows, setSavedRows] = useState<Set<number>>(new Set());
   const [savingRows, setSavingRows] = useState<Set<number>>(new Set());
+  const summaryFieldSpecs = useMemo(
+    () => getFieldSpecsForImportType(summary.importType ?? "universum"),
+    [summary.importType],
+  );
 
   const toggleRow = (i: number) => setExpandedRows(prev => {
     const next = new Set(prev);
@@ -602,7 +675,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
       const rowFills = fills[rowIdx] ?? {};
       // Merge fills into draft
       const completeDraft = { ...(r.draft ?? {}), ...rowFills };
-      const market = draftToMarketRecord(completeDraft, fileName);
+      const market = draftToMarketRecord(completeDraft, fileName, summary.importType ?? "universum");
       await onSaveFixedRow(market);
       setSavedRows(prev => new Set([...prev, rowIdx]));
       setLocalCreated(c => c + 1);
@@ -667,6 +740,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
             <span style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a" }}>{summary.fileName}</span>
           </div>
           <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Blatt: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.sheetName}</strong></span>
+          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Datensatz: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.importType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"}</strong></span>
           <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Zeilen: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.totalParsedRows}</strong></span>
           {matchKeys.length > 0 && (
             <div style={{ marginLeft: "auto", display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -746,7 +820,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
                               <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#d97706", marginBottom: 7 }}>Fehlend — bitte ergänzen</div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px 16px" }}>
                                 {missingKeys.map(key => {
-                                  const spec = FIELD_SPECS.find(s => s.key === key);
+                                  const spec = summaryFieldSpecs.find(s => s.key === key);
                                   return (
                                     <div key={key} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                       <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "rgba(0,0,0,0.38)" }}>
@@ -1027,6 +1101,14 @@ function MarketDetailDrawer({ market, visits, currentRedPeriod, onClose, onSave 
       : false;
   const visitCount = marketVisits.length;
   const ci = chainInitials(market.name);
+  const isKuehlerOnly = market.marketType === "kuehler";
+  const hasKuehlerDataset = market.marketType === "kuehler" || market.marketType === "both";
+  const marketTypeMeta =
+    market.marketType === "both"
+      ? { label: "Beides", color: "#7c3aed", bg: "rgba(124,58,237,0.1)" }
+      : market.marketType === "kuehler"
+        ? { label: "Kühler", color: "#d97706", bg: "rgba(217,119,6,0.12)" }
+        : { label: "Universum", color: "#0891b2", bg: "rgba(8,145,178,0.1)" };
 
   const set = (patch: Partial<MarketRecord>) => setDraft(prev => ({ ...prev, ...patch }));
 
@@ -1053,7 +1135,10 @@ function MarketDetailDrawer({ market, visits, currentRedPeriod, onClose, onSave 
 
         {/* Badges row */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          {[market.region, market.emEh, market.universeMarket ? "Universum" : null].filter(Boolean).map(b => (
+          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: marketTypeMeta.bg, color: marketTypeMeta.color, letterSpacing: "0.01em" }}>
+            {marketTypeMeta.label}
+          </span>
+          {[market.region, market.emEh].filter(Boolean).map(b => (
             <span key={b} style={{ fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 5, background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.5)", letterSpacing: "0.01em" }}>{b}</span>
           ))}
           {market.infoFlag && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: "rgba(220,38,38,0.08)", color: R, letterSpacing: "0.01em", display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: R, display: "inline-block" }} />Info</span>}
@@ -1104,75 +1189,165 @@ function MarketDetailDrawer({ market, visits, currentRedPeriod, onClose, onSave 
               </>
             )}
 
-            <InfoSection label="Identität">
-              <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
-              <InfoRow label="Name f. DB" value={market.dbName} edit={editing} editValue={draft.dbName} onEdit={v => set({ dbName: v })} />
-              <InfoRow label="Flex-Nummer" value={market.flexNumber} edit={editing} editValue={draft.flexNumber} onEdit={v => set({ flexNumber: v })} />
-              <InfoRow label="Stammnr. Coke" value={market.cokeMasterNumber} edit={editing} editValue={draft.cokeMasterNumber} onEdit={v => set({ cokeMasterNumber: v })} />
-              <InfoRow label="Standardmarkt Nr" value={market.standardMarketNumber} edit={editing} editValue={draft.standardMarketNumber} onEdit={v => set({ standardMarketNumber: v })} />
-            </InfoSection>
+            {isKuehlerOnly ? (
+              <>
+                <InfoSection label="Kühler Identität">
+                  <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
+                  <InfoRow label="Stammnr" value={market.kuehlerStammnr || market.cokeMasterNumber} edit={editing} editValue={draft.kuehlerStammnr} onEdit={v => set({ kuehlerStammnr: v, cokeMasterNumber: v })} />
+                  <InfoRow label="internal_id" value={market.kuehlerInternalId} edit={editing} editValue={draft.kuehlerInternalId} onEdit={v => set({ kuehlerInternalId: v })} />
+                  <InfoRow label="Serial Number" value={market.kuehlerSerialNumber} edit={editing} editValue={draft.kuehlerSerialNumber} onEdit={v => set({ kuehlerSerialNumber: v })} />
+                  <InfoRow label="Model" value={market.kuehlerModel} edit={editing} editValue={draft.kuehlerModel} onEdit={v => set({ kuehlerModel: v })} />
+                </InfoSection>
 
-            <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
 
-            <InfoSection label="Standort">
-              <InfoRow label="Adresse" value={market.address} edit={editing} editValue={draft.address} onEdit={v => set({ address: v })} />
-              <InfoRow label="Postleitzahl" value={market.postalCode} edit={editing} editValue={draft.postalCode} onEdit={v => set({ postalCode: v })} />
-              <InfoRow label="Ort" value={market.city} edit={editing} editValue={draft.city} onEdit={v => set({ city: v })} />
-              <InfoRow label="Region" value={market.region} edit={editing} editValue={draft.region} onEdit={v => set({ region: v })} />
-            </InfoSection>
+                <InfoSection label="Standort">
+                  <InfoRow label="Adresse" value={market.address} edit={editing} editValue={draft.address} onEdit={v => set({ address: v })} />
+                  <InfoRow label="Postleitzahl" value={market.postalCode} edit={editing} editValue={draft.postalCode} onEdit={v => set({ postalCode: v })} />
+                  <InfoRow label="Ort" value={market.city} edit={editing} editValue={draft.city} onEdit={v => set({ city: v })} />
+                  <InfoRow label="Region" value={market.region} edit={editing} editValue={draft.region} onEdit={v => set({ region: v })} />
+                </InfoSection>
 
-            <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
 
-            <InfoSection label="Zuordnung & Klassifikation">
-              <InfoRow label="EM/EH" value={market.emEh} edit={editing} editValue={draft.emEh} onEdit={v => set({ emEh: v })} />
-              <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
-              <InfoRow label="Aktuell verplant an" value={market.currentGmName} edit={editing} editValue={draft.currentGmName} onEdit={v => set({ currentGmName: v })} />
-              <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
-                <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Status</span>
-                {editing ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button
-                      onClick={() => set({ isActive: !draft.isActive })}
-                      style={{
-                        width: 32,
-                        height: 18,
-                        borderRadius: 9,
-                        backgroundColor: draft.isActive ? "#DC2626" : "rgba(0,0,0,0.12)",
-                        border: "none",
-                        cursor: "pointer",
-                        position: "relative",
-                        transition: "background-color 0.2s ease",
-                        flexShrink: 0,
-                      }}
-                      aria-label="Marktstatus umschalten"
-                    >
-                      <div
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: "50%",
-                          backgroundColor: "#fff",
-                          position: "absolute",
-                          top: 2,
-                          left: draft.isActive ? 16 : 2,
-                          transition: "left 0.2s ease",
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-                        }}
-                      />
-                    </button>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: draft.isActive ? "#166534" : R }}>
-                      {draft.isActive ? "Aktiv" : "Inaktiv"}
-                    </span>
+                <InfoSection label="Kühler Daten">
+                  <InfoRow label="BD" value={market.kuehlerBd} edit={editing} editValue={draft.kuehlerBd} onEdit={v => set({ kuehlerBd: v })} />
+                  <InfoRow label="Anzahl KS am Standort" value={market.kuehlerAnzahlKsAmStandort == null ? "—" : String(market.kuehlerAnzahlKsAmStandort)} edit={editing} editValue={draft.kuehlerAnzahlKsAmStandort == null ? "" : String(draft.kuehlerAnzahlKsAmStandort)} onEdit={v => set({ kuehlerAnzahlKsAmStandort: v.trim() ? parseInt(v, 10) || 0 : null })} />
+                  <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
+                  <InfoRow label="Markt-Typ" value={marketTypeMeta.label} />
+                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Status</span>
+                    {editing ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <button
+                          onClick={() => set({ isActive: !draft.isActive })}
+                          style={{
+                            width: 32,
+                            height: 18,
+                            borderRadius: 9,
+                            backgroundColor: draft.isActive ? "#DC2626" : "rgba(0,0,0,0.12)",
+                            border: "none",
+                            cursor: "pointer",
+                            position: "relative",
+                            transition: "background-color 0.2s ease",
+                            flexShrink: 0,
+                          }}
+                          aria-label="Marktstatus umschalten"
+                        >
+                          <div
+                            style={{
+                              width: 14,
+                              height: 14,
+                              borderRadius: "50%",
+                              backgroundColor: "#fff",
+                              position: "absolute",
+                              top: 2,
+                              left: draft.isActive ? 16 : 2,
+                              transition: "left 0.2s ease",
+                              boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                            }}
+                          />
+                        </button>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: draft.isActive ? "#166534" : R }}>
+                          {draft.isActive ? "Aktiv" : "Inaktiv"}
+                        </span>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: market.isActive ? "#166534" : R }}>
+                        {market.isActive ? "Aktiv" : "Inaktiv"}
+                      </span>
+                    )}
                   </div>
-                ) : (
-                  <span style={{ fontSize: 11, fontWeight: 600, color: market.isActive ? "#166534" : R }}>
-                    {market.isActive ? "Aktiv" : "Inaktiv"}
-                  </span>
+                </InfoSection>
+              </>
+            ) : (
+              <>
+                <InfoSection label="Identität">
+                  <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
+                  <InfoRow label="Name f. DB" value={market.dbName} edit={editing} editValue={draft.dbName} onEdit={v => set({ dbName: v })} />
+                  <InfoRow label="Flex-Nummer" value={market.flexNumber} edit={editing} editValue={draft.flexNumber} onEdit={v => set({ flexNumber: v })} />
+                  <InfoRow label="Stammnr. Coke" value={market.cokeMasterNumber} edit={editing} editValue={draft.cokeMasterNumber} onEdit={v => set({ cokeMasterNumber: v })} />
+                  <InfoRow label="Standardmarkt Nr" value={market.standardMarketNumber} edit={editing} editValue={draft.standardMarketNumber} onEdit={v => set({ standardMarketNumber: v })} />
+                </InfoSection>
+
+                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+
+                <InfoSection label="Standort">
+                  <InfoRow label="Adresse" value={market.address} edit={editing} editValue={draft.address} onEdit={v => set({ address: v })} />
+                  <InfoRow label="Postleitzahl" value={market.postalCode} edit={editing} editValue={draft.postalCode} onEdit={v => set({ postalCode: v })} />
+                  <InfoRow label="Ort" value={market.city} edit={editing} editValue={draft.city} onEdit={v => set({ city: v })} />
+                  <InfoRow label="Region" value={market.region} edit={editing} editValue={draft.region} onEdit={v => set({ region: v })} />
+                </InfoSection>
+
+                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+
+                <InfoSection label="Zuordnung & Klassifikation">
+                  <InfoRow label="EM/EH" value={market.emEh} edit={editing} editValue={draft.emEh} onEdit={v => set({ emEh: v })} />
+                  <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
+                  <InfoRow label="Aktuell verplant an" value={market.currentGmName} edit={editing} editValue={draft.currentGmName} onEdit={v => set({ currentGmName: v })} />
+                  <InfoRow label="Markt-Typ" value={marketTypeMeta.label} />
+                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Status</span>
+                    {editing ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <button
+                          onClick={() => set({ isActive: !draft.isActive })}
+                          style={{
+                            width: 32,
+                            height: 18,
+                            borderRadius: 9,
+                            backgroundColor: draft.isActive ? "#DC2626" : "rgba(0,0,0,0.12)",
+                            border: "none",
+                            cursor: "pointer",
+                            position: "relative",
+                            transition: "background-color 0.2s ease",
+                            flexShrink: 0,
+                          }}
+                          aria-label="Marktstatus umschalten"
+                        >
+                          <div
+                            style={{
+                              width: 14,
+                              height: 14,
+                              borderRadius: "50%",
+                              backgroundColor: "#fff",
+                              position: "absolute",
+                              top: 2,
+                              left: draft.isActive ? 16 : 2,
+                              transition: "left 0.2s ease",
+                              boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                            }}
+                          />
+                        </button>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: draft.isActive ? "#166534" : R }}>
+                          {draft.isActive ? "Aktiv" : "Inaktiv"}
+                        </span>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: market.isActive ? "#166534" : R }}>
+                        {market.isActive ? "Aktiv" : "Inaktiv"}
+                      </span>
+                    )}
+                  </div>
+                  <InfoRow label="Universums-markt" value={market.universeMarket ? "Ja" : "Nein"} />
+                  <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v) || market.visitFrequencyPerYear })} />
+                </InfoSection>
+
+                {hasKuehlerDataset && (
+                  <>
+                    <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+                    <InfoSection label="Kühler Daten">
+                      <InfoRow label="Stammnr" value={market.kuehlerStammnr || market.cokeMasterNumber} edit={editing} editValue={draft.kuehlerStammnr} onEdit={v => set({ kuehlerStammnr: v, cokeMasterNumber: v })} />
+                      <InfoRow label="internal_id" value={market.kuehlerInternalId} edit={editing} editValue={draft.kuehlerInternalId} onEdit={v => set({ kuehlerInternalId: v })} />
+                      <InfoRow label="BD" value={market.kuehlerBd} edit={editing} editValue={draft.kuehlerBd} onEdit={v => set({ kuehlerBd: v })} />
+                      <InfoRow label="Anzahl KS am Standort" value={market.kuehlerAnzahlKsAmStandort == null ? "—" : String(market.kuehlerAnzahlKsAmStandort)} edit={editing} editValue={draft.kuehlerAnzahlKsAmStandort == null ? "" : String(draft.kuehlerAnzahlKsAmStandort)} onEdit={v => set({ kuehlerAnzahlKsAmStandort: v.trim() ? parseInt(v, 10) || 0 : null })} />
+                      <InfoRow label="Serial Number" value={market.kuehlerSerialNumber} edit={editing} editValue={draft.kuehlerSerialNumber} onEdit={v => set({ kuehlerSerialNumber: v })} />
+                      <InfoRow label="Model" value={market.kuehlerModel} edit={editing} editValue={draft.kuehlerModel} onEdit={v => set({ kuehlerModel: v })} />
+                    </InfoSection>
+                  </>
                 )}
-              </div>
-              <InfoRow label="Universums-markt" value={market.universeMarket ? "Ja" : "Nein"} />
-              <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v) || market.visitFrequencyPerYear })} />
-            </InfoSection>
+              </>
+            )}
 
             {editing && (
               <>
@@ -1264,7 +1439,7 @@ export default function MaerktePage() {
   }, [search]);
   const [filters, setFilters] = useState<MarketFilters>({
     region: null, city: null, postalCode: null, emEh: null, employee: null,
-    universeMarket: null, infoFlag: null, currentGmName: null,
+    universeMarket: null, kuehlerMarket: null, infoFlag: null, currentGmName: null,
     redMonatVisited: null, frequencyBucket: null,
   });
   const [openFilter, setOpenFilter] = useState<string | null>(null);
@@ -1292,7 +1467,13 @@ export default function MaerktePage() {
     }
   }, []);
 
-  const handleImport = useCallback(async (payload: { fileName: string; sheetName: string; rows: string[][]; mapping: ColumnMapping }) => {
+  const handleImport = useCallback(async (payload: {
+    importType: ImportDatasetType;
+    fileName: string;
+    sheetName: string;
+    rows: string[][];
+    mapping: ColumnMapping;
+  }) => {
     setImportError(null);
     try {
       const result = await importMarkets(payload);
@@ -1404,7 +1585,7 @@ export default function MaerktePage() {
     const q = debouncedSearch.trim().toLowerCase();
     const filteredMarkets = markets.filter(m => {
       if (q) {
-        const hay = `${m.name} ${m.dbName} ${m.address} ${m.postalCode} ${m.city} ${m.flexNumber} ${m.cokeMasterNumber} ${m.standardMarketNumber} ${m.currentGmName}`.toLowerCase();
+        const hay = `${m.name} ${m.dbName} ${m.address} ${m.postalCode} ${m.city} ${m.flexNumber} ${m.cokeMasterNumber} ${m.standardMarketNumber} ${m.currentGmName} ${m.kuehlerStammnr} ${m.kuehlerInternalId} ${m.kuehlerSerialNumber} ${m.kuehlerModel} ${m.kuehlerBd}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (filters.region && m.region !== filters.region) return false;
@@ -1416,6 +1597,10 @@ export default function MaerktePage() {
       if (filters.universeMarket) {
         if (filters.universeMarket === "Ja" && !m.universeMarket) return false;
         if (filters.universeMarket === "Nein" && m.universeMarket) return false;
+      }
+      if (filters.kuehlerMarket) {
+        if (filters.kuehlerMarket === "Ja" && m.marketType === "universum") return false;
+        if (filters.kuehlerMarket === "Nein" && m.marketType !== "universum") return false;
       }
       if (filters.infoFlag) {
         if (filters.infoFlag === "Ja" && !m.infoFlag) return false;
@@ -1498,7 +1683,7 @@ export default function MaerktePage() {
             </span>
             {hasFilters && (
               <button
-                onClick={() => { setSearch(""); setFilters({ region: null, city: null, postalCode: null, emEh: null, employee: null, universeMarket: null, infoFlag: null, currentGmName: null, redMonatVisited: null, frequencyBucket: null }); }}
+                onClick={() => { setSearch(""); setFilters({ region: null, city: null, postalCode: null, emEh: null, employee: null, universeMarket: null, kuehlerMarket: null, infoFlag: null, currentGmName: null, redMonatVisited: null, frequencyBucket: null }); }}
                 style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, border: "1px solid rgba(0,0,0,0.1)", background: "rgba(0,0,0,0.035)", cursor: "pointer", color: "rgba(0,0,0,0.4)", fontSize: 9, fontWeight: 600, fontFamily: "inherit", transition: "all 0.12s" }}
                 onMouseEnter={e => { e.currentTarget.style.background = "rgba(220,38,38,0.06)"; e.currentTarget.style.color = R; e.currentTarget.style.borderColor = "rgba(220,38,38,0.2)"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "rgba(0,0,0,0.035)"; e.currentTarget.style.color = "rgba(0,0,0,0.4)"; e.currentTarget.style.borderColor = "rgba(0,0,0,0.1)"; }}
@@ -1601,6 +1786,7 @@ export default function MaerktePage() {
                   <FilterBtn label="Mitarbeiter" filterKey="employee" opts={opts.employee} />
                   <FilterBtn label="GM" filterKey="currentGmName" opts={opts.gmName} />
                   <FilterBtn label="Universum" filterKey="universeMarket" opts={["Ja", "Nein"]} />
+                  <FilterBtn label="Kühler" filterKey="kuehlerMarket" opts={["Ja", "Nein"]} />
                   <FilterBtn label="Info" filterKey="infoFlag" opts={["Ja", "Nein"]} />
                   <FilterBtn label="RED Monat" inactiveLabel="Nicht aktiv" filterKey="redMonatVisited" opts={["Alle", "Besucht", "Nicht besucht"]} nullLabel="Nicht aktiv" />
                   <FilterBtn label="Frequenz" filterKey="frequencyBucket" opts={["4", "6", "12", "Sonstige"]} />

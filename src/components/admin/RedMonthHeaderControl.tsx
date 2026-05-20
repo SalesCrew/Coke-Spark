@@ -10,6 +10,21 @@ function formatDate(ymd: string): string {
   return `${d}.${m}.${y}`;
 }
 
+function extractYearFromYmd(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const [yearPart] = value.split("-");
+  if (!yearPart) return null;
+  const parsed = Number(yearPart);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getYearRangeYmd(year: number): { from: string; to: string } {
+  return {
+    from: `${year}-01-01`,
+    to: `${year}-12-31`,
+  };
+}
+
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const MONTH_NAMES = [
   "Januar", "Februar", "Maerz", "April", "Mai", "Juni",
@@ -184,11 +199,21 @@ export function RedMonthHeaderControl() {
   const [anchorStart, setAnchorStart] = useState("");
   const [cycleDraft, setCycleDraft] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const currentYear = new Date().getFullYear();
+  const yearRange = useMemo(() => getYearRangeYmd(currentYear), [currentYear]);
+  const anchorStartYear = useMemo(() => extractYearFromYmd(config?.anchorStart), [config?.anchorStart]);
+  const needsYearUpdate = Boolean(config) && anchorStartYear !== currentYear;
 
   useEffect(() => {
     if (!open) return;
-    void loadCalendar();
-  }, [loadCalendar, open]);
+    void loadCalendar({ from: yearRange.from, to: yearRange.to });
+  }, [loadCalendar, open, yearRange.from, yearRange.to]);
+
+  useEffect(() => {
+    if (!needsYearUpdate) return;
+    setOpen(true);
+    setEditMode(true);
+  }, [needsYearUpdate]);
 
   useEffect(() => {
     if (!config) return;
@@ -214,7 +239,7 @@ export function RedMonthHeaderControl() {
     try {
       setFormError(null);
       await saveConfig({ anchorStart, cycleWeeks: parsedCycle, timezone: config?.timezone ?? "Europe/Vienna" });
-      await loadCalendar();
+      await loadCalendar({ from: yearRange.from, to: yearRange.to });
       setEditMode(false);
     } catch {
       setFormError("RED-Konfiguration konnte nicht gespeichert werden.");
@@ -259,6 +284,7 @@ export function RedMonthHeaderControl() {
             justifyContent: "center",
           }}
           onClick={() => {
+            if (needsYearUpdate) return;
             setOpen(false);
             setEditMode(false);
             setFormError(null);
@@ -293,11 +319,14 @@ export function RedMonthHeaderControl() {
                   RED-Monat Kalender
                 </div>
                 <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 2 }}>
-                  Globale Zeitraeume fuer alle RED-Daten
+                  Zeitraeume fuer {currentYear} (bis 31.12.)
                 </div>
               </div>
               <button
-                onClick={() => setEditMode((value) => !value)}
+                onClick={() => {
+                  if (needsYearUpdate) return;
+                  setEditMode((value) => !value);
+                }}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -313,9 +342,25 @@ export function RedMonthHeaderControl() {
                 }}
               >
                 <Pencil size={11} strokeWidth={2} />
-                Edit
+                {needsYearUpdate ? "Update erforderlich" : "Edit"}
               </button>
             </div>
+
+            {needsYearUpdate && (
+              <div
+                style={{
+                  padding: "10px 16px",
+                  borderBottom: "1px solid rgba(220,38,38,0.18)",
+                  background: "rgba(220,38,38,0.06)",
+                  color: "#b91c1c",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.01em",
+                }}
+              >
+                Neues Jahr erkannt. Bitte RED-Monat Startdatum fuer {currentYear} setzen.
+              </div>
+            )}
 
             {editMode && (
               <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(0,0,0,0.06)", background: "rgba(0,0,0,0.01)" }}>
@@ -366,29 +411,35 @@ export function RedMonthHeaderControl() {
             <style>{`.redmonth-modal-scroll{scrollbar-width:none;-ms-overflow-style:none}.redmonth-modal-scroll::-webkit-scrollbar{display:none}`}</style>
             <div className="redmonth-modal-scroll" style={{ overflowY: "auto", padding: 14, display: "grid", gap: 8 }}>
               {calendar.map((period) => (
-                <div
-                  key={period.id}
-                  style={{
-                    border: period.isCurrent ? "1px solid rgba(220,38,38,0.35)" : "1px solid rgba(0,0,0,0.08)",
-                    borderRadius: 10,
-                    padding: "9px 10px",
-                    background: period.isCurrent ? "rgba(220,38,38,0.04)" : "#fff",
-                    display: "grid",
-                    gridTemplateColumns: "120px 1fr auto",
-                    gap: 10,
-                    alignItems: "center",
-                  }}
-                >
-                  <span style={{ fontSize: 10, fontWeight: 700, color: period.isCurrent ? "#b91c1c" : "#374151" }}>{period.label}</span>
-                  <span style={{ fontSize: 11, color: "rgba(0,0,0,0.58)" }}>
-                    {formatDate(period.start)} - {formatDate(period.end)}
-                  </span>
-                  {period.isCurrent && (
-                    <span style={{ fontSize: 9, fontWeight: 700, color: "#b91c1c", letterSpacing: "0.03em" }}>
-                      AKTUELL
-                    </span>
-                  )}
-                </div>
+                (() => {
+                  const clampedStart = period.start < yearRange.from ? yearRange.from : period.start;
+                  const clampedEnd = period.end > yearRange.to ? yearRange.to : period.end;
+                  return (
+                    <div
+                      key={period.id}
+                      style={{
+                        border: period.isCurrent ? "1px solid rgba(220,38,38,0.35)" : "1px solid rgba(0,0,0,0.08)",
+                        borderRadius: 10,
+                        padding: "9px 10px",
+                        background: period.isCurrent ? "rgba(220,38,38,0.04)" : "#fff",
+                        display: "grid",
+                        gridTemplateColumns: "120px 1fr auto",
+                        gap: 10,
+                        alignItems: "center",
+                      }}
+                    >
+                      <span style={{ fontSize: 10, fontWeight: 700, color: period.isCurrent ? "#b91c1c" : "#374151" }}>{period.label}</span>
+                      <span style={{ fontSize: 11, color: "rgba(0,0,0,0.58)" }}>
+                        {formatDate(clampedStart)} - {formatDate(clampedEnd)}
+                      </span>
+                      {period.isCurrent && (
+                        <span style={{ fontSize: 9, fontWeight: 700, color: "#b91c1c", letterSpacing: "0.03em" }}>
+                          AKTUELL
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()
               ))}
             </div>
           </div>

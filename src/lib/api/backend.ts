@@ -71,6 +71,13 @@ type BackendMarket = {
   infoFlag?: boolean | null;
   infoNote?: string | null;
   universeMarket?: boolean | null;
+  marketType?: "universum" | "kuehler" | "both" | null;
+  kuehlerStammnr?: string | null;
+  kuehlerBd?: string | null;
+  kuehlerAnzahlKsAmStandort?: number | null;
+  kuehlerInternalId?: string | null;
+  kuehlerSerialNumber?: string | null;
+  kuehlerModel?: string | null;
   isActive?: boolean | null;
   importSourceFileName?: string | null;
   importedAt?: string | null;
@@ -356,6 +363,12 @@ function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): 
 }
 
 function mapBackendMarketToMarketRecord(market: BackendMarket): MarketRecord {
+  const marketType =
+    market.marketType === "kuehler" || market.marketType === "both" || market.marketType === "universum"
+      ? market.marketType
+      : market.universeMarket
+        ? "universum"
+        : "kuehler";
   return {
     id: market.id,
     name: market.name,
@@ -374,6 +387,14 @@ function mapBackendMarketToMarketRecord(market: BackendMarket): MarketRecord {
     standardMarketNumber: market.standardMarketNumber ?? "",
     employee: market.employee ?? "",
     universeMarket: Boolean(market.universeMarket ?? false),
+    marketType,
+    kuehlerStammnr: market.kuehlerStammnr ?? "",
+    kuehlerBd: market.kuehlerBd ?? "",
+    kuehlerAnzahlKsAmStandort:
+      market.kuehlerAnzahlKsAmStandort == null ? null : Number(market.kuehlerAnzahlKsAmStandort),
+    kuehlerInternalId: market.kuehlerInternalId ?? "",
+    kuehlerSerialNumber: market.kuehlerSerialNumber ?? "",
+    kuehlerModel: market.kuehlerModel ?? "",
     isActive: Boolean(market.isActive ?? true),
     infoNote: market.infoNote ?? "",
     ipp: null,
@@ -1076,6 +1097,7 @@ export async function createAdminLager(input: CreateLagerInput): Promise<LagerRe
 }
 
 type ImportMarketsInput = {
+  importType: "universum" | "kuehler";
   fileName: string;
   sheetName: string;
   rows: string[][];
@@ -1632,6 +1654,13 @@ export async function createMarket(payload: MarketRecord): Promise<MarketRecord>
       infoFlag: payload.infoFlag,
       infoNote: payload.infoNote,
       universeMarket: payload.universeMarket,
+      marketType: payload.marketType,
+      kuehlerStammnr: payload.kuehlerStammnr,
+      kuehlerBd: payload.kuehlerBd,
+      kuehlerAnzahlKsAmStandort: payload.kuehlerAnzahlKsAmStandort,
+      kuehlerInternalId: payload.kuehlerInternalId,
+      kuehlerSerialNumber: payload.kuehlerSerialNumber,
+      kuehlerModel: payload.kuehlerModel,
       isActive: payload.isActive,
       importSourceFileName: payload.importSourceFileName,
       importedAt: payload.importedAt,
@@ -1662,6 +1691,13 @@ export async function updateMarket(payload: MarketRecord): Promise<MarketRecord>
       infoFlag: payload.infoFlag,
       infoNote: payload.infoNote,
       universeMarket: payload.universeMarket,
+      marketType: payload.marketType,
+      kuehlerStammnr: payload.kuehlerStammnr,
+      kuehlerBd: payload.kuehlerBd,
+      kuehlerAnzahlKsAmStandort: payload.kuehlerAnzahlKsAmStandort,
+      kuehlerInternalId: payload.kuehlerInternalId,
+      kuehlerSerialNumber: payload.kuehlerSerialNumber,
+      kuehlerModel: payload.kuehlerModel,
       isActive: payload.isActive,
       importSourceFileName: payload.importSourceFileName,
       importedAt: payload.importedAt,

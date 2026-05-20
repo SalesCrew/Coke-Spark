@@ -1,4 +1,5 @@
 export type SectionType = "standard" | "flex" | "kuehler" | "mhd" | "billa";
+export type MarketType = "universum" | "kuehler" | "both";
 
 export interface MarketRecord {
   id: string;
@@ -20,6 +21,13 @@ export interface MarketRecord {
   standardMarketNumber: string;
   employee: string;
   universeMarket: boolean;
+  marketType: MarketType;
+  kuehlerStammnr: string;
+  kuehlerBd: string;
+  kuehlerAnzahlKsAmStandort: number | null;
+  kuehlerInternalId: string;
+  kuehlerSerialNumber: string;
+  kuehlerModel: string;
   isActive: boolean;
   infoNote: string;
   ipp: number | null;
@@ -48,6 +56,7 @@ export interface MarketFilters {
   emEh: string | null;
   employee: string | null;
   universeMarket: "Ja" | "Nein" | null;
+  kuehlerMarket: "Ja" | "Nein" | null;
   infoFlag: "Ja" | "Nein" | null;
   currentGmName: string | null;
   redMonatVisited: "Alle" | "Besucht" | "Nicht besucht" | null;

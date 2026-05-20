@@ -632,7 +632,16 @@ export function KuehlerFragebogenEditor({
                       onMouseEnter={(e) => { if (!alreadyAdded) (e.currentTarget as HTMLElement).style.borderColor = `rgba(245,158,11,0.3)`; }}
                       onMouseLeave={(e) => { if (!alreadyAdded) (e.currentTarget as HTMLElement).style.borderColor = "rgba(0,0,0,0.06)"; }}
                     >
-                      <span style={{ fontSize: 11, fontWeight: 500, color: alreadyAdded ? "rgba(0,0,0,0.3)" : "#374151", flex: 1 }}>{mod.name || "Unbenannt"}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 500, color: alreadyAdded ? "rgba(0,0,0,0.3)" : "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {mod.name || "Unbenannt"}
+                        </div>
+                        {mod.description?.trim() && (
+                          <div style={{ fontSize: 9, color: alreadyAdded ? "rgba(0,0,0,0.24)" : "rgba(0,0,0,0.42)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {mod.description}
+                          </div>
+                        )}
+                      </div>
                       <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 4, backgroundColor: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.3)" }}>{mod.questions.length}F</span>
                       {alreadyAdded && <Check size={10} strokeWidth={2.5} color={YD} />}
                     </div>

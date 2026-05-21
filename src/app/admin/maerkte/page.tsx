@@ -5,9 +5,9 @@ import { createPortal } from "react-dom";
 import {
   Search, X, ChevronDown, Check, FileSpreadsheet, Upload, Plus,
   MapPin, Edit2, Save, RotateCcw, Info, Calendar, Clock, User,
-  Building2, Tag, ArrowRight, AlertTriangle, CheckCircle2,
+  Building2, Tag, ArrowRight, AlertTriangle, CheckCircle2, Trash2,
 } from "lucide-react";
-import type { MarketRecord, MarketVisitLog, MarketFilters, SectionType } from "@/types/markets";
+import type { KuehlerUnitRecord, MarketRecord, MarketVisitLog, MarketFilters, SectionType } from "@/types/markets";
 import {
   readWorkbook, buildPreviewGrid, getColHeader, getColSample,
   getFieldSpecsForImportType, validateMapping, draftToMarketRecord,
@@ -15,10 +15,15 @@ import {
 } from "@/utils/marketImport";
 import {
   createMarket,
+  createMarketKuehlerUnit,
   fetchMarkets,
+  fetchMarketKuehlerUnits,
+  hardDeleteMarket,
   importMarkets,
   normalizeAllMarketRegions,
+  softDeleteMarket,
   updateMarket,
+  updateMarketKuehlerUnit,
   type NormalizeMarketRegionsResult,
 } from "@/lib/api/backend";
 import { useRedMonth } from "@/context/RedMonthContext";
@@ -50,12 +55,49 @@ function chainInitials(name: string): { bg: string; text: string } {
   return { bg: "rgba(0,0,0,0.05)", text: "#6b7280" };
 }
 
+function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function buildMarketSearchBlob(market: MarketRecord): string {
+  const tokens: string[] = [];
+  for (const [key, value] of Object.entries(market)) {
+    tokens.push(key);
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) tokens.push(trimmed);
+      continue;
+    }
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) tokens.push(String(value));
+      continue;
+    }
+    if (typeof value === "boolean") {
+      tokens.push(value ? "true ja yes 1" : "false nein no 0");
+      continue;
+    }
+    tokens.push(String(value));
+  }
+  return normalizeSearchText(tokens.join(" "));
+}
+
 const SECTION_META: Record<SectionType, { label: string; color: string; bg: string }> = {
   standard: { label: "Standard",  color: "#DC2626", bg: "rgba(220,38,38,0.07)"   },
   flex:     { label: "Flex",      color: "#65a30d", bg: "rgba(132,204,22,0.07)"  },
   kuehler:  { label: "Kühler",    color: "#D97706", bg: "rgba(245,158,11,0.07)"  },
   mhd:      { label: "MHD",       color: "#7C3AED", bg: "rgba(124,58,237,0.07)"  },
   billa:    { label: "Billa",     color: "#0891B2", bg: "rgba(8,145,178,0.07)"   },
+};
+
+type MarketContextMenuState = {
+  marketId: string;
+  x: number;
+  y: number;
 };
 
 // ── Frequency circle ──────────────────────────────────────────
@@ -91,18 +133,31 @@ const MarketRow = React.memo(function MarketRow({
   visited,
   visitCount,
   onSelect,
+  onOpenContextMenu,
 }: {
   market: MarketRecord;
   active: boolean;
   visited: boolean;
   visitCount: number;
   onSelect: (id: string | null) => void;
+  onOpenContextMenu?: (event: React.MouseEvent<HTMLDivElement>, marketId: string) => void;
 }) {
   const ci = chainInitials(market.name);
   const rowBaseBackground = market.isActive ? "transparent" : "rgba(220,38,38,0.02)";
   return (
     <div
       onClick={() => onSelect(active ? null : market.id)}
+      onMouseDown={(event) => {
+        if (event.button !== 2) return;
+        if (!onOpenContextMenu) return;
+        event.preventDefault();
+        onOpenContextMenu(event, market.id);
+      }}
+      onContextMenu={(event) => {
+        if (!onOpenContextMenu) return;
+        event.preventDefault();
+        onOpenContextMenu(event, market.id);
+      }}
       style={{ display: "grid", gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px", gap: "0 12px", padding: "10px 18px", borderBottom: "1px solid rgba(0,0,0,0.04)", cursor: "pointer", background: active ? "rgba(220,38,38,0.04)" : rowBaseBackground, borderLeft: active ? `3px solid ${R}` : "3px solid transparent", transition: "background 0.1s ease, border-left-color 0.1s ease", alignItems: "center", height: MARKET_ROW_H, boxSizing: "border-box" }}
       onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(220,38,38,0.04)"; }}
       onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = rowBaseBackground; }}
@@ -152,12 +207,14 @@ function VirtualMarketList({
   items,
   selectedId,
   onSelect,
+  onOpenContextMenu,
   visitedSet,
   visitCounts,
 }: {
   items: MarketRecord[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  onOpenContextMenu?: (event: React.MouseEvent<HTMLDivElement>, marketId: string) => void;
   visitedSet: Set<string>;
   visitCounts: Record<string, number>;
 }) {
@@ -211,6 +268,7 @@ function VirtualMarketList({
             visited={visitedSet.has(m.id)}
             visitCount={visitCounts[m.id] ?? 0}
             onSelect={onSelect}
+            onOpenContextMenu={onOpenContextMenu}
           />
         ))}
       </div>
@@ -350,7 +408,7 @@ function ImportModal({
               {step === "type"    && "Universumsmärkte oder Kühlermärkte wählen"}
               {step === "upload"  && "Excel-Datei ziehen oder auswählen"}
               {step === "review"  && `${selectedImportType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"} · ${fileName} · ${wb?.sheetName ?? ""} · ${(wb?.rows.length ?? 1) - 1} Datenzeilen`}
-              {step === "summary" && `${selectedImportType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"} · ${fileName} · ${wb?.sheetName ?? ""}`}
+              {step === "summary" && `${selectedImportType === "kuehler" ? "Kühler-Einheiten" : "Universumsmärkte"} · ${fileName} · ${wb?.sheetName ?? ""}`}
             </div>
           </div>
           {/* Step indicator dots */}
@@ -657,6 +715,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
     () => getFieldSpecsForImportType(summary.importType ?? "universum"),
     [summary.importType],
   );
+  const isKuehlerImport = summary.importType === "kuehler";
 
   const toggleRow = (i: number) => setExpandedRows(prev => {
     const next = new Set(prev);
@@ -701,12 +760,19 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
     return missingKeys.every(k => rowFills[k]?.trim());
   };
 
-  const statItems = [
-    { label: "Gesamt",       value: summary.totalParsedRows,                    color: "rgba(0,0,0,0.5)",  bg: "#fff",                        border: "rgba(0,0,0,0.08)" },
-    { label: "Erstellt",     value: localCreated,                               color: "#16a34a",           bg: "rgba(22,163,74,0.06)",        border: "rgba(22,163,74,0.16)" },
-    { label: "Aktualisiert", value: summary.updated,                            color: "#0891b2",           bg: "rgba(8,145,178,0.06)",        border: "rgba(8,145,178,0.16)" },
-    { label: "Übersprungen", value: localSkipped.length,                        color: localSkipped.length > 0 ? "#d97706" : "rgba(0,0,0,0.35)", bg: localSkipped.length > 0 ? "rgba(217,119,6,0.06)" : "#fff", border: localSkipped.length > 0 ? "rgba(217,119,6,0.2)" : "rgba(0,0,0,0.08)" },
-  ];
+  const statItems = isKuehlerImport
+    ? [
+        { label: "Zeilen gesamt", value: summary.totalParsedRows, color: "rgba(0,0,0,0.5)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
+        { label: "Einheiten erstellt", value: summary.kuehlerUnitsCreated ?? 0, color: "#16a34a", bg: "rgba(22,163,74,0.06)", border: "rgba(22,163,74,0.16)" },
+        { label: "Einheiten aktualisiert", value: summary.kuehlerUnitsUpdated ?? 0, color: "#0891b2", bg: "rgba(8,145,178,0.06)", border: "rgba(8,145,178,0.16)" },
+        { label: "Einheiten übersprungen", value: summary.kuehlerUnitsSkipped ?? 0, color: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "#d97706" : "rgba(0,0,0,0.35)", bg: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "rgba(217,119,6,0.06)" : "#fff", border: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "rgba(217,119,6,0.2)" : "rgba(0,0,0,0.08)" },
+      ]
+    : [
+        { label: "Gesamt", value: summary.totalParsedRows, color: "rgba(0,0,0,0.5)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
+        { label: "Erstellt", value: localCreated, color: "#16a34a", bg: "rgba(22,163,74,0.06)", border: "rgba(22,163,74,0.16)" },
+        { label: "Aktualisiert", value: summary.updated, color: "#0891b2", bg: "rgba(8,145,178,0.06)", border: "rgba(8,145,178,0.16)" },
+        { label: "Übersprungen", value: localSkipped.length, color: localSkipped.length > 0 ? "#d97706" : "rgba(0,0,0,0.35)", bg: localSkipped.length > 0 ? "rgba(217,119,6,0.06)" : "#fff", border: localSkipped.length > 0 ? "rgba(217,119,6,0.2)" : "rgba(0,0,0,0.08)" },
+      ];
 
   const matchLabels: Record<string, string> = {
     standardMarketNumber: "Standardmarkt Nr",
@@ -740,7 +806,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
             <span style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a" }}>{summary.fileName}</span>
           </div>
           <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Blatt: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.sheetName}</strong></span>
-          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Datensatz: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.importType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"}</strong></span>
+          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Datensatz: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.importType === "kuehler" ? "Kühler-Einheiten" : "Universumsmärkte"}</strong></span>
           <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Zeilen: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.totalParsedRows}</strong></span>
           {matchKeys.length > 0 && (
             <div style={{ marginLeft: "auto", display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -1071,15 +1137,77 @@ function VisitCard({ logs }: { logs: MarketVisitLog[] }) {
 
 // ── Market Detail Drawer ───────────────────────────────────────
 
-function MarketDetailDrawer({ market, visits, currentRedPeriod, onClose, onSave }: {
+function MarketDetailDrawer({
+  market,
+  visits,
+  currentRedPeriod,
+  onClose,
+  onSave,
+  loadKuehlerUnits,
+  onCreateKuehlerUnit,
+  onUpdateKuehlerUnit,
+}: {
   market: MarketRecord; visits: MarketVisitLog[];
   currentRedPeriod: { start: string; end: string } | null;
   onClose: () => void; onSave: (updated: MarketRecord) => Promise<void> | void;
+  loadKuehlerUnits: (marketId: string) => Promise<KuehlerUnitRecord[]>;
+  onCreateKuehlerUnit: (
+    input: {
+      marketId: string;
+      name?: string;
+      employee?: string;
+      kuehlerInternalId?: string | null;
+      kuehlerBd?: string | null;
+      kuehlerAnzahlKsAmStandort?: number | null;
+      kuehlerSerialNumber?: string | null;
+      kuehlerModel?: string | null;
+      importSourceFileName?: string;
+      importedAt?: string;
+    },
+  ) => Promise<KuehlerUnitRecord>;
+  onUpdateKuehlerUnit: (
+    input: {
+      marketId: string;
+      unitId: string;
+      name?: string;
+      employee?: string;
+      kuehlerInternalId?: string | null;
+      kuehlerBd?: string | null;
+      kuehlerAnzahlKsAmStandort?: number | null;
+      kuehlerSerialNumber?: string | null;
+      kuehlerModel?: string | null;
+      importSourceFileName?: string;
+      importedAt?: string;
+      isDeleted?: boolean;
+    },
+  ) => Promise<KuehlerUnitRecord>;
 }) {
   const [tab, setTab] = useState<"info" | "besuche">("info");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<MarketRecord>(market);
   const [saving, setSaving] = useState(false);
+  const [kuehlerUnits, setKuehlerUnits] = useState<KuehlerUnitRecord[]>([]);
+  const [unitsLoading, setUnitsLoading] = useState(false);
+  const [unitsError, setUnitsError] = useState<string | null>(null);
+  const [unitEditorId, setUnitEditorId] = useState<string | "new" | null>(null);
+  const [unitEditorDraft, setUnitEditorDraft] = useState<{
+    name: string;
+    employee: string;
+    kuehlerInternalId: string;
+    kuehlerBd: string;
+    kuehlerAnzahlKsAmStandort: string;
+    kuehlerSerialNumber: string;
+    kuehlerModel: string;
+  }>({
+    name: "",
+    employee: "",
+    kuehlerInternalId: "",
+    kuehlerBd: "",
+    kuehlerAnzahlKsAmStandort: "",
+    kuehlerSerialNumber: "",
+    kuehlerModel: "",
+  });
+  const [unitSaving, setUnitSaving] = useState(false);
 
   useEffect(() => { setDraft(market); setEditing(false); }, [market.id]);
 
@@ -1101,7 +1229,6 @@ function MarketDetailDrawer({ market, visits, currentRedPeriod, onClose, onSave 
       : false;
   const visitCount = marketVisits.length;
   const ci = chainInitials(market.name);
-  const isKuehlerOnly = market.marketType === "kuehler";
   const hasKuehlerDataset = market.marketType === "kuehler" || market.marketType === "both";
   const marketTypeMeta =
     market.marketType === "both"
@@ -1111,6 +1238,120 @@ function MarketDetailDrawer({ market, visits, currentRedPeriod, onClose, onSave 
         : { label: "Universum", color: "#0891b2", bg: "rgba(8,145,178,0.1)" };
 
   const set = (patch: Partial<MarketRecord>) => setDraft(prev => ({ ...prev, ...patch }));
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!hasKuehlerDataset) {
+      setKuehlerUnits([]);
+      setUnitsError(null);
+      setUnitsLoading(false);
+      return;
+    }
+    setUnitsLoading(true);
+    setUnitsError(null);
+    void loadKuehlerUnits(market.id)
+      .then((rows) => {
+        if (cancelled) return;
+        setKuehlerUnits(rows);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setUnitsError(err instanceof Error ? err.message : "Kühlerdaten konnten nicht geladen werden.");
+        setKuehlerUnits([]);
+      })
+      .finally(() => {
+        if (!cancelled) setUnitsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasKuehlerDataset, loadKuehlerUnits, market.id]);
+
+  const startUnitEdit = useCallback((unit?: KuehlerUnitRecord) => {
+    if (!unit) {
+      setUnitEditorId("new");
+      setUnitEditorDraft({
+        name: market.name,
+        employee: market.employee,
+        kuehlerInternalId: "",
+        kuehlerBd: "",
+        kuehlerAnzahlKsAmStandort: "",
+        kuehlerSerialNumber: "",
+        kuehlerModel: "",
+      });
+      return;
+    }
+    setUnitEditorId(unit.id);
+    setUnitEditorDraft({
+      name: unit.name ?? "",
+      employee: unit.employee ?? "",
+      kuehlerInternalId: unit.kuehlerInternalId ?? "",
+      kuehlerBd: unit.kuehlerBd ?? "",
+      kuehlerAnzahlKsAmStandort:
+        unit.kuehlerAnzahlKsAmStandort == null ? "" : String(unit.kuehlerAnzahlKsAmStandort),
+      kuehlerSerialNumber: unit.kuehlerSerialNumber ?? "",
+      kuehlerModel: unit.kuehlerModel ?? "",
+    });
+  }, [market.employee, market.name]);
+
+  const handleSaveUnit = useCallback(async () => {
+    if (!unitEditorId || unitSaving) return;
+    setUnitSaving(true);
+    setUnitsError(null);
+    try {
+      if (unitEditorId === "new") {
+        const created = await onCreateKuehlerUnit({
+          marketId: market.id,
+          name: unitEditorDraft.name.trim(),
+          employee: unitEditorDraft.employee.trim(),
+          kuehlerInternalId: unitEditorDraft.kuehlerInternalId.trim() || null,
+          kuehlerBd: unitEditorDraft.kuehlerBd.trim() || null,
+          kuehlerAnzahlKsAmStandort: unitEditorDraft.kuehlerAnzahlKsAmStandort.trim()
+            ? (parseInt(unitEditorDraft.kuehlerAnzahlKsAmStandort, 10) || 0)
+            : null,
+          kuehlerSerialNumber: unitEditorDraft.kuehlerSerialNumber.trim() || null,
+          kuehlerModel: unitEditorDraft.kuehlerModel.trim() || null,
+          importSourceFileName: market.importSourceFileName || "",
+          importedAt: new Date().toISOString(),
+        });
+        setKuehlerUnits((prev) => [created, ...prev]);
+      } else {
+        const updated = await onUpdateKuehlerUnit({
+          marketId: market.id,
+          unitId: unitEditorId,
+          name: unitEditorDraft.name.trim(),
+          employee: unitEditorDraft.employee.trim(),
+          kuehlerInternalId: unitEditorDraft.kuehlerInternalId.trim() || null,
+          kuehlerBd: unitEditorDraft.kuehlerBd.trim() || null,
+          kuehlerAnzahlKsAmStandort: unitEditorDraft.kuehlerAnzahlKsAmStandort.trim()
+            ? (parseInt(unitEditorDraft.kuehlerAnzahlKsAmStandort, 10) || 0)
+            : null,
+          kuehlerSerialNumber: unitEditorDraft.kuehlerSerialNumber.trim() || null,
+          kuehlerModel: unitEditorDraft.kuehlerModel.trim() || null,
+        });
+        setKuehlerUnits((prev) => prev.map((unit) => (unit.id === updated.id ? updated : unit)));
+      }
+      setUnitEditorId(null);
+    } catch (err) {
+      setUnitsError(err instanceof Error ? err.message : "Kühlerdaten konnten nicht gespeichert werden.");
+    } finally {
+      setUnitSaving(false);
+    }
+  }, [
+    market.id,
+    market.importSourceFileName,
+    onCreateKuehlerUnit,
+    onUpdateKuehlerUnit,
+    unitEditorDraft.employee,
+    unitEditorDraft.kuehlerAnzahlKsAmStandort,
+    unitEditorDraft.kuehlerBd,
+    unitEditorDraft.kuehlerInternalId,
+    unitEditorDraft.kuehlerModel,
+    unitEditorDraft.kuehlerSerialNumber,
+    unitEditorDraft.name,
+    unitEditorId,
+    unitSaving,
+  ]);
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 440, zIndex: 800, display: "flex", flexDirection: "column", background: "#f5f5f7", boxShadow: "-6px 0 32px rgba(0,0,0,0.12), -1px 0 0 rgba(0,0,0,0.06)", animation: "drawerIn 0.22s cubic-bezier(0.4,0,0.2,1) both" }}>
@@ -1189,165 +1430,137 @@ function MarketDetailDrawer({ market, visits, currentRedPeriod, onClose, onSave 
               </>
             )}
 
-            {isKuehlerOnly ? (
-              <>
-                <InfoSection label="Kühler Identität">
-                  <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
-                  <InfoRow label="Stammnr" value={market.kuehlerStammnr || market.cokeMasterNumber} edit={editing} editValue={draft.kuehlerStammnr} onEdit={v => set({ kuehlerStammnr: v, cokeMasterNumber: v })} />
-                  <InfoRow label="internal_id" value={market.kuehlerInternalId} edit={editing} editValue={draft.kuehlerInternalId} onEdit={v => set({ kuehlerInternalId: v })} />
-                  <InfoRow label="Serial Number" value={market.kuehlerSerialNumber} edit={editing} editValue={draft.kuehlerSerialNumber} onEdit={v => set({ kuehlerSerialNumber: v })} />
-                  <InfoRow label="Model" value={market.kuehlerModel} edit={editing} editValue={draft.kuehlerModel} onEdit={v => set({ kuehlerModel: v })} />
-                </InfoSection>
-
-                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
-
-                <InfoSection label="Standort">
-                  <InfoRow label="Adresse" value={market.address} edit={editing} editValue={draft.address} onEdit={v => set({ address: v })} />
-                  <InfoRow label="Postleitzahl" value={market.postalCode} edit={editing} editValue={draft.postalCode} onEdit={v => set({ postalCode: v })} />
-                  <InfoRow label="Ort" value={market.city} edit={editing} editValue={draft.city} onEdit={v => set({ city: v })} />
-                  <InfoRow label="Region" value={market.region} edit={editing} editValue={draft.region} onEdit={v => set({ region: v })} />
-                </InfoSection>
-
-                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
-
-                <InfoSection label="Kühler Daten">
-                  <InfoRow label="BD" value={market.kuehlerBd} edit={editing} editValue={draft.kuehlerBd} onEdit={v => set({ kuehlerBd: v })} />
-                  <InfoRow label="Anzahl KS am Standort" value={market.kuehlerAnzahlKsAmStandort == null ? "—" : String(market.kuehlerAnzahlKsAmStandort)} edit={editing} editValue={draft.kuehlerAnzahlKsAmStandort == null ? "" : String(draft.kuehlerAnzahlKsAmStandort)} onEdit={v => set({ kuehlerAnzahlKsAmStandort: v.trim() ? parseInt(v, 10) || 0 : null })} />
-                  <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
-                  <InfoRow label="Markt-Typ" value={marketTypeMeta.label} />
-                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Status</span>
-                    {editing ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <button
-                          onClick={() => set({ isActive: !draft.isActive })}
-                          style={{
-                            width: 32,
-                            height: 18,
-                            borderRadius: 9,
-                            backgroundColor: draft.isActive ? "#DC2626" : "rgba(0,0,0,0.12)",
-                            border: "none",
-                            cursor: "pointer",
-                            position: "relative",
-                            transition: "background-color 0.2s ease",
-                            flexShrink: 0,
-                          }}
-                          aria-label="Marktstatus umschalten"
-                        >
-                          <div
-                            style={{
-                              width: 14,
-                              height: 14,
-                              borderRadius: "50%",
-                              backgroundColor: "#fff",
-                              position: "absolute",
-                              top: 2,
-                              left: draft.isActive ? 16 : 2,
-                              transition: "left 0.2s ease",
-                              boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-                            }}
-                          />
-                        </button>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: draft.isActive ? "#166534" : R }}>
-                          {draft.isActive ? "Aktiv" : "Inaktiv"}
-                        </span>
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: market.isActive ? "#166534" : R }}>
-                        {market.isActive ? "Aktiv" : "Inaktiv"}
-                      </span>
-                    )}
-                  </div>
-                </InfoSection>
-              </>
-            ) : (
-              <>
-                <InfoSection label="Identität">
-                  <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
-                  <InfoRow label="Name f. DB" value={market.dbName} edit={editing} editValue={draft.dbName} onEdit={v => set({ dbName: v })} />
-                  <InfoRow label="Flex-Nummer" value={market.flexNumber} edit={editing} editValue={draft.flexNumber} onEdit={v => set({ flexNumber: v })} />
-                  <InfoRow label="Stammnr. Coke" value={market.cokeMasterNumber} edit={editing} editValue={draft.cokeMasterNumber} onEdit={v => set({ cokeMasterNumber: v })} />
-                  <InfoRow label="Standardmarkt Nr" value={market.standardMarketNumber} edit={editing} editValue={draft.standardMarketNumber} onEdit={v => set({ standardMarketNumber: v })} />
-                </InfoSection>
-
-                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
-
-                <InfoSection label="Standort">
-                  <InfoRow label="Adresse" value={market.address} edit={editing} editValue={draft.address} onEdit={v => set({ address: v })} />
-                  <InfoRow label="Postleitzahl" value={market.postalCode} edit={editing} editValue={draft.postalCode} onEdit={v => set({ postalCode: v })} />
-                  <InfoRow label="Ort" value={market.city} edit={editing} editValue={draft.city} onEdit={v => set({ city: v })} />
-                  <InfoRow label="Region" value={market.region} edit={editing} editValue={draft.region} onEdit={v => set({ region: v })} />
-                </InfoSection>
-
-                <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
-
-                <InfoSection label="Zuordnung & Klassifikation">
-                  <InfoRow label="EM/EH" value={market.emEh} edit={editing} editValue={draft.emEh} onEdit={v => set({ emEh: v })} />
-                  <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
-                  <InfoRow label="Aktuell verplant an" value={market.currentGmName} edit={editing} editValue={draft.currentGmName} onEdit={v => set({ currentGmName: v })} />
-                  <InfoRow label="Markt-Typ" value={marketTypeMeta.label} />
-                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Status</span>
-                    {editing ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <button
-                          onClick={() => set({ isActive: !draft.isActive })}
-                          style={{
-                            width: 32,
-                            height: 18,
-                            borderRadius: 9,
-                            backgroundColor: draft.isActive ? "#DC2626" : "rgba(0,0,0,0.12)",
-                            border: "none",
-                            cursor: "pointer",
-                            position: "relative",
-                            transition: "background-color 0.2s ease",
-                            flexShrink: 0,
-                          }}
-                          aria-label="Marktstatus umschalten"
-                        >
-                          <div
-                            style={{
-                              width: 14,
-                              height: 14,
-                              borderRadius: "50%",
-                              backgroundColor: "#fff",
-                              position: "absolute",
-                              top: 2,
-                              left: draft.isActive ? 16 : 2,
-                              transition: "left 0.2s ease",
-                              boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-                            }}
-                          />
-                        </button>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: draft.isActive ? "#166534" : R }}>
-                          {draft.isActive ? "Aktiv" : "Inaktiv"}
-                        </span>
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: market.isActive ? "#166534" : R }}>
-                        {market.isActive ? "Aktiv" : "Inaktiv"}
-                      </span>
-                    )}
-                  </div>
-                  <InfoRow label="Universums-markt" value={market.universeMarket ? "Ja" : "Nein"} />
-                  <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v) || market.visitFrequencyPerYear })} />
-                </InfoSection>
-
+            <>
+              <InfoSection label="Identität">
+                <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
+                <InfoRow label="Name f. DB" value={market.dbName} edit={editing} editValue={draft.dbName} onEdit={v => set({ dbName: v })} />
+                <InfoRow label="Flex-Nummer" value={market.flexNumber} edit={editing} editValue={draft.flexNumber} onEdit={v => set({ flexNumber: v })} />
+                <InfoRow label="Stammnr. Coke" value={market.cokeMasterNumber} edit={editing} editValue={draft.cokeMasterNumber} onEdit={v => set({ cokeMasterNumber: v })} />
+                <InfoRow label="Standardmarkt Nr" value={market.standardMarketNumber} edit={editing} editValue={draft.standardMarketNumber} onEdit={v => set({ standardMarketNumber: v })} />
                 {hasKuehlerDataset && (
-                  <>
-                    <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
-                    <InfoSection label="Kühler Daten">
-                      <InfoRow label="Stammnr" value={market.kuehlerStammnr || market.cokeMasterNumber} edit={editing} editValue={draft.kuehlerStammnr} onEdit={v => set({ kuehlerStammnr: v, cokeMasterNumber: v })} />
-                      <InfoRow label="internal_id" value={market.kuehlerInternalId} edit={editing} editValue={draft.kuehlerInternalId} onEdit={v => set({ kuehlerInternalId: v })} />
-                      <InfoRow label="BD" value={market.kuehlerBd} edit={editing} editValue={draft.kuehlerBd} onEdit={v => set({ kuehlerBd: v })} />
-                      <InfoRow label="Anzahl KS am Standort" value={market.kuehlerAnzahlKsAmStandort == null ? "—" : String(market.kuehlerAnzahlKsAmStandort)} edit={editing} editValue={draft.kuehlerAnzahlKsAmStandort == null ? "" : String(draft.kuehlerAnzahlKsAmStandort)} onEdit={v => set({ kuehlerAnzahlKsAmStandort: v.trim() ? parseInt(v, 10) || 0 : null })} />
-                      <InfoRow label="Serial Number" value={market.kuehlerSerialNumber} edit={editing} editValue={draft.kuehlerSerialNumber} onEdit={v => set({ kuehlerSerialNumber: v })} />
-                      <InfoRow label="Model" value={market.kuehlerModel} edit={editing} editValue={draft.kuehlerModel} onEdit={v => set({ kuehlerModel: v })} />
-                    </InfoSection>
-                  </>
+                  <InfoRow label="Kühler Stammnr" value={market.kuehlerStammnr || market.cokeMasterNumber} edit={editing} editValue={draft.kuehlerStammnr} onEdit={v => set({ kuehlerStammnr: v, cokeMasterNumber: v })} />
                 )}
-              </>
-            )}
+              </InfoSection>
+
+              <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+
+              <InfoSection label="Standort">
+                <InfoRow label="Adresse" value={market.address} edit={editing} editValue={draft.address} onEdit={v => set({ address: v })} />
+                <InfoRow label="Postleitzahl" value={market.postalCode} edit={editing} editValue={draft.postalCode} onEdit={v => set({ postalCode: v })} />
+                <InfoRow label="Ort" value={market.city} edit={editing} editValue={draft.city} onEdit={v => set({ city: v })} />
+                <InfoRow label="Region" value={market.region} edit={editing} editValue={draft.region} onEdit={v => set({ region: v })} />
+              </InfoSection>
+
+              <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+
+              <InfoSection label="Zuordnung & Klassifikation">
+                <InfoRow label="EM/EH" value={market.emEh} edit={editing} editValue={draft.emEh} onEdit={v => set({ emEh: v })} />
+                <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
+                <InfoRow label="Aktuell verplant an" value={market.currentGmName} edit={editing} editValue={draft.currentGmName} onEdit={v => set({ currentGmName: v })} />
+                <InfoRow label="Markt-Typ" value={marketTypeMeta.label} />
+                <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Status</span>
+                  {editing ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button
+                        onClick={() => set({ isActive: !draft.isActive })}
+                        style={{
+                          width: 32,
+                          height: 18,
+                          borderRadius: 9,
+                          backgroundColor: draft.isActive ? "#DC2626" : "rgba(0,0,0,0.12)",
+                          border: "none",
+                          cursor: "pointer",
+                          position: "relative",
+                          transition: "background-color 0.2s ease",
+                          flexShrink: 0,
+                        }}
+                        aria-label="Marktstatus umschalten"
+                      >
+                        <div
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: "50%",
+                            backgroundColor: "#fff",
+                            position: "absolute",
+                            top: 2,
+                            left: draft.isActive ? 16 : 2,
+                            transition: "left 0.2s ease",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                          }}
+                        />
+                      </button>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: draft.isActive ? "#166534" : R }}>
+                        {draft.isActive ? "Aktiv" : "Inaktiv"}
+                      </span>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: market.isActive ? "#166534" : R }}>
+                      {market.isActive ? "Aktiv" : "Inaktiv"}
+                    </span>
+                  )}
+                </div>
+                <InfoRow label="Universums-markt" value={market.universeMarket ? "Ja" : "Nein"} />
+                <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v, 10) || market.visitFrequencyPerYear })} />
+              </InfoSection>
+
+              {hasKuehlerDataset && (
+                <>
+                  <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+                  <InfoSection label="Kühler Geräte">
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                      <button
+                        onClick={() => startUnitEdit()}
+                        style={{ fontSize: 10, fontWeight: 600, padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", cursor: "pointer" }}
+                      >
+                        Kühler hinzufügen
+                      </button>
+                    </div>
+                    {unitsLoading && <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)" }}>Kühlerdaten werden geladen...</span>}
+                    {!unitsLoading && unitsError && <span style={{ fontSize: 10, color: "#b91c1c" }}>{unitsError}</span>}
+                    {!unitsLoading && !unitsError && kuehlerUnits.length === 0 && (
+                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)" }}>Keine Kühler-Einträge vorhanden.</span>
+                    )}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {(unitEditorId === "new" ? ([{ id: "new" }] as Array<{ id: string }>) : []).concat(kuehlerUnits).map((unitLike) => {
+                        const isNew = unitLike.id === "new";
+                        const unit = isNew ? null : (unitLike as KuehlerUnitRecord);
+                        const isEditingUnit = unitEditorId === (isNew ? "new" : unit?.id);
+                        return (
+                          <div key={unitLike.id} style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: 8 }}>
+                            {isEditingUnit ? (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                                <input value={unitEditorDraft.kuehlerInternalId} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerInternalId: e.target.value }))} placeholder="internal_id" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
+                                <input value={unitEditorDraft.kuehlerSerialNumber} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerSerialNumber: e.target.value }))} placeholder="Serial Number" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
+                                <input value={unitEditorDraft.kuehlerModel} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerModel: e.target.value }))} placeholder="Model" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
+                                <input value={unitEditorDraft.kuehlerBd} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerBd: e.target.value }))} placeholder="BD" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
+                                <input value={unitEditorDraft.kuehlerAnzahlKsAmStandort} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerAnzahlKsAmStandort: e.target.value }))} placeholder="Anzahl KS" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
+                                <input value={unitEditorDraft.employee} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, employee: e.target.value }))} placeholder="Mitarbeiter" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
+                                <div style={{ gridColumn: "1 / span 2", display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 4 }}>
+                                  <button onClick={() => setUnitEditorId(null)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", cursor: "pointer" }}>Abbrechen</button>
+                                  <button onClick={() => void handleSaveUnit()} disabled={unitSaving} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "none", background: `linear-gradient(to bottom,${R},${RD})`, color: "#fff", cursor: unitSaving ? "not-allowed" : "pointer" }}>{unitSaving ? "Speichern..." : "Speichern"}</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a1a" }}>{unit?.kuehlerInternalId || "ohne internal_id"}</div>
+                                  <div style={{ fontSize: 9, color: "rgba(0,0,0,0.5)" }}>
+                                    {unit?.kuehlerModel || "—"} · {unit?.kuehlerSerialNumber || "—"} · BD {unit?.kuehlerBd || "—"} · KS {unit?.kuehlerAnzahlKsAmStandort == null ? "—" : unit.kuehlerAnzahlKsAmStandort}
+                                  </div>
+                                </div>
+                                <button onClick={() => unit && startUnitEdit(unit)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", cursor: "pointer" }}>Bearbeiten</button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </InfoSection>
+                </>
+              )}
+            </>
 
             {editing && (
               <>
@@ -1447,10 +1660,15 @@ export default function MaerktePage() {
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [isNormalizingRegions, setIsNormalizingRegions] = useState(false);
   const [normalizeError, setNormalizeError] = useState<string | null>(null);
   const [normalizeSummary, setNormalizeSummary] = useState<NormalizeMarketRegionsResult | null>(null);
+  const [marketContextMenu, setMarketContextMenu] = useState<MarketContextMenuState | null>(null);
+  const [deleteTargetMarketId, setDeleteTargetMarketId] = useState<string | null>(null);
+  const [isDeletingMarket, setIsDeletingMarket] = useState(false);
+  const marketContextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const reloadMarkets = useCallback(async () => {
     setIsLoadingMarkets(true);
@@ -1497,6 +1715,42 @@ export default function MaerktePage() {
     }
   }, []);
 
+  const handleLoadKuehlerUnits = useCallback(async (marketId: string) => {
+    return fetchMarketKuehlerUnits(marketId);
+  }, []);
+
+  const handleCreateKuehlerUnit = useCallback(async (input: {
+    marketId: string;
+    name?: string;
+    employee?: string;
+    kuehlerInternalId?: string | null;
+    kuehlerBd?: string | null;
+    kuehlerAnzahlKsAmStandort?: number | null;
+    kuehlerSerialNumber?: string | null;
+    kuehlerModel?: string | null;
+    importSourceFileName?: string;
+    importedAt?: string;
+  }) => {
+    return createMarketKuehlerUnit(input);
+  }, []);
+
+  const handleUpdateKuehlerUnit = useCallback(async (input: {
+    marketId: string;
+    unitId: string;
+    name?: string;
+    employee?: string;
+    kuehlerInternalId?: string | null;
+    kuehlerBd?: string | null;
+    kuehlerAnzahlKsAmStandort?: number | null;
+    kuehlerSerialNumber?: string | null;
+    kuehlerModel?: string | null;
+    importSourceFileName?: string;
+    importedAt?: string;
+    isDeleted?: boolean;
+  }) => {
+    return updateMarketKuehlerUnit(input);
+  }, []);
+
   const handleSaveFixedRow = useCallback(async (market: MarketRecord) => {
     setImportError(null);
     try {
@@ -1529,6 +1783,80 @@ export default function MaerktePage() {
       setIsNormalizingRegions(false);
     }
   }, [isNormalizingRegions, reloadMarkets]);
+
+  const closeMarketContextMenu = useCallback(() => {
+    setMarketContextMenu(null);
+  }, []);
+
+  const handleOpenMarketContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>, marketId: string) => {
+      const MENU_W = 190;
+      const MENU_H = 54;
+      const GAP = 8;
+      const maxX = Math.max(GAP, window.innerWidth - MENU_W - GAP);
+      const maxY = Math.max(GAP, window.innerHeight - MENU_H - GAP);
+      setMarketContextMenu({
+        marketId,
+        x: Math.min(Math.max(event.clientX, GAP), maxX),
+        y: Math.min(Math.max(event.clientY, GAP), maxY),
+      });
+    },
+    [],
+  );
+
+  const handleOpenDeleteDialog = useCallback(
+    (marketId: string) => {
+      setDeleteError(null);
+      setDeleteTargetMarketId(marketId);
+      closeMarketContextMenu();
+    },
+    [closeMarketContextMenu],
+  );
+
+  const handleDeleteMarket = useCallback(
+    async (mode: "soft" | "hard") => {
+      if (!deleteTargetMarketId || isDeletingMarket) return;
+      setDeleteError(null);
+      setIsDeletingMarket(true);
+      try {
+        if (mode === "hard") {
+          await hardDeleteMarket(deleteTargetMarketId);
+        } else {
+          await softDeleteMarket(deleteTargetMarketId);
+        }
+        setMarkets((prev) => prev.filter((market) => market.id !== deleteTargetMarketId));
+        setSelectedId((prev) => (prev === deleteTargetMarketId ? null : prev));
+        setDeleteTargetMarketId(null);
+      } catch (err) {
+        setDeleteError(err instanceof Error ? err.message : "Markt konnte nicht gelöscht werden.");
+      } finally {
+        setIsDeletingMarket(false);
+      }
+    },
+    [deleteTargetMarketId, isDeletingMarket],
+  );
+
+  useEffect(() => {
+    if (!marketContextMenu) return;
+    const close = () => setMarketContextMenu(null);
+    const onPointerDown = (event: MouseEvent) => {
+      if (marketContextMenuRef.current?.contains(event.target as Node)) return;
+      close();
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("mousedown", onPointerDown, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown, true);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [marketContextMenu]);
 
   // ── Initial data load ──────────────────────────────────────
   useEffect(() => {
@@ -1581,11 +1909,19 @@ export default function MaerktePage() {
   }, [visits]);
 
   // ── Filtering ──────────────────────────────────────────────
+  const marketSearchBlobById = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const market of markets) {
+      byId.set(market.id, buildMarketSearchBlob(market));
+    }
+    return byId;
+  }, [markets]);
+
   const filtered = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
+    const q = normalizeSearchText(debouncedSearch);
     const filteredMarkets = markets.filter(m => {
       if (q) {
-        const hay = `${m.name} ${m.dbName} ${m.address} ${m.postalCode} ${m.city} ${m.flexNumber} ${m.cokeMasterNumber} ${m.standardMarketNumber} ${m.currentGmName} ${m.kuehlerStammnr} ${m.kuehlerInternalId} ${m.kuehlerSerialNumber} ${m.kuehlerModel} ${m.kuehlerBd}`.toLowerCase();
+        const hay = marketSearchBlobById.get(m.id) ?? "";
         if (!hay.includes(q)) return false;
       }
       if (filters.region && m.region !== filters.region) return false;
@@ -1624,10 +1960,18 @@ export default function MaerktePage() {
     const activeMarkets = filteredMarkets.filter((market) => market.isActive);
     const inactiveMarkets = filteredMarkets.filter((market) => !market.isActive);
     return [...activeMarkets, ...inactiveMarkets];
-  }, [markets, debouncedSearch, filters, visitedInRedMonatSet]);
+  }, [markets, debouncedSearch, filters, marketSearchBlobById, visitedInRedMonatSet]);
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
   const selectedMarket = useMemo(() => markets.find(m => m.id === selectedId) ?? null, [markets, selectedId]);
+  const contextMenuMarket = useMemo(
+    () => markets.find((market) => market.id === marketContextMenu?.marketId) ?? null,
+    [marketContextMenu?.marketId, markets],
+  );
+  const deleteTargetMarket = useMemo(
+    () => markets.find((market) => market.id === deleteTargetMarketId) ?? null,
+    [deleteTargetMarketId, markets],
+  );
 
   // Stable select handler — passed into memoized rows so they don't re-render on unrelated state changes
   const handleSelectMarket = useCallback((id: string | null) => setSelectedId(id), []);
@@ -1698,7 +2042,7 @@ export default function MaerktePage() {
         {/* White inner card */}
         <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
 
-        {(loadError || saveError || importError || normalizeError || normalizeSummary || isNormalizingRegions) && (
+        {(loadError || saveError || deleteError || importError || normalizeError || normalizeSummary || isNormalizingRegions) && (
           <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", gap: 6 }}>
             {loadError && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)" }}>
@@ -1711,6 +2055,11 @@ export default function MaerktePage() {
             {saveError && (
               <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", fontSize: 10, color: R, fontWeight: 600 }}>
                 Speichern fehlgeschlagen: {saveError}
+              </div>
+            )}
+            {deleteError && (
+              <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", fontSize: 10, color: R, fontWeight: 600 }}>
+                Löschen fehlgeschlagen: {deleteError}
               </div>
             )}
             {importError && (
@@ -1820,6 +2169,7 @@ export default function MaerktePage() {
               items={filtered}
               selectedId={selectedId}
               onSelect={handleSelectMarket}
+              onOpenContextMenu={handleOpenMarketContextMenu}
               visitedSet={visitedInRedMonatSet}
               visitCounts={visitCountByMarket}
             />
@@ -1827,6 +2177,215 @@ export default function MaerktePage() {
         )}
         </div>{/* end white inner card */}
       </div>{/* end grey outer card */}
+
+      {marketContextMenu && contextMenuMarket && createPortal(
+        <div
+          ref={marketContextMenuRef}
+          style={{
+            position: "fixed",
+            top: marketContextMenu.y,
+            left: marketContextMenu.x,
+            zIndex: 9800,
+            minWidth: 190,
+            backgroundColor: "#fff",
+            borderRadius: 9,
+            border: "1px solid rgba(0,0,0,0.07)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)",
+            padding: 4,
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <button
+            onClick={() => handleOpenDeleteDialog(contextMenuMarket.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              border: "none",
+              borderRadius: 6,
+              padding: "7px 10px",
+              background: "none",
+              textAlign: "left",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#DC2626",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              transition: "background-color 0.1s ease",
+            }}
+            onMouseEnter={(event) => {
+              event.currentTarget.style.backgroundColor = "rgba(220,38,38,0.04)";
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.backgroundColor = "transparent";
+            }}
+          >
+            <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
+            Markt löschen…
+          </button>
+        </div>,
+        document.body,
+      )}
+
+      {deleteTargetMarket && createPortal(
+        <div
+          onClick={() => {
+            if (isDeletingMarket) return;
+            setDeleteTargetMarketId(null);
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9900,
+            backgroundColor: "rgba(0,0,0,0.25)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 14,
+              boxShadow: "0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)",
+              padding: "20px 20px 16px",
+              width: 360,
+              maxWidth: "90vw",
+              display: "flex",
+              flexDirection: "column",
+              gap: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  flexShrink: 0,
+                  backgroundColor: "rgba(220,38,38,0.07)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Trash2 size={13} strokeWidth={1.8} color="#DC2626" />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em" }}>
+                  Markt löschen
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginTop: 3, lineHeight: 1.5 }}>
+                  <span style={{ color: "#1a1a1a", fontWeight: 600 }}>{deleteTargetMarket.name || "Unbenannter Markt"}</span>
+                  {" "}wird entfernt.
+                </div>
+              </div>
+            </div>
+            <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.05)", marginBottom: 12 }} />
+            <div
+              style={{
+                padding: "8px 12px",
+                borderRadius: 7,
+                marginBottom: 14,
+                backgroundColor: "rgba(220,38,38,0.05)",
+                border: "1px solid rgba(220,38,38,0.12)",
+              }}
+            >
+              <span style={{ fontSize: 10, fontWeight: 600, color: "#DC2626" }}>
+                Soft Delete blendet aus. Hard Delete entfernt die DB-Zeile dauerhaft.
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 7 }}>
+              <button
+                onClick={() => setDeleteTargetMarketId(null)}
+                disabled={isDeletingMarket}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
+                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.06)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "rgba(0,0,0,0.4)",
+                  cursor: isDeletingMarket ? "not-allowed" : "pointer",
+                  transition: "opacity 0.15s ease",
+                  opacity: isDeletingMarket ? 0.7 : 1,
+                  fontFamily: "inherit",
+                }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.opacity = "0.75";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.opacity = "1";
+                }}
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => void handleDeleteMarket("soft")}
+                disabled={isDeletingMarket}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "linear-gradient(to bottom, #f97316, #ea580c)",
+                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c2410c, 0 1px 6px rgba(180,80,20,0.18)",
+                  color: "#fff",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: isDeletingMarket ? "not-allowed" : "pointer",
+                  transition: "opacity 0.15s ease",
+                  opacity: isDeletingMarket ? 0.85 : 1,
+                  fontFamily: "inherit",
+                }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.opacity = "0.88";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.opacity = "1";
+                }}
+              >
+                {isDeletingMarket ? "Lösche…" : "Soft löschen"}
+              </button>
+              <button
+                onClick={() => void handleDeleteMarket("hard")}
+                disabled={isDeletingMarket}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+                  color: "#fff",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: isDeletingMarket ? "not-allowed" : "pointer",
+                  transition: "opacity 0.15s ease",
+                  opacity: isDeletingMarket ? 0.85 : 1,
+                  fontFamily: "inherit",
+                }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.opacity = "0.88";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.opacity = "1";
+                }}
+              >
+                {isDeletingMarket ? "Lösche…" : "Hard löschen"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {/* Detail drawer */}
       {selectedMarket && (
@@ -1836,6 +2395,9 @@ export default function MaerktePage() {
           currentRedPeriod={currentRedMonth ? { start: currentRedMonth.start, end: currentRedMonth.end } : null}
           onClose={() => setSelectedId(null)}
           onSave={handleSave}
+          loadKuehlerUnits={handleLoadKuehlerUnits}
+          onCreateKuehlerUnit={handleCreateKuehlerUnit}
+          onUpdateKuehlerUnit={handleUpdateKuehlerUnit}
         />
       )}
 

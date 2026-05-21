@@ -23,11 +23,6 @@ export interface MarketRecord {
   universeMarket: boolean;
   marketType: MarketType;
   kuehlerStammnr: string;
-  kuehlerBd: string;
-  kuehlerAnzahlKsAmStandort: number | null;
-  kuehlerInternalId: string;
-  kuehlerSerialNumber: string;
-  kuehlerModel: string;
   isActive: boolean;
   infoNote: string;
   ipp: number | null;
@@ -35,6 +30,23 @@ export interface MarketRecord {
   importedAt: string;
   plannedToId?: string | null;
   isDeleted?: boolean;
+}
+
+export interface KuehlerUnitRecord {
+  id: string;
+  marketId: string;
+  name: string;
+  employee: string;
+  kuehlerInternalId: string | null;
+  kuehlerBd: string | null;
+  kuehlerAnzahlKsAmStandort: number | null;
+  kuehlerSerialNumber: string | null;
+  kuehlerModel: string | null;
+  importSourceFileName: string;
+  importedAt: string;
+  isDeleted?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface MarketVisitLog {

@@ -102,11 +102,19 @@ export function getColSample(rows: string[][], colLetter: string): string {
 // ── Column mapping spec ───────────────────────────────────────
 
 export interface FieldSpec {
-  key: keyof MarketRecord;
+  key: MarketImportFieldKey;
   label: string;       // German display label
   required: boolean;   // required to pass minimum validation
   isIdentity: boolean; // any one identity field satisfies the identity requirement
 }
+
+export type MarketImportFieldKey =
+  | keyof MarketRecord
+  | "kuehlerInternalId"
+  | "kuehlerBd"
+  | "kuehlerAnzahlKsAmStandort"
+  | "kuehlerSerialNumber"
+  | "kuehlerModel";
 
 export type ImportDatasetType = "universum" | "kuehler";
 
@@ -129,7 +137,7 @@ export const UNIVERSUM_FIELD_SPECS: FieldSpec[] = [
 
 export const KUEHLER_FIELD_SPECS: FieldSpec[] = [
   { key: "kuehlerStammnr",            label: "Stammnr",               required: true,  isIdentity: true  },
-  { key: "kuehlerInternalId",         label: "internal_id",           required: true,  isIdentity: false },
+  { key: "kuehlerInternalId",         label: "internal_id",           required: false, isIdentity: false },
   { key: "kuehlerBd",                 label: "BD",                    required: false, isIdentity: false },
   { key: "kuehlerAnzahlKsAmStandort", label: "Anzahl KS am Standort", required: false, isIdentity: false },
   { key: "kuehlerSerialNumber",       label: "Serial Number",         required: false, isIdentity: false },
@@ -149,20 +157,20 @@ export function getFieldSpecsForImportType(importType: ImportDatasetType): Field
 }
 
 // key → column letter  (empty string = not mapped)
-export type ColumnMapping = Partial<Record<keyof MarketRecord, string>>;
+export type ColumnMapping = Partial<Record<MarketImportFieldKey, string>>;
 
 export interface MappingValidation {
   /** Fields with invalid/missing required letters */
-  fieldErrors: Partial<Record<keyof MarketRecord, string>>;
+  fieldErrors: Partial<Record<MarketImportFieldKey, string>>;
   /** Duplicate column letter assignments, field key → letter */
-  duplicateErrors: Partial<Record<keyof MarketRecord, string>>;
+  duplicateErrors: Partial<Record<MarketImportFieldKey, string>>;
   /** Whether the minimum viable mapping is satisfied */
   canImport: boolean;
 }
 
 export function validateMapping(mapping: ColumnMapping, fieldSpecs: FieldSpec[] = FIELD_SPECS): MappingValidation {
-  const fieldErrors: Partial<Record<keyof MarketRecord, string>> = {};
-  const duplicateErrors: Partial<Record<keyof MarketRecord, string>> = {};
+  const fieldErrors: Partial<Record<MarketImportFieldKey, string>> = {};
+  const duplicateErrors: Partial<Record<MarketImportFieldKey, string>> = {};
 
   // Check each required field has a valid letter
   for (const spec of fieldSpecs) {
@@ -175,7 +183,7 @@ export function validateMapping(mapping: ColumnMapping, fieldSpecs: FieldSpec[] 
   }
 
   // Check duplicates across all mapped fields
-  const seen: Map<number, keyof MarketRecord> = new Map();
+  const seen: Map<number, MarketImportFieldKey> = new Map();
   for (const spec of fieldSpecs) {
     const val = mapping[spec.key] ?? "";
     if (!val || !isValidColLetter(val)) continue;
@@ -219,7 +227,7 @@ function normNum(v: string): number {
 }
 
 /** Raw "draft" produced from one spreadsheet row before merge */
-export type MarketDraft = Partial<Record<keyof MarketRecord, string | number | boolean>>;
+export type MarketDraft = Partial<Record<MarketImportFieldKey, string | number | boolean>>;
 
 export function mapRowToDraft(
   row: string[],
@@ -256,6 +264,9 @@ export interface ImportSummary {
   created: number;
   updated: number;
   skipped: number;
+  kuehlerUnitsCreated?: number;
+  kuehlerUnitsUpdated?: number;
+  kuehlerUnitsSkipped?: number;
   matchedBy: Record<"standardMarketNumber" | "cokeMasterNumber" | "flexNumber" | "namePLZ", number>;
   skippedReasons: {
     row: number;
@@ -263,7 +274,7 @@ export interface ImportSummary {
     sample: string;
     draft?: MarketDraft;
     missingFields?: string[];       // display labels for amber pills
-    missingFieldKeys?: (keyof MarketRecord)[]; // machine keys for editable inputs
+    missingFieldKeys?: MarketImportFieldKey[]; // machine keys for editable inputs
     fetchedFields?: { label: string; value: string }[];
   }[];
 }
@@ -273,9 +284,9 @@ function buildSkipMeta(
   draft: MarketDraft,
   mapping: ColumnMapping,
   fieldSpecs: FieldSpec[] = FIELD_SPECS,
-): { missingFields: string[]; missingFieldKeys: (keyof MarketRecord)[]; fetchedFields: { label: string; value: string }[] } {
+): { missingFields: string[]; missingFieldKeys: MarketImportFieldKey[]; fetchedFields: { label: string; value: string }[] } {
   const missingFields: string[] = [];
-  const missingFieldKeys: (keyof MarketRecord)[] = [];
+  const missingFieldKeys: MarketImportFieldKey[] = [];
   const fetchedFields: { label: string; value: string }[] = [];
 
   for (const spec of fieldSpecs) {
@@ -307,7 +318,6 @@ export function draftToMarketRecord(
 ): MarketRecord {
   const marketType = importType === "kuehler" ? "kuehler" : "universum";
   const kuehlerStammnr = String(draft.kuehlerStammnr ?? "");
-  const kuehlerInternalId = String(draft.kuehlerInternalId ?? "");
   return {
     id: `m-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`,
     name:                 String(draft.name ?? ""),
@@ -324,14 +334,6 @@ export function draftToMarketRecord(
     universeMarket:       marketType !== "kuehler",
     marketType,
     kuehlerStammnr:       importType === "kuehler" ? kuehlerStammnr : "",
-    kuehlerBd:            importType === "kuehler" ? String(draft.kuehlerBd ?? "") : "",
-    kuehlerAnzahlKsAmStandort:
-      importType === "kuehler"
-        ? (draft.kuehlerAnzahlKsAmStandort == null ? null : Number(draft.kuehlerAnzahlKsAmStandort))
-        : null,
-    kuehlerInternalId:    importType === "kuehler" ? kuehlerInternalId : "",
-    kuehlerSerialNumber:  importType === "kuehler" ? String(draft.kuehlerSerialNumber ?? "") : "",
-    kuehlerModel:         importType === "kuehler" ? String(draft.kuehlerModel ?? "") : "",
     isActive:             true,
     visitFrequencyPerYear:Number(draft.visitFrequencyPerYear ?? 0),
     infoFlag:             Boolean(draft.infoFlag ?? false),

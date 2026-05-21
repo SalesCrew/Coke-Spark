@@ -4825,17 +4825,51 @@ export default function FbManagementPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [campaignsRes, marketsRes, mainFragebogen, kuehlerFragebogen, mhdFragebogen, mainModules, kuehlerModules, mhdModules] =
-          await Promise.all([
-            fetchCampaigns(),
-            fetchMarkets(),
-            fetchFragebogen("main"),
-            fetchFragebogen("kuehler"),
-            fetchFragebogen("mhd"),
-            fetchModules("main"),
-            fetchModules("kuehler"),
-            fetchModules("mhd"),
-          ]);
+        const settled = await Promise.allSettled([
+          fetchCampaigns(),
+          fetchMarkets(),
+          fetchFragebogen("main"),
+          fetchFragebogen("kuehler"),
+          fetchFragebogen("mhd"),
+          fetchModules("main"),
+          fetchModules("kuehler"),
+          fetchModules("mhd"),
+        ]);
+
+        const campaignsResult = settled[0] as PromiseSettledResult<Awaited<ReturnType<typeof fetchCampaigns>>>;
+        const marketsResult = settled[1] as PromiseSettledResult<Awaited<ReturnType<typeof fetchMarkets>>>;
+        if (campaignsResult.status !== "fulfilled") {
+          throw campaignsResult.reason;
+        }
+        if (marketsResult.status !== "fulfilled") {
+          throw marketsResult.reason;
+        }
+
+        const optionalOrEmpty = <T,>(result: PromiseSettledResult<T>): T | [] => {
+          if (result.status === "fulfilled") return result.value;
+          return [];
+        };
+
+        const campaignsRes = campaignsResult.value;
+        const marketsRes = marketsResult.value;
+        const mainFragebogen = optionalOrEmpty(
+          settled[2] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
+        );
+        const kuehlerFragebogen = optionalOrEmpty(
+          settled[3] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
+        );
+        const mhdFragebogen = optionalOrEmpty(
+          settled[4] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
+        );
+        const mainModules = optionalOrEmpty(
+          settled[5] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+        );
+        const kuehlerModules = optionalOrEmpty(
+          settled[6] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+        );
+        const mhdModules = optionalOrEmpty(
+          settled[7] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+        );
 
         const toCatalogItem = (market: Awaited<ReturnType<typeof fetchMarkets>>[number]): MarketCatalogItem => {
           const chainSource = (market.dbName || market.name || "").trim();

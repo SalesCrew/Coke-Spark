@@ -1,7 +1,7 @@
 "use client";
 
 import type { GMRecord } from "@/types/gebietsmanager";
-import type { MarketRecord } from "@/types/markets";
+import type { KuehlerUnitRecord, MarketRecord } from "@/types/markets";
 import type { Fragebogen, Module, Question } from "@/types/fragebogen";
 import type {
   Campaign,
@@ -73,11 +73,6 @@ type BackendMarket = {
   universeMarket?: boolean | null;
   marketType?: "universum" | "kuehler" | "both" | null;
   kuehlerStammnr?: string | null;
-  kuehlerBd?: string | null;
-  kuehlerAnzahlKsAmStandort?: number | null;
-  kuehlerInternalId?: string | null;
-  kuehlerSerialNumber?: string | null;
-  kuehlerModel?: string | null;
   isActive?: boolean | null;
   importSourceFileName?: string | null;
   importedAt?: string | null;
@@ -89,6 +84,23 @@ type BackendMarket = {
     section: "standard" | "flex" | "kuehler" | "mhd" | "billa";
   }>;
   isDeleted?: boolean | null;
+};
+
+type BackendKuehlerUnit = {
+  id: string;
+  marketId: string;
+  name?: string | null;
+  employee?: string | null;
+  kuehlerInternalId?: string | null;
+  kuehlerBd?: string | null;
+  kuehlerAnzahlKsAmStandort?: number | null;
+  kuehlerSerialNumber?: string | null;
+  kuehlerModel?: string | null;
+  importSourceFileName?: string | null;
+  importedAt?: string | null;
+  isDeleted?: boolean | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type BackendLager = {
@@ -130,6 +142,7 @@ type BackendCampaign = {
     marketId: string;
     gmUserId: string | null;
     gmName: string | null;
+    assignmentSlot?: number;
     visitTargetCount?: number;
     currentVisitsCount?: number;
   }>;
@@ -389,12 +402,6 @@ function mapBackendMarketToMarketRecord(market: BackendMarket): MarketRecord {
     universeMarket: Boolean(market.universeMarket ?? false),
     marketType,
     kuehlerStammnr: market.kuehlerStammnr ?? "",
-    kuehlerBd: market.kuehlerBd ?? "",
-    kuehlerAnzahlKsAmStandort:
-      market.kuehlerAnzahlKsAmStandort == null ? null : Number(market.kuehlerAnzahlKsAmStandort),
-    kuehlerInternalId: market.kuehlerInternalId ?? "",
-    kuehlerSerialNumber: market.kuehlerSerialNumber ?? "",
-    kuehlerModel: market.kuehlerModel ?? "",
     isActive: Boolean(market.isActive ?? true),
     infoNote: market.infoNote ?? "",
     ipp: null,
@@ -402,6 +409,26 @@ function mapBackendMarketToMarketRecord(market: BackendMarket): MarketRecord {
     importedAt: market.importedAt ?? new Date().toISOString(),
     plannedToId: market.plannedToId ?? null,
     isDeleted: Boolean(market.isDeleted ?? false),
+  };
+}
+
+function mapBackendKuehlerUnitToRecord(unit: BackendKuehlerUnit): KuehlerUnitRecord {
+  return {
+    id: unit.id,
+    marketId: unit.marketId,
+    name: unit.name ?? "",
+    employee: unit.employee ?? "",
+    kuehlerInternalId: unit.kuehlerInternalId ?? null,
+    kuehlerBd: unit.kuehlerBd ?? null,
+    kuehlerAnzahlKsAmStandort:
+      unit.kuehlerAnzahlKsAmStandort == null ? null : Number(unit.kuehlerAnzahlKsAmStandort),
+    kuehlerSerialNumber: unit.kuehlerSerialNumber ?? null,
+    kuehlerModel: unit.kuehlerModel ?? null,
+    importSourceFileName: unit.importSourceFileName ?? "",
+    importedAt: unit.importedAt ?? new Date().toISOString(),
+    isDeleted: Boolean(unit.isDeleted ?? false),
+    createdAt: unit.createdAt ?? undefined,
+    updatedAt: unit.updatedAt ?? undefined,
   };
 }
 
@@ -1656,11 +1683,6 @@ export async function createMarket(payload: MarketRecord): Promise<MarketRecord>
       universeMarket: payload.universeMarket,
       marketType: payload.marketType,
       kuehlerStammnr: payload.kuehlerStammnr,
-      kuehlerBd: payload.kuehlerBd,
-      kuehlerAnzahlKsAmStandort: payload.kuehlerAnzahlKsAmStandort,
-      kuehlerInternalId: payload.kuehlerInternalId,
-      kuehlerSerialNumber: payload.kuehlerSerialNumber,
-      kuehlerModel: payload.kuehlerModel,
       isActive: payload.isActive,
       importSourceFileName: payload.importSourceFileName,
       importedAt: payload.importedAt,
@@ -1693,11 +1715,6 @@ export async function updateMarket(payload: MarketRecord): Promise<MarketRecord>
       universeMarket: payload.universeMarket,
       marketType: payload.marketType,
       kuehlerStammnr: payload.kuehlerStammnr,
-      kuehlerBd: payload.kuehlerBd,
-      kuehlerAnzahlKsAmStandort: payload.kuehlerAnzahlKsAmStandort,
-      kuehlerInternalId: payload.kuehlerInternalId,
-      kuehlerSerialNumber: payload.kuehlerSerialNumber,
-      kuehlerModel: payload.kuehlerModel,
       isActive: payload.isActive,
       importSourceFileName: payload.importSourceFileName,
       importedAt: payload.importedAt,
@@ -1710,6 +1727,69 @@ export async function updateMarket(payload: MarketRecord): Promise<MarketRecord>
 
 export async function softDeleteMarket(marketId: string): Promise<void> {
   await authedFetch(`/admin/markets/${marketId}/delete`, { method: "PATCH" });
+}
+
+export async function hardDeleteMarket(marketId: string): Promise<void> {
+  await authedFetch(`/admin/markets/${marketId}/hard-delete`, { method: "DELETE" });
+}
+
+export async function fetchMarketKuehlerUnits(marketId: string): Promise<KuehlerUnitRecord[]> {
+  const data = (await authedFetch(`/admin/markets/${marketId}/kuehler-units`)) as {
+    units?: BackendKuehlerUnit[];
+  };
+  return (data.units ?? []).map((unit) => mapBackendKuehlerUnitToRecord(unit));
+}
+
+export type WriteKuehlerUnitInput = {
+  marketId: string;
+  name?: string;
+  employee?: string;
+  kuehlerInternalId?: string | null;
+  kuehlerBd?: string | null;
+  kuehlerAnzahlKsAmStandort?: number | null;
+  kuehlerSerialNumber?: string | null;
+  kuehlerModel?: string | null;
+  importSourceFileName?: string;
+  importedAt?: string;
+};
+
+export async function createMarketKuehlerUnit(input: WriteKuehlerUnitInput): Promise<KuehlerUnitRecord> {
+  const data = (await authedFetch(`/admin/markets/${input.marketId}/kuehler-units`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name ?? "",
+      employee: input.employee ?? "",
+      kuehlerInternalId: input.kuehlerInternalId ?? undefined,
+      kuehlerBd: input.kuehlerBd ?? undefined,
+      kuehlerAnzahlKsAmStandort: input.kuehlerAnzahlKsAmStandort ?? undefined,
+      kuehlerSerialNumber: input.kuehlerSerialNumber ?? undefined,
+      kuehlerModel: input.kuehlerModel ?? undefined,
+      importSourceFileName: input.importSourceFileName ?? "",
+      importedAt: input.importedAt,
+    }),
+  })) as { unit: BackendKuehlerUnit };
+  return mapBackendKuehlerUnitToRecord(data.unit);
+}
+
+export async function updateMarketKuehlerUnit(
+  input: WriteKuehlerUnitInput & { unitId: string; isDeleted?: boolean },
+): Promise<KuehlerUnitRecord> {
+  const data = (await authedFetch(`/admin/markets/${input.marketId}/kuehler-units/${input.unitId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: input.name,
+      employee: input.employee,
+      kuehlerInternalId: input.kuehlerInternalId ?? undefined,
+      kuehlerBd: input.kuehlerBd ?? undefined,
+      kuehlerAnzahlKsAmStandort: input.kuehlerAnzahlKsAmStandort ?? undefined,
+      kuehlerSerialNumber: input.kuehlerSerialNumber ?? undefined,
+      kuehlerModel: input.kuehlerModel ?? undefined,
+      importSourceFileName: input.importSourceFileName,
+      importedAt: input.importedAt,
+      isDeleted: input.isDeleted,
+    }),
+  })) as { unit: BackendKuehlerUnit };
+  return mapBackendKuehlerUnitToRecord(data.unit);
 }
 
 function normalizeQuestion(input: Question): Question {
@@ -1804,6 +1884,7 @@ function normalizeCampaign(input: BackendCampaign): Campaign {
       marketId: assignment.marketId,
       gmUserId: assignment.gmUserId ?? null,
       gmName: assignment.gmName ?? null,
+      assignmentSlot: assignment.assignmentSlot ?? 1,
       visitTargetCount: assignment.visitTargetCount ?? 1,
       currentVisitsCount: assignment.currentVisitsCount ?? 0,
     })),

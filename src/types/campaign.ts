@@ -13,6 +13,7 @@ export type CampaignMarketAssignmentInput = {
   marketId: string;
   gmUserId: string | null;
   gmNameRaw?: string;
+  assignmentSlot?: number;
   visitTargetCount?: number;
 };
 
@@ -20,6 +21,7 @@ export type CampaignMarketAssignment = {
   marketId: string;
   gmUserId: string | null;
   gmName: string | null;
+  assignmentSlot: number;
   visitTargetCount: number;
   currentVisitsCount: number;
 };

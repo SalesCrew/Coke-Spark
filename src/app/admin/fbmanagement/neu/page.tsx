@@ -336,6 +336,7 @@ function DatePicker({ value, onChange, placeholder = "Datum wählen", disabled =
   value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean; accentColor?: string; accentBg?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
   const today = new Date();
   const parsed = value ? new Date(value + "T00:00:00") : null;
   const [viewYear, setViewYear] = useState(parsed?.getFullYear() ?? today.getFullYear());
@@ -347,6 +348,24 @@ function DatePicker({ value, onChange, placeholder = "Datum wählen", disabled =
     function h(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const updateDirection = () => {
+      const rootRect = ref.current?.getBoundingClientRect();
+      if (!rootRect) return;
+      const spaceBelow = window.innerHeight - rootRect.bottom;
+      const estimatedPopupHeight = 300;
+      setOpenUpward(spaceBelow < estimatedPopupHeight);
+    };
+    updateDirection();
+    window.addEventListener("resize", updateDirection);
+    window.addEventListener("scroll", updateDirection, true);
+    return () => {
+      window.removeEventListener("resize", updateDirection);
+      window.removeEventListener("scroll", updateDirection, true);
+    };
   }, [open]);
 
   const firstDay = new Date(viewYear, viewMonth, 1);
@@ -390,7 +409,10 @@ function DatePicker({ value, onChange, placeholder = "Datum wählen", disabled =
 
       {open && !disabled && (
         <div style={{
-          position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 300,
+          position: "absolute",
+          ...(openUpward ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }),
+          left: 0,
+          zIndex: 300,
           background: "#fff", borderRadius: 12, userSelect: "none",
           boxShadow: "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
           padding: "14px 14px 10px", width: 248,
@@ -572,6 +594,10 @@ function StepDetails({
     return new Date(iso + "T00:00:00").toLocaleDateString("de-AT", { day: "2-digit", month: "long", year: "numeric" });
   }
 
+  // Red-Monat UI stays identical across campaign types.
+  const redMonthAccentColor = R;
+  const redMonthAccentBg = R_BG;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
 
@@ -660,6 +686,7 @@ function StepDetails({
             { id: "redmonth", label: "Red-Monat" },
           ] as const).map((mode) => {
             const active = timeframeMode === mode.id;
+            const modeAccentColor = mode.id === "redmonth" ? redMonthAccentColor : accentColor;
             return (
               <button
                 key={mode.id}
@@ -680,7 +707,7 @@ function StepDetails({
                   textTransform: "uppercase",
                   cursor: "pointer",
                   background: active ? "#fff" : "transparent",
-                  color: active ? accentColor : "rgba(0,0,0,0.45)",
+                  color: active ? modeAccentColor : "rgba(0,0,0,0.45)",
                   boxShadow: active ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05)" : "none",
                   transition: "all 0.15s ease",
                 }}
@@ -715,9 +742,9 @@ function StepDetails({
                         type="button"
                         onClick={() => onSelectRedMonth(period)}
                         style={{
-                          border: `1px solid ${selected ? accentColor : "rgba(0,0,0,0.08)"}`,
-                          background: selected ? accentBg : "#fff",
-                          color: selected ? accentColor : "rgba(0,0,0,0.68)",
+                          border: `1px solid ${selected ? redMonthAccentColor : "rgba(0,0,0,0.08)"}`,
+                          background: selected ? redMonthAccentBg : "#fff",
+                          color: selected ? redMonthAccentColor : "rgba(0,0,0,0.68)",
                           borderRadius: 8,
                           padding: "8px 10px",
                           cursor: "pointer",

@@ -2251,8 +2251,7 @@ export default function NeuKampagnePage() {
 
   const gmBlockingIssues = assignmentBuild.issues.length;
   const hasAssignmentsToCreate = assignmentBuild.assignments.length > 0;
-  const gmIssuesAreBlocking = matchMode !== "kuehler_stammnr" && gmBlockingIssues > 0;
-  const canCreate = !!name && !isSubmitting && (isAuto || (identityBlockingCount === 0 && hasAssignmentsToCreate && !gmIssuesAreBlocking));
+  const canCreate = !!name && !isSubmitting && (isAuto || (identityBlockingCount === 0 && hasAssignmentsToCreate));
 
   const updateMatcherRow = useCallback((rowId: string, field: "name" | "gm", value: string) => {
     setMarkets((current) =>
@@ -2601,10 +2600,10 @@ export default function NeuKampagnePage() {
               {(matcherReport.ambiguous > 0 || matcherReport.unmatched > 0 || gmBlockingIssues > 0) && (
                 <div style={{ marginTop: 6, color: "#b45309", fontWeight: 600 }}>
                   {matcherReport.ambiguous > 0 || matcherReport.unmatched > 0
-                    ? "Nicht zuordenbare Maerkte muessen vor dem Erstellen korrigiert werden."
-                    : matchMode === "kuehler_stammnr"
-                      ? "Zeilen ohne zuordenbaren GM werden beim Erstellen automatisch uebersprungen."
-                      : "Nicht zuordenbare Felder muessen vor dem Erstellen korrigiert werden (inkl. GM-Zuordnung)."}
+                    ? matchMode === "kuehler_stammnr"
+                      ? "Nicht zuordenbare Maerkte muessen vor dem Erstellen korrigiert werden."
+                      : "Zeilen ohne Markt-Match werden beim Erstellen automatisch uebersprungen."
+                    : "Zeilen ohne zuordenbaren GM werden beim Erstellen automatisch uebersprungen."}
                 </div>
               )}
               {matcherDisplayRows.length > 0 && (

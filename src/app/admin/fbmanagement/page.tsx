@@ -2,19 +2,21 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
 import type { Campaign, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { ConditionalRule, Fragebogen, Module, Question } from "@/types/fragebogen";
 import {
   assignCampaignMarketAssignments,
   assignCampaignMarkets,
+  deleteCampaign,
   fetchCampaignMarketVisitSummaries,
   fetchCampaigns,
   fetchFragebogen,
   fetchMarkets,
   fetchModules,
   getCampaignOverlapConflicts,
+  hardDeleteCampaign,
   migrateCampaignMarkets,
   removeCampaignMarket,
   switchCampaignFragebogen,
@@ -40,6 +42,18 @@ const MARKET_LIST_INITIAL_LIMIT = 120;
 const MARKET_LIST_LOAD_STEP = 120;
 const ADD_PANEL_INITIAL_LIMIT = 80;
 const ADD_PANEL_LOAD_STEP = 80;
+const HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT = "Ich bin mir sicher, dass ich alle Daten zu dieser Kampagne Löschen will!";
+
+type CampaignContextMenuState = {
+  campaignId: string;
+  x: number;
+  y: number;
+};
+
+type CampaignDeleteDialogState = {
+  campaignId: string;
+  mode: "soft" | "hard";
+};
 
 // ── Static UI helpers ─────────────────────────────────────────
 
@@ -4179,6 +4193,7 @@ function CampaignListItem({
   campaign,
   selected,
   onClick,
+  onContextMenu,
 }: {
   campaign: {
     id: string;
@@ -4190,6 +4205,7 @@ function CampaignListItem({
   };
   selected: boolean;
   onClick: () => void;
+  onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
   const pct = campaign.total > 0 ? Math.round((campaign.filled / campaign.total) * 100) : 0;
   const dotColor = campaign.color;
@@ -4197,6 +4213,13 @@ function CampaignListItem({
   return (
     <div
       onClick={onClick}
+      onContextMenu={onContextMenu}
+      onMouseDown={(event) => {
+        if (event.button === 2) {
+          event.preventDefault();
+          onContextMenu?.(event);
+        }
+      }}
       style={{
         padding: "10px 14px",
         borderRadius: 0,
@@ -4801,12 +4824,17 @@ export default function FbManagementPage() {
   const [switchingCampaignId, setSwitchingCampaignId] = useState<string | null>(null);
   const [campaignPendingOps, setCampaignPendingOps] = useState<Record<string, number>>({});
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [campaignContextMenu, setCampaignContextMenu] = useState<CampaignContextMenuState | null>(null);
+  const [campaignDeleteDialog, setCampaignDeleteDialog] = useState<CampaignDeleteDialogState | null>(null);
+  const [isDeletingCampaign, setIsDeletingCampaign] = useState(false);
+  const [hardDeleteConfirmationInput, setHardDeleteConfirmationInput] = useState("");
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
   const [overlapConflicts, setOverlapConflicts] = useState<CampaignMarketOverlapConflict[] | null>(null);
   const [overlapConflictMarketId, setOverlapConflictMarketId] = useState<string | null>(null);
   const [resolvingOverlap, setResolvingOverlap] = useState(false);
   const regionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const campaignContextMenuRef = useRef<HTMLDivElement | null>(null);
 
   // ── Market management state ────────────────────────────────────
   const [marketSearch, setMarketSearch] = useState("");
@@ -5034,6 +5062,27 @@ export default function FbManagementPage() {
     () => campaignsView.find((entry) => entry.id === selectedId) ?? campaignsView[0],
     [campaignsView, selectedId],
   );
+  const contextMenuCampaign = useMemo(
+    () => campaignsView.find((entry) => entry.id === campaignContextMenu?.campaignId) ?? null,
+    [campaignContextMenu?.campaignId, campaignsView],
+  );
+  const deleteTargetCampaign = useMemo(
+    () => campaignsData.find((entry) => entry.id === campaignDeleteDialog?.campaignId) ?? null,
+    [campaignDeleteDialog?.campaignId, campaignsData],
+  );
+  const hardDeletePhraseMatches = hardDeleteConfirmationInput === HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT;
+
+  const handleSelectCampaign = useCallback((nextCampaignId: string) => {
+    setCampaignContextMenu(null);
+    setSelectedId(nextCampaignId);
+    setSelectedRegion(null);
+    if (regionTimerRef.current) clearTimeout(regionTimerRef.current);
+    setMarketEditMode("idle");
+    setEditMenuOpen(false);
+    setMarketSearch("");
+    setMarketFilters({ chain: null, gm: null, city: null, region: null });
+    setMarketFilter("all");
+  }, []);
   const previewQuestions = useMemo(() => {
     if (!campaign) return PREVIEW_QUESTIONS;
     if (!campaign.currentFragebogenId) return [];
@@ -5096,6 +5145,108 @@ export default function FbManagementPage() {
   const assignedIds = campaignMarketIds;
   const isCampaignBusy = (campaignId: string) => (campaignPendingOps[campaignId] ?? 0) > 0;
   const campaignBusy = campaignId ? isCampaignBusy(campaignId) : false;
+  const handleOpenCampaignContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>, targetCampaignId: string) => {
+    event.preventDefault();
+    if (isDeletingCampaign || isCampaignBusy(targetCampaignId)) return;
+    const menuWidth = 200;
+    const menuHeight = 56;
+    const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
+    const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+    setCampaignContextMenu({
+      campaignId: targetCampaignId,
+      x: Math.min(Math.max(8, event.clientX), maxX),
+      y: Math.min(Math.max(8, event.clientY), maxY),
+    });
+  }, [campaignPendingOps, isDeletingCampaign]);
+  const handleOpenCampaignDeleteDialog = useCallback((mode: "soft" | "hard") => {
+    if (!campaignContextMenu?.campaignId) return;
+    setCampaignDeleteDialog({ campaignId: campaignContextMenu.campaignId, mode });
+    setCampaignContextMenu(null);
+    setHardDeleteConfirmationInput("");
+  }, [campaignContextMenu?.campaignId]);
+  const handleCloseCampaignDeleteDialog = useCallback(() => {
+    if (isDeletingCampaign) return;
+    setCampaignDeleteDialog(null);
+    setHardDeleteConfirmationInput("");
+  }, [isDeletingCampaign]);
+  const handleDeleteCampaign = useCallback(async () => {
+    if (!campaignDeleteDialog?.campaignId || isDeletingCampaign) return;
+    const targetCampaignId = campaignDeleteDialog.campaignId;
+    if ((campaignPendingOps[targetCampaignId] ?? 0) > 0) return;
+    if (campaignDeleteDialog.mode === "hard" && !hardDeletePhraseMatches) return;
+    setMutationError(null);
+    setIsDeletingCampaign(true);
+    setCampaignPendingOps((current) => ({ ...current, [targetCampaignId]: (current[targetCampaignId] ?? 0) + 1 }));
+    try {
+      if (campaignDeleteDialog.mode === "hard") {
+        await hardDeleteCampaign(targetCampaignId, hardDeleteConfirmationInput);
+      } else {
+        await deleteCampaign(targetCampaignId);
+      }
+      const deletedWasSelected = selectedId === targetCampaignId;
+      setCampaignsData((current) => current.filter((entry) => entry.id !== targetCampaignId));
+      setVisitSummariesByCampaignId((current) => {
+        const next = { ...current };
+        delete next[targetCampaignId];
+        return next;
+      });
+      setVisitSummariesLoadingByCampaignId((current) => {
+        const next = { ...current };
+        delete next[targetCampaignId];
+        return next;
+      });
+      setSelectedId((current) => (current === targetCampaignId ? null : current));
+      if (deletedWasSelected) {
+        setSelectedMarket(null);
+        setSelectedRegion(null);
+        if (regionTimerRef.current) clearTimeout(regionTimerRef.current);
+        setMarketEditMode("idle");
+        setEditMenuOpen(false);
+        setMarketSearch("");
+        setMarketFilters({ chain: null, gm: null, city: null, region: null });
+        setMarketFilter("all");
+      }
+      setCampaignContextMenu(null);
+      setCampaignDeleteDialog(null);
+      setHardDeleteConfirmationInput("");
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Kampagne konnte nicht gelöscht werden.");
+    } finally {
+      setIsDeletingCampaign(false);
+      setCampaignPendingOps((current) => {
+        const next = Math.max(0, (current[targetCampaignId] ?? 0) - 1);
+        return { ...current, [targetCampaignId]: next };
+      });
+    }
+  }, [
+    campaignDeleteDialog,
+    campaignPendingOps,
+    hardDeleteConfirmationInput,
+    hardDeletePhraseMatches,
+    isDeletingCampaign,
+    selectedId,
+  ]);
+  useEffect(() => {
+    if (!campaignContextMenu) return;
+    const closeMenu = () => setCampaignContextMenu(null);
+    const handleMouseDown = (event: MouseEvent) => {
+      if (campaignContextMenuRef.current?.contains(event.target as Node)) return;
+      closeMenu();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [campaignContextMenu]);
   const assignedMarkets = useMemo(
     () => (campaignId ? assignedMarketsByCampaignId.get(campaignId) ?? [] : []),
     [assignedMarketsByCampaignId, campaignId],
@@ -5724,7 +5875,8 @@ export default function FbManagementPage() {
                 key={c.id}
                 campaign={c}
                 selected={c.id === selectedId}
-                onClick={() => { setSelectedId(c.id); setSelectedRegion(null); if (regionTimerRef.current) clearTimeout(regionTimerRef.current); setMarketEditMode("idle"); setEditMenuOpen(false); setMarketSearch(""); setMarketFilters({ chain: null, gm: null, city: null, region: null }); setMarketFilter("all"); }}
+                onClick={() => handleSelectCampaign(c.id)}
+                onContextMenu={(event) => handleOpenCampaignContextMenu(event, c.id)}
               />
             ))}
           </div>
@@ -6100,6 +6252,278 @@ export default function FbManagementPage() {
           onClose={exitEditMode}
           isPending={campaignBusy}
         />
+      )}
+      {campaignContextMenu && contextMenuCampaign && createPortal(
+        <div
+          ref={campaignContextMenuRef}
+          style={{
+            position: "fixed",
+            top: campaignContextMenu.y,
+            left: campaignContextMenu.x,
+            zIndex: 9800,
+            minWidth: 200,
+            backgroundColor: "#fff",
+            borderRadius: 9,
+            border: "1px solid rgba(0,0,0,0.07)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)",
+            padding: 4,
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => handleOpenCampaignDeleteDialog("soft")}
+            disabled={isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              border: "none",
+              borderRadius: 6,
+              padding: "7px 10px",
+              background: "none",
+              textAlign: "left",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#d97706",
+              cursor: isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id) ? "not-allowed" : "pointer",
+              fontFamily: "inherit",
+              transition: "background-color 0.1s ease",
+              opacity: isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id) ? 0.6 : 1,
+            }}
+            onMouseEnter={(event) => {
+              if (isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)) return;
+              event.currentTarget.style.backgroundColor = "rgba(217,119,6,0.05)";
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.backgroundColor = "transparent";
+            }}
+          >
+            <Trash2 size={12} strokeWidth={1.8} color="#d97706" />
+            Soft löschen…
+          </button>
+          <button
+            type="button"
+            onClick={() => handleOpenCampaignDeleteDialog("hard")}
+            disabled={isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              border: "none",
+              borderRadius: 6,
+              padding: "7px 10px",
+              background: "none",
+              textAlign: "left",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#DC2626",
+              cursor: isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id) ? "not-allowed" : "pointer",
+              fontFamily: "inherit",
+              transition: "background-color 0.1s ease",
+              opacity: isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id) ? 0.6 : 1,
+            }}
+            onMouseEnter={(event) => {
+              if (isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)) return;
+              event.currentTarget.style.backgroundColor = "rgba(220,38,38,0.05)";
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.backgroundColor = "transparent";
+            }}
+          >
+            <Trash2 size={12} strokeWidth={1.8} color="#DC2626" />
+            Hard löschen…
+          </button>
+        </div>,
+        document.body,
+      )}
+      {campaignDeleteDialog && deleteTargetCampaign && createPortal(
+        <div
+          onClick={handleCloseCampaignDeleteDialog}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9900,
+            backgroundColor: "rgba(0,0,0,0.25)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 14,
+              boxShadow: "0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)",
+              padding: "20px 20px 16px",
+              width: 420,
+              maxWidth: "92vw",
+              display: "flex",
+              flexDirection: "column",
+              gap: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  flexShrink: 0,
+                  backgroundColor: campaignDeleteDialog.mode === "hard" ? "rgba(220,38,38,0.08)" : "rgba(217,119,6,0.09)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {campaignDeleteDialog.mode === "hard"
+                  ? <AlertTriangle size={13} strokeWidth={1.8} color="#DC2626" />
+                  : <Trash2 size={13} strokeWidth={1.8} color="#d97706" />}
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em" }}>
+                  {campaignDeleteDialog.mode === "hard" ? "Kampagne hard löschen" : "Kampagne soft löschen"}
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(0,0,0,0.42)", marginTop: 3, lineHeight: 1.5 }}>
+                  <span style={{ color: "#1a1a1a", fontWeight: 600 }}>{deleteTargetCampaign.name || "Unbenannte Kampagne"}</span>
+                  {" "}
+                  {campaignDeleteDialog.mode === "hard"
+                    ? "wird dauerhaft entfernt."
+                    : "wird ausgeblendet."}
+                </div>
+              </div>
+            </div>
+            <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.05)", marginBottom: 12 }} />
+            {campaignDeleteDialog.mode === "soft" ? (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 7,
+                  marginBottom: 14,
+                  backgroundColor: "rgba(217,119,6,0.06)",
+                  border: "1px solid rgba(217,119,6,0.16)",
+                }}
+              >
+                <span style={{ fontSize: 10, fontWeight: 600, color: "#b45309" }}>
+                  Soft Delete entfernt nur die Kampagne aus der Ansicht. Submissions bleiben erhalten.
+                </span>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 7,
+                    backgroundColor: "rgba(220,38,38,0.06)",
+                    border: "1px solid rgba(220,38,38,0.16)",
+                  }}
+                >
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#b91c1c" }}>
+                    Hard Delete löscht die Kampagne und alle zugehörigen Submissions dauerhaft.
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.55)" }}>
+                    Zur Bestätigung exakt eingeben:
+                  </label>
+                  <code
+                    style={{
+                      fontSize: 10,
+                      color: "rgba(0,0,0,0.68)",
+                      background: "rgba(0,0,0,0.035)",
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      borderRadius: 6,
+                      padding: "6px 8px",
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                    }}
+                  >
+                    {HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT}
+                  </code>
+                  <input
+                    value={hardDeleteConfirmationInput}
+                    onChange={(event) => setHardDeleteConfirmationInput(event.target.value)}
+                    placeholder="Bestätigungssatz hier eingeben"
+                    style={{
+                      border: `1px solid ${hardDeleteConfirmationInput.length > 0 && !hardDeletePhraseMatches ? "rgba(220,38,38,0.3)" : "rgba(0,0,0,0.16)"}`,
+                      borderRadius: 7,
+                      padding: "8px 10px",
+                      fontSize: 11,
+                      background: "#fff",
+                      color: "#1a1a1a",
+                      fontWeight: 500,
+                      fontFamily: "inherit",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 7 }}>
+              <button
+                onClick={handleCloseCampaignDeleteDialog}
+                disabled={isDeletingCampaign}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
+                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.06)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "rgba(0,0,0,0.4)",
+                  cursor: isDeletingCampaign ? "not-allowed" : "pointer",
+                  opacity: isDeletingCampaign ? 0.7 : 1,
+                  fontFamily: "inherit",
+                }}
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => void handleDeleteCampaign()}
+                disabled={
+                  isDeletingCampaign
+                  || (campaignDeleteDialog.mode === "hard" && !hardDeletePhraseMatches)
+                  || isCampaignBusy(deleteTargetCampaign.id)
+                }
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 8,
+                  border: "none",
+                  background: campaignDeleteDialog.mode === "hard"
+                    ? "linear-gradient(to bottom, #DC2626, #b91c1c)"
+                    : "linear-gradient(to bottom, #f97316, #ea580c)",
+                  boxShadow: campaignDeleteDialog.mode === "hard"
+                    ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)"
+                    : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c2410c, 0 1px 6px rgba(180,80,20,0.18)",
+                  color: "#fff",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: isDeletingCampaign ? "not-allowed" : "pointer",
+                  opacity: isDeletingCampaign
+                    ? 0.85
+                    : campaignDeleteDialog.mode === "hard" && !hardDeletePhraseMatches
+                      ? 0.55
+                      : 1,
+                  fontFamily: "inherit",
+                }}
+              >
+                {isDeletingCampaign
+                  ? "Lösche…"
+                  : campaignDeleteDialog.mode === "hard"
+                    ? "Hard löschen"
+                    : "Soft löschen"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
 
     </div>

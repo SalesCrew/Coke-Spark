@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft, Check, ClipboardList, Zap, Refrigerator, FlaskConical, ShoppingBag,
   Upload, Calendar, ChevronRight, Users, FileSpreadsheet,
@@ -56,6 +57,8 @@ type GmMatchIssue = {
   rowId: string;
   marketId: string;
   gmName: string;
+  gmOverrideKey: string;
+  gmOverrideLabel: string;
   kind: GmMatchIssueKind;
   candidateUserIds: string[];
 };
@@ -114,6 +117,33 @@ function normalizePersonName(value: string | undefined | null) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, " ");
+}
+
+function normalizeEmailValue(value: string | undefined | null) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function extractEmailCandidates(value: string | undefined | null): string[] {
+  const text = String(value ?? "");
+  const matches = text.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) ?? [];
+  return Array.from(new Set(matches.map((entry) => normalizeEmailValue(entry)).filter(Boolean)));
+}
+
+function stripEmailsFromText(value: string | undefined | null) {
+  return String(value ?? "").replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, " ").trim();
+}
+
+function buildGmOverrideKey(value: string | undefined | null) {
+  const emails = extractEmailCandidates(value).sort();
+  if (emails.length > 0) return `email:${emails.join("|")}`;
+  const normalizedName = normalizePersonName(stripEmailsFromText(value));
+  if (normalizedName) return `name:${normalizedName}`;
+  return "missing";
+}
+
+function buildGmOverrideLabel(value: string | undefined | null) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed || "Leerer Mitarbeiter-Wert";
 }
 
 function isTemporaryGmName(value: string | undefined | null) {
@@ -453,6 +483,164 @@ function DatePicker({ value, onChange, placeholder = "Datum wählen", disabled =
         </div>
       )}
     </div>
+  );
+}
+
+type WhiteSelectOption = {
+  value: string;
+  label: string;
+};
+
+function WhiteSelect({
+  value,
+  onChange,
+  options,
+  placeholder = "GM manuell auswählen…",
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  options: WhiteSelectOption[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const selected = options.find((option) => option.value === value) ?? null;
+  const triggerLabel = selected?.label ?? placeholder;
+
+  const updateMenuPosition = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setMenuPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updateMenuPosition();
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const handleWindowChange = () => updateMenuPosition();
+    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [open, updateMenuPosition]);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        style={{
+          width: "100%",
+          border: "1px solid rgba(124,45,18,0.25)",
+          borderRadius: 7,
+          padding: "6px 8px",
+          fontSize: 11,
+          background: "#fff",
+          color: selected ? "#1a1a1a" : "rgba(0,0,0,0.45)",
+          fontWeight: 500,
+          fontFamily: "inherit",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          cursor: "pointer",
+        }}
+      >
+        <span style={{ textAlign: "left", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{triggerLabel}</span>
+        <ChevronDown size={13} strokeWidth={2} color="rgba(0,0,0,0.5)" />
+      </button>
+      {open && menuPos && createPortal(
+        <div
+          ref={menuRef}
+          style={{
+            position: "fixed",
+            top: menuPos.top,
+            left: menuPos.left,
+            width: Math.max(menuPos.width, 230),
+            background: "#fff",
+            border: "1px solid rgba(0,0,0,0.12)",
+            borderRadius: 8,
+            boxShadow: "0 12px 28px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.08)",
+            zIndex: 2200,
+            maxHeight: 260,
+            overflowY: "auto",
+            padding: 4,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+            }}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              border: "none",
+              background: value ? "#fff" : "rgba(0,0,0,0.04)",
+              borderRadius: 6,
+              padding: "8px 10px",
+              fontSize: 11,
+              color: "rgba(0,0,0,0.6)",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {placeholder}
+          </button>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+              style={{
+                width: "100%",
+                textAlign: "left",
+                border: "none",
+                background: value === option.value ? "rgba(0,0,0,0.05)" : "#fff",
+                borderRadius: 6,
+                padding: "8px 10px",
+                fontSize: 11,
+                color: "#1a1a1a",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+              onMouseEnter={(event) => {
+                if (value === option.value) return;
+                event.currentTarget.style.background = "rgba(0,0,0,0.035)";
+              }}
+              onMouseLeave={(event) => {
+                if (value === option.value) return;
+                event.currentTarget.style.background = "#fff";
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -1109,7 +1297,18 @@ function NeuImportWizard({ typeId, onLoad }: { typeId: string; onLoad: (m: NeuMa
 }
 
 // ── Step 3: Markets ───────────────────────────────────────────
-function StepMaerkte({ typeId, markets, onLoad, matchSummary, matchIssues, strictIdentityMode }: {
+function StepMaerkte({
+  typeId,
+  markets,
+  onLoad,
+  matchSummary,
+  matchIssues,
+  strictIdentityMode,
+  gmIssues,
+  gmUsers,
+  gmOverridesByKey,
+  onSetGmOverrideForKey,
+}: {
   typeId: string;
   markets: NeuMarketCandidate[];
   onLoad: (m: NeuMarketItem[]) => void;
@@ -1121,6 +1320,10 @@ function StepMaerkte({ typeId, markets, onLoad, matchSummary, matchIssues, stric
   };
   matchIssues?: MarketMatchResult[];
   strictIdentityMode?: boolean;
+  gmIssues?: GmMatchIssue[];
+  gmUsers?: GMRecord[];
+  gmOverridesByKey?: Record<string, string>;
+  onSetGmOverrideForKey?: (overrideKey: string, gmUserId: string) => void;
 }) {
   const isAuto = CAMPAIGN_TYPES.find(t => t.id === typeId)?.autoMarkets ?? false;
   const hasMarkets = markets.length > 0;
@@ -1128,6 +1331,27 @@ function StepMaerkte({ typeId, markets, onLoad, matchSummary, matchIssues, stric
   const unresolvedIssues = matchIssues ?? [];
   const hasUnresolvedIssues = unresolvedIssues.length > 0;
   const hasImportedState = hasMarkets || (Boolean(strictIdentityMode) && hasUnresolvedIssues);
+  const unresolvedGmIssues = useMemo(
+    () => (gmIssues ?? []).filter((issue) => issue.kind === "missing" || issue.kind === "unmatched" || issue.kind === "ambiguous" || issue.kind === "conflict"),
+    [gmIssues],
+  );
+  const unresolvedGmIssueGroups = useMemo(() => {
+    const byKey = new Map<string, { key: string; label: string; kind: GmMatchIssueKind; count: number }>();
+    for (const issue of unresolvedGmIssues) {
+      const existing = byKey.get(issue.gmOverrideKey);
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+      byKey.set(issue.gmOverrideKey, {
+        key: issue.gmOverrideKey,
+        label: issue.gmOverrideLabel,
+        kind: issue.kind,
+        count: 1,
+      });
+    }
+    return Array.from(byKey.values()).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "de"));
+  }, [unresolvedGmIssues]);
 
   const regionCounts = useMemo(() => {
     const counts: Record<string, number> = isKuehlerCampaign
@@ -1306,6 +1530,54 @@ function StepMaerkte({ typeId, markets, onLoad, matchSummary, matchIssues, stric
               })}
             </div>
           </div>
+
+          {unresolvedGmIssueGroups.length > 0 && gmUsers && onSetGmOverrideForKey && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#92400e", letterSpacing: "0.08em", textTransform: "uppercase" }}>GM-Zuordnung prüfen</span>
+              <div style={{ borderRadius: 11, border: "1px solid rgba(180,83,9,0.22)", background: "rgba(180,83,9,0.07)", overflow: "hidden" }}>
+                {unresolvedGmIssueGroups.slice(0, 20).map((group, idx) => {
+                  return (
+                    <div
+                      key={`${group.key}-${idx}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1.2fr 1.5fr",
+                        gap: 10,
+                        alignItems: "center",
+                        padding: "10px 14px",
+                        borderBottom: idx < Math.min(unresolvedGmIssueGroups.length, 20) - 1 ? "1px solid rgba(180,83,9,0.16)" : "none",
+                        background: "rgba(255,255,255,0.72)",
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#7c2d12" }}>{group.label}</span>
+                        <span style={{ fontSize: 10, color: "rgba(124,45,18,0.9)" }}>
+                          Betroffene Zeilen: {group.count}
+                        </span>
+                        <span style={{ fontSize: 9, color: "rgba(124,45,18,0.85)", fontWeight: 600 }}>
+                          {group.kind === "missing" ? "Kein GM im Importwert" : group.kind === "unmatched" ? "Kein GM gefunden" : group.kind === "ambiguous" ? "Mehrdeutiger GM" : "Konflikt bei GM-Zuordnung"}
+                        </span>
+                      </div>
+                      <WhiteSelect
+                        value={gmOverridesByKey?.[group.key] ?? ""}
+                        onChange={(next) => onSetGmOverrideForKey(group.key, next)}
+                        options={gmUsers.map((gm) => ({
+                          value: gm.id,
+                          label: `${gm.firstName} ${gm.lastName} · ${gm.email}`,
+                        }))}
+                        placeholder="GM manuell auswählen…"
+                      />
+                    </div>
+                  );
+                })}
+                {unresolvedGmIssueGroups.length > 20 && (
+                  <div style={{ padding: "8px 12px", fontSize: 10, color: "#92400e", fontWeight: 600, borderTop: "1px solid rgba(180,83,9,0.16)" }}>
+                    +{unresolvedGmIssueGroups.length - 20} weitere Importwerte in Schritt 4
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Market table */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1527,7 +1799,7 @@ export default function NeuKampagnePage() {
   const [markets, setMarkets] = useState<NeuMarketItem[]>([]);
   const [allMarkets, setAllMarkets] = useState<NeuMarketCandidate[]>([]);
   const [gmUsers, setGmUsers] = useState<GMRecord[]>([]);
-  const [gmOverridesByRowId, setGmOverridesByRowId] = useState<Record<string, string>>({});
+  const [gmOverridesByKey, setGmOverridesByKey] = useState<Record<string, string>>({});
   const [existingCampaigns, setExistingCampaigns] = useState<Campaign[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
@@ -1730,12 +2002,24 @@ export default function NeuKampagnePage() {
     }
     return index;
   }, [gmUsers]);
+  const gmEmailIndex = useMemo(() => {
+    const index = new Map<string, GMRecord[]>();
+    for (const user of gmUsers) {
+      const key = normalizeEmailValue(user.email);
+      if (!key) continue;
+      const bucket = index.get(key) ?? [];
+      bucket.push(user);
+      index.set(key, bucket);
+    }
+    return index;
+  }, [gmUsers]);
 
   const assignmentBuild = useMemo(() => {
     if (isAuto) {
       return {
         assignments: [] as CampaignMarketAssignmentInput[],
         issues: [] as GmMatchIssue[],
+        resolvedByRowId: new Map<string, { gmUserId: string; gmDisplayName: string }>(),
       };
     }
 
@@ -1744,65 +2028,110 @@ export default function NeuKampagnePage() {
     const assignments: CampaignMarketAssignmentInput[] = [];
     const assignmentSlotsByMarketAndGm = new Map<string, number>();
     const issues: GmMatchIssue[] = [];
+    const resolvedByRowId = new Map<string, { gmUserId: string; gmDisplayName: string }>();
 
     for (const result of matchedRows) {
       const rowId = result.row.id;
       const marketId = result.marketId as string;
       const gmName = result.row.gm ?? "";
-      const overrideGmId = gmOverridesByRowId[rowId];
+      const gmOverrideKey = buildGmOverrideKey(gmName);
+      const gmOverrideLabel = buildGmOverrideLabel(gmName);
+      const overrideGmId = gmOverridesByKey[gmOverrideKey];
 
       let resolvedGmId: string | null = null;
       let candidates: GMRecord[] = [];
+      let resolvedGm: GMRecord | null = null;
 
       if (overrideGmId) {
         const selected = gmUsers.find((gm) => gm.id === overrideGmId);
         if (selected) {
           resolvedGmId = selected.id;
+          resolvedGm = selected;
           candidates = [selected];
         } else {
           issues.push({
             rowId,
             marketId,
             gmName,
+            gmOverrideKey,
+            gmOverrideLabel,
             kind: "unmatched",
             candidateUserIds: [],
           });
           continue;
         }
       } else {
-        const normalizedGm = normalizePersonName(gmName);
-        if (!normalizedGm) {
+        const emailCandidates = extractEmailCandidates(gmName);
+        const gmNameWithoutEmail = stripEmailsFromText(gmName);
+        const normalizedGm = normalizePersonName(gmNameWithoutEmail);
+        if (!normalizedGm && emailCandidates.length === 0) {
           issues.push({
             rowId,
             marketId,
             gmName,
+            gmOverrideKey,
+            gmOverrideLabel,
             kind: "missing",
             candidateUserIds: [],
           });
           continue;
         }
-        candidates = gmNameIndex.get(normalizedGm) ?? [];
-        if (candidates.length === 0) {
-          issues.push({
-            rowId,
-            marketId,
-            gmName,
-            kind: "unmatched",
-            candidateUserIds: [],
-          });
-          continue;
+
+        if (emailCandidates.length > 0) {
+          const emailMatched = new Map<string, GMRecord>();
+          for (const email of emailCandidates) {
+            for (const user of gmEmailIndex.get(email) ?? []) {
+              emailMatched.set(user.id, user);
+            }
+          }
+          const emailMatches = Array.from(emailMatched.values());
+          if (emailMatches.length === 1) {
+            resolvedGm = emailMatches[0] ?? null;
+            resolvedGmId = resolvedGm?.id ?? null;
+            candidates = emailMatches;
+          } else if (emailMatches.length > 1) {
+            issues.push({
+              rowId,
+              marketId,
+              gmName,
+              gmOverrideKey,
+              gmOverrideLabel,
+              kind: "ambiguous",
+              candidateUserIds: emailMatches.map((candidate) => candidate.id),
+            });
+            continue;
+          }
         }
-        if (candidates.length > 1) {
-          issues.push({
-            rowId,
-            marketId,
-            gmName,
-            kind: "ambiguous",
-            candidateUserIds: candidates.map((candidate) => candidate.id),
-          });
-          continue;
+
+        if (!resolvedGmId && normalizedGm) {
+          candidates = gmNameIndex.get(normalizedGm) ?? [];
+          if (candidates.length === 0) {
+            issues.push({
+              rowId,
+              marketId,
+              gmName,
+              gmOverrideKey,
+              gmOverrideLabel,
+              kind: "unmatched",
+              candidateUserIds: [],
+            });
+            continue;
+          }
+          if (candidates.length > 1) {
+            issues.push({
+              rowId,
+              marketId,
+              gmName,
+              gmOverrideKey,
+              gmOverrideLabel,
+              kind: "ambiguous",
+              candidateUserIds: candidates.map((candidate) => candidate.id),
+            });
+            continue;
+          }
+          resolvedGm = candidates[0] ?? null;
+          resolvedGmId = resolvedGm?.id ?? null;
         }
-        resolvedGmId = candidates[0]?.id ?? null;
       }
 
       if (!resolvedGmId) {
@@ -1810,10 +2139,22 @@ export default function NeuKampagnePage() {
           rowId,
           marketId,
           gmName,
+          gmOverrideKey,
+          gmOverrideLabel,
           kind: "unmatched",
           candidateUserIds: candidates.map((candidate) => candidate.id),
         });
         continue;
+      }
+      if (!resolvedGm) {
+        resolvedGm = gmUsers.find((gm) => gm.id === resolvedGmId) ?? null;
+      }
+      if (resolvedGm) {
+        const displayName = `${resolvedGm.firstName} ${resolvedGm.lastName}`.trim() || resolvedGm.email;
+        resolvedByRowId.set(rowId, {
+          gmUserId: resolvedGm.id,
+          gmDisplayName: displayName,
+        });
       }
 
       const assignmentKey = `${marketId}:${resolvedGmId}`;
@@ -1848,8 +2189,9 @@ export default function NeuKampagnePage() {
     return {
       assignments: matchMode === "kuehler_stammnr" ? assignments : Array.from(assignmentByMarketAndGm.values()),
       issues,
+      resolvedByRowId,
     };
-  }, [gmNameIndex, gmOverridesByRowId, gmUsers, isAuto, matchMode, matcherReport.results]);
+  }, [gmEmailIndex, gmNameIndex, gmOverridesByKey, gmUsers, isAuto, matchMode, matcherReport.results]);
 
   const gmIssueByRowId = useMemo(() => {
     const map = new Map<string, GmMatchIssue>();
@@ -1858,6 +2200,41 @@ export default function NeuKampagnePage() {
     }
     return map;
   }, [assignmentBuild.issues]);
+  const gmIssueGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; count: number; kind: GmMatchIssueKind }>();
+    for (const issue of assignmentBuild.issues) {
+      const existing = groups.get(issue.gmOverrideKey);
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+      groups.set(issue.gmOverrideKey, {
+        key: issue.gmOverrideKey,
+        label: issue.gmOverrideLabel,
+        count: 1,
+        kind: issue.kind,
+      });
+    }
+    return Array.from(groups.values()).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "de"));
+  }, [assignmentBuild.issues]);
+  const gmResolvedDisplayByRowId = useMemo(() => {
+    const record: Record<string, string> = {};
+    for (const [rowId, resolved] of assignmentBuild.resolvedByRowId.entries()) {
+      record[rowId] = resolved.gmDisplayName;
+    }
+    return record;
+  }, [assignmentBuild.resolvedByRowId]);
+  const matchedMarketRowsWithResolvedGm = useMemo(() => {
+    if (matchMode !== "kuehler_stammnr") return matchedMarketRows;
+    return matchedMarketRows.map((market) => {
+      const resolvedGm = gmResolvedDisplayByRowId[market.id];
+      const issue = gmIssueByRowId.get(market.id);
+      return {
+        ...market,
+        gm: resolvedGm ?? (issue ? "GM prüfen" : market.gm),
+      };
+    });
+  }, [gmIssueByRowId, gmResolvedDisplayByRowId, matchMode, matchedMarketRows]);
 
   const matcherDisplayRows = useMemo(() => {
     const byId = new Map<string, MarketMatchResult>();
@@ -1873,7 +2250,9 @@ export default function NeuKampagnePage() {
   }, [gmIssueByRowId, matcherIssueRows, matcherReport.results]);
 
   const gmBlockingIssues = assignmentBuild.issues.length;
-  const canCreate = !!name && !isSubmitting && (isAuto || (gmBlockingIssues === 0 && identityBlockingCount === 0));
+  const hasAssignmentsToCreate = assignmentBuild.assignments.length > 0;
+  const gmIssuesAreBlocking = matchMode !== "kuehler_stammnr" && gmBlockingIssues > 0;
+  const canCreate = !!name && !isSubmitting && (isAuto || (identityBlockingCount === 0 && hasAssignmentsToCreate && !gmIssuesAreBlocking));
 
   const updateMatcherRow = useCallback((rowId: string, field: "name" | "gm", value: string) => {
     setMarkets((current) =>
@@ -1883,14 +2262,14 @@ export default function NeuKampagnePage() {
     );
   }, []);
 
-  const setGmOverride = useCallback((rowId: string, gmUserId: string) => {
-    setGmOverridesByRowId((current) => {
+  const setGmOverrideForKey = useCallback((overrideKey: string, gmUserId: string) => {
+    setGmOverridesByKey((current) => {
       if (!gmUserId) {
         const next = { ...current };
-        delete next[rowId];
+        delete next[overrideKey];
         return next;
       }
-      return { ...current, [rowId]: gmUserId };
+      return { ...current, [overrideKey]: gmUserId };
     });
   }, []);
 
@@ -2103,18 +2482,22 @@ export default function NeuKampagnePage() {
             {step === 3 && (
               <StepMaerkte
                 typeId={typeId}
-                markets={matchedMarketRows}
+                markets={matchedMarketRowsWithResolvedGm}
                 onLoad={setMarkets}
                 matchSummary={step3MatchSummary}
                 matchIssues={step3MatchIssues}
                 strictIdentityMode={matchMode === "kuehler_stammnr"}
+                gmIssues={assignmentBuild.issues}
+                gmUsers={gmUsers}
+                gmOverridesByKey={gmOverridesByKey}
+                onSetGmOverrideForKey={setGmOverrideForKey}
               />
             )}
             {step === 4 && (
               <StepUebersicht
                 typeId={typeId} name={name}
                 startDate={startDate} endDate={endDate}
-                startNow={startNow} markets={matchMode === "kuehler_stammnr" ? matchedMarketRows : markets}
+                startNow={startNow} markets={matchMode === "kuehler_stammnr" ? matchedMarketRowsWithResolvedGm : markets}
               />
             )}
           </div>
@@ -2217,7 +2600,11 @@ export default function NeuKampagnePage() {
               )}
               {(matcherReport.ambiguous > 0 || matcherReport.unmatched > 0 || gmBlockingIssues > 0) && (
                 <div style={{ marginTop: 6, color: "#b45309", fontWeight: 600 }}>
-                  Nicht zuordenbare Felder muessen vor dem Erstellen korrigiert werden (inkl. GM-Zuordnung).
+                  {matcherReport.ambiguous > 0 || matcherReport.unmatched > 0
+                    ? "Nicht zuordenbare Maerkte muessen vor dem Erstellen korrigiert werden."
+                    : matchMode === "kuehler_stammnr"
+                      ? "Zeilen ohne zuordenbaren GM werden beim Erstellen automatisch uebersprungen."
+                      : "Nicht zuordenbare Felder muessen vor dem Erstellen korrigiert werden (inkl. GM-Zuordnung)."}
                 </div>
               )}
               {matcherDisplayRows.length > 0 && (
@@ -2272,18 +2659,7 @@ export default function NeuKampagnePage() {
                             }
                           </div>
                           <div style={{ color: "rgba(124,45,18,0.9)" }}>
-                            <select
-                              value={gmOverridesByRowId[issue.row.id] ?? ""}
-                              onChange={(event) => setGmOverride(issue.row.id, event.target.value)}
-                              style={{ border: "1px solid rgba(124,45,18,0.25)", borderRadius: 5, padding: "3px 6px", fontSize: 11, background: "#fff", minWidth: 180 }}
-                            >
-                              <option value="">GM manuell auswählen…</option>
-                              {gmUsers.map((gm) => (
-                                <option key={gm.id} value={gm.id}>
-                                  {gm.firstName} {gm.lastName}
-                                </option>
-                              ))}
-                            </select>
+                            Importwert-Gruppe: {gmIssue.gmOverrideLabel}
                           </div>
                         </>
                       )}
@@ -2292,6 +2668,46 @@ export default function NeuKampagnePage() {
                   {matcherDisplayRows.length > 10 && (
                     <div style={{ color: "rgba(124,45,18,0.85)", fontWeight: 600 }}>
                       +{matcherDisplayRows.length - 10} weitere Problemzeilen
+                    </div>
+                  )}
+                  {gmIssueGroups.length > 0 && (
+                    <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e" }}>
+                        GM manuell pro Importwert zuordnen
+                      </div>
+                      {gmIssueGroups.slice(0, 12).map((group) => (
+                        <div
+                          key={group.key}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1.1fr 1.4fr",
+                            gap: 8,
+                            alignItems: "center",
+                            padding: "6px 8px",
+                            borderRadius: 6,
+                            border: "1px solid rgba(180,83,9,0.18)",
+                            background: "rgba(255,255,255,0.75)",
+                          }}
+                        >
+                          <div style={{ color: "rgba(124,45,18,0.9)", fontSize: 11, fontWeight: 600 }}>
+                            {group.label} · {group.count} Zeilen
+                          </div>
+                          <WhiteSelect
+                            value={gmOverridesByKey[group.key] ?? ""}
+                            onChange={(next) => setGmOverrideForKey(group.key, next)}
+                            options={gmUsers.map((gm) => ({
+                              value: gm.id,
+                              label: `${gm.firstName} ${gm.lastName}`,
+                            }))}
+                            placeholder="GM manuell auswählen…"
+                          />
+                        </div>
+                      ))}
+                      {gmIssueGroups.length > 12 && (
+                        <div style={{ color: "rgba(124,45,18,0.85)", fontWeight: 600 }}>
+                          +{gmIssueGroups.length - 12} weitere Importwert-Gruppen
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

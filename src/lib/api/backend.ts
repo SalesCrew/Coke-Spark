@@ -2058,6 +2058,13 @@ export async function deleteCampaign(campaignId: string): Promise<void> {
   await authedFetch(`/admin/campaigns/${campaignId}/delete`, { method: "PATCH" });
 }
 
+export async function hardDeleteCampaign(campaignId: string, confirmationText: string): Promise<void> {
+  await authedFetch(`/admin/campaigns/${campaignId}/hard-delete`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmationText }),
+  });
+}
+
 export async function assignCampaignMarkets(campaignId: string, marketIds: string[]): Promise<Campaign> {
   const data = (await authedFetch(`/admin/campaigns/${campaignId}/markets`, {
     method: "POST",

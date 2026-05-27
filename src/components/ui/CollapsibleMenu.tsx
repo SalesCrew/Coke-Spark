@@ -7,6 +7,8 @@ import { Home, Clock, Calendar, User, LogOut } from "lucide-react";
 export interface MenuItem {
   label: string;
   icon: React.ReactNode;
+  action?: "navigate" | "logout";
+  tone?: "default" | "danger";
 }
 
 interface CollapsibleMenuProps {
@@ -68,12 +70,23 @@ export function CollapsibleMenu({
       setExpanded(false);
       setHoveredIndex(null);
       isHolding.current = false;
-      if (index !== null && index !== activeIndex) {
-        setActiveIndex(index);
-        onSelect?.(index, items[index]);
+      if (index !== null) {
+        const selectedItem = items[index];
+        onSelect?.(index, selectedItem);
+
+        if (selectedItem.action === "logout") {
+          if (!onSelect && typeof onLogout === "function") {
+            onLogout();
+          }
+          return;
+        }
+
+        if (index !== activeIndex) {
+          setActiveIndex(index);
+        }
       }
     },
-    [activeIndex, items, onSelect]
+    [activeIndex, items, onLogout, onSelect]
   );
 
   // --- Mouse ---
@@ -177,6 +190,9 @@ export function CollapsibleMenu({
         >
           {items.map((item, i) => {
             const isSelected = i === displayIndex;
+            const isDanger = item.tone === "danger" || item.action === "logout";
+            const dangerSoftBackground = "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(254,226,226,0.94))";
+            const dangerSoftShadow = "inset 0 1px 0 rgba(255,255,255,0.7), 0 0 0 1px rgba(220,38,38,0.16), 0 1px 4px rgba(185,28,28,0.1)";
 
             return (
               <div
@@ -196,9 +212,13 @@ export function CollapsibleMenu({
                     : "transparent",
                   background: isSelected
                     ? "linear-gradient(to bottom, #DC2626, #e84040)"
+                    : isDanger
+                      ? dangerSoftBackground
                     : undefined,
                   boxShadow: isSelected
                     ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
+                    : isDanger
+                      ? dangerSoftShadow
                     : undefined,
                 }}
               >
@@ -207,7 +227,7 @@ export function CollapsibleMenu({
                   className="transition-colors duration-200"
                   style={{
                     gridColumn: 2,
-                    color: isSelected ? "#ffffff" : "rgba(0,0,0,0.3)",
+                    color: isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.3)",
                   }}
                 >
                   {item.icon}
@@ -220,7 +240,7 @@ export function CollapsibleMenu({
                   )}
                   style={{
                     gridColumn: 4,
-                    color: isSelected ? "#ffffff" : "rgba(0,0,0,0.45)",
+                    color: isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.45)",
                   }}
                 >
                   {item.label}

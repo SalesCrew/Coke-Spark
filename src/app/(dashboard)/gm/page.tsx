@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Home, Clock, Calendar, User, Map } from "lucide-react";
+import { Home, Clock, Calendar, User, Map, LogOut } from "lucide-react";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GMStatusCard } from "@/components/dashboard/GMStatusCard";
 import { BonusCircles } from "@/components/dashboard/BonusCircles";
@@ -30,6 +30,7 @@ const gmMenuItems = [
   { label: "Zeiterfassung", icon: <Clock size={11} strokeWidth={1.8} /> },
   { label: "Kalender", icon: <Calendar size={11} strokeWidth={1.8} /> },
   { label: "Profil", icon: <User size={11} strokeWidth={1.8} /> },
+  { label: "Logout", icon: <LogOut size={11} strokeWidth={1.9} />, action: "logout" as const, tone: "danger" as const },
 ];
 
 export default function GMDashboard() {
@@ -160,10 +161,16 @@ export default function GMDashboard() {
         <CollapsibleMenu
           items={gmMenuItems}
           defaultIndex={0}
-          onLogout={() => {
-            logoutCurrentUser();
-            router.push("/");
-            router.refresh();
+          onSelect={(_index, item) => {
+            if (item.action === "logout") {
+              logoutCurrentUser();
+              if (typeof window !== "undefined") {
+                window.location.assign("/");
+                return;
+              }
+              router.replace("/");
+              router.refresh();
+            }
           }}
         />
       </div>

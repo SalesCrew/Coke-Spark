@@ -18,7 +18,7 @@ import { ModuleProvider, useModules } from "@/context/ModuleContext";
 import { FragebogenProvider, useFragebogen } from "@/context/FragebogenContext";
 import { RedMonthProvider } from "@/context/RedMonthContext";
 import type { Module, Fragebogen, Question } from "@/types/fragebogen";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   createFragebogen,
   createModule,
@@ -29,7 +29,6 @@ import {
   fetchFragebogen,
   fetchMarketChains,
   fetchModules,
-  readAuthSession,
   updateFragebogenBackend,
   updateModuleBackend,
   type FragebogenScope,
@@ -39,6 +38,7 @@ import {
   type KuehlerCtxValue, type MhdCtxValue, type FlexCtxValue, type BillaCtxValue,
 } from "@/app/admin/adminContexts";
 import { RedMonthHeaderControl } from "@/components/admin/RedMonthHeaderControl";
+import { useAuthGuard } from "@/hooks/useAuthGuard";
 
 // ── Purple accent colours (used by MHD) ───────────────────────
 
@@ -57,9 +57,9 @@ function collectUniqueQuestionsFromModules(inputModules: Module[]): Question[] {
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { addModule, updateModule, deleteModule, setEditHandler: setModuleEditHandler, modules } = useModules();
   const { addFragebogen, updateFragebogen, deleteFragebogen, setEditHandler: setFbEditHandler, fragebogenList } = useFragebogen();
-  const router = useRouter();
   const pathname = usePathname();
-  const [authChecked, setAuthChecked] = useState(false);
+  const { session, status } = useAuthGuard("admin");
+  const authChecked = status === "authorized";
   const isKuehler = pathname.startsWith("/admin/kuehlerinventur");
   const isMhd = pathname.startsWith("/admin/mhd");
   const isFlex = pathname.startsWith("/admin/flexbesuche");
@@ -77,20 +77,6 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [availableMarketChains, setAvailableMarketChains] = useState<string[]>([]);
   const importTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const session = readAuthSession();
-    if (!session) {
-      router.replace("/");
-      return;
-    }
-    if (session.user.role !== "admin") {
-      const target = session.user.role === "gm" ? "/gm" : session.user.role === "sm" ? "/sm" : "/";
-      router.replace(target);
-      return;
-    }
-    setAuthChecked(true);
-  }, [router]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -115,6 +101,10 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { setModuleEditHandler(openEditModule); }, [setModuleEditHandler]);
   useEffect(() => { setFbEditHandler(openEditFb); }, [setFbEditHandler]);
+  useEffect(() => {
+    if (!session?.user.id) return;
+    fragebogenLoadedRef.current = false;
+  }, [session?.user.id]);
 
   const handleModuleSave = async (m: Module) => {
     const persisted = editingModule
@@ -556,9 +546,15 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [addFragebogen, addModule, authChecked, fragebogenList.length, modules.length]);
+  }, [addFragebogen, addModule, authChecked, fragebogenList.length, modules.length, session?.user.id]);
 
-  if (!authChecked) return null;
+  if (!authChecked) {
+    return (
+      <main className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#f5f5f7" }}>
+        <p style={{ fontSize: 12, fontWeight: 600, color: "rgba(0,0,0,0.45)" }}>Authentifizierung wird geprüft...</p>
+      </main>
+    );
+  }
 
   const sharedPoolExistingQuestions = collectUniqueQuestionsFromModules([...modules, ...flexModules, ...billaModules]);
   const standardExistingQuestions = sharedPoolExistingQuestions;

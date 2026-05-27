@@ -13,15 +13,25 @@ import type {
 import type { PraemienGmBonusSummary, PraemienQuarter, PraemienSourceRef } from "@/types/praemien";
 import type { ColumnMapping, ImportSummary } from "@/utils/marketImport";
 import type { IppQuestionAuditRow } from "@/types/ipp";
-import type { CreateLagerInput, LagerRecord } from "@/types/lager";
+import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod } from "@/types/red-month";
 import { emitClientTelemetry } from "@/lib/clientTelemetry";
+import {
+  LEGACY_AUTH_STORAGE_KEY,
+  clearAllAuthSessions,
+  emitAuthSessionChanged,
+  readActiveAuthSession,
+  readActiveAuthSessionWithTarget,
+  saveActiveAuthSession,
+  subscribeToAuthSessionChanges,
+  type AuthSessionPayload,
+} from "@/lib/auth/sessionRegistry";
 
 export type LoginRole = "gm" | "sm" | "admin" | "coke";
+export type { AuthSessionPayload };
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000").replace(/\/$/, "");
-export const AUTH_STORAGE_KEY = "coke_spark_auth_v1";
-type AuthStorageTarget = "local" | "session";
+export const AUTH_STORAGE_KEY = LEGACY_AUTH_STORAGE_KEY;
 
 export class BackendApiError extends Error {
   status: number;
@@ -108,6 +118,8 @@ type BackendLager = {
   address: string;
   postalCode: string;
   city: string;
+  gmUserIds?: string[] | null;
+  gmNames?: string[] | null;
   gmUserId: string | null;
   gmName: string | null;
   createdAt: string;
@@ -267,71 +279,96 @@ type BackendIppDetailRecord = BackendIppListRow & {
   questionRows: IppQuestionAuditRow[];
 };
 
-export type AuthSessionPayload = {
-  user: {
-    id: string;
-    role: "admin" | "gm" | "sm";
-    email: string;
-    firstName: string;
-    lastName: string;
-  };
-  session: {
-    accessToken: string;
-    refreshToken: string;
-    expiresAt: number | null;
-  };
-};
+function getAuthPrincipalKey(session: AuthSessionPayload | null): string | null {
+  if (!session) return null;
+  return `${session.user.id}:${session.user.role}`;
+}
 
-function getAuthStorage(target: AuthStorageTarget): Storage | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return target === "local" ? window.localStorage : window.sessionStorage;
-  } catch {
-    return null;
+function removeStorageKeysWithPrefix(storage: Storage | null, prefix: string): void {
+  if (!storage) return;
+  const keysToRemove: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (!key) continue;
+    if (key.startsWith(prefix)) {
+      keysToRemove.push(key);
+    }
+  }
+  for (const key of keysToRemove) {
+    storage.removeItem(key);
   }
 }
 
-function readAuthSessionFromStorage(target: AuthStorageTarget): AuthSessionPayload | null {
-  const storage = getAuthStorage(target);
-  if (!storage) return null;
-  try {
-    const raw = storage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as AuthSessionPayload;
-  } catch {
-    return null;
+function purgeAuthScopedClientState(options?: { emit?: boolean }): void {
+  if (typeof window !== "undefined") {
+    try {
+      removeStorageKeysWithPrefix(window.sessionStorage, GM_KPI_SUMMARY_CACHE_PREFIX);
+      window.sessionStorage.removeItem(LEGACY_GM_KPI_SUMMARY_CACHE_KEY);
+      removeStorageKeysWithPrefix(window.sessionStorage, GM_VISIT_PRELOAD_CACHE_PREFIX);
+      window.localStorage.removeItem("admin_market_visits_v1");
+      window.localStorage.removeItem("admin_photo_tag_pool_v1");
+      removeStorageKeysWithPrefix(window.localStorage, "admin_photo_tag_pool_v2:");
+    } catch {
+      // noop
+    }
+  }
+  clearInMemoryGmVisitPreloadCache();
+  if (options?.emit !== false) {
+    emitAuthSessionChanged("cache-purge");
   }
 }
 
-function readAuthSessionWithTarget(): { payload: AuthSessionPayload; target: AuthStorageTarget } | null {
-  const sessionPayload = readAuthSessionFromStorage("session");
-  if (sessionPayload) {
-    return { payload: sessionPayload, target: "session" };
-  }
-  const localPayload = readAuthSessionFromStorage("local");
-  if (localPayload) {
-    return { payload: localPayload, target: "local" };
-  }
-  return null;
+export function resolveRoleHomePath(role: "admin" | "gm" | "sm"): string {
+  if (role === "admin") return "/admin";
+  if (role === "gm") return "/gm";
+  return "/sm";
+}
+
+export function subscribeAuthSession(listener: () => void): () => void {
+  return subscribeToAuthSessionChanges(listener);
 }
 
 export function saveAuthSession(payload: AuthSessionPayload, options?: { remember?: boolean }) {
-  const target: AuthStorageTarget = options?.remember === false ? "session" : "local";
-  const targetStorage = getAuthStorage(target);
-  const otherStorage = getAuthStorage(target === "local" ? "session" : "local");
-  const serialized = JSON.stringify(payload);
-
-  targetStorage?.setItem(AUTH_STORAGE_KEY, serialized);
-  otherStorage?.removeItem(AUTH_STORAGE_KEY);
+  const beforePrincipal = getAuthPrincipalKey(readAuthSession());
+  saveActiveAuthSession(payload, options);
+  const afterPrincipal = getAuthPrincipalKey(readAuthSession());
+  if (beforePrincipal !== afterPrincipal) {
+    purgeAuthScopedClientState({ emit: false });
+    emitAuthSessionChanged("identity-switch");
+  }
 }
 
-export function clearAuthSession() {
-  getAuthStorage("local")?.removeItem(AUTH_STORAGE_KEY);
-  getAuthStorage("session")?.removeItem(AUTH_STORAGE_KEY);
+export function clearAuthSession(options?: { emit?: boolean }) {
+  clearAllAuthSessions({ emit: false });
+  purgeAuthScopedClientState({ emit: false });
+  if (options?.emit !== false) {
+    emitAuthSessionChanged("logout");
+  }
+}
+
+export function logoutCurrentUser() {
+  clearAuthSession();
+}
+
+let authSessionObserverInstalled = false;
+let lastObservedPrincipalKey: string | null = null;
+
+function ensureAuthSessionObserver(): void {
+  if (authSessionObserverInstalled || typeof window === "undefined") return;
+  authSessionObserverInstalled = true;
+  lastObservedPrincipalKey = getAuthPrincipalKey(readAuthSession());
+  subscribeToAuthSessionChanges(() => {
+    const nextPrincipal = getAuthPrincipalKey(readAuthSession());
+    if (nextPrincipal !== lastObservedPrincipalKey) {
+      purgeAuthScopedClientState({ emit: false });
+      lastObservedPrincipalKey = nextPrincipal;
+    }
+  });
 }
 
 export function readAuthSession(): AuthSessionPayload | null {
-  return readAuthSessionWithTarget()?.payload ?? null;
+  ensureAuthSessionObserver();
+  return readActiveAuthSession();
 }
 
 export function getAccessToken(): string | null {
@@ -341,7 +378,7 @@ export function getAccessToken(): string | null {
 export async function loginWithBackend(input: {
   email: string;
   password: string;
-  role: LoginRole;
+  role?: LoginRole;
 }): Promise<AuthSessionPayload> {
   const res = await fetch(`${BACKEND_URL}/auth/login`, {
     method: "POST",
@@ -433,16 +470,50 @@ function mapBackendKuehlerUnitToRecord(unit: BackendKuehlerUnit): KuehlerUnitRec
 }
 
 function mapBackendLagerToLagerRecord(input: BackendLager): LagerRecord {
+  const gmUserIds = Array.isArray(input.gmUserIds)
+    ? Array.from(
+        new Set(
+          input.gmUserIds.filter((entry): entry is string => typeof entry === "string" && entry.length > 0),
+        ),
+      )
+    : input.gmUserId
+      ? [input.gmUserId]
+      : [];
+  const gmNames = Array.isArray(input.gmNames)
+    ? Array.from(
+        new Set(
+          input.gmNames
+            .filter((entry): entry is string => typeof entry === "string")
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0),
+        ),
+      )
+    : input.gmName
+      ? [input.gmName]
+      : [];
   return {
     id: input.id,
     address: input.address,
     postalCode: input.postalCode,
     city: input.city,
-    gmUserId: input.gmUserId ?? null,
-    gmName: input.gmName ?? null,
+    gmUserIds,
+    gmNames,
+    gmUserId: gmUserIds[0] ?? input.gmUserId ?? null,
+    gmName: gmNames[0] ?? input.gmName ?? null,
     createdAt: input.createdAt,
     updatedAt: input.updatedAt,
   };
+}
+
+function normalizeLagerGmUserIds(input: { gmUserIds?: string[]; gmUserId?: string | null }): string[] {
+  return Array.from(
+    new Set(
+      (Array.isArray(input.gmUserIds) ? input.gmUserIds : input.gmUserId ? [input.gmUserId] : [])
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ),
+  );
 }
 
 function mapBackendRedMonthPeriod(period: BackendRedMonthPeriod): RedMonthPeriod {
@@ -485,10 +556,23 @@ function buildClientActionName(path: string, method: string): string {
   return `ui_api_${methodPart}_${pathPart || "root"}`;
 }
 
+function isAuthFailureStatus(status: number, code: string | null): boolean {
+  if (status === 401) return true;
+  if (status !== 403) return false;
+  if (!code) return true;
+  return code.startsWith("auth_") || code === "forbidden";
+}
+
+function handleAuthExpired(reason: string): void {
+  clearAuthSession({ emit: false });
+  emitAuthSessionChanged(reason);
+}
+
 async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 30000) {
   const token = getAccessToken();
   if (!token) {
-    throw new Error("Nicht eingeloggt. Bitte als Admin anmelden.");
+    handleAuthExpired("missing-access-token");
+    throw new Error("Nicht eingeloggt. Bitte erneut anmelden.");
   }
 
   const controller = new AbortController();
@@ -525,6 +609,10 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
     }
 
     if (!res.ok) {
+      const code = typeof data?.code === "string" ? data.code : null;
+      if (isAuthFailureStatus(res.status, code)) {
+        handleAuthExpired(`api-auth-failed:${res.status}`);
+      }
       if (shouldTrack) {
         emitClientTelemetry({
           backendUrl: BACKEND_URL,
@@ -539,13 +627,12 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
               path,
               method,
               retriedAfter401: refreshedAfter401,
-              errorCode: typeof data?.code === "string" ? data.code : null,
+              errorCode: code,
             },
           },
         });
       }
       const msg = typeof data?.error === "string" ? data.error : "Backend request failed.";
-      const code = typeof data?.code === "string" ? data.code : null;
       throw new BackendApiError(msg, res.status, code, data);
     }
 
@@ -986,13 +1073,28 @@ export type GmKpiSummary = {
   lastComputedAt: string;
 };
 
-const GM_KPI_SUMMARY_CACHE_KEY = "gm_kpi_summary_v1";
+const LEGACY_GM_KPI_SUMMARY_CACHE_KEY = "gm_kpi_summary_v1";
+const GM_KPI_SUMMARY_CACHE_PREFIX = "gm_kpi_summary_v2:";
+
+function getGmKpiSummaryCacheKey(userId: string): string {
+  return `${GM_KPI_SUMMARY_CACHE_PREFIX}${userId}`;
+}
 
 export function readCachedGmKpiSummary(): GmKpiSummary | null {
   if (typeof window === "undefined") return null;
+  const activeUserId = readAuthSession()?.user.id;
+  if (!activeUserId) return null;
   let raw: string | null = null;
   try {
-    raw = window.sessionStorage.getItem(GM_KPI_SUMMARY_CACHE_KEY);
+    raw = window.sessionStorage.getItem(getGmKpiSummaryCacheKey(activeUserId));
+    if (!raw) {
+      const legacy = window.sessionStorage.getItem(LEGACY_GM_KPI_SUMMARY_CACHE_KEY);
+      if (legacy) {
+        raw = legacy;
+        window.sessionStorage.setItem(getGmKpiSummaryCacheKey(activeUserId), legacy);
+        window.sessionStorage.removeItem(LEGACY_GM_KPI_SUMMARY_CACHE_KEY);
+      }
+    }
   } catch {
     return null;
   }
@@ -1015,8 +1117,11 @@ export function readCachedGmKpiSummary(): GmKpiSummary | null {
 
 export function writeCachedGmKpiSummary(summary: GmKpiSummary): void {
   if (typeof window === "undefined") return;
+  const activeUserId = readAuthSession()?.user.id;
+  if (!activeUserId) return;
   try {
-    window.sessionStorage.setItem(GM_KPI_SUMMARY_CACHE_KEY, JSON.stringify(summary));
+    window.sessionStorage.setItem(getGmKpiSummaryCacheKey(activeUserId), JSON.stringify(summary));
+    window.sessionStorage.removeItem(LEGACY_GM_KPI_SUMMARY_CACHE_KEY);
   } catch {
     // noop
   }
@@ -1037,9 +1142,9 @@ export async function fetchGmKpiSummary(): Promise<GmKpiSummary> {
 }
 
 async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
-  const currentSession = readAuthSessionWithTarget();
+  const currentSession = readActiveAuthSessionWithTarget();
   if (!currentSession?.payload.session.refreshToken) {
-    clearAuthSession();
+    handleAuthExpired("refresh-missing-token");
     return null;
   }
 
@@ -1051,12 +1156,20 @@ async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
 
   const data = (await res.json().catch(() => ({}))) as { error?: string } & Partial<AuthSessionPayload>;
   if (!res.ok || !data.user || !data.session) {
-    clearAuthSession();
+    handleAuthExpired("refresh-failed");
+    return null;
+  }
+
+  if (
+    data.user.id !== currentSession.payload.user.id ||
+    data.user.role !== currentSession.payload.user.role
+  ) {
+    handleAuthExpired("refresh-identity-mismatch");
     return null;
   }
 
   const refreshed = data as AuthSessionPayload;
-  saveAuthSession(refreshed, { remember: currentSession.target === "local" });
+  saveAuthSession(refreshed, { remember: currentSession.remember });
   return refreshed;
 }
 
@@ -1111,13 +1224,30 @@ export async function fetchAdminLager(): Promise<LagerRecord[]> {
 }
 
 export async function createAdminLager(input: CreateLagerInput): Promise<LagerRecord> {
+  const gmUserIds = normalizeLagerGmUserIds(input);
   const data = (await authedFetch("/admin/lager", {
     method: "POST",
     body: JSON.stringify({
       address: input.address,
       postalCode: input.postalCode,
       city: input.city,
-      gmUserId: input.gmUserId ?? null,
+      gmUserIds,
+      gmUserId: gmUserIds[0] ?? null,
+    }),
+  })) as { lager: BackendLager };
+  return mapBackendLagerToLagerRecord(data.lager);
+}
+
+export async function updateAdminLager(input: UpdateLagerInput): Promise<LagerRecord> {
+  const gmUserIds = normalizeLagerGmUserIds(input);
+  const data = (await authedFetch(`/admin/lager/${input.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      address: input.address,
+      postalCode: input.postalCode,
+      city: input.city,
+      gmUserIds,
+      gmUserId: gmUserIds[0] ?? null,
     }),
   })) as { lager: BackendLager };
   return mapBackendLagerToLagerRecord(data.lager);
@@ -1481,10 +1611,11 @@ export type GmVisitSessionPayload = GmVisitStartPayload & {
 
 export type GmVisitPreloadCachePayload = GmVisitSessionReadPayload;
 
-const GM_VISIT_PRELOAD_CACHE_PREFIX = "gm_visit_preload_v1:";
+const GM_VISIT_PRELOAD_CACHE_PREFIX = "gm_visit_preload_v2:";
 const GM_VISIT_PRELOAD_CACHE_TTL_MS = 10 * 60 * 1000;
 
 type GmVisitPreloadCacheEnvelope = {
+  ownerUserId: string;
   sessionId: string;
   createdAtMs: number;
   payload: GmVisitPreloadCachePayload;
@@ -1492,19 +1623,37 @@ type GmVisitPreloadCacheEnvelope = {
 
 const gmVisitPreloadMemoryCache: Record<string, GmVisitPreloadCacheEnvelope> = {};
 
+function clearInMemoryGmVisitPreloadCache(): void {
+  for (const key of Object.keys(gmVisitPreloadMemoryCache)) {
+    delete gmVisitPreloadMemoryCache[key];
+  }
+}
+
+function getActiveAuthUserId(): string | null {
+  return readAuthSession()?.user.id ?? null;
+}
+
+function getGmVisitPreloadMemoryKey(sessionId: string, userId: string): string {
+  return `${userId}:${sessionId}`;
+}
+
 export function getGmVisitPreloadCacheKey(sessionId: string): string {
-  return `${GM_VISIT_PRELOAD_CACHE_PREFIX}${sessionId}`;
+  const userId = getActiveAuthUserId();
+  return userId ? `${GM_VISIT_PRELOAD_CACHE_PREFIX}${userId}:${sessionId}` : `${GM_VISIT_PRELOAD_CACHE_PREFIX}anon:${sessionId}`;
 }
 
 export function setGmVisitPreloadCache(payload: GmVisitPreloadCachePayload): void {
   const sessionId = payload?.session?.id;
   if (!sessionId) return;
+  const userId = getActiveAuthUserId();
+  if (!userId) return;
   const envelope: GmVisitPreloadCacheEnvelope = {
+    ownerUserId: userId,
     sessionId,
     createdAtMs: Date.now(),
     payload,
   };
-  gmVisitPreloadMemoryCache[sessionId] = envelope;
+  gmVisitPreloadMemoryCache[getGmVisitPreloadMemoryKey(sessionId, userId)] = envelope;
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(getGmVisitPreloadCacheKey(sessionId), JSON.stringify(envelope));
@@ -1514,12 +1663,20 @@ export function setGmVisitPreloadCache(payload: GmVisitPreloadCachePayload): voi
 }
 
 export function readGmVisitPreloadCache(sessionId: string): GmVisitPreloadCachePayload | null {
-  const inMemory = gmVisitPreloadMemoryCache[sessionId];
+  const userId = getActiveAuthUserId();
+  if (!userId) return null;
+  const memoryKey = getGmVisitPreloadMemoryKey(sessionId, userId);
+  const inMemory = gmVisitPreloadMemoryCache[memoryKey];
   if (inMemory) {
-    if (Date.now() - inMemory.createdAtMs <= GM_VISIT_PRELOAD_CACHE_TTL_MS && Array.isArray(inMemory.payload.sections) && inMemory.payload.session?.id === sessionId) {
+    if (
+      inMemory.ownerUserId === userId &&
+      Date.now() - inMemory.createdAtMs <= GM_VISIT_PRELOAD_CACHE_TTL_MS &&
+      Array.isArray(inMemory.payload.sections) &&
+      inMemory.payload.session?.id === sessionId
+    ) {
       return inMemory.payload;
     }
-    delete gmVisitPreloadMemoryCache[sessionId];
+    delete gmVisitPreloadMemoryCache[memoryKey];
   }
   if (typeof window === "undefined") return null;
   const key = getGmVisitPreloadCacheKey(sessionId);
@@ -1532,7 +1689,7 @@ export function readGmVisitPreloadCache(sessionId: string): GmVisitPreloadCacheP
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<GmVisitPreloadCacheEnvelope>;
-    if (!parsed || parsed.sessionId !== sessionId) {
+    if (!parsed || parsed.sessionId !== sessionId || parsed.ownerUserId !== userId) {
       window.sessionStorage.removeItem(key);
       return null;
     }
@@ -1554,7 +1711,10 @@ export function readGmVisitPreloadCache(sessionId: string): GmVisitPreloadCacheP
 }
 
 export function clearGmVisitPreloadCache(sessionId: string): void {
-  delete gmVisitPreloadMemoryCache[sessionId];
+  const userId = getActiveAuthUserId();
+  if (userId) {
+    delete gmVisitPreloadMemoryCache[getGmVisitPreloadMemoryKey(sessionId, userId)];
+  }
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.removeItem(getGmVisitPreloadCacheKey(sessionId));
@@ -1795,6 +1955,7 @@ export async function updateMarketKuehlerUnit(
 function normalizeQuestion(input: Question): Question {
   return {
     ...input,
+    redSurvey: Object.prototype.hasOwnProperty.call(input, "redSurvey") ? (input.redSurvey ?? null) : null,
     rules: input.rules ?? [],
     scoring: input.scoring ?? {},
     config: input.config ?? {},

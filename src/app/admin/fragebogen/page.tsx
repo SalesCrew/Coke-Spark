@@ -2331,7 +2331,7 @@ export default function FragebogenPage() {
               />
               <input
                 type="text"
-                value={search}
+                value={search} 
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Suchen"
                 style={{

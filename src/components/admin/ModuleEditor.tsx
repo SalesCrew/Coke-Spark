@@ -1852,6 +1852,24 @@ function QuestionCard({
                 Pflichtfrage
               </span>
             </div>
+            {question.type === "yesno" && (
+              <div
+                style={{
+                  marginTop: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <Toggle
+                  value={question.redSurvey === true}
+                  onChange={(v) => onUpdate({ ...question, redSurvey: v })}
+                />
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>
+                  Red Survey
+                </span>
+              </div>
+            )}
 
             {/* Type-specific config */}
             <TypeConfig question={question} onUpdate={onUpdate} />
@@ -1978,7 +1996,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
   const [moduleName, setModuleName] = useState(existingModule?.name ?? "");
   const [description, setDescription] = useState(existingModule?.description ?? "");
   const [questions, setQuestions] = useState<Question[]>(
-    (existingModule?.questions ?? []).map((q) => ({ ...q, scoring: q.scoring ?? {} }))
+    (existingModule?.questions ?? []).map((q) => ({ ...q, scoring: q.scoring ?? {}, redSurvey: q.redSurvey ?? null }))
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -1997,6 +2015,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
         type,
         text: "",
         required: true,
+        redSurvey: false,
         config: defaultConfig(type),
         rules: [],
         scoring: {},

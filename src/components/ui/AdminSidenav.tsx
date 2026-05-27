@@ -5,7 +5,7 @@ import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Plasma } from "@/components/ui/Plasma";
-import { clearAuthSession } from "@/lib/api/backend";
+import { logoutCurrentUser } from "@/lib/api/backend";
 
 const NAV_GROUPS = [
   {
@@ -51,7 +51,7 @@ export function AdminSidenav() {
   const router = useRouter();
 
   const handleLogout = () => {
-    clearAuthSession();
+    logoutCurrentUser();
     router.push("/");
     router.refresh();
   };

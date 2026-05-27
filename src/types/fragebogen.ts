@@ -30,6 +30,7 @@ export interface Question {
   type: QuestionType;
   text: string;
   required: boolean;
+  redSurvey?: boolean | null;
   config: Record<string, unknown>;
   rules: ConditionalRule[];
   scoring: Record<string, ScoringWeight>; // key = option text (choice) or "__value__" (numeric)

@@ -753,6 +753,12 @@ function BillaQuestionCard({ question, index, isExpanded, onToggle, onUpdate, on
               <BillaToggle value={question.required} onChange={(v) => onUpdate({ ...question, required: v })} />
               <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Pflichtfrage</span>
             </div>
+            {question.type === "yesno" && (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                <BillaToggle value={question.redSurvey === true} onChange={(v) => onUpdate({ ...question, redSurvey: v })} />
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Red Survey</span>
+              </div>
+            )}
             <BillaTypeConfig question={question} onUpdate={onUpdate} />
 
             <BillaScoringEditor question={question} onUpdate={onUpdate} />
@@ -793,7 +799,7 @@ export function BillaModuleEditor({ onClose, onSave, existingModule, existingQue
   const [moduleName, setModuleName] = useState(existingModule?.name ?? "");
   const [description, setDescription] = useState(existingModule?.description ?? "");
   const [questions, setQuestions] = useState<Question[]>(
-    (existingModule?.questions ?? []).map((q) => ({ ...q, scoring: q.scoring ?? {} }))
+    (existingModule?.questions ?? []).map((q) => ({ ...q, scoring: q.scoring ?? {}, redSurvey: q.redSurvey ?? null }))
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -805,7 +811,7 @@ export function BillaModuleEditor({ onClose, onSave, existingModule, existingQue
 
   const addQuestion = useCallback((type: QuestionType) => {
     const id = nextId();
-    const q: Question = { id, type, text: "", required: true, config: defaultConfig(type), rules: [], scoring: {} };
+    const q: Question = { id, type, text: "", required: true, redSurvey: false, config: defaultConfig(type), rules: [], scoring: {} };
     setQuestions((prev) => [...prev, q]);
     setExpandedId(id);
     setTimeout(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, 50);

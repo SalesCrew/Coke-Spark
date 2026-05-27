@@ -17,6 +17,7 @@ import {
   type GmVisitSessionReadPayload,
   type GmVisitStartSection,
 } from "@/lib/api/backend";
+import { getPhotoTagPoolStorageKey } from "@/utils/photoTags";
 import { computeHiddenQuestionIds as computeRuleHiddenQuestionIds } from "@/lib/conditional-visibility";
 import {
   ChevronLeft,
@@ -482,11 +483,13 @@ const SEED_PHOTO_TAGS = [
 ];
 if (typeof window !== "undefined") {
   try {
-    const existing = JSON.parse(localStorage.getItem("admin_photo_tag_pool_v1") ?? "[]") as { id: string }[];
+    const poolKey = getPhotoTagPoolStorageKey();
+    const existing = JSON.parse(localStorage.getItem(poolKey) ?? "[]") as { id: string }[];
     const existingIds = new Set(existing.map((t) => t.id));
     const toAdd = SEED_PHOTO_TAGS.filter((t) => !existingIds.has(t.id));
     if (toAdd.length > 0) {
-      localStorage.setItem("admin_photo_tag_pool_v1", JSON.stringify([...existing, ...toAdd]));
+      localStorage.setItem(poolKey, JSON.stringify([...existing, ...toAdd]));
+      localStorage.removeItem("admin_photo_tag_pool_v1");
     }
   } catch { /* noop */ }
 }

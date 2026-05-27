@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { Home, Clock, Calendar, User } from "lucide-react";
+import { Home, Clock, Calendar, User, LogOut } from "lucide-react";
 
 export interface MenuItem {
   label: string;
@@ -13,6 +13,7 @@ interface CollapsibleMenuProps {
   items: MenuItem[];
   defaultIndex?: number;
   onSelect?: (index: number, item: MenuItem) => void;
+  onLogout?: () => void;
 }
 
 const HOLD_DELAY = 300;
@@ -30,6 +31,7 @@ export function CollapsibleMenu({
   items,
   defaultIndex = 0,
   onSelect,
+  onLogout,
 }: CollapsibleMenuProps) {
   const [activeIndex, setActiveIndex] = useState(defaultIndex);
   const [expanded, setExpanded] = useState(false);
@@ -228,6 +230,38 @@ export function CollapsibleMenu({
           })}
         </div>
       </div>
+      {typeof onLogout === "function" && (
+        <button
+          type="button"
+          onClick={onLogout}
+          className="mt-2 w-full"
+          style={{
+            height: 34,
+            borderRadius: 12,
+            border: "1px solid rgba(220,38,38,0.18)",
+            backgroundColor: "rgba(220,38,38,0.06)",
+            color: "#b91c1c",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "0.01em",
+            transition: "all 0.15s ease",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.1)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.06)";
+          }}
+        >
+          <LogOut size={12} strokeWidth={1.9} />
+          Logout
+        </button>
+      )}
     </div>
   );
 }

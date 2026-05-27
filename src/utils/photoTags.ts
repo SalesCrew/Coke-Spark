@@ -1,13 +1,21 @@
 // ── Shared photo-tag pool ─────────────────────────────────────
 // Persisted in localStorage so tags are shared across all module editors.
 
+import { readAuthSession } from "@/lib/api/backend";
+
 export interface PhotoTagPoolItem {
   id: string;
   label: string;
   deletedAt?: string | null; // ISO string when soft-deleted; null/undefined = active
 }
 
-const POOL_KEY = "admin_photo_tag_pool_v1";
+const LEGACY_POOL_KEY = "admin_photo_tag_pool_v1";
+const POOL_KEY_PREFIX = "admin_photo_tag_pool_v2:";
+
+export function getPhotoTagPoolStorageKey(): string {
+  const userId = readAuthSession()?.user.id ?? "anonymous";
+  return `${POOL_KEY_PREFIX}${userId}`;
+}
 
 function uid(): string {
   return `tag-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`;
@@ -16,9 +24,15 @@ function uid(): string {
 export function loadTagPool(): PhotoTagPoolItem[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(POOL_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as PhotoTagPoolItem[];
+    const scopedRaw = localStorage.getItem(getPhotoTagPoolStorageKey());
+    if (scopedRaw) {
+      return JSON.parse(scopedRaw) as PhotoTagPoolItem[];
+    }
+    const legacyRaw = localStorage.getItem(LEGACY_POOL_KEY);
+    if (!legacyRaw) return [];
+    localStorage.setItem(getPhotoTagPoolStorageKey(), legacyRaw);
+    localStorage.removeItem(LEGACY_POOL_KEY);
+    return JSON.parse(legacyRaw) as PhotoTagPoolItem[];
   } catch {
     return [];
   }
@@ -27,7 +41,8 @@ export function loadTagPool(): PhotoTagPoolItem[] {
 export function saveTagPool(pool: PhotoTagPoolItem[]): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(POOL_KEY, JSON.stringify(pool));
+    localStorage.setItem(getPhotoTagPoolStorageKey(), JSON.stringify(pool));
+    localStorage.removeItem(LEGACY_POOL_KEY);
   } catch { /* noop */ }
 }
 

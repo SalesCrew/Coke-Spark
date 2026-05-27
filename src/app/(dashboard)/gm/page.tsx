@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Home, Clock, Calendar, User, Map } from "lucide-react";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GMStatusCard } from "@/components/dashboard/GMStatusCard";
@@ -15,6 +16,7 @@ import { RedMonthProvider } from "@/context/RedMonthContext";
 import {
   fetchGmBonusSummary,
   fetchGmKpiSummary,
+  logoutCurrentUser,
   fetchGmKuehlerMhdProgress,
   readCachedGmKpiSummary,
   type GmKpiSummary,
@@ -31,6 +33,7 @@ const gmMenuItems = [
 ];
 
 export default function GMDashboard() {
+  const router = useRouter();
   const [bonusModalOpen, setBonusModalOpen] = useState(false);
   const [bonusSummary, setBonusSummary] = useState<PraemienGmBonusSummary | null>(null);
   const [gmKpiSummary, setGmKpiSummary] = useState<GmKpiSummary | null>(null);
@@ -154,7 +157,15 @@ export default function GMDashboard() {
       </div>
 
       <div className="fixed bottom-6 left-0 right-0 z-50">
-        <CollapsibleMenu items={gmMenuItems} defaultIndex={0} />
+        <CollapsibleMenu
+          items={gmMenuItems}
+          defaultIndex={0}
+          onLogout={() => {
+            logoutCurrentUser();
+            router.push("/");
+            router.refresh();
+          }}
+        />
       </div>
 
       {bonusModalOpen && (

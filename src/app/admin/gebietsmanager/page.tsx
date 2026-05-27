@@ -5,13 +5,19 @@ import { createPortal } from "react-dom";
 import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { MarketVisitLog } from "@/types/markets";
-import { createGmUser, fetchGmUsers, updateGmUser } from "@/lib/api/backend";
+import { createGmUser, fetchGmUsers, readAuthSession, updateGmUser } from "@/lib/api/backend";
 
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
 const RD = "#b91c1c";
-const LS_VISITS = "admin_market_visits_v1";
+const LS_VISITS_PREFIX = "admin_market_visits_v2:";
+const LS_VISITS_LEGACY = "admin_market_visits_v1";
 const REGIONS = ["Nord", "Ost", "Süd", "West", "Mitte"];
+
+function getVisitsStorageKey(): string {
+  const userId = readAuthSession()?.user.id ?? "anonymous";
+  return `${LS_VISITS_PREFIX}${userId}`;
+}
 
 // ── Temp GM visits (supplement Märkte seed data) ──────────────
 const SEED_GM_VISITS: MarketVisitLog[] = [
@@ -814,7 +820,14 @@ export default function GebietsmanagerPage() {
 
     // Load visits from Märkte page storage, supplement with seed GM visits
     try {
-      const storedV = localStorage.getItem(LS_VISITS);
+      const scopedKey = getVisitsStorageKey();
+      const scoped = localStorage.getItem(scopedKey);
+      const legacy = scoped ? null : localStorage.getItem(LS_VISITS_LEGACY);
+      if (!scoped && legacy) {
+        localStorage.setItem(scopedKey, legacy);
+        localStorage.removeItem(LS_VISITS_LEGACY);
+      }
+      const storedV = scoped ?? legacy;
       const loaded: MarketVisitLog[] = storedV ? JSON.parse(storedV) : [];
       // Merge in seed GM visits that aren't already present (by id)
       const existingIds = new Set(loaded.map(v => v.id));

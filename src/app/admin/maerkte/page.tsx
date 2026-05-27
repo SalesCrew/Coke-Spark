@@ -21,6 +21,7 @@ import {
   hardDeleteMarket,
   importMarkets,
   normalizeAllMarketRegions,
+  readAuthSession,
   softDeleteMarket,
   updateMarket,
   updateMarketKuehlerUnit,
@@ -32,7 +33,13 @@ import { useRedMonth } from "@/context/RedMonthContext";
 
 const R  = "#DC2626";
 const RD = "#b91c1c";
-const LS_VISITS  = "admin_market_visits_v1";
+const LS_VISITS_PREFIX = "admin_market_visits_v2:";
+const LS_VISITS_LEGACY = "admin_market_visits_v1";
+
+function getVisitsStorageKey(): string {
+  const userId = readAuthSession()?.user.id ?? "anonymous";
+  return `${LS_VISITS_PREFIX}${userId}`;
+}
 
 // ── Utility helpers ────────────────────────────────────────────
 
@@ -1863,7 +1870,14 @@ export default function MaerktePage() {
     setMounted(true);
     void reloadMarkets();
     try {
-      const storedV = localStorage.getItem(LS_VISITS);
+      const scopedKey = getVisitsStorageKey();
+      const scoped = localStorage.getItem(scopedKey);
+      const legacy = scoped ? null : localStorage.getItem(LS_VISITS_LEGACY);
+      if (!scoped && legacy) {
+        localStorage.setItem(scopedKey, legacy);
+        localStorage.removeItem(LS_VISITS_LEGACY);
+      }
+      const storedV = scoped ?? legacy;
       setVisits(storedV ? JSON.parse(storedV) : []);
     } catch { /* start empty */ }
     // Listen for import trigger from header button

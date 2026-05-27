@@ -60,7 +60,9 @@ type BackendUser = {
   ipp?: number | null;
   ippSampleCount?: number | null;
   createdAt?: string;
+  updatedAt?: string;
   isActive?: boolean;
+  deletedAt?: string | null;
 };
 
 type BackendMarket = {
@@ -409,6 +411,38 @@ function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): 
     ippSampleCount: Number.isFinite(ippSampleCountValue) && ippSampleCountValue > 0 ? Math.trunc(ippSampleCountValue) : 0,
     createdAt: user.createdAt ?? new Date().toISOString(),
     password: oneTimePassword,
+  };
+}
+
+export type AdminUserRecord = {
+  id: string;
+  role: "admin";
+  email: string;
+  firstName: string;
+  lastName: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type CreateAdminUserInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
+function mapBackendUserToAdminRecord(user: BackendUser): AdminUserRecord {
+  return {
+    id: user.id,
+    role: "admin",
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    isActive: Boolean(user.isActive ?? true),
+    createdAt: user.createdAt ?? new Date().toISOString(),
+    updatedAt: user.updatedAt ?? user.createdAt ?? new Date().toISOString(),
+    deletedAt: user.deletedAt ?? null,
   };
 }
 
@@ -1177,6 +1211,42 @@ export async function fetchGmUsers(): Promise<GMRecord[]> {
   const data = (await authedFetch("/admin/users?role=gm")) as { users?: BackendUser[] };
   const users = data.users ?? [];
   return users.map((u) => mapBackendUserToGmRecord(u));
+}
+
+export async function fetchAdminUsers(): Promise<AdminUserRecord[]> {
+  const data = (await authedFetch("/admin/users?role=admin")) as { users?: BackendUser[] };
+  return (data.users ?? []).filter((user) => user.role === "admin").map((user) => mapBackendUserToAdminRecord(user));
+}
+
+export async function createAdminUser(
+  payload: CreateAdminUserInput,
+): Promise<{ user: AdminUserRecord; oneTimePassword: string | null }> {
+  const data = (await authedFetch("/admin/users", {
+    method: "POST",
+    body: JSON.stringify({
+      role: "admin",
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      email: payload.email,
+    }),
+  })) as { user: BackendUser; oneTimePassword?: string };
+  return {
+    user: mapBackendUserToAdminRecord(data.user),
+    oneTimePassword: data.oneTimePassword ?? null,
+  };
+}
+
+export async function deactivateAdminUser(userId: string): Promise<{ ok: boolean; alreadyInactive?: boolean }> {
+  return (await authedFetch(`/admin/users/${userId}/deactivate`, {
+    method: "PATCH",
+  })) as { ok: boolean; alreadyInactive?: boolean };
+}
+
+export async function updateOwnAdminPassword(userId: string, newPassword: string): Promise<void> {
+  await authedFetch(`/admin/users/${userId}/password`, {
+    method: "PATCH",
+    body: JSON.stringify({ newPassword }),
+  });
 }
 
 export async function createGmUser(

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse } from "lucide-react";
+import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse, LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AdminManagerPanel } from "@/components/admin/AdminManagerPanel";
@@ -90,7 +90,11 @@ export function AdminSidenav() {
   const handleLogout = () => {
     logoutCurrentUser();
     setOverlayState("closed");
-    router.push("/");
+    if (typeof window !== "undefined") {
+      window.location.assign("/");
+      return;
+    }
+    router.replace("/");
     router.refresh();
   };
   const isSidebarExpanded = hovered || overlayState !== "closed";
@@ -332,6 +336,60 @@ export function AdminSidenav() {
               )}
             </div>
           ))}
+        </div>
+
+        <div
+          style={{
+            padding: "8px",
+            borderTop: "1px solid rgba(0,0,0,0.06)",
+            flexShrink: 0,
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{
+              width: "100%",
+              height: 34,
+              borderRadius: 10,
+              border: "none",
+              background: "transparent",
+              color: "rgba(185,28,28,0.85)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: isSidebarExpanded ? "flex-start" : "center",
+              paddingLeft: isSidebarExpanded ? 12 : 0,
+              gap: isSidebarExpanded ? 10 : 0,
+              fontFamily: "inherit",
+              transition: "all 0.2s ease",
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(220,38,38,0.08)";
+              e.currentTarget.style.color = "#b91c1c";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "rgba(185,28,28,0.85)";
+            }}
+          >
+            <div style={{ width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <LogOut size={16} strokeWidth={1.9} />
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                width: isSidebarExpanded ? "auto" : 0,
+                opacity: isSidebarExpanded ? 1 : 0,
+                transition: "opacity 0.2s ease, width 0.25s ease",
+              }}
+            >
+              Logout
+            </span>
+          </button>
         </div>
       </nav>
 

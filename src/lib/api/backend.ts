@@ -2030,16 +2030,33 @@ function toFragebogenWritePayload(
 }
 
 function normalizeCampaign(input: BackendCampaign): Campaign {
+  const startDate = input.startDate ?? null;
+  const endDate = input.endDate ?? null;
+  let effectiveStatus: Campaign["status"] = input.status;
+  if (input.status !== "inactive") {
+    if (input.scheduleType === "always") {
+      effectiveStatus = "active";
+    } else if (startDate && endDate) {
+      const todayYmd = new Date().toISOString().slice(0, 10);
+      if (todayYmd < startDate) {
+        effectiveStatus = "scheduled";
+      } else if (todayYmd > endDate) {
+        effectiveStatus = "inactive";
+      } else {
+        effectiveStatus = "active";
+      }
+    }
+  }
   return {
     id: input.id,
     name: input.name,
     section: input.section,
     currentFragebogenId: input.currentFragebogenId ?? null,
     currentFragebogenName: input.currentFragebogenName ?? null,
-    status: input.status,
+    status: effectiveStatus,
     scheduleType: input.scheduleType,
-    startDate: input.startDate ?? null,
-    endDate: input.endDate ?? null,
+    startDate,
+    endDate,
     marketIds: Array.from(new Set(input.marketIds ?? [])),
     assignments: (input.assignments ?? []).map((assignment) => ({
       marketId: assignment.marketId,

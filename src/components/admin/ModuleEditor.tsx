@@ -763,14 +763,18 @@ function Toggle({
   );
 }
 
+const SINGLE_CHOICE_AVAILABILITY_OPTIONS = ["Voll", "Mittel", "Leer"] as const;
+
 // ── Type-Specific Config Editors ───────────────────────────────
 
 function ChoiceConfig({
   options,
   onChange,
+  disabled = false,
 }: {
   options: string[];
   onChange: (o: string[]) => void;
+  disabled?: boolean;
 }) {
   return (
     <div style={{ marginTop: 10 }}>
@@ -799,6 +803,7 @@ function ChoiceConfig({
             <input
               type="text"
               value={opt}
+              disabled={disabled}
               onChange={(e) => {
                 const next = [...options];
                 next[i] = e.target.value;
@@ -812,11 +817,12 @@ function ChoiceConfig({
                 border: "none",
                 borderBottom: "1px solid rgba(0,0,0,0.08)",
                 outline: "none",
-                color: "#374151",
+                color: disabled ? "rgba(55,65,81,0.65)" : "#374151",
                 backgroundColor: "transparent",
+                cursor: disabled ? "not-allowed" : "text",
               }}
             />
-            {options.length > 1 && (
+            {!disabled && options.length > 1 && (
               <button
                 onClick={() => onChange(options.filter((_, j) => j !== i))}
                 style={{
@@ -839,25 +845,32 @@ function ChoiceConfig({
             )}
           </div>
         ))}
-        <button
-          onClick={() => onChange([...options, ""])}
-          style={{
-            marginTop: 4,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: 10,
-            fontWeight: 500,
-            color: "#DC2626",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          <Plus size={10} strokeWidth={2} />
-          Option hinzufügen
-        </button>
+        {!disabled && (
+          <button
+            onClick={() => onChange([...options, ""])}
+            style={{
+              marginTop: 4,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 10,
+              fontWeight: 500,
+              color: "#DC2626",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            <Plus size={10} strokeWidth={2} />
+            Option hinzufügen
+          </button>
+        )}
+        {disabled && (
+          <div style={{ marginTop: 6, fontSize: 9, color: "rgba(0,0,0,0.35)" }}>
+            Optionen sind bei aktiver Verfuegbarkeitsabfrage fixiert.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1218,7 +1231,19 @@ function TypeConfig({
   const setConfig = (c: Record<string, unknown>) => onUpdate({ ...question, config: c });
 
   switch (question.type) {
-    case "single":
+    case "single": {
+      const isAvailabilityQuestion = question.singleChoiceAvailability === true;
+      const options = isAvailabilityQuestion
+        ? [...SINGLE_CHOICE_AVAILABILITY_OPTIONS]
+        : ((question.config.options as string[]) || [""]);
+      return (
+        <ChoiceConfig
+          options={options}
+          disabled={isAvailabilityQuestion}
+          onChange={(o) => setConfig({ ...question.config, options: o })}
+        />
+      );
+    }
     case "multiple":
       return (
         <ChoiceConfig
@@ -1852,6 +1877,32 @@ function QuestionCard({
                 Pflichtfrage
               </span>
             </div>
+            {question.type === "single" && (
+              <div
+                style={{
+                  marginTop: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <Toggle
+                  value={question.singleChoiceAvailability === true}
+                  onChange={(v) =>
+                    onUpdate({
+                      ...question,
+                      singleChoiceAvailability: v,
+                      config: v
+                        ? { ...question.config, options: [...SINGLE_CHOICE_AVAILABILITY_OPTIONS] }
+                        : question.config,
+                    })
+                  }
+                />
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>
+                  Verfuegbarkeitsabfrage
+                </span>
+              </div>
+            )}
             {question.type === "yesno" && (
               <div
                 style={{
@@ -1996,7 +2047,12 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
   const [moduleName, setModuleName] = useState(existingModule?.name ?? "");
   const [description, setDescription] = useState(existingModule?.description ?? "");
   const [questions, setQuestions] = useState<Question[]>(
-    (existingModule?.questions ?? []).map((q) => ({ ...q, scoring: q.scoring ?? {}, redSurvey: q.redSurvey ?? null }))
+    (existingModule?.questions ?? []).map((q) => ({
+      ...q,
+      scoring: q.scoring ?? {},
+      redSurvey: q.redSurvey ?? null,
+      singleChoiceAvailability: q.singleChoiceAvailability ?? null,
+    }))
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -2016,6 +2072,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
         text: "",
         required: true,
         redSurvey: false,
+        singleChoiceAvailability: false,
         config: defaultConfig(type),
         rules: [],
         scoring: {},

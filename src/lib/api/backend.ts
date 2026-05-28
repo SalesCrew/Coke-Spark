@@ -2026,6 +2026,9 @@ function normalizeQuestion(input: Question): Question {
   return {
     ...input,
     redSurvey: Object.prototype.hasOwnProperty.call(input, "redSurvey") ? (input.redSurvey ?? null) : null,
+    singleChoiceAvailability: Object.prototype.hasOwnProperty.call(input, "singleChoiceAvailability")
+      ? (input.singleChoiceAvailability ?? null)
+      : null,
     rules: input.rules ?? [],
     scoring: input.scoring ?? {},
     config: input.config ?? {},

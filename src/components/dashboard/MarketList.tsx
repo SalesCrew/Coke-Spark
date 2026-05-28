@@ -267,9 +267,9 @@ export function MarketList({
                 ) : (
                   <span
                     className="block text-[10px] font-medium text-gray-600 truncate"
-                    title={`${m.name} - ${m.address}`}
+                    title={m.name}
                   >
-                    {m.name} - {m.address}
+                    {m.name}
                   </span>
                 )}
               </div>

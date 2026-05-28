@@ -17,6 +17,7 @@ import {
   fetchGmBonusSummary,
   fetchGmKpiSummary,
   logoutCurrentUser,
+  readAuthSession,
   fetchGmKuehlerMhdProgress,
   readCachedGmKpiSummary,
   type GmKpiSummary,
@@ -89,6 +90,10 @@ export default function GMDashboard() {
   ];
   const cumulativeBonus = Math.round((gmKpiSummary?.bonusCumulativeEur ?? 0) * 100) / 100;
   const averageIpp = Math.round((gmKpiSummary?.ippAllTimeAvg ?? 0) * 10) / 10;
+  const authSession = readAuthSession();
+  const gmDisplayName = [authSession?.user.firstName?.trim(), authSession?.user.lastName?.trim()]
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join(" ");
 
   return (
     <RedMonthProvider>
@@ -117,7 +122,7 @@ export default function GMDashboard() {
         className="mx-auto px-6 pt-6 lg:px-10 lg:pt-8"
         style={{ maxWidth: 960, position: "relative", zIndex: 1 }}
       >
-        <GMStatusCard bars={statusBars} ipp={averageIpp} praemie={cumulativeBonus} />
+        <GMStatusCard name={gmDisplayName || ""} bars={statusBars} ipp={averageIpp} praemie={cumulativeBonus} />
 
         <div className="mt-5 flex gap-5 items-stretch">
           <div className="flex-1">

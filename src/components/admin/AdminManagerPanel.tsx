@@ -17,6 +17,12 @@ type AdminManagerPanelProps = {
   onClose: () => void;
 };
 
+const ADMIN_CARD_ROW_ESTIMATE = 100;
+const ADMIN_LIST_VISIBLE_ROWS = 3;
+const ADMIN_LIST_GAP = 10;
+const ADMIN_LIST_VIEWPORT_HEIGHT =
+  ADMIN_CARD_ROW_ESTIMATE * ADMIN_LIST_VISIBLE_ROWS + ADMIN_LIST_GAP * (ADMIN_LIST_VISIBLE_ROWS - 1);
+
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unbekannt";
@@ -253,8 +259,20 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
           </button>
         </div>
 
+        <style>{`
+          .admin-manager-scroll {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+          .admin-manager-scroll::-webkit-scrollbar {
+            display: none;
+            width: 0;
+            height: 0;
+          }
+        `}</style>
+
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 248px", gap: 0, minHeight: 292 }}>
-          <div style={{ padding: 16, borderRight: "1px solid rgba(15,23,42,0.06)", overflowY: "auto" }}>
+          <div style={{ padding: 16, borderRight: "1px solid rgba(15,23,42,0.06)", overflow: "hidden" }}>
             {isLoading ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(15,23,42,0.6)", fontSize: 12 }}>
                 <Loader2 size={14} className="animate-spin" />
@@ -263,155 +281,164 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
             ) : sortedAdmins.length === 0 ? (
               <div style={{ fontSize: 12, color: "rgba(15,23,42,0.55)" }}>Keine Admin-Konten gefunden.</div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {sortedAdmins.map((admin) => {
-                  const isSelf = admin.id === currentUserId;
-                  const isDeactivating = deactivateTargetId === admin.id;
-                  const isConfirmingDeactivate = confirmDeactivateId === admin.id;
-                  return (
-                    <div
-                      key={admin.id}
-                      style={{
-                        borderRadius: 12,
-                        border: "1px solid rgba(15,23,42,0.08)",
-                        padding: 12,
-                        background: admin.isActive ? "#ffffff" : "rgba(248,250,252,0.9)",
-                        opacity: admin.isActive ? 1 : 0.72,
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>
-                            {admin.firstName} {admin.lastName}
-                          </div>
-                          <div style={{ fontSize: 11, color: "rgba(15,23,42,0.58)" }}>{admin.email}</div>
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 600,
-                            padding: "3px 8px",
-                            borderRadius: 999,
-                            background: admin.isActive ? "rgba(5,150,105,0.14)" : "rgba(100,116,139,0.18)",
-                            color: admin.isActive ? "#047857" : "#475569",
-                          }}
-                        >
-                          {admin.isActive ? "Aktiv" : "Inaktiv"}
-                        </span>
-                      </div>
+              <div
+                className="admin-manager-scroll"
+                style={{
+                  maxHeight: ADMIN_LIST_VIEWPORT_HEIGHT,
+                  overflowY: "auto",
+                  paddingRight: 4,
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: ADMIN_LIST_GAP }}>
+                  {sortedAdmins.map((admin) => {
+                    const isSelf = admin.id === currentUserId;
+                    const isDeactivating = deactivateTargetId === admin.id;
+                    const isConfirmingDeactivate = confirmDeactivateId === admin.id;
+                    return (
                       <div
+                        key={admin.id}
                         style={{
-                          marginTop: 10,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          fontSize: 10,
-                          color: "rgba(15,23,42,0.52)",
+                          borderRadius: 12,
+                          border: "1px solid rgba(15,23,42,0.08)",
+                          padding: 12,
+                          background: admin.isActive ? "#ffffff" : "rgba(248,250,252,0.9)",
+                          opacity: admin.isActive ? 1 : 0.72,
                         }}
                       >
-                        <span>Erstellt: {formatDate(admin.createdAt)}</span>
-                        {isSelf ? (
-                          <span style={{ fontWeight: 600 }}>Eigener Account</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleStartDeactivateConfirm(admin.id)}
-                            disabled={!admin.isActive || isDeactivating}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>
+                              {admin.firstName} {admin.lastName}
+                            </div>
+                            <div style={{ fontSize: 11, color: "rgba(15,23,42,0.58)" }}>{admin.email}</div>
+                          </div>
+                          <span
                             style={{
-                              border: "none",
-                              background: "transparent",
-                              color: admin.isActive ? "#b91c1c" : "rgba(100,116,139,0.65)",
                               fontSize: 10,
-                              fontWeight: 700,
-                              cursor: !admin.isActive ? "default" : "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
+                              fontWeight: 600,
+                              padding: "3px 8px",
+                              borderRadius: 999,
+                              background: admin.isActive ? "rgba(5,150,105,0.14)" : "rgba(100,116,139,0.18)",
+                              color: admin.isActive ? "#047857" : "#475569",
                             }}
                           >
-                            {isDeactivating ? <Loader2 size={11} className="animate-spin" /> : <UserX size={11} />}
-                            Deaktivieren
-                          </button>
-                        )}
-                      </div>
-                      {!isSelf && admin.isActive && isConfirmingDeactivate ? (
+                            {admin.isActive ? "Aktiv" : "Inaktiv"}
+                          </span>
+                        </div>
                         <div
                           style={{
                             marginTop: 10,
-                            borderRadius: 10,
-                            border: "1px dashed rgba(185,28,28,0.45)",
-                            background: "rgba(254,242,242,0.86)",
-                            padding: 10,
                             display: "flex",
-                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "space-between",
                             gap: 8,
+                            fontSize: 10,
+                            color: "rgba(15,23,42,0.52)",
                           }}
                         >
-                          <div style={{ fontSize: 10, fontWeight: 600, color: "#7f1d1d" }}>
-                            Zum Bestätigen bitte exakt <strong>Deaktivieren</strong> eingeben.
-                          </div>
-                          <input
-                            value={confirmDeactivateText}
-                            onChange={(event) => setConfirmDeactivateText(event.target.value)}
-                            placeholder="Deaktivieren"
-                            style={{
-                              height: 30,
-                              borderRadius: 8,
-                              border: "1px solid rgba(185,28,28,0.35)",
-                              background: "#fff",
-                              padding: "0 8px",
-                              fontSize: 11,
-                              color: "#7f1d1d",
-                              outline: "none",
-                            }}
-                          />
-                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                          <span>Erstellt: {formatDate(admin.createdAt)}</span>
+                          {isSelf ? (
+                            <span style={{ fontWeight: 600 }}>Eigener Account</span>
+                          ) : (
                             <button
                               type="button"
-                              onClick={() => {
-                                setConfirmDeactivateId(null);
-                                setConfirmDeactivateText("");
-                              }}
+                              onClick={() => handleStartDeactivateConfirm(admin.id)}
+                              disabled={!admin.isActive || isDeactivating}
                               style={{
-                                height: 28,
-                                borderRadius: 8,
-                                border: "1px solid rgba(15,23,42,0.12)",
-                                background: "#fff",
-                                color: "#334155",
-                                fontSize: 10,
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                padding: "0 10px",
-                              }}
-                            >
-                              Abbrechen
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleDeactivate(admin.id)}
-                              disabled={!canConfirmDeactivation || isDeactivating}
-                              style={{
-                                height: 28,
-                                borderRadius: 8,
                                 border: "none",
-                                background: "linear-gradient(180deg, #dc2626, #b91c1c)",
-                                color: "#fff",
+                                background: "transparent",
+                                color: admin.isActive ? "#b91c1c" : "rgba(100,116,139,0.65)",
                                 fontSize: 10,
                                 fontWeight: 700,
-                                cursor: canConfirmDeactivation && !isDeactivating ? "pointer" : "not-allowed",
-                                opacity: canConfirmDeactivation && !isDeactivating ? 1 : 0.58,
-                                padding: "0 10px",
+                                cursor: !admin.isActive ? "default" : "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
                               }}
                             >
-                              Endgültig deaktivieren
+                              {isDeactivating ? <Loader2 size={11} className="animate-spin" /> : <UserX size={11} />}
+                              Deaktivieren
                             </button>
-                          </div>
+                          )}
                         </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                        {!isSelf && admin.isActive && isConfirmingDeactivate ? (
+                          <div
+                            style={{
+                              marginTop: 10,
+                              borderRadius: 10,
+                              border: "1px dashed rgba(185,28,28,0.45)",
+                              background: "rgba(254,242,242,0.86)",
+                              padding: 10,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 8,
+                            }}
+                          >
+                            <div style={{ fontSize: 10, fontWeight: 600, color: "#7f1d1d" }}>
+                              Zum Bestätigen bitte exakt <strong>Deaktivieren</strong> eingeben.
+                            </div>
+                            <input
+                              value={confirmDeactivateText}
+                              onChange={(event) => setConfirmDeactivateText(event.target.value)}
+                              placeholder="Deaktivieren"
+                              style={{
+                                height: 30,
+                                borderRadius: 8,
+                                border: "1px solid rgba(185,28,28,0.35)",
+                                background: "#fff",
+                                padding: "0 8px",
+                                fontSize: 11,
+                                color: "#7f1d1d",
+                                outline: "none",
+                              }}
+                            />
+                            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setConfirmDeactivateId(null);
+                                  setConfirmDeactivateText("");
+                                }}
+                                style={{
+                                  height: 28,
+                                  borderRadius: 8,
+                                  border: "1px solid rgba(15,23,42,0.12)",
+                                  background: "#fff",
+                                  color: "#334155",
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  padding: "0 10px",
+                                }}
+                              >
+                                Abbrechen
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeactivate(admin.id)}
+                                disabled={!canConfirmDeactivation || isDeactivating}
+                                style={{
+                                  height: 28,
+                                  borderRadius: 8,
+                                  border: "none",
+                                  background: "linear-gradient(180deg, #dc2626, #b91c1c)",
+                                  color: "#fff",
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  cursor: canConfirmDeactivation && !isDeactivating ? "pointer" : "not-allowed",
+                                  opacity: canConfirmDeactivation && !isDeactivating ? 1 : 0.58,
+                                  padding: "0 10px",
+                                }}
+                              >
+                                Endgültig deaktivieren
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

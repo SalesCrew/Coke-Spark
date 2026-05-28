@@ -8,6 +8,7 @@ import type { MarketRecord } from "@/types/markets";
 
 interface Market {
   id: string;
+  name: string;
   chain: string;
   address: string;
   visited: number;
@@ -49,6 +50,7 @@ function deriveChainLabel(record: MarketRecord): string {
 function toMarketListEntry(record: MarketRecord): Market {
   return {
     id: record.id,
+    name: record.name?.trim() || record.dbName?.trim() || "Markt",
     chain: deriveChainLabel(record),
     address: `${record.address}, ${record.postalCode} ${record.city}`.trim(),
     // Keep visit circle/numbers rendered; backend visit stats follow later.
@@ -142,6 +144,7 @@ export function MarketList({
     const q = search.toLowerCase();
     return markets.filter(
       (m) =>
+        m.name.toLowerCase().includes(q) ||
         m.chain.toLowerCase().includes(q) ||
         m.address.toLowerCase().includes(q)
     );
@@ -218,9 +221,8 @@ export function MarketList({
         {!isLoading && !loadError && filtered.map((m, i) => (
           <div
             key={m.id}
-            className="flex items-center"
+            className="flex items-center justify-between gap-2"
             style={{
-              gap: 8,
               padding: "8px 10px",
               borderRadius: 7,
               borderBottom:
@@ -238,8 +240,7 @@ export function MarketList({
             }
           >
             <div
-              className="flex items-center gap-2 min-w-0"
-              style={{ maxWidth: "calc(100% - 52px)" }}
+              className="flex items-center gap-2 min-w-0 flex-1"
             >
               <span
                 className="shrink-0 text-[9px] font-semibold uppercase"
@@ -254,18 +255,24 @@ export function MarketList({
                 {m.chain}
               </span>
 
-              {revealedId === m.id && m.nextSM ? (
-                <span
-                  className="text-[10px] font-medium truncate"
-                  style={{ color: "#DC2626" }}
-                >
-                  Nächster SM: {m.nextSM}
-                </span>
-              ) : (
-                <span className="text-[10px] font-medium text-gray-600 truncate">
-                  {m.address}
-                </span>
-              )}
+              <div className="min-w-0 flex-1">
+                {revealedId === m.id && m.nextSM ? (
+                  <span
+                    className="block text-[10px] font-medium truncate"
+                    style={{ color: "#DC2626" }}
+                    title={`Nächster SM: ${m.nextSM}`}
+                  >
+                    Nächster SM: {m.nextSM}
+                  </span>
+                ) : (
+                  <span
+                    className="block text-[10px] font-medium text-gray-600 truncate"
+                    title={`${m.name} - ${m.address}`}
+                  >
+                    {m.name} - {m.address}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="shrink-0 flex items-center gap-2">

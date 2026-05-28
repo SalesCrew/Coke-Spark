@@ -1607,6 +1607,7 @@ export type AdminZeiterfassungSessionEntry = {
   marketName?: string;
   marketAddress?: string;
   subtype?: string;
+  comment?: string;
   questionnaireType?: string;
   questionnaireTypes?: string[];
 };
@@ -1619,6 +1620,7 @@ export type AdminZeiterfassungTimelineSegment = {
   title: string;
   subtitle?: string;
   subtype?: string;
+  comment?: string;
   questionnaireType?: string;
 };
 

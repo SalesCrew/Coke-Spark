@@ -38,6 +38,7 @@ import {
 import type { MarketRecord } from "@/types/markets";
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
+const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const CARD_MENU_SPACE = 80;
 const MIN_CARD_HEIGHT = 260;
 
@@ -1071,6 +1072,19 @@ export function ActivityLauncher() {
     );
   }, [marketSearch, markets]);
 
+  const refreshDayGate = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    if (!silent) setDayGateLoading(true);
+    try {
+      const payload = await fetchCurrentDaySession();
+      setDayStarted(Boolean(payload.gate?.dayStarted));
+    } catch {
+      setDayStarted(true);
+    } finally {
+      if (!silent) setDayGateLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setIsMarketsLoading(true);
@@ -1126,24 +1140,18 @@ export function ActivityLauncher() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setDayGateLoading(true);
-    void fetchCurrentDaySession()
-      .then((payload) => {
-        if (cancelled) return;
-        setDayStarted(Boolean(payload.gate?.dayStarted));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setDayStarted(true);
-      })
-      .finally(() => {
-        if (!cancelled) setDayGateLoading(false);
-      });
-    return () => {
-      cancelled = true;
+    void refreshDayGate();
+  }, [refreshDayGate]);
+
+  useEffect(() => {
+    const handleDaySessionUpdated = () => {
+      void refreshDayGate({ silent: true });
     };
-  }, []);
+    window.addEventListener(DAY_SESSION_UPDATED_EVENT, handleDaySessionUpdated);
+    return () => {
+      window.removeEventListener(DAY_SESSION_UPDATED_EVENT, handleDaySessionUpdated);
+    };
+  }, [refreshDayGate]);
 
   useEffect(() => {
     function calc() {

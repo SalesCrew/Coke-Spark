@@ -12,6 +12,7 @@ export interface TimeEntry {
   id: string;
   kind: EntryKind;
   subtype?: EntrySubtype;
+  comment?: string;
   marketName?: string;
   marketAddress?: string;
   questionnaireType?: string;
@@ -42,6 +43,7 @@ export interface TimeDaySession {
     title: string;
     subtitle?: string;
     subtype?: string;
+    comment?: string;
     questionnaireType?: string;
   }>;
   stats?: {

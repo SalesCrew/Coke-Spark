@@ -32,6 +32,7 @@ interface DaySummarySnapshot {
 }
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
+const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 
 function fmt(s: number): string {
   const h   = String(Math.floor(s / 3600)).padStart(2, "0");
@@ -314,6 +315,11 @@ export function TimeTracker(_: TimeTrackerProps) {
   }, [debugPos]);
 
   const active = running && !paused;
+  const notifyDaySessionUpdated = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(DAY_SESSION_UPDATED_EVENT));
+    }
+  }, []);
 
   useEffect(() => {
     if (!active) return;
@@ -516,13 +522,14 @@ export function TimeTracker(_: TimeTrackerProps) {
       } else {
         transitionTo("startKm");
       }
+      notifyDaySessionUpdated();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Tagesstart konnte nicht gespeichert werden.";
       setPersistError(message);
     } finally {
       setPersistBusy(false);
     }
-  }, [persistBusy]);
+  }, [notifyDaySessionUpdated, persistBusy]);
   const handleStartKmCancel  = useCallback(() => { transitionTo("idle"); }, []);
   const handleStartKmConfirm = useCallback(async () => {
     const num = parseInt(startKmInput, 10);
@@ -536,13 +543,14 @@ export function TimeTracker(_: TimeTrackerProps) {
       setRunning(true);
       setPaused(false);
       transitionTo("recording");
+      notifyDaySessionUpdated();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Start-KM konnte nicht gespeichert werden.";
       setPersistError(message);
     } finally {
       setPersistBusy(false);
     }
-  }, [persistBusy, startKmInput]);
+  }, [notifyDaySessionUpdated, persistBusy, startKmInput]);
   const handleStartKmDefer = useCallback(async () => {
     if (persistBusy) return;
     setPersistBusy(true);
@@ -554,13 +562,14 @@ export function TimeTracker(_: TimeTrackerProps) {
       setRunning(true);
       setPaused(false);
       transitionTo("recording");
+      notifyDaySessionUpdated();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Start-KM konnte nicht auf später gesetzt werden.";
       setPersistError(message);
     } finally {
       setPersistBusy(false);
     }
-  }, [persistBusy]);
+  }, [notifyDaySessionUpdated, persistBusy]);
   const startKmValid = startKmInput.length > 0 && parseInt(startKmInput, 10) > 0;
 
   // ── End KM (manual STOP) ──────────────────────────────────────────────────
@@ -579,13 +588,14 @@ export function TimeTracker(_: TimeTrackerProps) {
       setRunning(false);
       setPaused(false);
       transitionTo("endKm");
+      notifyDaySessionUpdated();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Tagesende konnte nicht gespeichert werden.";
       setPersistError(message);
     } finally {
       setPersistBusy(false);
     }
-  }, [persistBusy]);
+  }, [notifyDaySessionUpdated, persistBusy]);
   const handleEndKmCancel = useCallback(() => {
     setOpenEndKmOnly(false);
     setRunning(true); setPaused(false); transitionTo("recording");
@@ -606,6 +616,7 @@ export function TimeTracker(_: TimeTrackerProps) {
       }
       const submitResult = await submitDaySession();
       setDaySession(submitResult.session);
+      notifyDaySessionUpdated();
       const freshItems = await hydrateTodaySubmissions();
       commitEndKm(num, freshItems);
     } catch (error) {
@@ -614,7 +625,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     } finally {
       setPersistBusy(false);
     }
-  }, [persistBusy, endKmInput, newCarConfirmed, confirmedStartKm, hydrateTodaySubmissions, openEndKmOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, confirmedStartKm, hydrateTodaySubmissions, openEndKmOnly]); // eslint-disable-line react-hooks/exhaustive-deps
   const handleEndKmDefer = useCallback(async () => {
     if (persistBusy) return;
     setPersistBusy(true);
@@ -664,6 +675,7 @@ export function TimeTracker(_: TimeTrackerProps) {
       setDaySession(endResult.session);
       const submitResult = await submitDaySession();
       setDaySession(submitResult.session);
+      notifyDaySessionUpdated();
       const freshItems = await hydrateTodaySubmissions();
       commitEndKm(num, freshItems);
     } catch (error) {
@@ -672,7 +684,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     } finally {
       setPersistBusy(false);
     }
-  }, [persistBusy, endKmInput, newCarConfirmed, confirmedStartKm, forgotEndTime, hydrateTodaySubmissions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, confirmedStartKm, forgotEndTime, hydrateTodaySubmissions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const forgotEndValid = endKmValid && !!forgotEndTime;
 

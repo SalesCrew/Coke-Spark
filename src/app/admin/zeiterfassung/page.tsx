@@ -88,6 +88,7 @@ interface DisplaySegment {
   subtitle?: string;
   kmNote?: string;
   subtype?: string;
+  comment?: string;
   questionnaireType?: string;
 }
 
@@ -101,6 +102,7 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
       title: segment.title,
       subtitle: segment.subtitle,
       subtype: segment.subtype,
+      comment: segment.comment,
       questionnaireType: segment.questionnaireType,
       kmNote:
         segment.kind === "anfahrt"
@@ -147,7 +149,15 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
       segments.push({ kind: "pause", start: entry.startTime, end: entry.endTime, durationMin: entry.durationMin, title: "Pause" });
     } else if (entry.kind === "zusatzzeit") {
       const label = entry.subtype ? SUBTYPE_META[entry.subtype]?.label ?? entry.subtype : "Zusatzzeit";
-      segments.push({ kind: "zusatzzeit", start: entry.startTime, end: entry.endTime, durationMin: entry.durationMin, title: label, subtype: entry.subtype });
+      segments.push({
+        kind: "zusatzzeit",
+        start: entry.startTime,
+        end: entry.endTime,
+        durationMin: entry.durationMin,
+        title: label,
+        subtype: entry.subtype,
+        comment: entry.comment,
+      });
     }
   });
   if (!isOpenDay) {
@@ -229,6 +239,7 @@ function ActionRow({ seg }: { seg: DisplaySegment }) {
   const bg = isMarkt ? "rgba(220,38,38,0.04)" : isAnfahrt || isHeimfahrt ? "rgba(0,0,0,0.025)" : isFahrtzeit ? "transparent" : isPause ? "rgba(217,119,6,0.05)" : smeta?.bg ?? "rgba(0,0,0,0.03)";
   const Icon = isMarkt ? Store : isAnfahrt || isHeimfahrt || isFahrtzeit ? Car : isPause ? Coffee : smeta?.icon ?? Clock;
   const typeLabel = isFahrtzeit ? "Fahrtzeit" : isAnfahrt ? "Anfahrt" : isHeimfahrt ? "Heimfahrt" : isPause ? "Pause" : isMarkt ? "Markt" : "Zusatz";
+  const zusatzComment = isZusatz ? seg.comment?.trim() : "";
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: isFahrtzeit ? "5px 14px" : "8px 14px", background: bg, borderBottom: "1px solid rgba(0,0,0,0.03)" }}>
       <div style={{ width: 74, flexShrink: 0, paddingTop: 1, display: "flex", alignItems: "center", gap: 5 }}>
@@ -245,6 +256,11 @@ function ActionRow({ seg }: { seg: DisplaySegment }) {
         {isZusatz && (
           <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>
             Zusatzzeiterfassung
+          </div>
+        )}
+        {isZusatz && zusatzComment && (
+          <div style={{ fontSize: 9, color: "rgba(0,0,0,0.5)", marginTop: 2, lineHeight: 1.45 }}>
+            Kommentar: {zusatzComment}
           </div>
         )}
         {seg.subtitle && <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{seg.subtitle}</div>}
@@ -559,6 +575,7 @@ export default function ZeiterfassungPage() {
                 ...(entry.marketAddress ? { marketAddress: entry.marketAddress } : {}),
                 ...(entry.questionnaireType ? { questionnaireType: entry.questionnaireType } : {}),
                 ...(subtype ? { subtype } : {}),
+                ...(entry.comment ? { comment: entry.comment } : {}),
               };
             }),
             timeline: session.timeline,

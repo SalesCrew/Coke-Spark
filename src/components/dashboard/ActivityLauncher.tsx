@@ -38,6 +38,8 @@ import {
 import type { MarketRecord } from "@/types/markets";
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
+const CARD_MENU_SPACE = 80;
+const MIN_CARD_HEIGHT = 260;
 
 interface Market {
   id: string;
@@ -1147,8 +1149,9 @@ export function ActivityLauncher() {
     function calc() {
       if (!cardRef.current) return;
       const top = cardRef.current.getBoundingClientRect().top;
-      const menuSpace = 80;
-      setCardMaxH(window.innerHeight - top - menuSpace);
+      const available = Math.floor(window.innerHeight - top - CARD_MENU_SPACE);
+      if (!Number.isFinite(available)) return;
+      setCardMaxH(Math.max(MIN_CARD_HEIGHT, available));
     }
     requestAnimationFrame(() => requestAnimationFrame(calc));
     window.addEventListener("resize", calc);
@@ -1268,6 +1271,7 @@ export function ActivityLauncher() {
         padding: "20px",
         overflow: "hidden",
         maxHeight: cardMaxH ? `${cardMaxH}px` : undefined,
+        minHeight: cardMaxH ? `${cardMaxH}px` : undefined,
         display: "flex",
         flexDirection: "column",
       }}

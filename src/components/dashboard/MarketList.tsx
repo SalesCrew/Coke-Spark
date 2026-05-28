@@ -21,6 +21,9 @@ interface MarketListProps {
   total?: number;
 }
 
+const CARD_MENU_SPACE = 80;
+const MIN_CARD_HEIGHT = 260;
+
 function chainColors(chain: string): { bg: string; text: string } {
   const key = chain.toUpperCase();
   if (key.includes("BILLA")) return { bg: "rgba(234,179,8,0.10)", text: "#a16207" };
@@ -102,8 +105,9 @@ export function MarketList({
     function calc() {
       if (!cardRef.current) return;
       const top = cardRef.current.getBoundingClientRect().top;
-      const menuSpace = 80;
-      setCardMaxH(window.innerHeight - top - menuSpace);
+      const available = Math.floor(window.innerHeight - top - CARD_MENU_SPACE);
+      if (!Number.isFinite(available)) return;
+      setCardMaxH(Math.max(MIN_CARD_HEIGHT, available));
     }
     requestAnimationFrame(() => requestAnimationFrame(calc));
     window.addEventListener("resize", calc);

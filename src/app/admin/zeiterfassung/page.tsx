@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ChevronDown, Clock, Store, Car, Coffee,
   GraduationCap, Wrench, Home, Warehouse, Star, Search,
@@ -8,12 +8,14 @@ import {
 import {
   fetchAdminZeiterfassungDays,
   fetchAdminZeiterfassungGmAggregates,
+  patchAdminZeiterfassungSegment,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
 import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
+const HHMM_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 // ── Helpers ───────────────────────────────────────────────────
 function toMin(hhmm: string): number {
@@ -22,6 +24,9 @@ function toMin(hhmm: string): number {
 }
 function diffMin(start: string, end: string): number {
   return Math.max(0, toMin(end) - toMin(start));
+}
+function isValidHm(value: string): boolean {
+  return HHMM_REGEX.test(value.trim());
 }
 function fmtDur(min: number): string {
   if (min < 60) return `${min} Min`;
@@ -80,6 +85,7 @@ function toEntrySubtype(value: string | undefined): EntrySubtype | null {
 // ── Display segment types ─────────────────────────────────────
 type SegmentKind = "anfahrt" | "marktbesuch" | "fahrtzeit" | "pause" | "zusatzzeit" | "heimfahrt";
 interface DisplaySegment {
+  id: string;
   kind: SegmentKind;
   start: string;
   end?: string;
@@ -95,6 +101,7 @@ interface DisplaySegment {
 function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
   if (Array.isArray(session.timeline) && session.timeline.length > 0) {
     return session.timeline.map((segment) => ({
+      id: segment.id,
       kind: segment.kind,
       start: segment.start,
       end: segment.end,
@@ -117,6 +124,7 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
   const isOpenDay = session.status === "started" || session.isLive;
   if (sorted.length === 0) {
     segments.push({
+      id: `anfahrt-${session.id}-0`,
       kind: "anfahrt",
       start: session.startTime,
       end: isOpenDay ? undefined : session.endTime,
@@ -129,6 +137,7 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
   const firstEntryStart = sorted[0]?.startTime ?? session.endTime;
   if (toMin(firstEntryStart) > toMin(session.startTime)) {
     segments.push({
+      id: `anfahrt-${session.id}-1`,
       kind: "anfahrt",
       start: session.startTime,
       end: firstEntryStart,
@@ -141,15 +150,41 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
     if (i > 0) {
       const prev = sorted[i - 1];
       const gap = diffMin(prev.endTime, entry.startTime);
-      if (gap > 0) segments.push({ kind: "fahrtzeit", start: prev.endTime, end: entry.startTime, durationMin: gap, title: "Fahrtzeit" });
+      if (gap > 0) {
+        segments.push({
+          id: `fahrtzeit-${session.id}-${i}`,
+          kind: "fahrtzeit",
+          start: prev.endTime,
+          end: entry.startTime,
+          durationMin: gap,
+          title: "Fahrtzeit",
+        });
+      }
     }
     if (entry.kind === "marktbesuch") {
-      segments.push({ kind: "marktbesuch", start: entry.startTime, end: entry.endTime, durationMin: entry.durationMin, title: entry.marketName ?? "Marktbesuch", subtitle: entry.marketAddress, questionnaireType: entry.questionnaireType });
+      segments.push({
+        id: entry.id,
+        kind: "marktbesuch",
+        start: entry.startTime,
+        end: entry.endTime,
+        durationMin: entry.durationMin,
+        title: entry.marketName ?? "Marktbesuch",
+        subtitle: entry.marketAddress,
+        questionnaireType: entry.questionnaireType,
+      });
     } else if (entry.kind === "pause") {
-      segments.push({ kind: "pause", start: entry.startTime, end: entry.endTime, durationMin: entry.durationMin, title: "Pause" });
+      segments.push({
+        id: entry.id,
+        kind: "pause",
+        start: entry.startTime,
+        end: entry.endTime,
+        durationMin: entry.durationMin,
+        title: "Pause",
+      });
     } else if (entry.kind === "zusatzzeit") {
       const label = entry.subtype ? SUBTYPE_META[entry.subtype]?.label ?? entry.subtype : "Zusatzzeit";
       segments.push({
+        id: entry.id,
         kind: "zusatzzeit",
         start: entry.startTime,
         end: entry.endTime,
@@ -164,6 +199,7 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
     const lastEntryEnd = sorted[sorted.length - 1]?.endTime ?? session.startTime;
     if (toMin(session.endTime) > toMin(lastEntryEnd)) {
       segments.push({
+        id: `heimfahrt-${session.id}-0`,
         kind: "heimfahrt",
         start: lastEntryEnd,
         end: session.endTime,
@@ -225,8 +261,31 @@ interface AggregatedGmRow {
 // ── Current date marker ───────────────────────────────────────
 const TODAY = todayISO();
 
+type EditableSegmentKind = "marktbesuch" | "pause" | "zusatzzeit";
+
+function resolveEditableSegmentKind(seg: DisplaySegment): EditableSegmentKind | null {
+  if (seg.kind !== "marktbesuch" && seg.kind !== "pause" && seg.kind !== "zusatzzeit") return null;
+  if (!seg.id || seg.id.includes("::seg:")) return null;
+  return seg.kind;
+}
+
 // ── Action Row ────────────────────────────────────────────────
-function ActionRow({ seg }: { seg: DisplaySegment }) {
+function ActionRow({
+  seg,
+  session,
+  onSegmentPatched,
+}: {
+  seg: DisplaySegment;
+  session: Pick<TimeDaySession, "id" | "date" | "timezone">;
+  onSegmentPatched: () => Promise<void>;
+}) {
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [editingMode, setEditingMode] = useState<"time" | "comment" | null>(null);
+  const [draftStart, setDraftStart] = useState(seg.start);
+  const [draftEnd, setDraftEnd] = useState(seg.end ?? "");
+  const [draftComment, setDraftComment] = useState(seg.comment ?? "");
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const isAnfahrt   = seg.kind === "anfahrt";
   const isHeimfahrt = seg.kind === "heimfahrt";
   const isFahrtzeit = seg.kind === "fahrtzeit";
@@ -240,8 +299,96 @@ function ActionRow({ seg }: { seg: DisplaySegment }) {
   const Icon = isMarkt ? Store : isAnfahrt || isHeimfahrt || isFahrtzeit ? Car : isPause ? Coffee : smeta?.icon ?? Clock;
   const typeLabel = isFahrtzeit ? "Fahrtzeit" : isAnfahrt ? "Anfahrt" : isHeimfahrt ? "Heimfahrt" : isPause ? "Pause" : isMarkt ? "Markt" : "Zusatz";
   const zusatzComment = isZusatz ? seg.comment?.trim() : "";
+  const editableKind = resolveEditableSegmentKind(seg);
+
+  useEffect(() => {
+    setDraftStart(seg.start);
+    setDraftEnd(seg.end ?? "");
+    setDraftComment(seg.comment ?? "");
+    setEditingMode(null);
+    setSaving(false);
+    setEditError(null);
+  }, [seg.comment, seg.end, seg.id, seg.start]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("contextmenu", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [contextMenu]);
+
+  async function saveTimeEdit() {
+    if (!editableKind || saving) return;
+    if (!isValidHm(draftStart) || !isValidHm(draftEnd)) {
+      setEditError("Bitte gueltige Uhrzeiten im Format HH:MM eingeben.");
+      return;
+    }
+    if (toMin(draftEnd) <= toMin(draftStart)) {
+      setEditError("Endzeit muss nach Startzeit liegen.");
+      return;
+    }
+    setSaving(true);
+    setEditError(null);
+    try {
+      await patchAdminZeiterfassungSegment({
+        sessionId: session.id,
+        segmentKind: editableKind,
+        segmentId: seg.id,
+        startTime: draftStart,
+        endTime: draftEnd,
+      });
+      setEditingMode(null);
+      await onSegmentPatched();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Zeit konnte nicht gespeichert werden.";
+      setEditError(message || "Zeit konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveCommentEdit() {
+    if (editableKind !== "zusatzzeit" || saving) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      await patchAdminZeiterfassungSegment({
+        sessionId: session.id,
+        segmentKind: editableKind,
+        segmentId: seg.id,
+        comment: draftComment.trim() ? draftComment.trim() : null,
+      });
+      setEditingMode(null);
+      await onSegmentPatched();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Kommentar konnte nicht gespeichert werden.";
+      setEditError(message || "Kommentar konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const displayedDuration =
+    editingMode === "time" && isValidHm(draftStart) && isValidHm(draftEnd) && toMin(draftEnd) > toMin(draftStart)
+      ? fmtDur(diffMin(draftStart, draftEnd))
+      : fmtDur(seg.durationMin);
+
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: isFahrtzeit ? "5px 14px" : "8px 14px", background: bg, borderBottom: "1px solid rgba(0,0,0,0.03)" }}>
+    <div
+      style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: isFahrtzeit ? "5px 14px" : "8px 14px", background: bg, borderBottom: "1px solid rgba(0,0,0,0.03)", position: "relative" }}
+      onContextMenu={(event) => {
+        if (!editableKind) return;
+        event.preventDefault();
+        setContextMenu({ x: event.clientX, y: event.clientY });
+        setEditError(null);
+      }}
+    >
       <div style={{ width: 74, flexShrink: 0, paddingTop: 1, display: "flex", alignItems: "center", gap: 5 }}>
         <Icon size={10} strokeWidth={isFahrtzeit ? 1.4 : 2} color={color} />
         <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.06em", color, whiteSpace: "nowrap" as const }}>
@@ -259,19 +406,143 @@ function ActionRow({ seg }: { seg: DisplaySegment }) {
           </div>
         )}
         {isZusatz && zusatzComment && (
-          <div style={{ fontSize: 9, color: "rgba(0,0,0,0.5)", marginTop: 2, lineHeight: 1.45 }}>
+          <div style={{ fontSize: 9, color: "rgba(0,0,0,0.5)", marginTop: 2, lineHeight: 1.45, whiteSpace: "pre-wrap" as const }}>
             Kommentar: {zusatzComment}
+          </div>
+        )}
+        {isZusatz && editingMode === "comment" && (
+          <div style={{ marginTop: 4 }}>
+            <textarea
+              value={draftComment}
+              onChange={(event) => setDraftComment(event.target.value)}
+              maxLength={2000}
+              rows={2}
+              style={{
+                width: "100%",
+                minWidth: 220,
+                resize: "vertical",
+                border: "1px solid rgba(0,0,0,0.14)",
+                borderRadius: 6,
+                background: "#fff",
+                fontSize: 10,
+                color: "#1a1a1a",
+                lineHeight: 1.4,
+                padding: "6px 8px",
+                outline: "none",
+              }}
+            />
+            <div style={{ marginTop: 4, display: "flex", gap: 5 }}>
+              <button
+                onClick={() => {
+                  setEditingMode(null);
+                  setDraftComment(seg.comment ?? "");
+                  setEditError(null);
+                }}
+                disabled={saving}
+                style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.5)", border: "none", borderRadius: 6, background: "rgba(0,0,0,0.05)", padding: "3px 8px", cursor: saving ? "not-allowed" : "pointer" }}
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => { void saveCommentEdit(); }}
+                disabled={saving}
+                style={{ fontSize: 9, fontWeight: 700, color: "#fff", border: "none", borderRadius: 6, background: "linear-gradient(to bottom, #DC2626, #e84040)", padding: "3px 8px", cursor: saving ? "not-allowed" : "pointer" }}
+              >
+                {saving ? "Speichern..." : "Speichern"}
+              </button>
+            </div>
           </div>
         )}
         {seg.subtitle && <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{seg.subtitle}</div>}
         {seg.kmNote && <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>{seg.kmNote}</div>}
+        {editError && <div style={{ fontSize: 9, color: "#b91c1c", marginTop: 4, fontWeight: 600 }}>{editError}</div>}
       </div>
       <div style={{ flexShrink: 0, textAlign: "right" as const }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: isFahrtzeit ? "rgba(0,0,0,0.35)" : "#374151", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>
-          {seg.end ? `${seg.start}–${seg.end}` : `${seg.start}`}
-        </div>
-        <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>{fmtDur(seg.durationMin)}</div>
+        {editingMode === "time" && editableKind ? (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 3, justifyContent: "flex-end" }}>
+              <input
+                value={draftStart}
+                onChange={(event) => setDraftStart(event.target.value.slice(0, 5))}
+                inputMode="numeric"
+                style={{ width: 42, border: "1px solid rgba(0,0,0,0.18)", borderRadius: 5, background: "#fff", fontSize: 10, fontWeight: 600, color: "#374151", textAlign: "center", padding: "2px 3px", fontVariantNumeric: "tabular-nums", outline: "none" }}
+              />
+              <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)" }}>-</span>
+              <input
+                value={draftEnd}
+                onChange={(event) => setDraftEnd(event.target.value.slice(0, 5))}
+                inputMode="numeric"
+                style={{ width: 42, border: "1px solid rgba(0,0,0,0.18)", borderRadius: 5, background: "#fff", fontSize: 10, fontWeight: 600, color: "#374151", textAlign: "center", padding: "2px 3px", fontVariantNumeric: "tabular-nums", outline: "none" }}
+              />
+            </div>
+            <div style={{ marginTop: 3, display: "flex", gap: 4, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => {
+                  setEditingMode(null);
+                  setDraftStart(seg.start);
+                  setDraftEnd(seg.end ?? "");
+                  setEditError(null);
+                }}
+                disabled={saving}
+                style={{ fontSize: 8.5, fontWeight: 600, color: "rgba(0,0,0,0.5)", border: "none", borderRadius: 5, background: "rgba(0,0,0,0.05)", padding: "2px 6px", cursor: saving ? "not-allowed" : "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void saveTimeEdit(); }}
+                disabled={saving}
+                style={{ fontSize: 8.5, fontWeight: 700, color: "#fff", border: "none", borderRadius: 5, background: "linear-gradient(to bottom, #DC2626, #e84040)", padding: "2px 6px", cursor: saving ? "not-allowed" : "pointer" }}
+              >
+                {saving ? "..." : "Save"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize: 10, fontWeight: 600, color: isFahrtzeit ? "rgba(0,0,0,0.35)" : "#374151", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>
+            {seg.end ? `${seg.start}–${seg.end}` : `${seg.start}`}
+          </div>
+        )}
+        <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>{displayedDuration}</div>
       </div>
+      {contextMenu && (
+        <div
+          style={{
+            position: "fixed",
+            top: contextMenu.y,
+            left: contextMenu.x,
+            zIndex: 9999,
+            background: "#fff",
+            border: "1px solid rgba(0,0,0,0.12)",
+            borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            minWidth: 150,
+            overflow: "hidden",
+          }}
+        >
+          <button
+            onClick={() => {
+              setContextMenu(null);
+              setEditingMode("time");
+              setEditError(null);
+            }}
+            style={{ width: "100%", textAlign: "left", border: "none", background: "#fff", padding: "7px 10px", fontSize: 10, fontWeight: 600, color: "#374151", cursor: "pointer" }}
+          >
+            ✏ Zeit bearbeiten
+          </button>
+          {isZusatz && (
+            <button
+              onClick={() => {
+                setContextMenu(null);
+                setEditingMode("comment");
+                setEditError(null);
+              }}
+              style={{ width: "100%", textAlign: "left", border: "none", borderTop: "1px solid rgba(0,0,0,0.06)", background: "#fff", padding: "7px 10px", fontSize: 10, fontWeight: 600, color: "#374151", cursor: "pointer" }}
+            >
+              ✏ Kommentar bearbeiten
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -287,7 +558,13 @@ function StatTile({ label, value, color = "#1a1a1a" }: { label: string; value: s
 }
 
 // ── GM Day Row (daily view) ───────────────────────────────────
-function GMDayRow({ session }: { session: TimeDaySession }) {
+function GMDayRow({
+  session,
+  onSegmentPatched,
+}: {
+  session: TimeDaySession;
+  onSegmentPatched: () => Promise<void>;
+}) {
   const [expanded, setExpanded] = useState(false);
   const stats = deriveStats(session);
   const timeline = useMemo(() => deriveTimeline(session), [session]);
@@ -345,7 +622,14 @@ function GMDayRow({ session }: { session: TimeDaySession }) {
             </div>
           </div>
           <div style={{ borderTop: "1px solid rgba(0,0,0,0.04)" }}>
-            {timeline.map((seg, i) => <ActionRow key={i} seg={seg} />)}
+            {timeline.map((seg) => (
+              <ActionRow
+                key={seg.id}
+                seg={seg}
+                session={session}
+                onSegmentPatched={onSegmentPatched}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -354,7 +638,15 @@ function GMDayRow({ session }: { session: TimeDaySession }) {
 }
 
 // ── Date group (daily view) ───────────────────────────────────
-function DateGroup({ dateISO, sessions }: { dateISO: string; sessions: TimeDaySession[] }) {
+function DateGroup({
+  dateISO,
+  sessions,
+  onSegmentPatched,
+}: {
+  dateISO: string;
+  sessions: TimeDaySession[];
+  onSegmentPatched: () => Promise<void>;
+}) {
   const { weekday, date } = fmtDateLabel(dateISO);
   const isToday = dateISO === TODAY;
   const totalEntries = sessions.reduce((s, sess) => s + sess.entries.length, 0);
@@ -372,7 +664,9 @@ function DateGroup({ dateISO, sessions }: { dateISO: string; sessions: TimeDaySe
       </div>
       <div style={{ margin: "0 10px 16px", background: "rgba(0,0,0,0.022)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 12, overflow: "hidden" }}>
         <div style={{ background: "#fff", margin: "8px 8px 8px", borderRadius: 9, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", overflow: "hidden" }}>
-          {sessions.map(s => <GMDayRow key={s.id} session={s} />)}
+          {sessions.map((s) => (
+            <GMDayRow key={s.id} session={s} onSegmentPatched={onSegmentPatched} />
+          ))}
         </div>
       </div>
     </div>
@@ -380,10 +674,11 @@ function DateGroup({ dateISO, sessions }: { dateISO: string; sessions: TimeDaySe
 }
 
 // ── History Day Row (inside GM expansion) ────────────────────
-function HistoryDayRow({ session, timeline, stats }: {
+function HistoryDayRow({ session, timeline, stats, onSegmentPatched }: {
   session: TimeDaySession;
   timeline: DisplaySegment[];
   stats: ReturnType<typeof deriveStats>;
+  onSegmentPatched: () => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { weekday, date } = fmtDateLabel(session.date);
@@ -443,7 +738,14 @@ function HistoryDayRow({ session, timeline, stats }: {
       {/* Expanded timeline */}
       <div style={{ maxHeight: expanded ? "1000px" : "0", overflow: "hidden", transition: "max-height 0.32s cubic-bezier(0.4,0,0.2,1)" }}>
         <div style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.2s ease 0.05s", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
-          {timeline.map((seg, i) => <ActionRow key={i} seg={seg} />)}
+          {timeline.map((seg) => (
+            <ActionRow
+              key={seg.id}
+              seg={seg}
+              session={session}
+              onSegmentPatched={onSegmentPatched}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -451,7 +753,13 @@ function HistoryDayRow({ session, timeline, stats }: {
 }
 
 // ── GM Ansicht Row ────────────────────────────────────────────
-function GMAnsichtRow({ gm }: { gm: AggregatedGmRow }) {
+function GMAnsichtRow({
+  gm,
+  onSegmentPatched,
+}: {
+  gm: AggregatedGmRow;
+  onSegmentPatched: () => Promise<void>;
+}) {
   const [expanded, setExpanded] = useState(false);
   const av = gmAvatarColor(gm.gmName);
 
@@ -521,7 +829,13 @@ function GMAnsichtRow({ gm }: { gm: AggregatedGmRow }) {
           {/* Historical date blocks — each day is its own collapsible row */}
           <div className="map-scroll" style={{ maxHeight: 800, overflowY: "auto", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
             {historyGroups.map(({ session, timeline, stats }) => (
-              <HistoryDayRow key={session.id} session={session} timeline={timeline} stats={stats} />
+              <HistoryDayRow
+                key={session.id}
+                session={session}
+                timeline={timeline}
+                stats={stats}
+                onSegmentPatched={onSegmentPatched}
+              />
             ))}
           </div>
         </div>
@@ -539,65 +853,62 @@ export default function ZeiterfassungPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
+  const loadZeiterfassungData = useCallback(async (options?: { showLoader?: boolean }) => {
+    const showLoader = options?.showLoader ?? true;
+    if (showLoader) setLoading(true);
     setLoadError(null);
-    void Promise.all([
-      fetchAdminZeiterfassungDays({ timezone: "Europe/Vienna", includeLive: true }),
-      fetchAdminZeiterfassungGmAggregates({ timezone: "Europe/Vienna", includeLive: true }),
-    ])
-      .then(([dayPayload, aggregatePayload]) => {
-        if (cancelled) return;
-        setSessions(
-          (dayPayload.sessions ?? []).map((session) => ({
-            id: session.id,
-            date: session.date,
-            gmId: session.gmId,
-            gmName: session.gmName,
-            region: session.region,
-            status: session.status,
-            isLive: session.isLive,
-            timezone: session.timezone,
-            startTime: session.startTime,
-            endTime: session.endTime,
-            startKm: session.startKm,
-            endKm: session.endKm,
-            entries: session.entries.map((entry) => {
-              const subtype = toEntrySubtype(entry.subtype);
-              return {
-                id: entry.id,
-                kind: entry.kind,
-                startTime: entry.startTime,
-                endTime: entry.endTime,
-                durationMin: entry.durationMin,
-                ...(entry.marketName ? { marketName: entry.marketName } : {}),
-                ...(entry.marketAddress ? { marketAddress: entry.marketAddress } : {}),
-                ...(entry.questionnaireType ? { questionnaireType: entry.questionnaireType } : {}),
-                ...(subtype ? { subtype } : {}),
-                ...(entry.comment ? { comment: entry.comment } : {}),
-              };
-            }),
-            timeline: session.timeline,
-            stats: session.stats,
-          })),
-        );
-        setAggregateRows(aggregatePayload.rows ?? []);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "Zeiterfassung konnte nicht geladen werden.";
-        setLoadError(message || "Zeiterfassung konnte nicht geladen werden.");
-        setSessions([]);
-        setAggregateRows([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const [dayPayload, aggregatePayload] = await Promise.all([
+        fetchAdminZeiterfassungDays({ timezone: "Europe/Vienna", includeLive: true }),
+        fetchAdminZeiterfassungGmAggregates({ timezone: "Europe/Vienna", includeLive: true }),
+      ]);
+      setSessions(
+        (dayPayload.sessions ?? []).map((session) => ({
+          id: session.id,
+          date: session.date,
+          gmId: session.gmId,
+          gmName: session.gmName,
+          region: session.region,
+          status: session.status,
+          isLive: session.isLive,
+          timezone: session.timezone,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          startKm: session.startKm,
+          endKm: session.endKm,
+          entries: session.entries.map((entry) => {
+            const subtype = toEntrySubtype(entry.subtype);
+            return {
+              id: entry.id,
+              kind: entry.kind,
+              startTime: entry.startTime,
+              endTime: entry.endTime,
+              durationMin: entry.durationMin,
+              ...(entry.marketName ? { marketName: entry.marketName } : {}),
+              ...(entry.marketAddress ? { marketAddress: entry.marketAddress } : {}),
+              ...(entry.questionnaireType ? { questionnaireType: entry.questionnaireType } : {}),
+              ...(subtype ? { subtype } : {}),
+              ...(entry.comment ? { comment: entry.comment } : {}),
+            };
+          }),
+          timeline: session.timeline,
+          stats: session.stats,
+        })),
+      );
+      setAggregateRows(aggregatePayload.rows ?? []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Zeiterfassung konnte nicht geladen werden.";
+      setLoadError(message || "Zeiterfassung konnte nicht geladen werden.");
+      setSessions([]);
+      setAggregateRows([]);
+    } finally {
+      if (showLoader) setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadZeiterfassungData({ showLoader: true });
+  }, [loadZeiterfassungData]);
 
   // Daily view: group by date, newest first
   const dateGroups = useMemo(() => {
@@ -732,7 +1043,14 @@ export default function ZeiterfassungPage() {
               </div>
             ) : view === "tage" ? (
               <div style={{ padding: "4px 0 0" }}>
-                {dateGroups.map(g => <DateGroup key={g.date} dateISO={g.date} sessions={g.sessions} />)}
+                {dateGroups.map((g) => (
+                  <DateGroup
+                    key={g.date}
+                    dateISO={g.date}
+                    sessions={g.sessions}
+                    onSegmentPatched={() => loadZeiterfassungData({ showLoader: false })}
+                  />
+                ))}
               </div>
             ) : (
               <div>
@@ -748,7 +1066,13 @@ export default function ZeiterfassungPage() {
                 </div>
                 {/* GM rows */}
                 <div>
-                  {gmRows.map(gm => <GMAnsichtRow key={gm.gmId} gm={gm} />)}
+                  {gmRows.map((gm) => (
+                    <GMAnsichtRow
+                      key={gm.gmId}
+                      gm={gm}
+                      onSegmentPatched={() => loadZeiterfassungData({ showLoader: false })}
+                    />
+                  ))}
                 </div>
               </div>
             )}

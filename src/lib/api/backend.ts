@@ -1613,6 +1613,7 @@ export type AdminZeiterfassungSessionEntry = {
 };
 
 export type AdminZeiterfassungTimelineSegment = {
+  id: string;
   kind: "anfahrt" | "fahrtzeit" | "marktbesuch" | "pause" | "zusatzzeit" | "heimfahrt";
   start: string;
   end: string;
@@ -1878,6 +1879,25 @@ export async function importMarkets(input: ImportMarketsInput): Promise<{ market
     markets: (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market)),
     summary: data.summary,
   };
+}
+
+export async function patchAdminZeiterfassungSegment(input: {
+  sessionId: string;
+  segmentKind: "marktbesuch" | "pause" | "zusatzzeit";
+  segmentId: string;
+  startTime?: string;
+  endTime?: string;
+  comment?: string | null;
+}): Promise<{ ok: boolean }> {
+  return (await authedFetch(`/admin/zeiterfassung/segments/${encodeURIComponent(input.segmentKind)}/${encodeURIComponent(input.segmentId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      sessionId: input.sessionId,
+      ...(input.startTime !== undefined ? { startTime: input.startTime } : {}),
+      ...(input.endTime !== undefined ? { endTime: input.endTime } : {}),
+      ...(input.comment !== undefined ? { comment: input.comment } : {}),
+    }),
+  })) as { ok: boolean };
 }
 
 export async function normalizeAllMarketRegions(input?: {

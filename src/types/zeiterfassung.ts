@@ -36,6 +36,7 @@ export interface TimeDaySession {
   endKm: number | null;
   entries: TimeEntry[];
   timeline?: Array<{
+    id: string;
     kind: "anfahrt" | "fahrtzeit" | "marktbesuch" | "pause" | "zusatzzeit" | "heimfahrt";
     start: string;
     end: string;

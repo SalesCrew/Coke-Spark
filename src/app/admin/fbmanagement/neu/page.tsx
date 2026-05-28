@@ -1326,6 +1326,7 @@ function StepMaerkte({
   onSetGmOverrideForKey?: (overrideKey: string, gmUserId: string) => void;
 }) {
   const isAuto = CAMPAIGN_TYPES.find(t => t.id === typeId)?.autoMarkets ?? false;
+  const isFlexCampaign = typeId === "flex";
   const hasMarkets = markets.length > 0;
   const isKuehlerCampaign = typeId === "kuehler";
   const unresolvedIssues = matchIssues ?? [];
@@ -1395,9 +1396,15 @@ function StepMaerkte({
     <div style={{ display: "flex", flexDirection: "column", gap: 24, overflow: "hidden", minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
         <div>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", margin: "0 0 6px" }}>Märkte importieren</h3>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", margin: "0 0 6px" }}>
+            {isAuto ? "Märkte automatisch zuweisen" : "Märkte importieren"}
+          </h3>
           <p style={{ fontSize: 13, color: "rgba(0,0,0,0.4)", margin: 0 }}>
-            {isAuto ? `${markets.length} aktive Märkte automatisch enthalten · ${uniqueGms} GMs · ${uniqueRegions} Regionen` : hasImportedState ? `${markets.length} Märkte geladen · ${uniqueGms} GMs · ${uniqueRegions} Regionen` : "Importiere die Märkte per Excel."}
+            {isAuto
+              ? `${markets.length} aktive ${isFlexCampaign ? "Universumsmärkte" : "Märkte"} automatisch enthalten · ${uniqueGms} GMs · ${uniqueRegions} Regionen`
+              : hasImportedState
+                ? `${markets.length} Märkte geladen · ${uniqueGms} GMs · ${uniqueRegions} Regionen`
+                : "Importiere die Märkte per Excel."}
           </p>
           {!isAuto && matchSummary && (
             <p style={{ fontSize: 11, color: hasUnresolvedIssues ? "#b45309" : "rgba(0,0,0,0.35)", margin: "6px 0 0", fontWeight: 600 }}>
@@ -1433,9 +1440,13 @@ function StepMaerkte({
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.015em", marginBottom: 2 }}>
-              {markets.length.toLocaleString("de-AT")} aktive Märkte automatisch enthalten
+              {markets.length.toLocaleString("de-AT")} aktive {isFlexCampaign ? "Universumsmärkte" : "Märkte"} automatisch enthalten
             </div>
-            <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", fontWeight: 400 }}>Bei Flexbesuchen werden alle aktiven Märkte automatisch zugewiesen.</div>
+            <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", fontWeight: 400 }}>
+              {isFlexCampaign
+                ? "Bei Flexbesuchen werden automatisch alle aktiven Universumsmärkte zugewiesen."
+                : "Alle aktiven Märkte werden automatisch zugewiesen."}
+            </div>
           </div>
         </div>
       ) : !hasImportedState ? (
@@ -1774,7 +1785,9 @@ function StepUebersicht({ typeId, name, startDate, endDate, startNow, markets }:
           {markets.length === 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 9, backgroundColor: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)" }}>
               <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#d97706", flexShrink: 0 }} />
-              <span style={{ fontSize: 11, color: "#b45309", fontWeight: 500 }}>Keine Märkte importiert</span>
+              <span style={{ fontSize: 11, color: "#b45309", fontWeight: 500 }}>
+                {typeId === "flex" ? "Keine Universumsmärkte gefunden" : "Keine Märkte importiert"}
+              </span>
             </div>
           )}
         </div>
@@ -1849,6 +1862,7 @@ export default function NeuKampagnePage() {
     () =>
       allMarkets.filter((market) => {
         if (market.isActive === false) return false;
+        if (typeId === "flex") return market.marketType === "universum";
         if (typeId !== "kuehler") return true;
         // Kühlerinventur campaign matching is identity-based via Stammnr.
         return getMarketStammnrCandidates(market).length > 0;
@@ -1981,7 +1995,7 @@ export default function NeuKampagnePage() {
     if (step === 1) return !!typeId;
     if (step === 2) return !!name;
     if (step === 3) {
-      if (isAuto) return true;
+      if (isAuto) return matcherReport.matchedIds.length > 0;
       if (matchMode === "kuehler_stammnr") return matchedMarketRows.length > 0 && identityBlockingCount === 0;
       return markets.length > 0;
     }
@@ -2251,7 +2265,7 @@ export default function NeuKampagnePage() {
 
   const gmBlockingIssues = assignmentBuild.issues.length;
   const hasAssignmentsToCreate = assignmentBuild.assignments.length > 0;
-  const canCreate = !!name && !isSubmitting && (isAuto || (identityBlockingCount === 0 && hasAssignmentsToCreate));
+  const canCreate = !!name && !isSubmitting && (isAuto ? matcherReport.matchedIds.length > 0 : (identityBlockingCount === 0 && hasAssignmentsToCreate));
 
   const updateMatcherRow = useCallback((rowId: string, field: "name" | "gm", value: string) => {
     setMarkets((current) =>
@@ -2496,7 +2510,7 @@ export default function NeuKampagnePage() {
               <StepUebersicht
                 typeId={typeId} name={name}
                 startDate={startDate} endDate={endDate}
-                startNow={startNow} markets={matchMode === "kuehler_stammnr" ? matchedMarketRowsWithResolvedGm : markets}
+                startNow={startNow} markets={isAuto ? assignableMarkets : (matchMode === "kuehler_stammnr" ? matchedMarketRowsWithResolvedGm : markets)}
               />
             )}
           </div>

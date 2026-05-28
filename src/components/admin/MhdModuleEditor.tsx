@@ -281,16 +281,12 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   );
 }
 
-const SINGLE_CHOICE_AVAILABILITY_OPTIONS = ["Voll", "Mittel", "Leer"] as const;
-
 function ChoiceConfig({
   options,
   onChange,
-  disabled = false,
 }: {
   options: string[];
   onChange: (o: string[]) => void;
-  disabled?: boolean;
 }) {
   return (
     <div style={{ marginTop: 10 }}>
@@ -300,7 +296,6 @@ function ChoiceConfig({
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             <input
               type="text" value={opt}
-              disabled={disabled}
               onChange={(e) => { const next = [...options]; next[i] = e.target.value; onChange(next); }}
               placeholder={`Option ${i + 1}`}
               style={{
@@ -310,25 +305,21 @@ function ChoiceConfig({
                 border: "none",
                 borderBottom: "1px solid rgba(0,0,0,0.08)",
                 outline: "none",
-                color: disabled ? "rgba(55,65,81,0.65)" : "#374151",
+                color: "#374151",
                 backgroundColor: "transparent",
-                cursor: disabled ? "not-allowed" : "text",
               }}
             />
-            {!disabled && options.length > 1 && (
+            {options.length > 1 && (
               <button onClick={() => onChange(options.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "rgba(0,0,0,0.25)", transition: "color 0.15s ease" }} onMouseEnter={(e) => (e.currentTarget.style.color = PD)} onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(0,0,0,0.25)")}>
                 <X size={11} strokeWidth={2} />
               </button>
             )}
           </div>
         ))}
-        {!disabled && (
-          <button onClick={() => onChange([...options, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: PD, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-            <Plus size={10} strokeWidth={2} />
-            Option hinzufügen
-          </button>
-        )}
-        {disabled && <div style={{ marginTop: 6, fontSize: 9, color: "rgba(0,0,0,0.35)" }}>Optionen sind bei aktiver Verfuegbarkeitsabfrage fixiert.</div>}
+        <button onClick={() => onChange([...options, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: PD, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+          <Plus size={10} strokeWidth={2} />
+          Option hinzufügen
+        </button>
       </div>
     </div>
   );
@@ -530,13 +521,7 @@ function YesNoMultiConfig({ config, onChange }: { config: Record<string, unknown
 function TypeConfig({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
   const setConfig = (c: Record<string, unknown>) => onUpdate({ ...question, config: c });
   switch (question.type) {
-    case "single": {
-      const isAvailabilityQuestion = question.singleChoiceAvailability === true;
-      const options = isAvailabilityQuestion
-        ? [...SINGLE_CHOICE_AVAILABILITY_OPTIONS]
-        : ((question.config.options as string[]) || [""]);
-      return <ChoiceConfig options={options} disabled={isAvailabilityQuestion} onChange={(o) => setConfig({ ...question.config, options: o })} />;
-    }
+    case "single":
     case "multiple": return <ChoiceConfig options={(question.config.options as string[]) || [""]} onChange={(o) => setConfig({ ...question.config, options: o })} />;
     case "yesnomulti": return <YesNoMultiConfig config={question.config} onChange={setConfig} />;
     case "likert": return <LikertConfig config={question.config} onChange={setConfig} />;
@@ -660,19 +645,6 @@ function QuestionCard({ question, index, isExpanded, onToggle, onUpdate, onDelet
               <Toggle value={question.required} onChange={(v) => onUpdate({ ...question, required: v })} />
               <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Pflichtfrage</span>
             </div>
-            {question.type === "single" && (
-              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                <Toggle
-                  value={question.singleChoiceAvailability === true}
-                  onChange={(v) => onUpdate({
-                    ...question,
-                    singleChoiceAvailability: v,
-                    config: v ? { ...question.config, options: [...SINGLE_CHOICE_AVAILABILITY_OPTIONS] } : question.config,
-                  })}
-                />
-                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Verfuegbarkeitsabfrage</span>
-              </div>
-            )}
             {question.type === "yesno" && (
               <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
                 <Toggle value={question.redSurvey === true} onChange={(v) => onUpdate({ ...question, redSurvey: v })} />
@@ -721,7 +693,7 @@ export function MhdModuleEditor({ onClose, onSave, existingModule, existingQuest
       ...q,
       scoring: q.scoring ?? {},
       redSurvey: q.redSurvey ?? null,
-      singleChoiceAvailability: q.singleChoiceAvailability ?? null,
+      singleChoiceAvailability: false,
     }))
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);

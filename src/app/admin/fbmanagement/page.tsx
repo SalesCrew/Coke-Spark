@@ -7,6 +7,7 @@ import Aurora from "@/components/ui/Aurora";
 import type { Campaign, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { ConditionalRule, Fragebogen, Module, Question } from "@/types/fragebogen";
 import {
+  BackendApiError,
   assignCampaignMarketAssignments,
   assignCampaignMarkets,
   deleteCampaign,
@@ -18,10 +19,11 @@ import {
   getCampaignOverlapConflicts,
   hardDeleteCampaign,
   migrateCampaignMarkets,
+  patchCampaignVisitAnswer,
   removeCampaignMarket,
   switchCampaignFragebogen,
 } from "@/lib/api/backend";
-import type { CampaignMarketVisitSummary } from "@/lib/api/backend";
+import type { CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
 
 type FragebogenOption = {
   id: string;
@@ -3780,17 +3782,20 @@ function MarketVisitDetail({
   market,
   campaignColor,
   visitSummary,
+  onVisitUpdated,
   onClose,
 }: {
   market: MarketCatalogItem;
   campaignColor: string;
   visitSummary: CampaignMarketVisitSummary | null;
+  onVisitUpdated: () => Promise<void>;
   onClose: () => void;
 }) {
   type SessionQuestionView = PreviewQuestion & {
     answerStatus: "unanswered" | "answered" | "invalid" | "hidden_by_rule" | "skipped";
     validationError: string | null;
     rawAnswer: string | string[] | Record<string, string> | AnswerPhotoEntry[] | undefined;
+    comment: string;
   };
 
   const sections = visitSummary?.sections ?? [];
@@ -3879,6 +3884,7 @@ function MarketVisitDetail({
           answerStatus: question.answer?.answerStatus ?? "unanswered",
           validationError: question.answer?.validationError ?? null,
           rawAnswer,
+          comment: question.comment ?? "",
         });
       }
     }
@@ -3961,6 +3967,518 @@ function MarketVisitDetail({
     const bodyTop = body.getBoundingClientRect().top;
     const target = body.scrollTop + (elTop - bodyTop) - 8;
     body.scrollTo({ top: target, behavior: "smooth" });
+  };
+
+  type YesNoMultiDraft = { sel: string; subs: string[] };
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [draftAnswer, setDraftAnswer] = useState<SessionQuestionView["rawAnswer"] | YesNoMultiDraft>(undefined);
+  const [draftComment, setDraftComment] = useState("");
+  const [savingQuestionId, setSavingQuestionId] = useState<string | null>(null);
+  const [saveErrorByQuestionId, setSaveErrorByQuestionId] = useState<Record<string, string>>({});
+
+  const parseYesNoMultiDraft = useCallback((value: SessionQuestionView["rawAnswer"]): YesNoMultiDraft => {
+    if (typeof value === "string" && value.trim().startsWith("{")) {
+      try {
+        const parsed = JSON.parse(value) as { sel?: unknown; subs?: unknown };
+        const sel = typeof parsed.sel === "string" ? parsed.sel : "";
+        const subs = Array.isArray(parsed.subs)
+          ? parsed.subs.filter((entry): entry is string => typeof entry === "string")
+          : [];
+        return { sel, subs };
+      } catch {
+        return { sel: "", subs: [] };
+      }
+    }
+    return { sel: "", subs: [] };
+  }, []);
+
+  const normalizeDraftAnswer = useCallback((question: SessionQuestionView): SessionQuestionView["rawAnswer"] | YesNoMultiDraft => {
+    const raw = question.rawAnswer;
+    if (question.type === "yesnomulti") {
+      return parseYesNoMultiDraft(raw);
+    }
+    if (question.type === "multiple" || (question.type === "matrix" && String(question.config?.matrixSubtype ?? "toggle") === "toggle")) {
+      return Array.isArray(raw)
+        ? raw.filter((entry): entry is string => typeof entry === "string")
+        : [];
+    }
+    if (question.type === "matrix") {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        return Object.fromEntries(
+          Object.entries(raw as Record<string, unknown>).map(([key, value]) => [key, typeof value === "string" ? value : ""]),
+        );
+      }
+      return {};
+    }
+    if (raw && typeof raw === "object") {
+      return undefined;
+    }
+    return raw;
+  }, [parseYesNoMultiDraft]);
+
+  const startEditingQuestion = useCallback((question: SessionQuestionView) => {
+    if (question.type === "photo") return;
+    setEditingQuestionId(question.id);
+    setDraftAnswer(normalizeDraftAnswer(question));
+    setDraftComment(question.comment ?? "");
+    setSaveErrorByQuestionId((current) => {
+      if (!current[question.id]) return current;
+      const next = { ...current };
+      delete next[question.id];
+      return next;
+    });
+  }, [normalizeDraftAnswer]);
+
+  const cancelEditingQuestion = useCallback(() => {
+    setEditingQuestionId(null);
+    setDraftAnswer(undefined);
+    setDraftComment("");
+    setSavingQuestionId(null);
+  }, []);
+
+  const buildPatchAnswerPayload = useCallback((question: SessionQuestionView): unknown => {
+    if (question.type === "yesnomulti") {
+      const draft = (draftAnswer && typeof draftAnswer === "object" && !Array.isArray(draftAnswer) && "sel" in draftAnswer && "subs" in draftAnswer)
+        ? (draftAnswer as YesNoMultiDraft)
+        : { sel: "", subs: [] };
+      return JSON.stringify({
+        sel: typeof draft.sel === "string" ? draft.sel : "",
+        subs: Array.isArray(draft.subs) ? draft.subs.filter((entry): entry is string => typeof entry === "string") : [],
+      });
+    }
+    if (question.type === "multiple") {
+      return Array.isArray(draftAnswer)
+        ? draftAnswer.filter((entry): entry is string => typeof entry === "string")
+        : [];
+    }
+    if (question.type === "matrix") {
+      const subtype = String(question.config?.matrixSubtype ?? "toggle");
+      if (subtype === "toggle") {
+        return Array.isArray(draftAnswer)
+          ? draftAnswer.filter((entry): entry is string => typeof entry === "string")
+          : [];
+      }
+      const matrixMap = draftAnswer && typeof draftAnswer === "object" && !Array.isArray(draftAnswer)
+        ? Object.fromEntries(
+            Object.entries(draftAnswer as Record<string, unknown>).map(([key, value]) => [key, typeof value === "string" ? value : ""]),
+          )
+        : {};
+      return JSON.stringify(matrixMap);
+    }
+    if (question.type === "likert" || question.type === "numeric" || question.type === "slider") {
+      if (typeof draftAnswer === "number") return String(draftAnswer);
+      if (typeof draftAnswer === "string") return draftAnswer;
+      return "";
+    }
+    if (typeof draftAnswer === "string") return draftAnswer;
+    return "";
+  }, [draftAnswer]);
+
+  const saveQuestionEdit = useCallback(async (question: SessionQuestionView) => {
+    if (!visitSummary?.sessionId || savingQuestionId) return;
+    setSavingQuestionId(question.id);
+    setSaveErrorByQuestionId((current) => {
+      if (!current[question.id]) return current;
+      const next = { ...current };
+      delete next[question.id];
+      return next;
+    });
+    try {
+      await patchCampaignVisitAnswer({
+        sessionId: visitSummary.sessionId,
+        visitQuestionId: question.id,
+        answer: buildPatchAnswerPayload(question),
+        comment: draftComment,
+      });
+      await onVisitUpdated();
+      setEditingQuestionId(null);
+      setDraftAnswer(undefined);
+      setDraftComment("");
+    } catch (error) {
+      let message = error instanceof Error ? error.message : "Antwort konnte nicht gespeichert werden.";
+      if (error instanceof BackendApiError && error.code === "visit_edit_incomplete_required") {
+        const data = (error.data ?? {}) as { missingRequired?: CampaignVisitAnswerPatchMissingRequired[] };
+        const first = Array.isArray(data.missingRequired) ? data.missingRequired[0] : null;
+        const firstLabel = first && typeof first.questionText === "string" ? first.questionText : null;
+        message = firstLabel
+          ? `Regelkonflikt: Pflichtfrage fehlt nach Änderung (${firstLabel}).`
+          : "Regelkonflikt: Pflichtfragen wären nach der Änderung unvollständig.";
+      }
+      setSaveErrorByQuestionId((current) => ({ ...current, [question.id]: message }));
+    } finally {
+      setSavingQuestionId(null);
+    }
+  }, [buildPatchAnswerPayload, draftComment, onVisitUpdated, savingQuestionId, visitSummary?.sessionId]);
+
+  const renderEditControls = (q: SessionQuestionView) => {
+    const commonInputStyle: React.CSSProperties = {
+      width: "100%",
+      borderRadius: 7,
+      border: "1px solid rgba(0,0,0,0.13)",
+      background: "#fff",
+      color: "#1a1a1a",
+      fontSize: 10.5,
+      fontWeight: 500,
+      padding: "6px 8px",
+      outline: "none",
+      fontFamily: "inherit",
+    };
+    const chipButtonStyle = (active: boolean): React.CSSProperties => ({
+      borderRadius: 7,
+      border: active ? `1px solid ${campaignColor}` : "1px solid rgba(0,0,0,0.12)",
+      background: active ? `linear-gradient(to bottom, ${campaignColor}20, ${campaignColor}12)` : "#fff",
+      color: active ? "#1a1a1a" : "rgba(0,0,0,0.62)",
+      fontSize: 10,
+      fontWeight: active ? 700 : 600,
+      padding: "4px 8px",
+      cursor: "pointer",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      transition: "all 0.12s ease",
+    });
+
+    const renderInlineEditor = () => {
+      if (q.type === "yesno" || q.type === "single") {
+        const options = q.type === "yesno"
+          ? (Array.isArray(q.config?.answers) && q.config.answers.length > 0 ? q.config.answers : q.options ?? ["Ja", "Nein"])
+          : (q.options ?? []);
+        const selected = typeof draftAnswer === "string" ? draftAnswer : "";
+        return (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {options.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setDraftAnswer(option)}
+                style={chipButtonStyle(selected === option)}
+              >
+                {option}
+              </button>
+            ))}
+            <button type="button" onClick={() => setDraftAnswer("")} style={chipButtonStyle(selected.length === 0)}>
+              Keine Antwort
+            </button>
+          </div>
+        );
+      }
+
+      if (q.type === "multiple") {
+        const selected = new Set(
+          Array.isArray(draftAnswer)
+            ? draftAnswer.filter((entry): entry is string => typeof entry === "string")
+            : [],
+        );
+        return (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {(q.options ?? []).map((option) => {
+              const active = selected.has(option);
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(selected);
+                    if (next.has(option)) next.delete(option);
+                    else next.add(option);
+                    setDraftAnswer(Array.from(next));
+                  }}
+                  style={chipButtonStyle(active)}
+                >
+                  <span style={{ width: 10, height: 10, borderRadius: 3, border: active ? `1px solid ${campaignColor}` : "1px solid rgba(0,0,0,0.24)", background: active ? campaignColor : "#fff" }} />
+                  {option}
+                </button>
+              );
+            })}
+          </div>
+        );
+      }
+
+      if (q.type === "yesnomulti") {
+        const draft = (draftAnswer && typeof draftAnswer === "object" && !Array.isArray(draftAnswer) && "sel" in draftAnswer && "subs" in draftAnswer)
+          ? (draftAnswer as YesNoMultiDraft)
+          : { sel: "", subs: [] };
+        const topOptions = Array.isArray(q.config?.answers) && q.config.answers.length > 0
+          ? q.config.answers
+          : (q.options ?? []);
+        const branches = Array.isArray(q.config?.branches) ? q.config.branches : [];
+        const branchOptions = branches.find((entry) => entry.answer === draft.sel)?.options ?? [];
+        const subSet = new Set(draft.subs);
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {topOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setDraftAnswer({ sel: option, subs: [] })}
+                  style={chipButtonStyle(draft.sel === option)}
+                >
+                  {option}
+                </button>
+              ))}
+              <button type="button" onClick={() => setDraftAnswer({ sel: "", subs: [] })} style={chipButtonStyle(draft.sel.length === 0)}>
+                Keine Antwort
+              </button>
+            </div>
+            {branchOptions.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {branchOptions.map((option) => {
+                  const active = subSet.has(option);
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        const next = new Set(subSet);
+                        if (next.has(option)) next.delete(option);
+                        else next.add(option);
+                        setDraftAnswer({ sel: draft.sel, subs: Array.from(next) });
+                      }}
+                      style={chipButtonStyle(active)}
+                    >
+                      <span style={{ width: 10, height: 10, borderRadius: 3, border: active ? `1px solid ${campaignColor}` : "1px solid rgba(0,0,0,0.24)", background: active ? campaignColor : "#fff" }} />
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      if (q.type === "text") {
+        return (
+          <textarea
+            rows={3}
+            value={typeof draftAnswer === "string" ? draftAnswer : ""}
+            onChange={(event) => setDraftAnswer(event.target.value)}
+            style={{ ...commonInputStyle, resize: "vertical", minHeight: 66, lineHeight: 1.4 }}
+          />
+        );
+      }
+
+      if (q.type === "slider") {
+        const min = typeof q.config?.min === "number" ? q.config.min : 0;
+        const max = typeof q.config?.max === "number" ? q.config.max : 100;
+        const step = typeof q.config?.step === "number" ? q.config.step : 1;
+        const value = Number(typeof draftAnswer === "string" ? draftAnswer : "");
+        const safeValue = Number.isFinite(value) ? value : min;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="range"
+              min={min}
+              max={max}
+              step={step}
+              value={safeValue}
+              onChange={(event) => setDraftAnswer(event.target.value)}
+              style={{ flex: 1 }}
+            />
+            <input
+              type="number"
+              min={min}
+              max={max}
+              step={step}
+              value={typeof draftAnswer === "string" ? draftAnswer : ""}
+              onChange={(event) => setDraftAnswer(event.target.value)}
+              style={{ ...commonInputStyle, width: 88, padding: "5px 7px" }}
+            />
+          </div>
+        );
+      }
+
+      if (q.type === "likert") {
+        const min = typeof q.config?.min === "number" ? q.config.min : 1;
+        const max = typeof q.config?.max === "number" ? q.config.max : 5;
+        if (Number.isInteger(min) && Number.isInteger(max) && max - min <= 10) {
+          const selected = typeof draftAnswer === "string" ? draftAnswer : "";
+          return (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {Array.from({ length: max - min + 1 }).map((_, idx) => {
+                const value = String(min + idx);
+                return (
+                  <button key={value} type="button" onClick={() => setDraftAnswer(value)} style={chipButtonStyle(selected === value)}>
+                    {value}
+                  </button>
+                );
+              })}
+              <button type="button" onClick={() => setDraftAnswer("")} style={chipButtonStyle(selected.length === 0)}>
+                Keine Antwort
+              </button>
+            </div>
+          );
+        }
+      }
+
+      if (q.type === "numeric" || q.type === "likert") {
+        const min = typeof q.config?.min === "number" ? q.config.min : undefined;
+        const max = typeof q.config?.max === "number" ? q.config.max : undefined;
+        const step = q.type === "numeric"
+          ? (q.config?.decimals ? 0.01 : 1)
+          : 1;
+        return (
+          <input
+            type="number"
+            min={min}
+            max={max}
+            step={step}
+            value={typeof draftAnswer === "string" || typeof draftAnswer === "number" ? String(draftAnswer) : ""}
+            onChange={(event) => setDraftAnswer(event.target.value)}
+            style={commonInputStyle}
+            inputMode="decimal"
+            placeholder="Wert eingeben"
+          />
+        );
+      }
+
+      if (q.type === "matrix") {
+        const rows = q.config?.rows ?? [];
+        const columns = q.config?.columns ?? [];
+        const subtype = String(q.config?.matrixSubtype ?? "toggle");
+        if (rows.length === 0 || columns.length === 0) {
+          return <div style={{ fontSize: 10, color: "rgba(0,0,0,0.45)" }}>Matrix ohne Rows/Columns.</div>;
+        }
+        if (subtype === "toggle") {
+          const selected = new Set(
+            Array.isArray(draftAnswer)
+              ? draftAnswer.filter((entry): entry is string => typeof entry === "string")
+              : [],
+          );
+          return (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "separate", borderSpacing: 4 }}>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row}>
+                      <td style={{ fontSize: 10, color: "rgba(0,0,0,0.6)", paddingRight: 6, whiteSpace: "nowrap" }}>{row}</td>
+                      {columns.map((column) => {
+                        const key = `${row}: ${column}`;
+                        const active = selected.has(key);
+                        return (
+                          <td key={column} style={{ textAlign: "center" }}>
+                            <label style={{ ...chipButtonStyle(active), padding: "4px 7px", gap: 5 }}>
+                              <input
+                                type="checkbox"
+                                checked={active}
+                                onChange={() => {
+                                  const next = new Set(selected);
+                                  if (next.has(key)) next.delete(key);
+                                  else next.add(key);
+                                  setDraftAnswer(Array.from(next));
+                                }}
+                                style={{ margin: 0 }}
+                              />
+                              {column}
+                            </label>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        const matrixMap = draftAnswer && typeof draftAnswer === "object" && !Array.isArray(draftAnswer)
+          ? { ...(draftAnswer as Record<string, string>) }
+          : {};
+        return (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "separate", borderSpacing: 4 }}>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row}>
+                    <td style={{ fontSize: 10, color: "rgba(0,0,0,0.6)", paddingRight: 6, whiteSpace: "nowrap" }}>{row}</td>
+                    {columns.map((column) => {
+                      const key = `${row}: ${column}`;
+                      const value = typeof matrixMap[key] === "string" ? matrixMap[key] : "";
+                      return (
+                        <td key={column}>
+                          <input
+                            type={subtype === "datum" ? "date" : "text"}
+                            value={value}
+                            onChange={(event) => {
+                              const next = { ...matrixMap, [key]: event.target.value };
+                              setDraftAnswer(next);
+                            }}
+                            style={{ ...commonInputStyle, minWidth: 110, padding: "5px 7px" }}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+
+      return <div style={{ fontSize: 10, color: "rgba(0,0,0,0.45)" }}>Dieser Fragetyp ist hier nicht editierbar.</div>;
+    };
+
+    return (
+      <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+        {renderInlineEditor()}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            value={draftComment}
+            onChange={(event) => setDraftComment(event.target.value)}
+            maxLength={4000}
+            style={{ ...commonInputStyle, flex: 1, padding: "5px 8px" }}
+            placeholder="Kommentar (optional)"
+          />
+          <button
+            type="button"
+            onClick={cancelEditingQuestion}
+            disabled={savingQuestionId === q.id}
+            style={{
+              padding: "5px 8px",
+              borderRadius: 7,
+              border: "none",
+              background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
+              boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.06)",
+              color: "rgba(0,0,0,0.5)",
+              fontSize: 10,
+              fontWeight: 600,
+              cursor: savingQuestionId === q.id ? "not-allowed" : "pointer",
+              opacity: savingQuestionId === q.id ? 0.75 : 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={() => { void saveQuestionEdit(q); }}
+            disabled={savingQuestionId === q.id}
+            style={{
+              padding: "5px 9px",
+              borderRadius: 7,
+              border: "none",
+              background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+              boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: savingQuestionId === q.id ? "not-allowed" : "pointer",
+              opacity: savingQuestionId === q.id ? 0.85 : 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {savingQuestionId === q.id ? "Speichern..." : "Speichern"}
+          </button>
+        </div>
+        {saveErrorByQuestionId[q.id] && (
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#b91c1c" }}>
+            {saveErrorByQuestionId[q.id]}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const renderAnswer = (q: SessionQuestionView) => {
@@ -4129,13 +4647,42 @@ function MarketVisitDetail({
                     }}>
                       {questions.indexOf(q) + 1}
                     </span>
-                    <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: "#1a1a1a", lineHeight: 1.45, flex: 1 }}>
-                      {q.text}
-                      {q.required && <span style={{ color: campaignColor, marginLeft: 3, fontSize: 9 }}>*</span>}
-                    </p>
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                      <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: "#1a1a1a", lineHeight: 1.45, flex: 1 }}>
+                        {q.text}
+                        {q.required && <span style={{ color: campaignColor, marginLeft: 3, fontSize: 9 }}>*</span>}
+                      </p>
+                      {q.type !== "photo" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editingQuestionId === q.id) {
+                              cancelEditingQuestion();
+                              return;
+                            }
+                            startEditingQuestion(q);
+                          }}
+                          disabled={Boolean(savingQuestionId)}
+                          style={{
+                            flexShrink: 0,
+                            padding: "4px 8px",
+                            borderRadius: 7,
+                            border: editingQuestionId === q.id ? "none" : "1px solid rgba(0,0,0,0.11)",
+                            background: editingQuestionId === q.id ? `linear-gradient(to bottom, ${campaignColor}, ${campaignColor})` : "#fff",
+                            color: editingQuestionId === q.id ? "#fff" : "rgba(0,0,0,0.56)",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: savingQuestionId ? "not-allowed" : "pointer",
+                            opacity: savingQuestionId ? 0.7 : 1,
+                          }}
+                        >
+                          {editingQuestionId === q.id ? "Schließen" : "Bearbeiten"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div style={{ paddingLeft: 22 }}>
-                    {renderAnswer(q)}
+                    {editingQuestionId === q.id ? renderEditControls(q) : renderAnswer(q)}
                   </div>
                 </div>
               ))}
@@ -6206,6 +6753,10 @@ export default function FbManagementPage() {
                 market={m}
                 campaignColor={campaign.color}
                 visitSummary={campaignVisitSummaryByMarket[m.id] ?? null}
+                onVisitUpdated={async () => {
+                  if (!campaign?.id) return;
+                  await refreshCampaignVisitSummaries(campaign.id);
+                }}
                 onClose={() => setSelectedMarket(null)}
               />
             );

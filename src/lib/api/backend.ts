@@ -1521,6 +1521,18 @@ export type GmVisitSessionReadPayload = {
 };
 
 export type CampaignMarketVisitSummary = BackendCampaignMarketVisitSummary;
+export type CampaignVisitAnswerPatchResult = {
+  answerId: string;
+  answerStatus: "unanswered" | "answered" | "invalid" | "hidden_by_rule" | "skipped";
+  isValid: boolean;
+  validationError: string | null;
+};
+export type CampaignVisitAnswerPatchMissingRequired = {
+  visitQuestionId: string;
+  questionId: string;
+  questionText: string;
+  questionType: string;
+};
 export type AdminIppListRow = Omit<BackendIppListRow, "marketIpp"> & { marketIpp: number };
 export type AdminIppDetailRecord = Omit<BackendIppDetailRecord, "marketIpp"> & { marketIpp: number };
 export type TimeTrackingActivityType =
@@ -2309,6 +2321,23 @@ export async function fetchCampaignMarketVisitSummaries(campaignId: string): Pro
     markets?: BackendCampaignMarketVisitSummary[];
   };
   return data.markets ?? [];
+}
+
+export async function patchCampaignVisitAnswer(input: {
+  sessionId: string;
+  visitQuestionId: string;
+  answer: unknown;
+  comment?: string;
+}): Promise<{ ok: boolean; result: CampaignVisitAnswerPatchResult }> {
+  const data = (await authedFetch(`/admin/campaigns/visit-sessions/${encodeURIComponent(input.sessionId)}/answers`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      visitQuestionId: input.visitQuestionId,
+      answer: input.answer,
+      ...(input.comment !== undefined ? { comment: input.comment } : {}),
+    }),
+  })) as { ok: boolean; result: CampaignVisitAnswerPatchResult };
+  return data;
 }
 
 export async function createCampaign(input: CreateCampaignInput): Promise<Campaign> {

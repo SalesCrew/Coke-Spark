@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronDown, Clock, Store, Car, Coffee,
   GraduationCap, Wrench, Home, Warehouse, Star, Search,
@@ -16,6 +17,7 @@ import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
 const HHMM_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // ── Helpers ───────────────────────────────────────────────────
 function toMin(hhmm: string): number {
@@ -27,6 +29,9 @@ function diffMin(start: string, end: string): number {
 }
 function isValidHm(value: string): boolean {
   return HHMM_REGEX.test(value.trim());
+}
+function isUuid(value: string): boolean {
+  return UUID_REGEX.test(value.trim());
 }
 function fmtDur(min: number): string {
   if (min < 60) return `${min} Min`;
@@ -100,8 +105,20 @@ interface DisplaySegment {
 
 function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
   if (Array.isArray(session.timeline) && session.timeline.length > 0) {
+    const entryIdByKey = new Map<string, string>();
+    const entryCommentByKey = new Map<string, string | undefined>();
+    for (const entry of session.entries) {
+      const key = `${entry.kind}|${entry.startTime}|${entry.endTime}`;
+      entryIdByKey.set(key, entry.id);
+      if (entry.kind === "zusatzzeit" && entry.comment) {
+        entryCommentByKey.set(key, entry.comment);
+      }
+    }
     return session.timeline.map((segment) => ({
-      id: segment.id,
+      id:
+        segment.id ||
+        entryIdByKey.get(`${segment.kind}|${segment.start}|${segment.end}`) ||
+        `${segment.kind}-${segment.start}-${segment.end}`,
       kind: segment.kind,
       start: segment.start,
       end: segment.end,
@@ -109,7 +126,9 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
       title: segment.title,
       subtitle: segment.subtitle,
       subtype: segment.subtype,
-      comment: segment.comment,
+      comment:
+        segment.comment ??
+        entryCommentByKey.get(`${segment.kind}|${segment.start}|${segment.end}`),
       questionnaireType: segment.questionnaireType,
       kmNote:
         segment.kind === "anfahrt"
@@ -265,7 +284,7 @@ type EditableSegmentKind = "marktbesuch" | "pause" | "zusatzzeit";
 
 function resolveEditableSegmentKind(seg: DisplaySegment): EditableSegmentKind | null {
   if (seg.kind !== "marktbesuch" && seg.kind !== "pause" && seg.kind !== "zusatzzeit") return null;
-  if (!seg.id || seg.id.includes("::seg:")) return null;
+  if (!seg.id || seg.id.includes("::seg:") || !isUuid(seg.id)) return null;
   return seg.kind;
 }
 
@@ -280,12 +299,14 @@ function ActionRow({
   onSegmentPatched: () => Promise<void>;
 }) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [editingMode, setEditingMode] = useState<"time" | "comment" | null>(null);
   const [draftStart, setDraftStart] = useState(seg.start);
   const [draftEnd, setDraftEnd] = useState(seg.end ?? "");
   const [draftComment, setDraftComment] = useState(seg.comment ?? "");
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const isAnfahrt   = seg.kind === "anfahrt";
   const isHeimfahrt = seg.kind === "heimfahrt";
   const isFahrtzeit = seg.kind === "fahrtzeit";
@@ -312,16 +333,43 @@ function ActionRow({
 
   useEffect(() => {
     if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    window.addEventListener("click", close);
-    window.addEventListener("contextmenu", close);
-    window.addEventListener("scroll", close, true);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      setContextMenu(null);
+      setMenuPosition(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setContextMenu(null);
+      setMenuPosition(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("contextmenu", close);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const width = menuRef.current?.offsetWidth ?? 170;
+    const height = menuRef.current?.offsetHeight ?? (isZusatz && editableKind ? 78 : 42);
+    const pad = 8;
+    let x = contextMenu.x;
+    let y = contextMenu.y;
+    if (x + width + pad > window.innerWidth) {
+      x = window.innerWidth - width - pad;
+    }
+    if (y + height + pad > window.innerHeight) {
+      y = window.innerHeight - height - pad;
+    }
+    setMenuPosition({
+      x: Math.max(pad, x),
+      y: Math.max(pad, y),
+    });
+  }, [contextMenu, editableKind, isZusatz]);
 
   async function saveTimeEdit() {
     if (!editableKind || saving) return;
@@ -378,15 +426,38 @@ function ActionRow({
     editingMode === "time" && isValidHm(draftStart) && isValidHm(draftEnd) && toMin(draftEnd) > toMin(draftStart)
       ? fmtDur(diffMin(draftStart, draftEnd))
       : fmtDur(seg.durationMin);
+  const secondaryActionButtonStyle = {
+    border: "none",
+    borderRadius: 6,
+    background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
+    boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.06)",
+    color: "rgba(0,0,0,0.5)",
+    cursor: saving ? "not-allowed" : "pointer",
+    fontFamily: "inherit",
+  } as const;
+  const primaryActionButtonStyle = {
+    border: "none",
+    borderRadius: 6,
+    background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+    boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+    color: "#fff",
+    cursor: saving ? "not-allowed" : "pointer",
+    fontFamily: "inherit",
+  } as const;
+
+  const openContextMenuAt = useCallback((x: number, y: number) => {
+    setContextMenu({ x, y });
+    setMenuPosition({ x, y });
+    setEditError(null);
+  }, []);
 
   return (
     <div
       style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: isFahrtzeit ? "5px 14px" : "8px 14px", background: bg, borderBottom: "1px solid rgba(0,0,0,0.03)", position: "relative" }}
       onContextMenu={(event) => {
-        if (!editableKind) return;
         event.preventDefault();
-        setContextMenu({ x: event.clientX, y: event.clientY });
-        setEditError(null);
+        event.stopPropagation();
+        openContextMenuAt(event.clientX, event.clientY);
       }}
     >
       <div style={{ width: 74, flexShrink: 0, paddingTop: 1, display: "flex", alignItems: "center", gap: 5 }}>
@@ -439,14 +510,14 @@ function ActionRow({
                   setEditError(null);
                 }}
                 disabled={saving}
-                style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.5)", border: "none", borderRadius: 6, background: "rgba(0,0,0,0.05)", padding: "3px 8px", cursor: saving ? "not-allowed" : "pointer" }}
+                style={{ ...secondaryActionButtonStyle, fontSize: 9, fontWeight: 600, padding: "3px 8px", opacity: saving ? 0.8 : 1 }}
               >
                 Abbrechen
               </button>
               <button
                 onClick={() => { void saveCommentEdit(); }}
                 disabled={saving}
-                style={{ fontSize: 9, fontWeight: 700, color: "#fff", border: "none", borderRadius: 6, background: "linear-gradient(to bottom, #DC2626, #e84040)", padding: "3px 8px", cursor: saving ? "not-allowed" : "pointer" }}
+                style={{ ...primaryActionButtonStyle, fontSize: 9, fontWeight: 700, padding: "3px 8px", opacity: saving ? 0.85 : 1 }}
               >
                 {saving ? "Speichern..." : "Speichern"}
               </button>
@@ -484,14 +555,14 @@ function ActionRow({
                   setEditError(null);
                 }}
                 disabled={saving}
-                style={{ fontSize: 8.5, fontWeight: 600, color: "rgba(0,0,0,0.5)", border: "none", borderRadius: 5, background: "rgba(0,0,0,0.05)", padding: "2px 6px", cursor: saving ? "not-allowed" : "pointer" }}
+                style={{ ...secondaryActionButtonStyle, fontSize: 8.5, fontWeight: 600, borderRadius: 5, padding: "2px 6px", opacity: saving ? 0.8 : 1 }}
               >
                 Cancel
               </button>
               <button
                 onClick={() => { void saveTimeEdit(); }}
                 disabled={saving}
-                style={{ fontSize: 8.5, fontWeight: 700, color: "#fff", border: "none", borderRadius: 5, background: "linear-gradient(to bottom, #DC2626, #e84040)", padding: "2px 6px", cursor: saving ? "not-allowed" : "pointer" }}
+                style={{ ...primaryActionButtonStyle, fontSize: 8.5, fontWeight: 700, borderRadius: 5, padding: "2px 6px", opacity: saving ? 0.85 : 1 }}
               >
                 {saving ? "..." : "Save"}
               </button>
@@ -504,44 +575,76 @@ function ActionRow({
         )}
         <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>{displayedDuration}</div>
       </div>
-      {contextMenu && (
+      {contextMenu && typeof document !== "undefined" && createPortal(
         <div
+          ref={menuRef}
+          onContextMenu={(event) => event.preventDefault()}
           style={{
             position: "fixed",
-            top: contextMenu.y,
-            left: contextMenu.x,
+            top: menuPosition?.y ?? contextMenu.y,
+            left: menuPosition?.x ?? contextMenu.x,
             zIndex: 9999,
             background: "#fff",
-            border: "1px solid rgba(0,0,0,0.12)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            border: "1px solid rgba(0,0,0,0.07)",
+            borderRadius: 9,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)",
             minWidth: 150,
             overflow: "hidden",
+            padding: 4,
           }}
         >
-          <button
-            onClick={() => {
-              setContextMenu(null);
-              setEditingMode("time");
-              setEditError(null);
-            }}
-            style={{ width: "100%", textAlign: "left", border: "none", background: "#fff", padding: "7px 10px", fontSize: 10, fontWeight: 600, color: "#374151", cursor: "pointer" }}
-          >
-            ✏ Zeit bearbeiten
-          </button>
-          {isZusatz && (
+          {editableKind ? (
+            <>
+              <button
+                onClick={() => {
+                  setContextMenu(null);
+                  setMenuPosition(null);
+                  setEditingMode("time");
+                  setEditError(null);
+                }}
+                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", borderRadius: 6, background: "transparent", padding: "7px 10px", fontSize: 10.5, fontWeight: 600, color: "#374151", cursor: "pointer", transition: "background-color 0.1s ease", fontFamily: "inherit" }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.backgroundColor = "rgba(0,0,0,0.04)";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.backgroundColor = "transparent";
+                }}
+              >
+                ✏ Zeit bearbeiten
+              </button>
+              {isZusatz && (
+                <button
+                  onClick={() => {
+                    setContextMenu(null);
+                    setMenuPosition(null);
+                    setEditingMode("comment");
+                    setEditError(null);
+                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", borderRadius: 6, background: "transparent", padding: "7px 10px", fontSize: 10.5, fontWeight: 600, color: "#374151", cursor: "pointer", transition: "background-color 0.1s ease", fontFamily: "inherit" }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.backgroundColor = "rgba(0,0,0,0.04)";
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  ✏ Kommentar bearbeiten
+                </button>
+              )}
+            </>
+          ) : (
             <button
               onClick={() => {
                 setContextMenu(null);
-                setEditingMode("comment");
-                setEditError(null);
+                setMenuPosition(null);
               }}
-              style={{ width: "100%", textAlign: "left", border: "none", borderTop: "1px solid rgba(0,0,0,0.06)", background: "#fff", padding: "7px 10px", fontSize: 10, fontWeight: 600, color: "#374151", cursor: "pointer" }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", borderRadius: 6, background: "transparent", padding: "7px 10px", fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.45)", cursor: "default", fontFamily: "inherit" }}
             >
-              ✏ Kommentar bearbeiten
+              Nicht bearbeitbar (Anfahrt/Fahrtzeit/Heimfahrt)
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

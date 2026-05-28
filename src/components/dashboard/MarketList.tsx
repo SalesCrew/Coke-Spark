@@ -218,8 +218,9 @@ export function MarketList({
         {!isLoading && !loadError && filtered.map((m, i) => (
           <div
             key={m.id}
-            className="flex items-center justify-between"
+            className="flex items-center"
             style={{
+              gap: 8,
               padding: "8px 10px",
               borderRadius: 7,
               borderBottom:
@@ -236,7 +237,10 @@ export function MarketList({
               (e.currentTarget.style.backgroundColor = "transparent")
             }
           >
-            <div className="flex items-center gap-2 min-w-0">
+            <div
+              className="flex items-center gap-2 min-w-0"
+              style={{ maxWidth: "calc(100% - 52px)" }}
+            >
               <span
                 className="shrink-0 text-[9px] font-semibold uppercase"
                 style={{
@@ -264,7 +268,7 @@ export function MarketList({
               )}
             </div>
 
-            <div className="shrink-0 ml-3 flex items-center gap-2">
+            <div className="shrink-0 flex items-center gap-2">
               {m.nextSM && (
                 <button
                   onClick={() => handleReveal(m.id)}

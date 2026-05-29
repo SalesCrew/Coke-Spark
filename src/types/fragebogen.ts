@@ -10,6 +10,16 @@ export type QuestionType =
   | "photo"
   | "matrix";
 
+export const SINGLE_CHOICE_AVAILABILITY_TYPES = [
+  "Cooler",
+  "SingleServe",
+  "MultiServe",
+  "Promos",
+  "Warehouse",
+] as const;
+
+export type SingleChoiceAvailabilityType = (typeof SINGLE_CHOICE_AVAILABILITY_TYPES)[number];
+
 export interface ScoringWeight {
   ipp?: number;   // undefined = not scored for IPP
   boni?: number;  // undefined = not scored for Boni
@@ -32,6 +42,7 @@ export interface Question {
   required: boolean;
   redSurvey?: boolean | null;
   singleChoiceAvailability?: boolean | null;
+  singleChoiceAvailabilityType?: SingleChoiceAvailabilityType | null;
   config: Record<string, unknown>;
   rules: ConditionalRule[];
   scoring: Record<string, ScoringWeight>; // key = option text (choice) or "__value__" (numeric)

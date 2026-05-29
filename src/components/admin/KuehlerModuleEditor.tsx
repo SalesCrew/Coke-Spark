@@ -692,19 +692,6 @@ function QuestionCard({ question, index, isExpanded, onToggle, onUpdate, onDelet
               <Toggle value={question.required} onChange={(v) => onUpdate({ ...question, required: v })} />
               <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Pflichtfrage</span>
             </div>
-            {question.type === "single" && (
-              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                <Toggle
-                  value={question.singleChoiceAvailability === true}
-                  onChange={(v) => onUpdate({
-                    ...question,
-                    singleChoiceAvailability: v,
-                    config: v ? { ...question.config, options: [...SINGLE_CHOICE_AVAILABILITY_OPTIONS] } : question.config,
-                  })}
-                />
-                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Verfuegbarkeitsabfrage</span>
-              </div>
-            )}
             {question.type === "yesno" && (
               <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
                 <Toggle value={question.redSurvey === true} onChange={(v) => onUpdate({ ...question, redSurvey: v })} />
@@ -758,6 +745,7 @@ export function KuehlerModuleEditor({ onClose, onSave, existingModule, existingQ
       scoring: q.scoring ?? {},
       redSurvey: q.redSurvey ?? null,
       singleChoiceAvailability: q.singleChoiceAvailability ?? null,
+      singleChoiceAvailabilityType: q.singleChoiceAvailabilityType ?? null,
     }))
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -770,7 +758,18 @@ export function KuehlerModuleEditor({ onClose, onSave, existingModule, existingQ
 
   const addQuestion = useCallback((type: QuestionType) => {
     const id = nextId();
-    const q: Question = { id, type, text: "", required: true, redSurvey: false, singleChoiceAvailability: false, config: defaultConfig(type), rules: [], scoring: {} };
+    const q: Question = {
+      id,
+      type,
+      text: "",
+      required: true,
+      redSurvey: false,
+      singleChoiceAvailability: false,
+      singleChoiceAvailabilityType: null,
+      config: defaultConfig(type),
+      rules: [],
+      scoring: {},
+    };
     setQuestions((prev) => [...prev, q]);
     setExpandedId(id);
     setTimeout(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, 50);

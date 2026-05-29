@@ -14,13 +14,21 @@ import {
   Trophy,
 } from "lucide-react";
 
-import type { QuestionType, Question, ConditionalRule, Module, ScoringWeight } from "@/types/fragebogen";
+import type {
+  QuestionType,
+  Question,
+  ConditionalRule,
+  Module,
+  ScoringWeight,
+  SingleChoiceAvailabilityType,
+} from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
 import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
 import { QuestionTypeContextMenu } from "@/components/admin/QuestionTypeContextMenu";
 import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
 import { ExistingQuestionPreviewModal } from "@/components/admin/ExistingQuestionPreviewModal";
 import { cloneQuestionForModuleInsert, hasQuestionInModule } from "@/utils/existingQuestionPicker";
+import { AvailabilityTypeModal } from "@/components/admin/AvailabilityTypeModal";
 
 // Teal accent colours
 const G = "#0891B2";
@@ -40,6 +48,7 @@ function nextId(): string {
 const TRIGGER_ELIGIBLE: QuestionType[] = [
   "single", "yesno", "yesnomulti", "multiple", "likert", "numeric", "slider", "matrix",
 ];
+const SINGLE_CHOICE_AVAILABILITY_OPTIONS = ["Voll", "Mittel", "Leer"] as const;
 
 function operatorsForType(t: QuestionType): { value: string; label: string }[] {
   const base = [
@@ -284,9 +293,11 @@ function BillaToggle({ value, onChange }: { value: boolean; onChange: (v: boolea
 
 function BillaChoiceConfig({
   options,
+  disabled = false,
   onChange,
 }: {
   options: string[];
+  disabled?: boolean;
   onChange: (o: string[]) => void;
 }) {
   return (
@@ -297,6 +308,7 @@ function BillaChoiceConfig({
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             <input
               type="text" value={opt}
+              disabled={disabled}
               onChange={(e) => { const next = [...options]; next[i] = e.target.value; onChange(next); }}
               placeholder={`Option ${i + 1}`}
               style={{
@@ -310,17 +322,20 @@ function BillaChoiceConfig({
                 backgroundColor: "transparent",
               }}
             />
-            {options.length > 1 && (
+            {!disabled && options.length > 1 && (
               <button onClick={() => onChange(options.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "rgba(0,0,0,0.25)", transition: "color 0.15s ease" }} onMouseEnter={(e) => (e.currentTarget.style.color = GD)} onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(0,0,0,0.25)")}>
                 <X size={11} strokeWidth={2} />
               </button>
             )}
           </div>
         ))}
-        <button onClick={() => onChange([...options, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: GD, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-          <Plus size={10} strokeWidth={2} />
-          Option hinzufügen
-        </button>
+        {!disabled && (
+          <button onClick={() => onChange([...options, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: GD, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            <Plus size={10} strokeWidth={2} />
+            Option hinzufügen
+          </button>
+        )}
+        {disabled && <div style={{ marginTop: 6, fontSize: 9, color: "rgba(0,0,0,0.35)" }}>Optionen sind bei aktiver Verfuegbarkeitsabfrage fixiert.</div>}
       </div>
     </div>
   );
@@ -522,7 +537,19 @@ function BillaYesNoMultiConfig({ config, onChange }: { config: Record<string, un
 function BillaTypeConfig({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
   const setConfig = (c: Record<string, unknown>) => onUpdate({ ...question, config: c });
   switch (question.type) {
-    case "single":
+    case "single": {
+      const isAvailabilityQuestion = question.singleChoiceAvailability === true;
+      const options = isAvailabilityQuestion
+        ? [...SINGLE_CHOICE_AVAILABILITY_OPTIONS]
+        : ((question.config.options as string[]) || [""]);
+      return (
+        <BillaChoiceConfig
+          options={options}
+          disabled={isAvailabilityQuestion}
+          onChange={(o) => setConfig({ ...question.config, options: o })}
+        />
+      );
+    }
     case "multiple": return <BillaChoiceConfig options={(question.config.options as string[]) || [""]} onChange={(o) => setConfig({ ...question.config, options: o })} />;
     case "yesnomulti": return <BillaYesNoMultiConfig config={question.config} onChange={setConfig} />;
     case "likert": return <BillaLikertConfig config={question.config} onChange={setConfig} />;
@@ -728,6 +755,36 @@ function BillaQuestionCard({ question, index, isExpanded, onToggle, onUpdate, on
 }) {
   const badge = typeBadgeColor(question.type);
   const [logicOpen, setLogicOpen] = useState(false);
+  const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
+  const [pendingAvailabilityType, setPendingAvailabilityType] = useState<SingleChoiceAvailabilityType | null>(
+    question.singleChoiceAvailabilityType ?? null,
+  );
+
+  const applyAvailabilityDisabled = () => {
+    onUpdate({
+      ...question,
+      singleChoiceAvailability: false,
+      singleChoiceAvailabilityType: null,
+    });
+    setAvailabilityModalOpen(false);
+    setPendingAvailabilityType(null);
+  };
+
+  const openAvailabilityModal = () => {
+    setPendingAvailabilityType(question.singleChoiceAvailabilityType ?? null);
+    setAvailabilityModalOpen(true);
+  };
+
+  const confirmAvailabilityModal = () => {
+    if (!pendingAvailabilityType) return;
+    onUpdate({
+      ...question,
+      singleChoiceAvailability: true,
+      singleChoiceAvailabilityType: pendingAvailabilityType,
+      config: { ...question.config, options: [...SINGLE_CHOICE_AVAILABILITY_OPTIONS] },
+    });
+    setAvailabilityModalOpen(false);
+  };
 
   return (
     <div style={{ position: "relative" }}>
@@ -774,6 +831,43 @@ function BillaQuestionCard({ question, index, isExpanded, onToggle, onUpdate, on
                 <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Red Survey</span>
               </div>
             )}
+            {question.type === "single" && (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <BillaToggle
+                  value={question.singleChoiceAvailability === true}
+                  onChange={(value) => {
+                    if (!value) {
+                      applyAvailabilityDisabled();
+                      return;
+                    }
+                    openAvailabilityModal();
+                  }}
+                />
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Verfuegbarkeitsabfrage</span>
+                {question.singleChoiceAvailability === true && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openAvailabilityModal();
+                    }}
+                    style={{
+                      height: 22,
+                      padding: "0 8px",
+                      borderRadius: 999,
+                      border: `1px solid ${G_BORDER}`,
+                      backgroundColor: G_BG,
+                      color: GD,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Typ: {question.singleChoiceAvailabilityType ?? "waehlen"}
+                  </button>
+                )}
+              </div>
+            )}
             <BillaTypeConfig question={question} onUpdate={onUpdate} />
 
             <BillaScoringEditor question={question} onUpdate={onUpdate} />
@@ -799,6 +893,17 @@ function BillaQuestionCard({ question, index, isExpanded, onToggle, onUpdate, on
           </div>
         </div>
       </div>
+      <AvailabilityTypeModal
+        open={availabilityModalOpen}
+        accentColor={GD}
+        selectedType={pendingAvailabilityType}
+        onSelect={setPendingAvailabilityType}
+        onCancel={() => {
+          setAvailabilityModalOpen(false);
+          setPendingAvailabilityType(question.singleChoiceAvailabilityType ?? null);
+        }}
+        onConfirm={confirmAvailabilityModal}
+      />
     </div>
   );
 }
@@ -818,7 +923,8 @@ export function BillaModuleEditor({ onClose, onSave, existingModule, existingQue
       ...q,
       scoring: q.scoring ?? {},
       redSurvey: q.redSurvey ?? null,
-      singleChoiceAvailability: false,
+      singleChoiceAvailability: q.singleChoiceAvailability ?? null,
+      singleChoiceAvailabilityType: q.singleChoiceAvailabilityType ?? null,
     }))
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -831,7 +937,18 @@ export function BillaModuleEditor({ onClose, onSave, existingModule, existingQue
 
   const addQuestion = useCallback((type: QuestionType) => {
     const id = nextId();
-    const q: Question = { id, type, text: "", required: true, redSurvey: false, singleChoiceAvailability: false, config: defaultConfig(type), rules: [], scoring: {} };
+    const q: Question = {
+      id,
+      type,
+      text: "",
+      required: true,
+      redSurvey: false,
+      singleChoiceAvailability: false,
+      singleChoiceAvailabilityType: null,
+      config: defaultConfig(type),
+      rules: [],
+      scoring: {},
+    };
     setQuestions((prev) => [...prev, q]);
     setExpandedId(id);
     setTimeout(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, 50);

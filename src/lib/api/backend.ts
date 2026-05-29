@@ -2,7 +2,7 @@
 
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { KuehlerUnitRecord, MarketRecord } from "@/types/markets";
-import type { Fragebogen, Module, Question } from "@/types/fragebogen";
+import type { Fragebogen, Module, Question, SingleChoiceAvailabilityType } from "@/types/fragebogen";
 import type {
   Campaign,
   CampaignMarketAssignmentInput,
@@ -207,6 +207,8 @@ type BackendCampaignMarketVisitSummary = {
       type: "single" | "yesno" | "yesnomulti" | "multiple" | "likert" | "text" | "numeric" | "slider" | "photo" | "matrix";
       text: string;
       required: boolean;
+      singleChoiceAvailability: boolean | null;
+      singleChoiceAvailabilityType: SingleChoiceAvailabilityType | null;
       config: Record<string, unknown>;
       rules: Array<Record<string, unknown>>;
       chains: string[];
@@ -1403,6 +1405,14 @@ export async function fetchGmAssignedStartMarkets(): Promise<GmStartMarket[]> {
   }));
 }
 
+export async function fetchGmFlexStartMarkets(): Promise<GmStartMarket[]> {
+  const data = (await authedFetch("/markets/gm/flex-start-markets")) as { markets?: BackendMarket[] };
+  return (data.markets ?? []).map((market) => ({
+    market: mapBackendMarketToMarketRecord(market),
+    activeNowCampaigns: market.activeNowCampaigns ?? [],
+  }));
+}
+
 export async function fetchGmKuehlerMhdProgress(): Promise<GmKuehlerMhdProgressPayload> {
   return (await authedFetch("/markets/gm/kuehler-mhd-progress")) as GmKuehlerMhdProgressPayload;
 }
@@ -1419,6 +1429,8 @@ export type GmVisitStartSection = {
     type: "single" | "yesno" | "yesnomulti" | "multiple" | "likert" | "text" | "numeric" | "slider" | "photo" | "matrix";
     text: string;
     required: boolean;
+    singleChoiceAvailability?: boolean | null;
+    singleChoiceAvailabilityType?: SingleChoiceAvailabilityType | null;
     config: Record<string, unknown>;
     rules: Array<{
       id?: string;
@@ -1477,6 +1489,8 @@ export type GmVisitSessionReadPayload = {
       type: "single" | "yesno" | "yesnomulti" | "multiple" | "likert" | "text" | "numeric" | "slider" | "photo" | "matrix";
       text: string;
       required: boolean;
+      singleChoiceAvailability?: boolean | null;
+      singleChoiceAvailabilityType?: SingleChoiceAvailabilityType | null;
       config: Record<string, unknown>;
       rules: Array<Record<string, unknown>>;
       chains?: string[];
@@ -2062,6 +2076,9 @@ function normalizeQuestion(input: Question): Question {
     redSurvey: Object.prototype.hasOwnProperty.call(input, "redSurvey") ? (input.redSurvey ?? null) : null,
     singleChoiceAvailability: Object.prototype.hasOwnProperty.call(input, "singleChoiceAvailability")
       ? (input.singleChoiceAvailability ?? null)
+      : null,
+    singleChoiceAvailabilityType: Object.prototype.hasOwnProperty.call(input, "singleChoiceAvailabilityType")
+      ? (input.singleChoiceAvailabilityType ?? null)
       : null,
     rules: input.rules ?? [],
     scoring: input.scoring ?? {},

@@ -1,0 +1,12 @@
+---
+description: Never create or run tests unless explicitly requested
+alwaysApply: true
+---
+
+# No Tests Policy
+
+- Do not create new test files.
+- Do not modify existing test files.
+- Do not run test commands (unit, integration, e2e, or DB-writing tests).
+- Skip proposing test execution as a default next step.
+- Only perform any test-related action if the user explicitly asks for it in that message.

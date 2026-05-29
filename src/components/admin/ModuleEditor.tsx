@@ -14,13 +14,21 @@ import {
   Trophy,
 } from "lucide-react";
 
-import type { QuestionType, Question, ConditionalRule, Module, ScoringWeight } from "@/types/fragebogen";
+import type {
+  QuestionType,
+  Question,
+  ConditionalRule,
+  Module,
+  ScoringWeight,
+  SingleChoiceAvailabilityType,
+} from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
 import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
 import { QuestionTypeContextMenu } from "@/components/admin/QuestionTypeContextMenu";
 import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
 import { ExistingQuestionPreviewModal } from "@/components/admin/ExistingQuestionPreviewModal";
 import { cloneQuestionForModuleInsert, hasQuestionInModule } from "@/utils/existingQuestionPicker";
+import { AvailabilityTypeModal } from "@/components/admin/AvailabilityTypeModal";
 
 let _qid = 0;
 function nextId(): string {
@@ -31,6 +39,7 @@ function nextId(): string {
 const TRIGGER_ELIGIBLE: QuestionType[] = [
   "single", "yesno", "yesnomulti", "multiple", "likert", "numeric", "slider", "matrix",
 ];
+const SINGLE_CHOICE_AVAILABILITY_OPTIONS = ["Voll", "Mittel", "Leer"] as const;
 
 // ── HandelskettenSelector ─────────────────────────────────────
 function HandelskettenSelector({
@@ -767,9 +776,11 @@ function Toggle({
 
 function ChoiceConfig({
   options,
+  disabled = false,
   onChange,
 }: {
   options: string[];
+  disabled?: boolean;
   onChange: (o: string[]) => void;
 }) {
   return (
@@ -799,6 +810,7 @@ function ChoiceConfig({
             <input
               type="text"
               value={opt}
+              disabled={disabled}
               onChange={(e) => {
                 const next = [...options];
                 next[i] = e.target.value;
@@ -816,7 +828,7 @@ function ChoiceConfig({
                 backgroundColor: "transparent",
               }}
             />
-            {options.length > 1 && (
+            {!disabled && options.length > 1 && (
               <button
                 onClick={() => onChange(options.filter((_, j) => j !== i))}
                 style={{
@@ -839,25 +851,32 @@ function ChoiceConfig({
             )}
           </div>
         ))}
-        <button
-          onClick={() => onChange([...options, ""])}
-          style={{
-            marginTop: 4,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: 10,
-            fontWeight: 500,
-            color: "#DC2626",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          <Plus size={10} strokeWidth={2} />
-          Option hinzufügen
-        </button>
+        {!disabled && (
+          <button
+            onClick={() => onChange([...options, ""])}
+            style={{
+              marginTop: 4,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 10,
+              fontWeight: 500,
+              color: "#DC2626",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            <Plus size={10} strokeWidth={2} />
+            Option hinzufügen
+          </button>
+        )}
+        {disabled && (
+          <div style={{ marginTop: 6, fontSize: 9, color: "rgba(0,0,0,0.35)" }}>
+            Optionen sind bei aktiver Verfuegbarkeitsabfrage fixiert.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1218,7 +1237,19 @@ function TypeConfig({
   const setConfig = (c: Record<string, unknown>) => onUpdate({ ...question, config: c });
 
   switch (question.type) {
-    case "single":
+    case "single": {
+      const isAvailabilityQuestion = question.singleChoiceAvailability === true;
+      const options = isAvailabilityQuestion
+        ? [...SINGLE_CHOICE_AVAILABILITY_OPTIONS]
+        : ((question.config.options as string[]) || [""]);
+      return (
+        <ChoiceConfig
+          options={options}
+          disabled={isAvailabilityQuestion}
+          onChange={(o) => setConfig({ ...question.config, options: o })}
+        />
+      );
+    }
     case "multiple":
       return (
         <ChoiceConfig
@@ -1648,6 +1679,36 @@ function QuestionCard({
 }) {
   const badge = typeBadgeColor(question.type);
   const [logicOpen, setLogicOpen] = useState(false);
+  const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
+  const [pendingAvailabilityType, setPendingAvailabilityType] = useState<SingleChoiceAvailabilityType | null>(
+    question.singleChoiceAvailabilityType ?? null,
+  );
+
+  const applyAvailabilityDisabled = () => {
+    onUpdate({
+      ...question,
+      singleChoiceAvailability: false,
+      singleChoiceAvailabilityType: null,
+    });
+    setAvailabilityModalOpen(false);
+    setPendingAvailabilityType(null);
+  };
+
+  const openAvailabilityModal = () => {
+    setPendingAvailabilityType(question.singleChoiceAvailabilityType ?? null);
+    setAvailabilityModalOpen(true);
+  };
+
+  const confirmAvailabilityModal = () => {
+    if (!pendingAvailabilityType) return;
+    onUpdate({
+      ...question,
+      singleChoiceAvailability: true,
+      singleChoiceAvailabilityType: pendingAvailabilityType,
+      config: { ...question.config, options: [...SINGLE_CHOICE_AVAILABILITY_OPTIONS] },
+    });
+    setAvailabilityModalOpen(false);
+  };
 
   return (
     <div style={{ position: "relative" }}>
@@ -1870,6 +1931,45 @@ function QuestionCard({
                 </span>
               </div>
             )}
+            {question.type === "single" && (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Toggle
+                  value={question.singleChoiceAvailability === true}
+                  onChange={(value) => {
+                    if (!value) {
+                      applyAvailabilityDisabled();
+                      return;
+                    }
+                    openAvailabilityModal();
+                  }}
+                />
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>
+                  Verfuegbarkeitsabfrage
+                </span>
+                {question.singleChoiceAvailability === true && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openAvailabilityModal();
+                    }}
+                    style={{
+                      height: 22,
+                      padding: "0 8px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(220,38,38,0.2)",
+                      backgroundColor: "rgba(220,38,38,0.06)",
+                      color: "#DC2626",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Typ: {question.singleChoiceAvailabilityType ?? "waehlen"}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Type-specific config */}
             <TypeConfig question={question} onUpdate={onUpdate} />
@@ -1978,6 +2078,17 @@ function QuestionCard({
           </div>
         </div>
       </div>
+      <AvailabilityTypeModal
+        open={availabilityModalOpen}
+        accentColor="#DC2626"
+        selectedType={pendingAvailabilityType}
+        onSelect={setPendingAvailabilityType}
+        onCancel={() => {
+          setAvailabilityModalOpen(false);
+          setPendingAvailabilityType(question.singleChoiceAvailabilityType ?? null);
+        }}
+        onConfirm={confirmAvailabilityModal}
+      />
     </div>
   );
 }
@@ -2000,7 +2111,8 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
       ...q,
       scoring: q.scoring ?? {},
       redSurvey: q.redSurvey ?? null,
-      singleChoiceAvailability: false,
+      singleChoiceAvailability: q.singleChoiceAvailability ?? null,
+      singleChoiceAvailabilityType: q.singleChoiceAvailabilityType ?? null,
     }))
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -2022,6 +2134,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
         required: true,
         redSurvey: false,
         singleChoiceAvailability: false,
+        singleChoiceAvailabilityType: null,
         config: defaultConfig(type),
         rules: [],
         scoring: {},

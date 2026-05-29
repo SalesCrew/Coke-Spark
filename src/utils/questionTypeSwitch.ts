@@ -20,6 +20,7 @@ export function applyQuestionTypeSwitch(question: Question, nextType: QuestionTy
     type: nextType,
     redSurvey: nextType === "yesno" ? (question.redSurvey ?? false) : false,
     singleChoiceAvailability: nextType === "single" ? (question.singleChoiceAvailability ?? false) : false,
+    singleChoiceAvailabilityType: nextType === "single" ? (question.singleChoiceAvailabilityType ?? null) : null,
     config: nextConfig,
     scoring: {},
   };

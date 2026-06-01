@@ -1853,10 +1853,16 @@ export async function saveGmVisitAnswer(input: {
   })) as { ok: boolean; result: { answerId: string; answerStatus: string; isValid: boolean; validationError: string | null } };
 }
 
-export async function submitGmVisitSession(sessionId: string): Promise<{ ok: boolean; sessionId: string; status: "submitted" }> {
+export async function submitGmVisitSession(
+  sessionId: string,
+  input?: { startedAt?: string; submittedAt?: string },
+): Promise<{ ok: boolean; sessionId: string; status: "submitted" }> {
   return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}/submit`, {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify({
+      ...(input?.startedAt ? { startedAt: input.startedAt } : {}),
+      ...(input?.submittedAt ? { submittedAt: input.submittedAt } : {}),
+    }),
   })) as { ok: boolean; sessionId: string; status: "submitted" };
 }
 
@@ -2156,28 +2162,13 @@ function toFragebogenWritePayload(
 function normalizeCampaign(input: BackendCampaign): Campaign {
   const startDate = input.startDate ?? null;
   const endDate = input.endDate ?? null;
-  let effectiveStatus: Campaign["status"] = input.status;
-  if (input.status !== "inactive") {
-    if (input.scheduleType === "always") {
-      effectiveStatus = "active";
-    } else if (startDate && endDate) {
-      const todayYmd = new Date().toISOString().slice(0, 10);
-      if (todayYmd < startDate) {
-        effectiveStatus = "scheduled";
-      } else if (todayYmd > endDate) {
-        effectiveStatus = "inactive";
-      } else {
-        effectiveStatus = "active";
-      }
-    }
-  }
   return {
     id: input.id,
     name: input.name,
     section: input.section,
     currentFragebogenId: input.currentFragebogenId ?? null,
     currentFragebogenName: input.currentFragebogenName ?? null,
-    status: effectiveStatus,
+    status: input.status,
     scheduleType: input.scheduleType,
     startDate,
     endDate,
@@ -2333,8 +2324,15 @@ export async function fetchCampaigns(): Promise<Campaign[]> {
   return (data.campaigns ?? []).map(normalizeCampaign);
 }
 
-export async function fetchCampaignMarketVisitSummaries(campaignId: string): Promise<CampaignMarketVisitSummary[]> {
-  const data = (await authedFetch(`/admin/campaigns/${campaignId}/market-visits`)) as {
+export async function fetchCampaignMarketVisitSummaries(
+  campaignId: string,
+  options?: { timeoutMs?: number },
+): Promise<CampaignMarketVisitSummary[]> {
+  const data = (await authedFetch(
+    `/admin/campaigns/${campaignId}/market-visits`,
+    {},
+    options?.timeoutMs ?? 30000,
+  )) as {
     markets?: BackendCampaignMarketVisitSummary[];
   };
   return data.markets ?? [];

@@ -5366,6 +5366,7 @@ export default function FbManagementPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [visitLoadError, setVisitLoadError] = useState<string | null>(null);
+  const [visitInitialHydrationDone, setVisitInitialHydrationDone] = useState(false);
   const [visitSummariesByCampaignId, setVisitSummariesByCampaignId] = useState<Record<string, CampaignVisitSummaryByMarket>>({});
   const [visitSummariesLoadingByCampaignId, setVisitSummariesLoadingByCampaignId] = useState<Record<string, boolean>>({});
   const [switchingCampaignId, setSwitchingCampaignId] = useState<string | null>(null);
@@ -5382,6 +5383,7 @@ export default function FbManagementPage() {
   const [resolvingOverlap, setResolvingOverlap] = useState(false);
   const regionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const campaignContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const visitSummaryInFlightRef = useRef<Record<string, Promise<void>>>({});
 
   // ── Market management state ────────────────────────────────────
   const [marketSearch, setMarketSearch] = useState("");
@@ -5399,6 +5401,7 @@ export default function FbManagementPage() {
     const loadData = async () => {
       setLoading(true);
       setLoadError(null);
+      setVisitInitialHydrationDone(false);
       try {
         const settled = await Promise.allSettled([
           fetchCampaigns(),
@@ -5518,20 +5521,57 @@ export default function FbManagementPage() {
     }
   }, [campaignsData, selectedId]);
 
-  const refreshCampaignVisitSummaries = useCallback(async (targetCampaignId: string) => {
+  const refreshCampaignVisitSummaries = useCallback(async (
+    targetCampaignId: string,
+    options?: {
+      suppressErrorBanner?: boolean;
+      timeoutMs?: number;
+      maxAttempts?: number;
+    },
+  ) => {
     if (!targetCampaignId) return;
-    setVisitLoadError(null);
+    const existingTask = visitSummaryInFlightRef.current[targetCampaignId];
+    if (existingTask) {
+      await existingTask;
+      return;
+    }
+    if (!options?.suppressErrorBanner) {
+      setVisitLoadError(null);
+    }
     setVisitSummariesLoadingByCampaignId((current) => ({ ...current, [targetCampaignId]: true }));
+    const task = (async () => {
+      const maxAttempts = Math.max(1, options?.maxAttempts ?? 2);
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        try {
+          const summaries = await fetchCampaignMarketVisitSummaries(targetCampaignId, {
+            timeoutMs: options?.timeoutMs ?? 90000,
+          });
+          const byMarket = Object.fromEntries(
+            summaries.map((summary) => [summary.marketId, summary]),
+          ) as CampaignVisitSummaryByMarket;
+          setVisitSummariesByCampaignId((current) => ({ ...current, [targetCampaignId]: byMarket }));
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+          }
+        }
+      }
+      if (!options?.suppressErrorBanner) {
+        setVisitLoadError(lastError instanceof Error ? lastError.message : "Besuchsstatus konnte nicht geladen werden.");
+      }
+      setVisitSummariesByCampaignId((current) => {
+        if (Object.prototype.hasOwnProperty.call(current, targetCampaignId)) return current;
+        return { ...current, [targetCampaignId]: {} };
+      });
+    })();
+    visitSummaryInFlightRef.current[targetCampaignId] = task;
     try {
-      const summaries = await fetchCampaignMarketVisitSummaries(targetCampaignId);
-      const byMarket = Object.fromEntries(
-        summaries.map((summary) => [summary.marketId, summary]),
-      ) as CampaignVisitSummaryByMarket;
-      setVisitSummariesByCampaignId((current) => ({ ...current, [targetCampaignId]: byMarket }));
-    } catch (error) {
-      setVisitLoadError(error instanceof Error ? error.message : "Besuchsstatus konnte nicht geladen werden.");
-      setVisitSummariesByCampaignId((current) => ({ ...current, [targetCampaignId]: {} }));
+      await task;
     } finally {
+      delete visitSummaryInFlightRef.current[targetCampaignId];
       setVisitSummariesLoadingByCampaignId((current) => ({ ...current, [targetCampaignId]: false }));
     }
   }, []);
@@ -5671,23 +5711,51 @@ export default function FbManagementPage() {
   const campaignCurrentFragebogenId = campaign?.currentFragebogenId ?? null;
   const isVisitSummaryLoading = campaignId ? Boolean(visitSummariesLoadingByCampaignId[campaignId]) : false;
 
-  const visibleCampaignSource = useMemo(
-    () => campaignsData.filter((entry) => (showInactive ? entry.status === "inactive" : entry.status !== "inactive")),
-    [campaignsData, showInactive],
-  );
-  const visibleCampaignVisitSignature = useMemo(
+  const allCampaignVisitSignature = useMemo(
     () =>
-      visibleCampaignSource
+      campaignsData
         .map((entry) => `${entry.id}:${entry.marketIds.join(",")}`)
         .sort((a, b) => a.localeCompare(b, "de"))
         .join("|"),
-    [visibleCampaignSource],
+    [campaignsData],
   );
 
   useEffect(() => {
-    if (visibleCampaignSource.length === 0) return;
-    void Promise.all(visibleCampaignSource.map((entry) => refreshCampaignVisitSummaries(entry.id)));
-  }, [refreshCampaignVisitSummaries, visibleCampaignVisitSignature, visibleCampaignSource]);
+    if (campaignsData.length === 0) return;
+    const pendingCampaigns = campaignsData.filter((entry) => (
+      !Object.prototype.hasOwnProperty.call(visitSummariesByCampaignId, entry.id)
+      && !visitSummariesLoadingByCampaignId[entry.id]
+    ));
+    if (pendingCampaigns.length === 0) return;
+    const queue = pendingCampaigns.map((entry) => entry.id);
+    const workerCount = Math.min(3, queue.length);
+    const runWorker = async () => {
+      while (queue.length > 0) {
+        const nextCampaignId = queue.shift();
+        if (!nextCampaignId) return;
+        await refreshCampaignVisitSummaries(nextCampaignId, { suppressErrorBanner: true, timeoutMs: 90000 });
+      }
+    };
+    void Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  }, [
+    allCampaignVisitSignature,
+    campaignsData,
+    refreshCampaignVisitSummaries,
+    visitSummariesByCampaignId,
+    visitSummariesLoadingByCampaignId,
+  ]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (campaignsData.length === 0) {
+      setVisitInitialHydrationDone(true);
+      return;
+    }
+    const allLoaded = campaignsData.every((entry) => Object.prototype.hasOwnProperty.call(visitSummariesByCampaignId, entry.id));
+    if (allLoaded) {
+      setVisitInitialHydrationDone(true);
+    }
+  }, [campaignsData, loading, visitSummariesByCampaignId]);
 
   const assignedIds = campaignMarketIds;
   const isCampaignBusy = (campaignId: string) => (campaignPendingOps[campaignId] ?? 0) > 0;
@@ -6009,7 +6077,7 @@ export default function FbManagementPage() {
     [campaignCurrentFragebogenId, campaignId, campaignPendingOps, switchingCampaignId],
   );
 
-  if (loading) {
+  if (loading || !visitInitialHydrationDone) {
     return (
       <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
         <style>{`

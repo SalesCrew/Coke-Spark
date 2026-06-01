@@ -655,6 +655,30 @@ function formatTimeInput(raw: string): string {
   return digits.slice(0, 2) + ":" + digits.slice(2);
 }
 
+function isValidHm(value: string): boolean {
+  const match = /^(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!match) return false;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  return Number.isFinite(h) && Number.isFinite(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59;
+}
+
+function toIsoForLocalTime(baseDate: Date, hm: string): string {
+  const [hRaw, mRaw] = hm.split(":");
+  const h = Number(hRaw);
+  const m = Number(mRaw);
+  const local = new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth(),
+    baseDate.getDate(),
+    h,
+    m,
+    0,
+    0,
+  );
+  return local.toISOString();
+}
+
 function chainColor(chain: string): { bg: string; text: string } {
   const k = chain.toUpperCase();
   if (k.includes("BILLA")) return { bg: "rgba(234,179,8,0.12)", text: "#a16207" };
@@ -2469,6 +2493,7 @@ function MarktbesuchInner() {
   // Abschluss
   const [vonVal, setVonVal] = useState(startTime);
   const [bisVal, setBisVal] = useState("");
+  const [manualTimeEdited, setManualTimeEdited] = useState(false);
   const [comment, setComment] = useState("");
   const [clockTarget, setClockTarget] = useState<"von" | "bis" | null>(null);
   const [visitStartLoading, setVisitStartLoading] = useState(false);
@@ -2476,6 +2501,7 @@ function MarktbesuchInner() {
   const [visitStartRetryNonce, setVisitStartRetryNonce] = useState(0);
   const [visitSections, setVisitSections] = useState<GmVisitStartSection[]>([]);
   const [visitSessionId, setVisitSessionId] = useState<string | null>(null);
+  const [visitSessionStartedAt, setVisitSessionStartedAt] = useState<string | null>(null);
   const [visitBootstrapDone, setVisitBootstrapDone] = useState(false);
   const [isSubmittingSession, setIsSubmittingSession] = useState(false);
   const [submitSessionError, setSubmitSessionError] = useState<string | null>(null);
@@ -2600,6 +2626,7 @@ function MarktbesuchInner() {
     }
 
     setVisitSessionId(payload.session.id);
+    setVisitSessionStartedAt(payload.session.startedAt ?? null);
     setVisitSections((payload.sections ?? []).map((section) => ({
       section: section.section,
       campaignId: section.campaignId,
@@ -2722,6 +2749,7 @@ function MarktbesuchInner() {
 
   useEffect(() => {
     if (visitSessionId) return;
+    setVisitSessionStartedAt(null);
     setPhotoSyncBusyByQuestionId({});
     setPhotoSyncErrorByQuestionId({});
     setPhotoMetaByQuestionId({});
@@ -2959,6 +2987,7 @@ function MarktbesuchInner() {
       setPhaseVisible(true);
       if (next === "abschluss") {
         setBisVal(nowHHMM());
+        setManualTimeEdited(false);
         setTimerStopped(true);
       }
       if (next === "confirm") {
@@ -3038,7 +3067,27 @@ function MarktbesuchInner() {
         return;
       }
 
-      await submitGmVisitSession(visitSessionId);
+      if (manualTimeEdited) {
+        if (!isValidHm(vonVal) || !isValidHm(bisVal)) {
+          setSubmitSessionError("Bitte gültige Zeiten im Format HH:MM eingeben.");
+          return;
+        }
+        const baseDate = visitSessionStartedAt ? new Date(visitSessionStartedAt) : new Date();
+        const startedAtIso = toIsoForLocalTime(baseDate, vonVal);
+        let submittedAtIso = toIsoForLocalTime(baseDate, bisVal);
+        if (new Date(submittedAtIso).getTime() <= new Date(startedAtIso).getTime()) {
+          const nextDay = new Date(baseDate);
+          nextDay.setDate(nextDay.getDate() + 1);
+          submittedAtIso = toIsoForLocalTime(nextDay, bisVal);
+        }
+
+        await submitGmVisitSession(visitSessionId, {
+          startedAt: startedAtIso,
+          submittedAt: submittedAtIso,
+        });
+      } else {
+        await submitGmVisitSession(visitSessionId);
+      }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
       }
@@ -4351,6 +4400,7 @@ function MarktbesuchInner() {
             const val = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
             if (clockTarget === "von") setVonVal(val);
             else setBisVal(val);
+            setManualTimeEdited(true);
             setClockTarget(null);
           }}
           onCancel={() => setClockTarget(null)}
@@ -4397,7 +4447,17 @@ function MarktbesuchInner() {
                     <div key={field} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: field === "von" ? 8 : 0 }}>
                       <span style={{ fontSize: 10, fontWeight: 600, color: labelColor, width: 36, flexShrink: 0 }}>{label}</span>
                       <div style={{ flex: 1, display: "flex", alignItems: "center", backgroundColor: "rgba(0,0,0,0.03)", borderRadius: 8, padding: "6px 10px" }}>
-                        <input type="text" value={val} onChange={(e) => setVal(formatTimeInput(e.target.value))} placeholder="HH:MM" maxLength={5} style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#1a1a1a", background: "none", border: "none", outline: "none", fontVariantNumeric: "tabular-nums" }} />
+                        <input
+                          type="text"
+                          value={val}
+                          onChange={(e) => {
+                            setVal(formatTimeInput(e.target.value));
+                            setManualTimeEdited(true);
+                          }}
+                          placeholder="HH:MM"
+                          maxLength={5}
+                          style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#1a1a1a", background: "none", border: "none", outline: "none", fontVariantNumeric: "tabular-nums" }}
+                        />
                         <button onClick={() => setClockTarget(field)} style={{ width: 22, height: 22, borderRadius: 6, border: "none", backgroundColor: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <Clock size={11} strokeWidth={1.8} color="rgba(0,0,0,0.25)" />
                         </button>

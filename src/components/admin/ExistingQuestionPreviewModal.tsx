@@ -98,7 +98,7 @@ export function ExistingQuestionPreviewModal({
   const badge = typeBadgeColor(question.type);
   const details = renderTypeDetails(question);
   const scoringLines = Object.entries(question.scoring ?? {}).map(([key, value]) => {
-    return `${key}: IPP=${value.ipp ?? "—"} | Boni=${value.boni ?? "—"}`;
+    return `${key}: IPP=${value.ipp ?? "—"} | Boni=${value.boni ?? "—"} | Zweitplatzierung=${value.zweitplatzierung ?? "—"} | Mitbewerber=${value.mitbewerberabfrage ?? "—"}`;
   });
 
   return (

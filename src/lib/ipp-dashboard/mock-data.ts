@@ -39,6 +39,11 @@ type BuildPieInput = {
   filters: IppFilterScope;
 };
 
+type BuildPieCumulativeInput = {
+  intervalIds: string[];
+  filters: IppFilterScope;
+};
+
 function hashString(value: string): number {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
@@ -118,6 +123,45 @@ export function buildMockPieData(input: BuildPieInput): { slices: IppPieSlice[];
   const secondCount = total - placementCount;
   const placementPercent = Math.round((placementCount / total) * 1000) / 10;
   const secondPercent = Math.round((secondCount / total) * 1000) / 10;
+
+  return {
+    total,
+    slices: [
+      {
+        id: "placement",
+        label: "Platzierung",
+        count: placementCount,
+        percent: placementPercent,
+        color: "#111827",
+      },
+      {
+        id: "secondPlacement",
+        label: "Zweitplatzierung",
+        count: secondCount,
+        percent: secondPercent,
+        color: "#9CA3AF",
+      },
+    ],
+  };
+}
+
+export function buildMockPieCumulativeData(input: BuildPieCumulativeInput): { slices: IppPieSlice[]; total: number } {
+  const ids = input.intervalIds.filter((id) => typeof id === "string" && id.length > 0);
+  if (ids.length === 0) {
+    return buildMockPieData({ selectedIntervalId: null, filters: input.filters });
+  }
+
+  let placementCount = 0;
+  let secondCount = 0;
+  for (const intervalId of ids) {
+    const pie = buildMockPieData({ selectedIntervalId: intervalId, filters: input.filters });
+    placementCount += pie.slices.find((slice) => slice.id === "placement")?.count ?? 0;
+    secondCount += pie.slices.find((slice) => slice.id === "secondPlacement")?.count ?? 0;
+  }
+
+  const total = placementCount + secondCount;
+  const placementPercent = total > 0 ? Math.round((placementCount / total) * 1000) / 10 : 0;
+  const secondPercent = total > 0 ? Math.round((secondCount / total) * 1000) / 10 : 0;
 
   return {
     total,

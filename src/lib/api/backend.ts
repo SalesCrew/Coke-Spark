@@ -1441,7 +1441,7 @@ export type GmVisitStartSection = {
       action: "hide" | "show";
       targetQuestionIds: string[];
     }>;
-    scoring: Record<string, { ipp?: number; boni?: number }>;
+    scoring: Record<string, { ipp?: number; zweitplatzierung?: number; mitbewerberabfrage?: number; boni?: number }>;
     chains?: string[];
     appliesToMarketChain?: boolean;
     options?: string[];

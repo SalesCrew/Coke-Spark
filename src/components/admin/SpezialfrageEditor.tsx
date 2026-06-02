@@ -539,9 +539,15 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
   const isChoice = question.type === "single" || question.type === "multiple";
   const options = isChoice ? ((question.config.options as string[]) ?? []) : [];
   const hasIPP = Object.values(scoring).some((w) => w.ipp !== undefined && w.ipp !== null && String(w.ipp) !== "");
+  const hasMitbewerberabfrage = Object.values(scoring).some(
+    (w) =>
+      w.mitbewerberabfrage !== undefined
+      && w.mitbewerberabfrage !== null
+      && String(w.mitbewerberabfrage) !== "",
+  );
   const hasBoni = Object.values(scoring).some((w) => w.boni !== undefined && w.boni !== null && String(w.boni) !== "");
 
-  function setWeight(key: string, field: "ipp" | "boni", raw: string) {
+  function setWeight(key: string, field: "ipp" | "mitbewerberabfrage" | "boni", raw: string) {
     const num = raw === "" ? undefined : parseFloat(raw);
     const existing: ScoringWeight = scoring[key] ?? {};
     const next: ScoringWeight = { ...existing, [field]: num };
@@ -553,10 +559,11 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
 
   return (
     <div style={{ marginTop: 14 }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 0 6px", fontSize: 11, fontWeight: 600, color: (hasIPP || hasBoni) ? "#DC2626" : "rgba(0,0,0,0.35)", background: "none", border: "none", cursor: "pointer", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 0 6px", fontSize: 11, fontWeight: 600, color: (hasIPP || hasMitbewerberabfrage || hasBoni) ? "#DC2626" : "rgba(0,0,0,0.35)", background: "none", border: "none", cursor: "pointer", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
         <Trophy size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
         <span style={{ flex: 1, textAlign: "left" }}>Bewertung</span>
         {hasIPP && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(220,38,38,0.08)", color: "#DC2626" }}>IPP</span>}
+        {hasMitbewerberabfrage && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(16,185,129,0.12)", color: "#047857" }}>Mitbewerber</span>}
         {hasBoni && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(234,179,8,0.10)", color: "#a16207" }}>Boni</span>}
         <ChevronDown size={12} strokeWidth={2} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }} />
       </button>
@@ -568,6 +575,8 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
                 <span style={{ flex: 1 }} />
                 <span style={labelColStyle}>IPP</span>
                 <span style={{ width: 8 }} />
+                <span style={labelColStyle}>Mitbewerber</span>
+                <span style={{ width: 8 }} />
                 <span style={labelColStyle}>Boni</span>
               </div>
               {options.map((opt, i) => {
@@ -577,6 +586,8 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                     <span style={{ flex: 1, fontSize: 11, color: opt ? "#374151" : "rgba(0,0,0,0.28)", fontStyle: opt ? "normal" : "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{opt || `Option ${i + 1}`}</span>
                     <input type="number" step="0.1" value={w.ipp !== undefined ? String(w.ipp) : ""} onChange={(e) => setWeight(key, "ipp", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
+                    <span style={{ width: 8 }} />
+                    <input type="number" step="0.1" value={w.mitbewerberabfrage !== undefined ? String(w.mitbewerberabfrage) : ""} onChange={(e) => setWeight(key, "mitbewerberabfrage", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
                     <span style={{ width: 8 }} />
                     <input type="number" step="0.1" value={w.boni !== undefined ? String(w.boni) : ""} onChange={(e) => setWeight(key, "boni", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
                   </div>
@@ -596,6 +607,10 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>Boni Faktor</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Wert ×</span><input type="number" step="0.1" value={(scoring["__value__"]?.boni) !== undefined ? String(scoring["__value__"]?.boni) : ""} onChange={(e) => setWeight("__value__", "boni", e.target.value)} placeholder="–" style={{ ...inputStyle, width: 70 }} onClick={(e) => e.stopPropagation()} /></div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>Mitbewerber Faktor</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Wert ×</span><input type="number" step="0.1" value={(scoring["__value__"]?.mitbewerberabfrage) !== undefined ? String(scoring["__value__"]?.mitbewerberabfrage) : ""} onChange={(e) => setWeight("__value__", "mitbewerberabfrage", e.target.value)} placeholder="–" style={{ ...inputStyle, width: 70 }} onClick={(e) => e.stopPropagation()} /></div>
                 </div>
               </div>
             </>

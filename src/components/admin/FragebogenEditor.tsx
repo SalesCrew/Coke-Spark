@@ -538,6 +538,24 @@ function QuestionConfigSummary({ question }: { question: import("@/types/fragebo
                     Boni {sw.boni}
                   </span>
                 )}
+                {sw?.zweitplatzierung != null && (
+                  <span style={{
+                    fontSize: 8, fontWeight: 600, color: "#2563eb",
+                    background: "rgba(59,130,246,0.10)", borderRadius: 4,
+                    padding: "1px 5px", letterSpacing: 0.2,
+                  }}>
+                    Zweitplatzierung {sw.zweitplatzierung}
+                  </span>
+                )}
+                {sw?.mitbewerberabfrage != null && (
+                  <span style={{
+                    fontSize: 8, fontWeight: 600, color: "#047857",
+                    background: "rgba(16,185,129,0.12)", borderRadius: 4,
+                    padding: "1px 5px", letterSpacing: 0.2,
+                  }}>
+                    Mitbewerber {sw.mitbewerberabfrage}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -619,7 +637,7 @@ function QuestionConfigSummary({ question }: { question: import("@/types/fragebo
               Bereich: {min || "–∞"} bis {max || "∞"}{cfg.decimals ? " (Dezimal)" : ""}
             </div>
           )}
-          {(sw?.ipp != null || sw?.boni != null) && (
+          {(sw?.ipp != null || sw?.zweitplatzierung != null || sw?.mitbewerberabfrage != null || sw?.boni != null) && (
             <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
               {sw?.ipp != null && (
                 <span style={{
@@ -639,9 +657,27 @@ function QuestionConfigSummary({ question }: { question: import("@/types/fragebo
                   Boni ×{sw.boni}
                 </span>
               )}
+              {sw?.zweitplatzierung != null && (
+                <span style={{
+                  fontSize: 8, fontWeight: 600, color: "#2563eb",
+                  background: "rgba(59,130,246,0.10)", borderRadius: 4,
+                  padding: "1px 5px", letterSpacing: 0.2,
+                }}>
+                  Zweitplatzierung ×{sw.zweitplatzierung}
+                </span>
+              )}
+              {sw?.mitbewerberabfrage != null && (
+                <span style={{
+                  fontSize: 8, fontWeight: 600, color: "#047857",
+                  background: "rgba(16,185,129,0.12)", borderRadius: 4,
+                  padding: "1px 5px", letterSpacing: 0.2,
+                }}>
+                  Mitbewerber ×{sw.mitbewerberabfrage}
+                </span>
+              )}
             </div>
           )}
-          {!min && !max && sw?.ipp == null && sw?.boni == null && null}
+          {!min && !max && sw?.ipp == null && sw?.zweitplatzierung == null && sw?.mitbewerberabfrage == null && sw?.boni == null && null}
         </div>
       );
     }
@@ -725,7 +761,7 @@ function QuestionMiniList({ module }: { module: Module }) {
               )}
               {Object.keys(q.scoring || {}).some(k => {
                 const sw = (q.scoring || {})[k];
-                return sw?.ipp != null || sw?.boni != null;
+                return sw?.ipp != null || sw?.zweitplatzierung != null || sw?.mitbewerberabfrage != null || sw?.boni != null;
               }) && (
                 <Trophy size={9} strokeWidth={2} color="#b45309" style={{ flexShrink: 0, marginTop: 2 }} />
               )}

@@ -4,16 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchGmUsers, fetchMarkets } from "@/lib/api/backend";
 import { useRedMonth } from "@/context/RedMonthContext";
 import { IppChartPanel } from "@/components/admin/gm-dashboard/IppChartPanel";
+import { IppOverlapModal } from "@/components/admin/gm-dashboard/IppOverlapModal";
 import {
   buildIntervals,
   findIntervalById,
-  findPreviousIntervalId,
-  findPreviousYearIntervalId,
-  findQuarterPairIntervalId,
   getIntervalDisplayRange,
   type IntervalMode,
 } from "@/lib/ipp-dashboard/intervals";
 import {
+  buildMockPieCumulativeData,
   buildCompareResult,
   buildMockLineSeries,
   buildMockPieData,
@@ -27,6 +26,7 @@ import {
 } from "@/components/admin/gm-dashboard/IppFilterBar";
 import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalToolbar";
 import type { ComparePreset } from "@/components/admin/gm-dashboard/IppOverlapControls";
+import { resolveCompareIntervalId } from "@/components/admin/gm-dashboard/overlap-utils";
 
 function getRangeAroundToday(): { from: string; to: string } {
   const now = new Date();
@@ -59,8 +59,11 @@ export function IppAuswertungCard() {
   });
 
   const [compareEnabled, setCompareEnabled] = useState(false);
+  const [baseIntervalId, setBaseIntervalId] = useState<string | null>(null);
   const [comparePreset, setComparePreset] = useState<ComparePreset>("previous");
   const [customCompareIntervalId, setCustomCompareIntervalId] = useState<string | null>(null);
+  const [isOverlapModalOpen, setIsOverlapModalOpen] = useState(false);
+  const [revertOverlapOnModalCancel, setRevertOverlapOnModalCancel] = useState(false);
 
   useEffect(() => {
     const { from, to } = getRangeAroundToday();
@@ -128,22 +131,37 @@ export function IppAuswertungCard() {
     }
   }, [intervals, selectedIntervalId]);
 
+  useEffect(() => {
+    if (intervals.length === 0) {
+      setBaseIntervalId(null);
+      return;
+    }
+    if (!baseIntervalId || !intervals.some((interval) => interval.id === baseIntervalId)) {
+      setBaseIntervalId(selectedIntervalId ?? intervals[0]!.id);
+    }
+  }, [baseIntervalId, intervals, selectedIntervalId]);
+
+  useEffect(() => {
+    if (comparePreset !== "custom") return;
+    if (!customCompareIntervalId) return;
+    if (!intervals.some((interval) => interval.id === customCompareIntervalId)) {
+      setCustomCompareIntervalId(null);
+    }
+  }, [comparePreset, customCompareIntervalId, intervals]);
+
   const selectedInterval = findIntervalById(intervals, selectedIntervalId);
-  const customCandidateIntervals = intervals.filter((interval) => interval.id !== selectedIntervalId);
+  const activeBaseIntervalId = baseIntervalId ?? selectedIntervalId;
+  const customCandidateIntervals = intervals.filter((interval) => interval.id !== activeBaseIntervalId);
 
   const compareIntervalId = useMemo(() => {
     if (!compareEnabled) return null;
-    if (comparePreset === "previous") {
-      return findPreviousIntervalId(intervals, selectedIntervalId);
-    }
-    if (comparePreset === "previous_year") {
-      return findPreviousYearIntervalId(intervals, selectedIntervalId) ?? findPreviousIntervalId(intervals, selectedIntervalId);
-    }
-    if (comparePreset === "q4_vs_q2") {
-      return findQuarterPairIntervalId(intervals, selectedIntervalId) ?? findPreviousIntervalId(intervals, selectedIntervalId);
-    }
-    return customCompareIntervalId;
-  }, [compareEnabled, comparePreset, customCompareIntervalId, intervals, selectedIntervalId]);
+    return resolveCompareIntervalId({
+      intervals,
+      baseIntervalId: activeBaseIntervalId,
+      preset: comparePreset,
+      customCompareIntervalId,
+    });
+  }, [activeBaseIntervalId, compareEnabled, comparePreset, customCompareIntervalId, intervals]);
 
   const compareInterval = findIntervalById(intervals, compareIntervalId);
   const filterScope: IppFilterScope = {
@@ -164,8 +182,8 @@ export function IppAuswertungCard() {
   );
 
   const compareResult = useMemo(
-    () => (compareEnabled ? buildCompareResult(linePoints, selectedIntervalId) : null),
-    [compareEnabled, linePoints, selectedIntervalId],
+    () => (compareEnabled ? buildCompareResult(linePoints, activeBaseIntervalId) : null),
+    [activeBaseIntervalId, compareEnabled, linePoints],
   );
   const selectedLinePoint = useMemo(
     () => linePoints.find((point) => point.intervalId === selectedIntervalId) ?? linePoints[linePoints.length - 1] ?? null,
@@ -175,6 +193,14 @@ export function IppAuswertungCard() {
   const pieData = useMemo(
     () => buildMockPieData({ selectedIntervalId, filters: filterScope }),
     [filterScope, selectedIntervalId],
+  );
+  const pieDataCumulative = useMemo(
+    () =>
+      buildMockPieCumulativeData({
+        intervalIds: intervals.map((interval) => interval.id),
+        filters: filterScope,
+      }),
+    [filterScope, intervals],
   );
 
   const regionOptions = useMemo(() => {
@@ -221,9 +247,6 @@ export function IppAuswertungCard() {
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
             IPP Auswertung
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", marginTop: 2 }}>
-            Stabiler Trend zwischen 5.0 und 7.0 · Filter + Intervall + Overlap
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -275,25 +298,38 @@ export function IppAuswertungCard() {
           }}
           intervals={intervals}
           selectedIntervalId={selectedIntervalId}
-          onSelectInterval={setSelectedIntervalId}
+          onSelectInterval={(intervalId) => {
+            setSelectedIntervalId(intervalId);
+            if (!compareEnabled) setBaseIntervalId(intervalId);
+          }}
         />
 
         <IppChartPanel
-          mode={intervalMode}
           linePoints={linePoints}
           selectedIntervalId={selectedIntervalId}
           onSelectInterval={setSelectedIntervalId}
           compareEnabled={compareEnabled}
-          onCompareEnabledChange={setCompareEnabled}
-          comparePreset={comparePreset}
-          onComparePresetChange={setComparePreset}
-          customCompareIntervalId={customCompareIntervalId}
-          onCustomCompareIntervalIdChange={setCustomCompareIntervalId}
-          availableCustomIntervals={customCandidateIntervals}
+          onCompareEnabledChange={(enabled) => {
+            if (enabled) {
+              setCompareEnabled(true);
+              setRevertOverlapOnModalCancel(!compareEnabled);
+              setIsOverlapModalOpen(true);
+              return;
+            }
+            setCompareEnabled(false);
+            setRevertOverlapOnModalCancel(false);
+            setIsOverlapModalOpen(false);
+          }}
+          onOpenOverlapModal={() => {
+            setRevertOverlapOnModalCancel(false);
+            setIsOverlapModalOpen(true);
+          }}
           resolvedCompareLabel={compareLabel}
           compareResult={compareResult}
           pieSlices={pieData.slices}
           pieTotal={pieData.total}
+          pieCumulativeSlices={pieDataCumulative.slices}
+          pieCumulativeTotal={pieDataCumulative.total}
         />
 
         {loading && (
@@ -302,6 +338,29 @@ export function IppAuswertungCard() {
           </div>
         )}
       </div>
+
+      <IppOverlapModal
+        open={isOverlapModalOpen}
+        mode={intervalMode}
+        intervals={intervals}
+        initialBaseIntervalId={activeBaseIntervalId}
+        initialPreset={comparePreset}
+        initialCustomCompareIntervalId={customCompareIntervalId}
+        onClose={() => {
+          setIsOverlapModalOpen(false);
+          if (revertOverlapOnModalCancel) setCompareEnabled(false);
+          setRevertOverlapOnModalCancel(false);
+        }}
+        onApply={(payload) => {
+          setBaseIntervalId(payload.baseIntervalId);
+          setSelectedIntervalId(payload.baseIntervalId);
+          setComparePreset(payload.preset);
+          setCustomCompareIntervalId(payload.customCompareIntervalId);
+          setCompareEnabled(true);
+          setRevertOverlapOnModalCancel(false);
+          setIsOverlapModalOpen(false);
+        }}
+      />
     </section>
   );
 }

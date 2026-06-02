@@ -1,62 +1,38 @@
 "use client";
 
 import type { IppCompareResult, IppLinePoint, IppPieSlice } from "@/lib/ipp-dashboard/mock-data";
-import type { IntervalMode, IppInterval } from "@/lib/ipp-dashboard/intervals";
 import { IppLineChart } from "@/components/admin/gm-dashboard/charts/IppLineChart";
 import { IppPieChart } from "@/components/admin/gm-dashboard/charts/IppPieChart";
-import { IppMiniDropdown } from "@/components/admin/gm-dashboard/IppMiniDropdown";
-import type { ComparePreset } from "@/components/admin/gm-dashboard/IppOverlapControls";
 
 type IppChartPanelProps = {
-  mode: IntervalMode;
   linePoints: IppLinePoint[];
   selectedIntervalId: string | null;
   onSelectInterval: (intervalId: string) => void;
   compareEnabled: boolean;
   onCompareEnabledChange: (enabled: boolean) => void;
-  comparePreset: ComparePreset;
-  onComparePresetChange: (preset: ComparePreset) => void;
-  customCompareIntervalId: string | null;
-  onCustomCompareIntervalIdChange: (intervalId: string | null) => void;
-  availableCustomIntervals: IppInterval[];
+  onOpenOverlapModal: () => void;
   resolvedCompareLabel: string;
   compareResult: IppCompareResult | null;
   pieSlices: IppPieSlice[];
   pieTotal: number;
+  pieCumulativeSlices: IppPieSlice[];
+  pieCumulativeTotal: number;
 };
 
 export function IppChartPanel({
-  mode,
   linePoints,
   selectedIntervalId,
   onSelectInterval,
   compareEnabled,
   onCompareEnabledChange,
-  comparePreset,
-  onComparePresetChange,
-  customCompareIntervalId,
-  onCustomCompareIntervalIdChange,
-  availableCustomIntervals,
+  onOpenOverlapModal,
   resolvedCompareLabel,
   compareResult,
   pieSlices,
   pieTotal,
+  pieCumulativeSlices,
+  pieCumulativeTotal,
 }: IppChartPanelProps) {
-  const presetButtonStyle = (active: boolean) => ({
-    borderRadius: 7,
-    border: "none",
-    background: active ? "linear-gradient(to bottom,#fff,#f5f5f5)" : "linear-gradient(to bottom,#fff,#f8f8f8)",
-    color: active ? "#1f2937" : "rgba(0,0,0,0.6)",
-    fontSize: 10,
-    fontWeight: 700,
-    padding: "5px 8px",
-    cursor: "pointer",
-    boxShadow: active
-      ? "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.07)"
-      : "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.03), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 3px rgba(0,0,0,0.05)",
-    transition: "all 0.14s ease",
-  });
-
   return (
     <section
       style={{
@@ -92,7 +68,13 @@ export function IppChartPanel({
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
               type="button"
-              onClick={() => onCompareEnabledChange(!compareEnabled)}
+              onClick={() => {
+                if (compareEnabled) {
+                  onCompareEnabledChange(false);
+                  return;
+                }
+                onCompareEnabledChange(true);
+              }}
               style={{
                 borderRadius: 999,
                 border: "none",
@@ -127,38 +109,26 @@ export function IppChartPanel({
                 {compareEnabled ? `Aktiv · ${resolvedCompareLabel}` : "Inaktiv"}
               </div>
             </div>
+            {compareEnabled && (
+              <button
+                type="button"
+                onClick={onOpenOverlapModal}
+                style={{
+                  borderRadius: 8,
+                  border: "none",
+                  background: "linear-gradient(to bottom,#fff,#f5f5f5)",
+                  color: "rgba(0,0,0,0.62)",
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: "6px 9px",
+                  cursor: "pointer",
+                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10)",
+                }}
+              >
+                Tool
+              </button>
+            )}
           </div>
-
-          {compareEnabled && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              <button type="button" onClick={() => onComparePresetChange("previous")} style={presetButtonStyle(comparePreset === "previous")}>
-                1 davor
-              </button>
-              <button type="button" onClick={() => onComparePresetChange("previous_year")} style={presetButtonStyle(comparePreset === "previous_year")}>
-                Vorjahr
-              </button>
-              {mode === "quarter" && (
-                <button type="button" onClick={() => onComparePresetChange("q4_vs_q2")} style={presetButtonStyle(comparePreset === "q4_vs_q2")}>
-                  Q4/Q2
-                </button>
-              )}
-              <button type="button" onClick={() => onComparePresetChange("custom")} style={presetButtonStyle(comparePreset === "custom")}>
-                Custom
-              </button>
-              {comparePreset === "custom" && (
-                <IppMiniDropdown
-                  value={customCompareIntervalId}
-                  placeholder="Intervall wählen…"
-                  options={availableCustomIntervals.map((interval) => ({
-                    value: interval.id,
-                    label: interval.label,
-                  }))}
-                  minWidth={200}
-                  onChange={onCustomCompareIntervalIdChange}
-                />
-              )}
-            </div>
-          )}
         </div>
       </div>
 
@@ -189,7 +159,12 @@ export function IppChartPanel({
             minWidth: 0,
           }}
         >
-          <IppPieChart slices={pieSlices} total={pieTotal} />
+          <IppPieChart
+            slices={pieSlices}
+            total={pieTotal}
+            cumulativeSlices={pieCumulativeSlices}
+            cumulativeTotal={pieCumulativeTotal}
+          />
         </div>
       </div>
     </section>

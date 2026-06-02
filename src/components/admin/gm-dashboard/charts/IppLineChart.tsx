@@ -112,6 +112,21 @@ export function IppLineChart({ points, selectedIntervalId, onSelectInterval, com
   const comparePath = compareEnabled
     ? buildSmoothPath(plotted.filter((point) => point.compareY != null).map((point) => ({ x: point.x, y: point.compareY as number })))
     : "";
+  const overlapGapSegments = useMemo(() => {
+    if (!compareEnabled || plotted.length < 2) return [] as Array<{ d: string; fill: string }>;
+    const segments: Array<{ d: string; fill: string }> = [];
+    for (let idx = 0; idx < plotted.length - 1; idx += 1) {
+      const left = plotted[idx]!;
+      const right = plotted[idx + 1]!;
+      if (left.compareY == null || right.compareY == null) continue;
+      const baseAbove = ((left.y + right.y) / 2) < ((left.compareY + right.compareY) / 2);
+      segments.push({
+        d: `M ${left.x} ${left.y} L ${right.x} ${right.y} L ${right.x} ${right.compareY} L ${left.x} ${left.compareY} Z`,
+        fill: baseAbove ? "rgba(22,163,74,0.14)" : "rgba(220,38,38,0.12)",
+      });
+    }
+    return segments;
+  }, [compareEnabled, plotted]);
 
   const tooltipX = activePoint ? activePoint.x : 0;
   const tooltipY = activePoint ? activePoint.y - 68 : 0;
@@ -220,6 +235,10 @@ export function IppLineChart({ points, selectedIntervalId, onSelectInterval, com
           opacity={0.46}
         />
 
+        {compareEnabled && overlapGapSegments.map((segment, index) => (
+          <path key={`gap-${index}`} d={segment.d} fill={segment.fill} />
+        ))}
+
         {compareEnabled && comparePath.length > 0 && (
           <path
             d={comparePath}
@@ -231,7 +250,7 @@ export function IppLineChart({ points, selectedIntervalId, onSelectInterval, com
           />
         )}
 
-        {primaryAreaPath && <path d={primaryAreaPath} fill="url(#area-grad)" />}
+        {!compareEnabled && primaryAreaPath && <path d={primaryAreaPath} fill="url(#area-grad)" />}
 
         <path
           d={primaryPath}

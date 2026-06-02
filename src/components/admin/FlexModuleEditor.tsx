@@ -595,9 +595,25 @@ function FlexScoringEditor({ question, onUpdate }: { question: Question; onUpdat
   })();
 
   const hasIPP = Object.values(scoring).some((w) => w.ipp !== undefined && w.ipp !== null && String(w.ipp) !== "");
+  const hasZweitplatzierung = Object.values(scoring).some(
+    (w) =>
+      w.zweitplatzierung !== undefined
+      && w.zweitplatzierung !== null
+      && String(w.zweitplatzierung) !== "",
+  );
+  const hasMitbewerberabfrage = Object.values(scoring).some(
+    (w) =>
+      w.mitbewerberabfrage !== undefined
+      && w.mitbewerberabfrage !== null
+      && String(w.mitbewerberabfrage) !== "",
+  );
   const hasBoni = Object.values(scoring).some((w) => w.boni !== undefined && w.boni !== null && String(w.boni) !== "");
 
-  function setWeight(key: string, field: "ipp" | "boni", raw: string) {
+  function setWeight(
+    key: string,
+    field: "ipp" | "zweitplatzierung" | "mitbewerberabfrage" | "boni",
+    raw: string,
+  ) {
     const num = raw === "" ? undefined : parseFloat(raw);
     const existing: ScoringWeight = scoring[key] ?? {};
     const next: ScoringWeight = { ...existing, [field]: num };
@@ -623,7 +639,7 @@ function FlexScoringEditor({ question, onUpdate }: { question: Question; onUpdat
         style={{
           display: "flex", alignItems: "center", gap: 7, width: "100%",
           padding: "8px 0 6px", fontSize: 11, fontWeight: 600,
-          color: (hasIPP || hasBoni) ? GD : "rgba(0,0,0,0.35)",
+          color: (hasIPP || hasZweitplatzierung || hasMitbewerberabfrage || hasBoni) ? GD : "rgba(0,0,0,0.35)",
           background: "none", border: "none", cursor: "pointer",
           borderTop: "1px solid rgba(0,0,0,0.04)",
         }}
@@ -635,6 +651,16 @@ function FlexScoringEditor({ question, onUpdate }: { question: Question; onUpdat
         )}
         {hasBoni && (
           <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(234,179,8,0.10)", color: "#a16207" }}>Boni</span>
+        )}
+        {hasZweitplatzierung && (
+          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(59,130,246,0.10)", color: "#2563eb" }}>
+            Zweitplatzierung
+          </span>
+        )}
+        {hasMitbewerberabfrage && (
+          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(16,185,129,0.12)", color: "#047857" }}>
+            Mitbewerber
+          </span>
         )}
         <ChevronDown size={12} strokeWidth={2} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }} />
       </button>
@@ -648,6 +674,10 @@ function FlexScoringEditor({ question, onUpdate }: { question: Question; onUpdat
                 <span style={labelColStyle}>IPP</span>
                 <span style={{ width: 8 }} />
                 <span style={labelColStyle}>Boni</span>
+                <span style={{ width: 8 }} />
+                <span style={labelColStyle}>Zweitplatz.</span>
+                <span style={{ width: 8 }} />
+                <span style={labelColStyle}>Mitbewerber</span>
               </div>
               {scoringOptions.map((opt, i) => {
                 const key = opt || `__opt_${i}__`;
@@ -660,6 +690,10 @@ function FlexScoringEditor({ question, onUpdate }: { question: Question; onUpdat
                     <input type="number" step="0.1" value={w.ipp !== undefined ? String(w.ipp) : ""} onChange={(e) => setWeight(key, "ipp", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
                     <span style={{ width: 8 }} />
                     <input type="number" step="0.1" value={w.boni !== undefined ? String(w.boni) : ""} onChange={(e) => setWeight(key, "boni", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
+                    <span style={{ width: 8 }} />
+                    <input type="number" step="0.1" value={w.zweitplatzierung !== undefined ? String(w.zweitplatzierung) : ""} onChange={(e) => setWeight(key, "zweitplatzierung", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
+                    <span style={{ width: 8 }} />
+                    <input type="number" step="0.1" value={w.mitbewerberabfrage !== undefined ? String(w.mitbewerberabfrage) : ""} onChange={(e) => setWeight(key, "mitbewerberabfrage", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
                   </div>
                 );
               })}
@@ -686,6 +720,20 @@ function FlexScoringEditor({ question, onUpdate }: { question: Question; onUpdat
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Wert ×</span>
                     <input type="number" step="0.1" value={(scoring["__value__"]?.boni) !== undefined ? String(scoring["__value__"]?.boni) : ""} onChange={(e) => setWeight("__value__", "boni", e.target.value)} placeholder="–" style={{ ...inputStyle, width: 70 }} onClick={(e) => e.stopPropagation()} />
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>Zweitplatzierung Faktor</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Wert ×</span>
+                    <input type="number" step="0.1" value={(scoring["__value__"]?.zweitplatzierung) !== undefined ? String(scoring["__value__"]?.zweitplatzierung) : ""} onChange={(e) => setWeight("__value__", "zweitplatzierung", e.target.value)} placeholder="–" style={{ ...inputStyle, width: 70 }} onClick={(e) => e.stopPropagation()} />
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>Mitbewerber Faktor</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Wert ×</span>
+                    <input type="number" step="0.1" value={(scoring["__value__"]?.mitbewerberabfrage) !== undefined ? String(scoring["__value__"]?.mitbewerberabfrage) : ""} onChange={(e) => setWeight("__value__", "mitbewerberabfrage", e.target.value)} placeholder="–" style={{ ...inputStyle, width: 70 }} onClick={(e) => e.stopPropagation()} />
                   </div>
                 </div>
               </div>
@@ -827,7 +875,7 @@ function FlexQuestionCard({ question, index, isExpanded, onToggle, onUpdate, onD
           <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 8px", borderRadius: 4, backgroundColor: badge.bg, color: badge.text, letterSpacing: "0.02em", flexShrink: 0 }}>{typeLabel(question.type)}</span>
           <span style={{ fontSize: 11, fontWeight: 500, color: question.text ? "#374151" : "rgba(0,0,0,0.25)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{question.text || "Frage eingeben..."}</span>
           {question.rules.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: GD, flexShrink: 0 }} />}
-          {Object.values(question.scoring || {}).some(w => w.ipp != null || w.boni != null) && (
+          {Object.values(question.scoring || {}).some((w) => w.ipp != null || w.zweitplatzierung != null || w.mitbewerberabfrage != null || w.boni != null) && (
             <Trophy size={11} strokeWidth={2} color="#a16207" style={{ flexShrink: 0 }} />
           )}
           <ChevronDown size={13} strokeWidth={1.8} color="rgba(0,0,0,0.25)" style={{ flexShrink: 0, transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)" }} />

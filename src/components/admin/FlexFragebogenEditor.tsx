@@ -323,6 +323,16 @@ function FlexQuestionConfigSummary({ question }: { question: import("@/types/fra
                     Boni {sw.boni}
                   </span>
                 )}
+                {sw?.zweitplatzierung != null && (
+                  <span style={{ fontSize: 8, fontWeight: 600, color: "#2563eb", background: "rgba(59,130,246,0.10)", borderRadius: 4, padding: "1px 5px", letterSpacing: 0.2 }}>
+                    Zweitplatzierung {sw.zweitplatzierung}
+                  </span>
+                )}
+                {sw?.mitbewerberabfrage != null && (
+                  <span style={{ fontSize: 8, fontWeight: 600, color: "#047857", background: "rgba(16,185,129,0.12)", borderRadius: 4, padding: "1px 5px", letterSpacing: 0.2 }}>
+                    Mitbewerber {sw.mitbewerberabfrage}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -351,7 +361,7 @@ function FlexQuestionConfigSummary({ question }: { question: import("@/types/fra
       return (
         <div style={{ marginTop: 4, paddingLeft: 30 }}>
           {(min || max) && <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginBottom: sw ? 4 : 0 }}>Bereich: {min || "–∞"} bis {max || "∞"}{cfg.decimals ? " (Dezimal)" : ""}</div>}
-          {(sw?.ipp != null || sw?.boni != null) && (
+          {(sw?.ipp != null || sw?.zweitplatzierung != null || sw?.mitbewerberabfrage != null || sw?.boni != null) && (
             <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
               {sw?.ipp != null && (
                 <span style={{ fontSize: 8, fontWeight: 600, color: GD, background: G_BG, borderRadius: 4, padding: "1px 5px", letterSpacing: 0.2 }}>
@@ -361,6 +371,16 @@ function FlexQuestionConfigSummary({ question }: { question: import("@/types/fra
               {sw?.boni != null && (
                 <span style={{ fontSize: 8, fontWeight: 600, color: "#b45309", background: "rgba(217,119,6,0.08)", borderRadius: 4, padding: "1px 5px", letterSpacing: 0.2 }}>
                   Boni ×{sw.boni}
+                </span>
+              )}
+              {sw?.zweitplatzierung != null && (
+                <span style={{ fontSize: 8, fontWeight: 600, color: "#2563eb", background: "rgba(59,130,246,0.10)", borderRadius: 4, padding: "1px 5px", letterSpacing: 0.2 }}>
+                  Zweitplatzierung ×{sw.zweitplatzierung}
+                </span>
+              )}
+              {sw?.mitbewerberabfrage != null && (
+                <span style={{ fontSize: 8, fontWeight: 600, color: "#047857", background: "rgba(16,185,129,0.12)", borderRadius: 4, padding: "1px 5px", letterSpacing: 0.2 }}>
+                  Mitbewerber ×{sw.mitbewerberabfrage}
                 </span>
               )}
             </div>
@@ -398,7 +418,7 @@ function FlexQuestionMiniList({ module }: { module: Module }) {
               <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, backgroundColor: badge.bg, color: badge.text, flexShrink: 0, whiteSpace: "nowrap" }}>{typeLabel(q.type)}</span>
               <span style={{ fontSize: 11, color: q.text ? "#374151" : "rgba(0,0,0,0.3)", fontStyle: q.text ? "normal" : "italic", lineHeight: 1.4, flex: 1 }}>{q.text || "Kein Fragetext"}</span>
               {q.rules.length > 0 && <Zap size={9} strokeWidth={2} color={GD} style={{ flexShrink: 0, marginTop: 2 }} />}
-              {Object.keys(q.scoring || {}).some(k => { const sw = (q.scoring || {})[k]; return sw?.ipp != null || sw?.boni != null; }) && (
+              {Object.keys(q.scoring || {}).some(k => { const sw = (q.scoring || {})[k]; return sw?.ipp != null || sw?.zweitplatzierung != null || sw?.mitbewerberabfrage != null || sw?.boni != null; }) && (
                 <Trophy size={9} strokeWidth={2} color="#b45309" style={{ flexShrink: 0, marginTop: 2 }} />
               )}
               <ChevronDown size={11} strokeWidth={2} color="rgba(0,0,0,0.2)" style={{ flexShrink: 0, marginTop: 2, transition: "transform 0.2s ease", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />

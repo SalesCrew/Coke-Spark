@@ -4114,6 +4114,25 @@ function MarktbesuchInner() {
       {/* ── ACTIVE PHASE — root level (outside phaseVisible wrapper so position:fixed works correctly) ── */}
       {phase === "active" && (
         <div style={{ position: "fixed", inset: 0, zIndex: 2, display: "flex", flexDirection: "column" }}>
+          <style>{`
+            .gm-active-scroll {
+              scrollbar-width: thin;
+              scrollbar-color: rgba(0,0,0,0.16) transparent;
+            }
+            .gm-active-scroll::-webkit-scrollbar {
+              width: 6px;
+            }
+            .gm-active-scroll::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            .gm-active-scroll::-webkit-scrollbar-thumb {
+              background: rgba(0,0,0,0.14);
+              border-radius: 999px;
+            }
+            .gm-active-scroll::-webkit-scrollbar-thumb:hover {
+              background: rgba(0,0,0,0.22);
+            }
+          `}</style>
 
           {/* Top bar */}
           <div style={{
@@ -4153,16 +4172,22 @@ function MarktbesuchInner() {
           </div>
 
           {/* Content — fills remaining height, centers card vertically */}
-          <div style={{
+          <div
+            className="gm-active-scroll"
+            style={{
             flex: 1,
             minHeight: 0,
             display: "flex",
             flexDirection: "column",
             padding: "0 16px",
             paddingBottom: navOpen ? "0px" : "64px",
+            overflowY: "auto",
+            overflowX: "hidden",
+            WebkitOverflowScrolling: "touch",
             transition: "padding-bottom 0.28s cubic-bezier(0.4,0,0.2,1)",
-          }}>
-            <div style={{ width: "100%", maxWidth: 480, margin: "auto", marginBottom: navOpen ? "65vh" : "auto", transition: "margin-bottom 0.28s cubic-bezier(0.4,0,0.2,1)" }}>
+          }}
+          >
+            <div style={{ width: "100%", maxWidth: 480, margin: "10px auto 0", marginBottom: navOpen ? "65vh" : 12, transition: "margin-bottom 0.28s cubic-bezier(0.4,0,0.2,1)" }}>
 
               {/* ── FRAGEBOGEN SECTION ── */}
               {activeSection === "fragebogen" && currentQ && (

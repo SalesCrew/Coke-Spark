@@ -137,6 +137,15 @@ function QuestionConfigSummary({ question }: { question: Question }) {
                     Boni {sw.boni}
                   </span>
                 )}
+                {sw?.mitbewerberabfrage != null && (
+                  <span style={{
+                    fontSize: 8, fontWeight: 600, color: "#047857",
+                    background: "rgba(16,185,129,0.12)", borderRadius: 4,
+                    padding: "1px 5px", letterSpacing: 0.2,
+                  }}>
+                    Mitbewerber {sw.mitbewerberabfrage}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -184,7 +193,7 @@ function QuestionConfigSummary({ question }: { question: Question }) {
               Bereich: {min || "–∞"} bis {max || "∞"}{cfg.decimals ? " (Dezimal)" : ""}
             </div>
           )}
-          {(sw?.ipp != null || sw?.boni != null) && (
+          {(sw?.ipp != null || sw?.mitbewerberabfrage != null || sw?.boni != null) && (
             <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
               {sw?.ipp != null && (
                 <span style={{
@@ -204,9 +213,18 @@ function QuestionConfigSummary({ question }: { question: Question }) {
                   Boni ×{sw.boni}
                 </span>
               )}
+              {sw?.mitbewerberabfrage != null && (
+                <span style={{
+                  fontSize: 8, fontWeight: 600, color: "#047857",
+                  background: "rgba(16,185,129,0.12)", borderRadius: 4,
+                  padding: "1px 5px", letterSpacing: 0.2,
+                }}>
+                  Mitbewerber ×{sw.mitbewerberabfrage}
+                </span>
+              )}
             </div>
           )}
-          {!min && !max && sw?.ipp == null && sw?.boni == null && null}
+          {!min && !max && sw?.ipp == null && sw?.mitbewerberabfrage == null && sw?.boni == null && null}
         </div>
       );
     }
@@ -966,7 +984,7 @@ function ModuleCard({ module, onEdit, onDuplicate, onDuplicateToFlex, onDuplicat
                       )}
                       {Object.keys(q.scoring || {}).some(k => {
                         const sw = (q.scoring || {})[k];
-                        return sw?.ipp != null || sw?.boni != null;
+                        return sw?.ipp != null || sw?.mitbewerberabfrage != null || sw?.boni != null;
                       }) && (
                         <Trophy size={10} strokeWidth={2} color="#b45309" style={{ flexShrink: 0 }} />
                       )}
@@ -1140,7 +1158,7 @@ function FragenListItem({
         )}
         {Object.keys(question.scoring || {}).some(k => {
           const sw = (question.scoring || {})[k];
-          return sw?.ipp != null || sw?.boni != null;
+          return sw?.ipp != null || sw?.mitbewerberabfrage != null || sw?.boni != null;
         }) && (
           <Trophy size={10} strokeWidth={2} color="#b45309" style={{ flexShrink: 0 }} />
         )}
@@ -1316,9 +1334,15 @@ function SpezialfrageAbwaehlenModal({
 
   function hasSco(q: Question) {
     if (!q.scoring) return false;
-    return Object.values(q.scoring).some(
-      (w) => (w as { ipp?: number; boni?: number }).ipp !== undefined || (w as { ipp?: number; boni?: number }).boni !== undefined
-    );
+    return Object.values(q.scoring).some((w) => {
+      const scoringWeight = w as { ipp?: number; zweitplatzierung?: number; mitbewerberabfrage?: number; boni?: number };
+      return (
+        scoringWeight.ipp !== undefined
+        || scoringWeight.zweitplatzierung !== undefined
+        || scoringWeight.mitbewerberabfrage !== undefined
+        || scoringWeight.boni !== undefined
+      );
+    });
   }
 
   return (
@@ -1481,6 +1505,13 @@ function SpezialfrageAbwaehlenModal({
                         background: "rgba(217,119,6,0.08)", borderRadius: 4,
                         padding: "2px 6px", letterSpacing: "0.03em",
                       }}>Boni</span>
+                    )}
+                    {scoring && Object.values(q.scoring ?? {}).some((w) => (w as { mitbewerberabfrage?: number }).mitbewerberabfrage !== undefined) && (
+                      <span style={{
+                        fontSize: 8, fontWeight: 700, color: "#047857",
+                        background: "rgba(16,185,129,0.12)", borderRadius: 4,
+                        padding: "2px 6px", letterSpacing: "0.03em",
+                      }}>Mitbewerber</span>
                     )}
                     {/* Checkbox */}
                     <div style={{

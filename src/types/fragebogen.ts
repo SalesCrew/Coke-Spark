@@ -22,6 +22,8 @@ export type SingleChoiceAvailabilityType = (typeof SINGLE_CHOICE_AVAILABILITY_TY
 
 export interface ScoringWeight {
   ipp?: number;   // undefined = not scored for IPP
+  zweitplatzierung?: number; // undefined = not scored for Zweitplatzierung
+  mitbewerberabfrage?: number; // undefined = not scored for Mitbewerberabfrage
   boni?: number;  // undefined = not scored for Boni
 }
 

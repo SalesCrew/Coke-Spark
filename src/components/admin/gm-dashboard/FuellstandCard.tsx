@@ -101,7 +101,7 @@ export function FuellstandCard() {
     () =>
       buildIntervals({
         mode: intervalMode,
-        count: intervalMode === "week" ? 20 : 16,
+        count: intervalMode === "week" ? 36 : 28,
         redMonthCalendar: calendar,
       }),
     [calendar, intervalMode],
@@ -178,7 +178,7 @@ export function FuellstandCard() {
             <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
               Zweite Key Card
             </div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: "#111827", letterSpacing: "-0.03em" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
               Füllstand Auswertung
             </div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", marginTop: 2 }}>

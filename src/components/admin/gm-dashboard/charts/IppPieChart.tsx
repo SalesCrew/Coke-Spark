@@ -43,12 +43,12 @@ function describeDonutSlice(
 }
 
 export function IppPieChart({ slices, total }: IppPieChartProps) {
-  const width = 340;
-  const height = 280;
-  const centerX = 170;
-  const centerY = 140;
-  const outerRadius = 96;
-  const innerRadius = 72;
+  const width = 300;
+  const height = 230;
+  const centerX = 150;
+  const centerY = 108;
+  const outerRadius = 74;
+  const innerRadius = 56;
   const ringGapDeg = 3.2;
   const trackRadius = (outerRadius + innerRadius) / 2;
   const trackWidth = outerRadius - innerRadius;
@@ -70,8 +70,8 @@ export function IppPieChart({ slices, total }: IppPieChartProps) {
   let angleCursor = 0;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 42%) minmax(340px, 1fr)", gap: 20, alignItems: "center", minHeight: 280 }}>
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="100%" style={{ display: "block" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "stretch", minHeight: 230, width: "100%" }}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="auto" style={{ display: "block" }}>
         <defs>
           <linearGradient id="ipp-pie-inner-depth" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#000000" stopOpacity="0" />
@@ -109,23 +109,23 @@ export function IppPieChart({ slices, total }: IppPieChartProps) {
             />
           );
         })}
-        <text x={centerX} y={136} textAnchor="middle" fontFamily="inherit" fontSize={12} fontWeight={700} fill="url(#ipp-pie-text-grad)">
+        <text x={centerX} y={105} textAnchor="middle" fontFamily="inherit" fontSize={11} fontWeight={700} fill="url(#ipp-pie-text-grad)">
           Gesamt
         </text>
-        <text x={centerX} y={160} textAnchor="middle" fontFamily="inherit" fontSize={30} fontWeight={800} fill="url(#ipp-pie-text-grad)">
+        <text x={centerX} y={126} textAnchor="middle" fontFamily="inherit" fontSize={26} fontWeight={800} fill="url(#ipp-pie-text-grad)">
           {total}
         </text>
       </svg>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {visibleSlices.map((slice, index) => (
           <div
             key={slice.id}
             style={{
-              borderRadius: 10,
+              borderRadius: 9,
               border: "1px solid rgba(0,0,0,0.08)",
               background: "rgba(255,255,255,0.94)",
-              padding: "12px 14px",
+              padding: "9px 11px",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -135,19 +135,19 @@ export function IppPieChart({ slices, total }: IppPieChartProps) {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span
                 style={{
-                  width: 10,
-                  height: 10,
+                  width: 9,
+                  height: 9,
                   borderRadius: "50%",
                   display: "inline-block",
                   background: visuals[index]?.stroke ?? slice.color,
                   boxShadow: "0 0 0 1px rgba(0,0,0,0.14), 0 1px 1.5px rgba(0,0,0,0.1), inset 0 1px 0.35px rgba(255,255,255,0.25)",
                 }}
               />
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>{slice.label}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#1f2937" }}>{slice.label}</span>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{slice.percent.toFixed(1)}%</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.45)", marginTop: 2 }}>{slice.count} Fälle</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{slice.percent.toFixed(1)}%</div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.45)", marginTop: 2 }}>{slice.count} Fälle</div>
             </div>
           </div>
         ))}

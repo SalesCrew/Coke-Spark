@@ -60,7 +60,7 @@ export function IppMiniDropdown({
         }
       `}</style>
       {label && (
-        <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.35)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.35)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 3 }}>
           {label}
         </div>
       )}
@@ -70,18 +70,18 @@ export function IppMiniDropdown({
         onClick={() => setOpen((current) => !current)}
         style={{
           width: "100%",
-          borderRadius: 9,
+          borderRadius: 8,
           border: "none",
           background: "linear-gradient(to bottom,#fff,#f5f5f5)",
           color: "#111827",
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: 700,
-          padding: "8px 10px",
+          padding: "6px 9px",
           outline: "none",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 8,
+          gap: 6,
           cursor: "pointer",
           boxShadow: open
             ? "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.08), 0 0 0 3px rgba(220,38,38,0.08)"
@@ -92,7 +92,7 @@ export function IppMiniDropdown({
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selected ? "#111827" : "rgba(0,0,0,0.42)" }}>
           {selected?.label ?? placeholder}
         </span>
-        <span style={{ color: "rgba(0,0,0,0.45)", fontSize: 12, fontWeight: 900, lineHeight: 1 }}>
+        <span style={{ color: "rgba(0,0,0,0.45)", fontSize: 11, fontWeight: 900, lineHeight: 1 }}>
           {open ? "▴" : "▾"}
         </span>
       </button>

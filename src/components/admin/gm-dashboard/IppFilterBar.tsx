@@ -62,10 +62,10 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
         borderRadius: 10,
         border: "1px solid rgba(0,0,0,0.07)",
         background: "rgba(0,0,0,0.02)",
-        padding: "8px 10px",
+        padding: "6px 8px",
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        gap: 6,
       }}
     >
       <style>{`
@@ -75,8 +75,8 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
           transform: translateY(-1px);
         }
       `}</style>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <IppMiniDropdown
             label="Region"
             value={filters.region}
@@ -123,13 +123,13 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
           disabled={!hasActiveFilters}
           style={{
             alignSelf: "center",
-            borderRadius: 8,
+            borderRadius: 7,
             border: "none",
             background: hasActiveFilters ? "linear-gradient(to bottom,#DC2626,#b91c1c)" : "rgba(220,38,38,0.28)",
             color: "#fff",
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: 800,
-            padding: "9px 12px",
+            padding: "7px 10px",
             cursor: hasActiveFilters ? "pointer" : "not-allowed",
             opacity: hasActiveFilters ? 1 : 0.55,
             boxShadow: hasActiveFilters

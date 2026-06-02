@@ -3,22 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchGmUsers, fetchMarkets } from "@/lib/api/backend";
 import { useRedMonth } from "@/context/RedMonthContext";
-import { IppChartPanel } from "@/components/admin/gm-dashboard/IppChartPanel";
 import {
   buildIntervals,
   findIntervalById,
-  findPreviousIntervalId,
-  findPreviousYearIntervalId,
-  findQuarterPairIntervalId,
-  getIntervalDisplayRange,
   type IntervalMode,
 } from "@/lib/ipp-dashboard/intervals";
-import {
-  buildCompareResult,
-  buildMockLineSeries,
-  buildMockPieData,
-  type IppFilterScope,
-} from "@/lib/ipp-dashboard/mock-data";
 import {
   IppFilterBar,
   type IppFilterState,
@@ -26,7 +15,11 @@ import {
   type IppMarketOption,
 } from "@/components/admin/gm-dashboard/IppFilterBar";
 import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalToolbar";
-import type { ComparePreset } from "@/components/admin/gm-dashboard/IppOverlapControls";
+import { PlatzierungenBarChart } from "@/components/admin/gm-dashboard/charts/PlatzierungenBarChart";
+import {
+  buildPlatzierungenSeries,
+  type PlatzierungenFilterScope,
+} from "@/lib/platzierungen-dashboard/mock-data";
 
 function getRangeAroundToday(): { from: string; to: string } {
   const now = new Date();
@@ -41,26 +34,20 @@ function deriveChainFromMarketName(name: string): string {
   return token.toUpperCase();
 }
 
-export function IppAuswertungCard() {
+export function PlatzierungenCard() {
   const { calendar, loadCalendar } = useRedMonth();
   const [markets, setMarkets] = useState<IppMarketOption[]>([]);
   const [gms, setGms] = useState<IppGmOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-
   const [intervalMode, setIntervalMode] = useState<IntervalMode>("redmonth");
   const [selectedIntervalId, setSelectedIntervalId] = useState<string | null>(null);
-
   const [filters, setFilters] = useState<IppFilterState>({
     region: null,
     gmId: null,
     chain: null,
     stc: null,
   });
-
-  const [compareEnabled, setCompareEnabled] = useState(false);
-  const [comparePreset, setComparePreset] = useState<ComparePreset>("previous");
-  const [customCompareIntervalId, setCustomCompareIntervalId] = useState<string | null>(null);
 
   useEffect(() => {
     const { from, to } = getRangeAroundToday();
@@ -129,64 +116,31 @@ export function IppAuswertungCard() {
   }, [intervals, selectedIntervalId]);
 
   const selectedInterval = findIntervalById(intervals, selectedIntervalId);
-  const customCandidateIntervals = intervals.filter((interval) => interval.id !== selectedIntervalId);
+  const regionOptions = useMemo(() => {
+    const unique = new Set(markets.map((market) => market.region).filter(Boolean));
+    return Array.from(unique).sort((left, right) => left.localeCompare(right, "de"));
+  }, [markets]);
 
-  const compareIntervalId = useMemo(() => {
-    if (!compareEnabled) return null;
-    if (comparePreset === "previous") {
-      return findPreviousIntervalId(intervals, selectedIntervalId);
-    }
-    if (comparePreset === "previous_year") {
-      return findPreviousYearIntervalId(intervals, selectedIntervalId) ?? findPreviousIntervalId(intervals, selectedIntervalId);
-    }
-    if (comparePreset === "q4_vs_q2") {
-      return findQuarterPairIntervalId(intervals, selectedIntervalId) ?? findPreviousIntervalId(intervals, selectedIntervalId);
-    }
-    return customCompareIntervalId;
-  }, [compareEnabled, comparePreset, customCompareIntervalId, intervals, selectedIntervalId]);
-
-  const compareInterval = findIntervalById(intervals, compareIntervalId);
-  const filterScope: IppFilterScope = {
+  const filterScope: PlatzierungenFilterScope = {
     region: filters.region,
     gmId: filters.gmId,
     chain: filters.chain,
     stc: filters.stc,
   };
 
-  const linePoints = useMemo(
+  const series = useMemo(
     () =>
-      buildMockLineSeries({
+      buildPlatzierungenSeries({
         intervals,
         filters: filterScope,
-        compareIntervalId: compareEnabled ? compareIntervalId : null,
       }),
-    [compareEnabled, compareIntervalId, filterScope, intervals],
+    [filterScope, intervals],
   );
 
-  const compareResult = useMemo(
-    () => (compareEnabled ? buildCompareResult(linePoints, selectedIntervalId) : null),
-    [compareEnabled, linePoints, selectedIntervalId],
+  const selectedPoint = useMemo(
+    () => series.find((point) => point.intervalId === selectedIntervalId) ?? series[series.length - 1] ?? null,
+    [selectedIntervalId, series],
   );
-  const selectedLinePoint = useMemo(
-    () => linePoints.find((point) => point.intervalId === selectedIntervalId) ?? linePoints[linePoints.length - 1] ?? null,
-    [linePoints, selectedIntervalId],
-  );
-
-  const pieData = useMemo(
-    () => buildMockPieData({ selectedIntervalId, filters: filterScope }),
-    [filterScope, selectedIntervalId],
-  );
-
-  const regionOptions = useMemo(() => {
-    const unique = new Set(markets.map((market) => market.region).filter(Boolean));
-    return Array.from(unique).sort((left, right) => left.localeCompare(right, "de"));
-  }, [markets]);
-
-  const compareLabel = compareInterval
-    ? compareInterval.shortLabel
-    : compareEnabled
-      ? "Kein passender Vergleich"
-      : "Kein Vergleich";
 
   return (
     <section
@@ -198,7 +152,7 @@ export function IppAuswertungCard() {
         display: "flex",
         flexDirection: "column",
         gap: 10,
-        minHeight: 460,
+        minHeight: 360,
       }}
     >
       <header
@@ -217,23 +171,23 @@ export function IppAuswertungCard() {
       >
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Erste Key Card
+            Dritte Key Card
           </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
-            IPP Auswertung
+          <div style={{ fontSize: 17, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
+            Coke Platzierungen vs Mitbewerber Platzierungen
           </div>
           <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", marginTop: 2 }}>
-            Stabiler Trend zwischen 5.0 und 7.0 · Filter + Intervall + Overlap
+            Kompakter Vergleich pro Intervall
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.38)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            This intervals IPP
+          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            Fokus Intervall
           </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", lineHeight: 1.05 }}>
-            {selectedLinePoint ? selectedLinePoint.value.toFixed(1) : "—"}
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>{selectedInterval?.label ?? "—"}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.46)", marginTop: 1 }}>
+            {selectedPoint ? `Coke ${selectedPoint.coke.toFixed(1)}% · Mitbewerber ${selectedPoint.competitor.toFixed(1)}%` : "—"}
           </div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}>{getIntervalDisplayRange(selectedInterval)}</div>
         </div>
       </header>
 
@@ -247,8 +201,6 @@ export function IppAuswertungCard() {
           display: "flex",
           flexDirection: "column",
           gap: 10,
-          flex: 1,
-          minHeight: 0,
         }}
       >
         {loadError && (
@@ -267,34 +219,55 @@ export function IppAuswertungCard() {
 
         <IppIntervalToolbar
           mode={intervalMode}
-          onModeChange={(mode) => {
-            setIntervalMode(mode);
-            if (mode !== "quarter" && comparePreset === "q4_vs_q2") {
-              setComparePreset("previous");
-            }
-          }}
+          onModeChange={setIntervalMode}
           intervals={intervals}
           selectedIntervalId={selectedIntervalId}
           onSelectInterval={setSelectedIntervalId}
         />
 
-        <IppChartPanel
-          mode={intervalMode}
-          linePoints={linePoints}
-          selectedIntervalId={selectedIntervalId}
-          onSelectInterval={setSelectedIntervalId}
-          compareEnabled={compareEnabled}
-          onCompareEnabledChange={setCompareEnabled}
-          comparePreset={comparePreset}
-          onComparePresetChange={setComparePreset}
-          customCompareIntervalId={customCompareIntervalId}
-          onCustomCompareIntervalIdChange={setCustomCompareIntervalId}
-          availableCustomIntervals={customCandidateIntervals}
-          resolvedCompareLabel={compareLabel}
-          compareResult={compareResult}
-          pieSlices={pieData.slices}
-          pieTotal={pieData.total}
-        />
+        <section
+          style={{
+            borderRadius: 12,
+            border: "1px solid rgba(0,0,0,0.08)",
+            background: "#ffffff",
+            boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: "10px 12px",
+              borderBottom: "1px solid rgba(0,0,0,0.06)",
+              background: "rgba(0,0,0,0.015)",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "rgba(0,0,0,0.35)", textTransform: "uppercase" }}>
+                Chart
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
+                Platzierungen Vergleich
+              </div>
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: "linear-gradient(to bottom,#ef4444,#dc2626,#b91c1c)", display: "inline-block" }} />
+              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.55)" }}>Coke</span>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: "#9CA3AF", display: "inline-block" }} />
+              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.55)" }}>Mitbewerber</span>
+            </div>
+          </div>
+          <div style={{ padding: "10px 10px 8px" }}>
+            <PlatzierungenBarChart
+              points={series}
+              selectedIntervalId={selectedIntervalId}
+              onSelectInterval={setSelectedIntervalId}
+            />
+          </div>
+        </section>
 
         {loading && (
           <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(0,0,0,0.4)", textAlign: "center", paddingBottom: 4 }}>

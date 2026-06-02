@@ -1432,6 +1432,9 @@ function QuestionCard({
   const [textVal, setTextVal] = React.useState<string>(() =>
     typeof answer === "string" ? answer : ""
   );
+  const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [photoSourcePickerOpen, setPhotoSourcePickerOpen] = React.useState(false);
 
   React.useEffect(() => {
     const nextSlider = Number(answer);
@@ -1445,6 +1448,10 @@ function QuestionCard({
   React.useEffect(() => {
     setTextVal(typeof answer === "string" ? answer : "");
   }, [answer, question.id]);
+
+  React.useEffect(() => {
+    setPhotoSourcePickerOpen(false);
+  }, [question.id]);
 
   return (
     <div
@@ -1909,6 +1916,19 @@ function QuestionCard({
 
         const selectedTagIds = photoState.selectedTagIds;
 
+        const handleSelectedPhotoFiles = (files: File[]) => {
+          if (files.length === 0) return;
+          const objectUrls = files.map((file) => URL.createObjectURL(file));
+          handlePhotos([...photos, ...objectUrls]);
+          if (onPhotoSync) {
+            void onPhotoSync({
+              questionId: question.id,
+              files,
+              selectedTagIds,
+            });
+          }
+        };
+
         const handlePhotos = (urls: string[]) => {
           const next: PhotoAnswerState = { ...photoState, photos: urls };
           onAnswer(encodePhotoAnswer(next));
@@ -1935,16 +1955,32 @@ function QuestionCard({
               </p>
             )}
             {/* Upload area */}
-            <label style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              padding: "16px 12px",
-              borderRadius: 10, border: "1.5px dashed rgba(0,0,0,0.13)",
-              background: "rgba(0,0,0,0.02)", cursor: "pointer",
-              fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.4)",
-            }}>
-              <Camera size={16} strokeWidth={1.8} />
-              {photos.length > 0 ? `${photos.length} Foto(s) ausgewählt` : "Foto auswählen"}
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setPhotoSourcePickerOpen((prev) => !prev)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  padding: "16px 12px",
+                  borderRadius: 10,
+                  border: "1.5px dashed rgba(0,0,0,0.13)",
+                  background: "rgba(0,0,0,0.02)",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "rgba(0,0,0,0.4)",
+                  fontFamily: "inherit",
+                }}
+              >
+                <Camera size={16} strokeWidth={1.8} />
+                {photos.length > 0 ? `${photos.length} Foto(s) ausgewählt` : "Foto auswählen"}
+              </button>
               <input
+                ref={cameraInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
@@ -1952,18 +1988,74 @@ function QuestionCard({
                 style={{ display: "none" }}
                 onChange={(e) => {
                   const files = Array.from(e.target.files ?? []);
-                  const objectUrls = files.map((file) => URL.createObjectURL(file));
-                  handlePhotos([...photos, ...objectUrls]);
-                  if (onPhotoSync && files.length > 0) {
-                    void onPhotoSync({
-                      questionId: question.id,
-                      files,
-                      selectedTagIds,
-                    });
-                  }
+                  e.target.value = "";
+                  handleSelectedPhotoFiles(files);
                 }}
               />
-            </label>
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = "";
+                  handleSelectedPhotoFiles(files);
+                }}
+              />
+              {photoSourcePickerOpen && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 7,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoSourcePickerOpen(false);
+                      cameraInputRef.current?.click();
+                    }}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(0,0,0,0.12)",
+                      background: "rgba(255,255,255,0.92)",
+                      color: "#1a1a1a",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Kamera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoSourcePickerOpen(false);
+                      galleryInputRef.current?.click();
+                    }}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(0,0,0,0.12)",
+                      background: "rgba(255,255,255,0.92)",
+                      color: "#1a1a1a",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Galerie
+                  </button>
+                </div>
+              )}
+            </div>
             {previewPhotos.length > 0 && (
               <PhotoLightbox photos={previewPhotos} />
             )}

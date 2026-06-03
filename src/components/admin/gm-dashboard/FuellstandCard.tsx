@@ -17,6 +17,7 @@ import {
 } from "@/components/admin/gm-dashboard/IppFilterBar";
 import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalToolbar";
 import { FuellstandLineChart } from "@/components/admin/gm-dashboard/charts/FuellstandLineChart";
+import { FuellstandDistributionChart } from "@/components/admin/gm-dashboard/charts/FuellstandDistributionChart";
 import { FUELLSTAND_TYPE_CONFIG } from "@/components/admin/gm-dashboard/fuellstand-type-config";
 import {
   buildDoneProgress,
@@ -183,6 +184,44 @@ export function FuellstandCard() {
         filters: filterScope,
       }),
     [filterScope, selectedIntervalId],
+  );
+  const distributionSeries = useMemo(
+    () =>
+      series.map((entry) => {
+        let vollCount: number;
+        let mittelCount: number;
+        let leerCount: number;
+        if (highlightedTypeKey) {
+          const counts = entry.typeCounts[highlightedTypeKey];
+          vollCount = counts.voll;
+          mittelCount = counts.mittel;
+          leerCount = counts.leer;
+        } else {
+          vollCount = 0;
+          mittelCount = 0;
+          leerCount = 0;
+          FUELLSTAND_TYPE_CONFIG.forEach((typeOption) => {
+            const counts = entry.typeCounts[typeOption.key];
+            vollCount += counts.voll;
+            mittelCount += counts.mittel;
+            leerCount += counts.leer;
+          });
+        }
+        const totalCount = Math.max(1, vollCount + mittelCount + leerCount);
+        return {
+          intervalId: entry.intervalId,
+          label: entry.label,
+          shortLabel: entry.shortLabel,
+          vollPct: Math.round((vollCount / totalCount) * 1000) / 10,
+          mittelPct: Math.round((mittelCount / totalCount) * 1000) / 10,
+          leerPct: Math.round((leerCount / totalCount) * 1000) / 10,
+          vollCount,
+          mittelCount,
+          leerCount,
+          totalCount,
+        };
+      }),
+    [highlightedTypeKey, series],
   );
 
   return (
@@ -396,7 +435,14 @@ export function FuellstandCard() {
                 paddingLeft: 10,
                 minWidth: 0,
               }}
-            />
+            >
+              <FuellstandDistributionChart
+                points={distributionSeries}
+                selectedIntervalId={selectedIntervalId}
+                onSelectInterval={setSelectedIntervalId}
+                highlightedTypeKey={highlightedTypeKey}
+              />
+            </div>
           </div>
         </section>
 

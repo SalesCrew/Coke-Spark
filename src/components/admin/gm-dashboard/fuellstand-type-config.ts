@@ -43,9 +43,9 @@ export const FUELLSTAND_TYPE_CONFIG: Array<{
   {
     key: "warehouse",
     label: "Warehouse",
-    stroke: "#475569",
-    pillBackground: "rgba(71,85,105,0.10)",
-    pillBorder: "rgba(71,85,105,0.28)",
-    pillText: "rgba(51,65,85,0.92)",
+    stroke: "#DC2626",
+    pillBackground: "rgba(220,38,38,0.10)",
+    pillBorder: "rgba(220,38,38,0.28)",
+    pillText: "rgba(185,28,28,0.92)",
   },
 ];

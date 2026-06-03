@@ -34,6 +34,37 @@ function deriveChainFromMarketName(name: string): string {
   return token.toUpperCase();
 }
 
+function formatMarketLabel(name: string, address?: string | null, postalCode?: string | null, city?: string | null): string {
+  const displayName = address?.trim() || name.trim();
+  const plzOrt = [postalCode?.trim(), city?.trim()].filter((part): part is string => Boolean(part && part.length > 0)).join(" ");
+  if (displayName && plzOrt) return `${displayName} · ${plzOrt}`;
+  return displayName || plzOrt || "Unbekannter Markt";
+}
+
+function buildMarketSearchText(market: {
+  name?: string | null;
+  dbName?: string | null;
+  address?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  region?: string | null;
+  emEh?: string | null;
+  currentGmName?: string | null;
+}): string {
+  return [
+    market.name,
+    market.dbName,
+    market.address,
+    market.postalCode,
+    market.city,
+    market.region,
+    market.emEh,
+    market.currentGmName,
+  ]
+    .filter((part): part is string => Boolean(part && part.trim().length > 0))
+    .join(" ");
+}
+
 export function PlatzierungenCard() {
   const { calendar, loadCalendar } = useRedMonth();
   const [markets, setMarkets] = useState<IppMarketOption[]>([]);
@@ -46,6 +77,7 @@ export function PlatzierungenCard() {
     region: null,
     gmId: null,
     chain: null,
+    marketId: null,
     stc: null,
   });
 
@@ -66,10 +98,11 @@ export function PlatzierungenCard() {
             .filter((market) => !market.isDeleted)
             .map((market) => ({
               id: market.id,
-              label: market.name,
+              label: formatMarketLabel(market.name, market.address, market.postalCode, market.city),
               region: market.region || "Unbekannt",
               gmName: market.currentGmName || "",
               chain: deriveChainFromMarketName(market.name),
+              searchText: buildMarketSearchText(market),
             }))
             .sort((left, right) => left.label.localeCompare(right.label, "de")),
         );
@@ -125,6 +158,7 @@ export function PlatzierungenCard() {
     region: filters.region,
     gmId: filters.gmId,
     chain: filters.chain,
+    marketId: filters.marketId,
     stc: filters.stc,
   };
 

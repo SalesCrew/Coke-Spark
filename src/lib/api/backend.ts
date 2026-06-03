@@ -1209,10 +1209,47 @@ async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
   return refreshed;
 }
 
+const DIRECTORY_CACHE_TTL_MS = 60_000;
+
+let gmUsersDirectoryCache: { expiresAt: number; data: GMRecord[] } | null = null;
+let gmUsersDirectoryInFlight: Promise<GMRecord[]> | null = null;
+let marketsDirectoryCache: { expiresAt: number; data: MarketRecord[] } | null = null;
+let marketsDirectoryInFlight: Promise<MarketRecord[]> | null = null;
+
+function invalidateGmUsersDirectoryCache(): void {
+  gmUsersDirectoryCache = null;
+  gmUsersDirectoryInFlight = null;
+}
+
+function invalidateMarketsDirectoryCache(): void {
+  marketsDirectoryCache = null;
+  marketsDirectoryInFlight = null;
+}
+
 export async function fetchGmUsers(): Promise<GMRecord[]> {
-  const data = (await authedFetch("/admin/users?role=gm")) as { users?: BackendUser[] };
-  const users = data.users ?? [];
-  return users.map((u) => mapBackendUserToGmRecord(u));
+  const now = Date.now();
+  if (gmUsersDirectoryCache && gmUsersDirectoryCache.expiresAt > now) {
+    return gmUsersDirectoryCache.data;
+  }
+  if (gmUsersDirectoryInFlight) {
+    return gmUsersDirectoryInFlight;
+  }
+
+  gmUsersDirectoryInFlight = (async () => {
+    try {
+      const data = (await authedFetch("/admin/users?role=gm")) as { users?: BackendUser[] };
+      const users = (data.users ?? []).map((u) => mapBackendUserToGmRecord(u));
+      gmUsersDirectoryCache = { data: users, expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS };
+      return users;
+    } catch (error) {
+      if (gmUsersDirectoryCache) return gmUsersDirectoryCache.data;
+      throw error;
+    }
+  })().finally(() => {
+    gmUsersDirectoryInFlight = null;
+  });
+
+  return gmUsersDirectoryInFlight;
 }
 
 export async function fetchAdminUsers(): Promise<AdminUserRecord[]> {
@@ -1269,7 +1306,9 @@ export async function createGmUser(
       ipp: payload.ipp,
     }),
   })) as { user: BackendUser; oneTimePassword?: string };
-  return mapBackendUserToGmRecord(data.user, data.oneTimePassword);
+  const next = mapBackendUserToGmRecord(data.user, data.oneTimePassword);
+  invalidateGmUsersDirectoryCache();
+  return next;
 }
 
 export async function updateGmUser(payload: GMRecord): Promise<GMRecord> {
@@ -1287,7 +1326,9 @@ export async function updateGmUser(payload: GMRecord): Promise<GMRecord> {
       ipp: payload.ipp,
     }),
   })) as { user: BackendUser };
-  return mapBackendUserToGmRecord(data.user);
+  const next = mapBackendUserToGmRecord(data.user);
+  invalidateGmUsersDirectoryCache();
+  return next;
 }
 
 export async function fetchAdminLager(): Promise<LagerRecord[]> {
@@ -1349,8 +1390,29 @@ export type NormalizeMarketRegionsResult = {
 };
 
 export async function fetchMarkets(): Promise<MarketRecord[]> {
-  const data = (await authedFetch("/markets")) as { markets?: BackendMarket[] };
-  return (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market));
+  const now = Date.now();
+  if (marketsDirectoryCache && marketsDirectoryCache.expiresAt > now) {
+    return marketsDirectoryCache.data;
+  }
+  if (marketsDirectoryInFlight) {
+    return marketsDirectoryInFlight;
+  }
+
+  marketsDirectoryInFlight = (async () => {
+    try {
+      const data = (await authedFetch("/markets", {}, 60000)) as { markets?: BackendMarket[] };
+      const markets = (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market));
+      marketsDirectoryCache = { data: markets, expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS };
+      return markets;
+    } catch (error) {
+      if (marketsDirectoryCache) return marketsDirectoryCache.data;
+      throw error;
+    }
+  })().finally(() => {
+    marketsDirectoryInFlight = null;
+  });
+
+  return marketsDirectoryInFlight;
 }
 
 export async function fetchGmAssignedActiveCampaignMarkets(): Promise<MarketRecord[]> {
@@ -1907,10 +1969,12 @@ export async function importMarkets(input: ImportMarketsInput): Promise<{ market
     body: JSON.stringify(input),
   }, 300000)) as { markets?: BackendMarket[]; summary: ImportSummary };
 
-  return {
+  const result = {
     markets: (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market)),
     summary: data.summary,
   };
+  invalidateMarketsDirectoryCache();
+  return result;
 }
 
 export async function patchAdminZeiterfassungSegment(input: {
@@ -1974,7 +2038,9 @@ export async function createMarket(payload: MarketRecord): Promise<MarketRecord>
     }),
   })) as { market: BackendMarket };
 
-  return mapBackendMarketToMarketRecord(data.market);
+  const next = mapBackendMarketToMarketRecord(data.market);
+  invalidateMarketsDirectoryCache();
+  return next;
 }
 
 export async function updateMarket(payload: MarketRecord): Promise<MarketRecord> {
@@ -2006,15 +2072,19 @@ export async function updateMarket(payload: MarketRecord): Promise<MarketRecord>
     }),
   })) as { market: BackendMarket };
 
-  return mapBackendMarketToMarketRecord(data.market);
+  const next = mapBackendMarketToMarketRecord(data.market);
+  invalidateMarketsDirectoryCache();
+  return next;
 }
 
 export async function softDeleteMarket(marketId: string): Promise<void> {
   await authedFetch(`/admin/markets/${marketId}/delete`, { method: "PATCH" });
+  invalidateMarketsDirectoryCache();
 }
 
 export async function hardDeleteMarket(marketId: string): Promise<void> {
   await authedFetch(`/admin/markets/${marketId}/hard-delete`, { method: "DELETE" });
+  invalidateMarketsDirectoryCache();
 }
 
 export async function fetchMarketKuehlerUnits(marketId: string): Promise<KuehlerUnitRecord[]> {

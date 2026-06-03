@@ -4,6 +4,7 @@ export type PlatzierungenFilterScope = {
   region: string | null;
   gmId: string | null;
   chain: string | null;
+  marketId: string | null;
   stc: "gold" | "silver" | "bronze" | null;
 };
 
@@ -46,7 +47,7 @@ function roundOne(value: number): number {
 }
 
 function scopeKey(scope: PlatzierungenFilterScope): string {
-  return `r:${scope.region ?? "_"}|g:${scope.gmId ?? "_"}|c:${scope.chain ?? "_"}|s:${scope.stc ?? "_"}`;
+  return `r:${scope.region ?? "_"}|g:${scope.gmId ?? "_"}|c:${scope.chain ?? "_"}|m:${scope.marketId ?? "_"}|s:${scope.stc ?? "_"}`;
 }
 
 export function buildPlatzierungenSeries(input: BuildSeriesInput): PlatzierungenBarPoint[] {

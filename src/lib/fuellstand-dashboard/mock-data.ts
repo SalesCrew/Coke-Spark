@@ -4,6 +4,7 @@ export type FuellstandFilterScope = {
   region: string | null;
   gmId: string | null;
   chain: string | null;
+  marketId: string | null;
   stc: "gold" | "silver" | "bronze" | null;
 };
 
@@ -81,7 +82,7 @@ function normalizeTripleToHundred(vollRaw: number, mittelRaw: number, leerRaw: n
 }
 
 function scopeKey(scope: FuellstandFilterScope): string {
-  return `r:${scope.region ?? "_"}|g:${scope.gmId ?? "_"}|c:${scope.chain ?? "_"}|s:${scope.stc ?? "_"}`;
+  return `r:${scope.region ?? "_"}|g:${scope.gmId ?? "_"}|c:${scope.chain ?? "_"}|m:${scope.marketId ?? "_"}|s:${scope.stc ?? "_"}`;
 }
 
 export function buildFuellstandSeries(input: BuildSeriesInput): FuellstandLinePoint[] {

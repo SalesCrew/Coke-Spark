@@ -5,6 +5,7 @@ import type { IppCompareResult, IppLinePoint } from "@/lib/ipp-dashboard/mock-da
 
 type IppLineChartProps = {
   points: IppLinePoint[];
+  ytdAverage: number | null;
   selectedIntervalId: string | null;
   onSelectInterval: (intervalId: string) => void;
   compareEnabled: boolean;
@@ -51,8 +52,9 @@ function formatDelta(delta: IppCompareResult | null): { text: string; positive: 
   };
 }
 
-export function IppLineChart({ points, selectedIntervalId, onSelectInterval, compareEnabled, delta }: IppLineChartProps) {
+export function IppLineChart({ points, ytdAverage, selectedIntervalId, onSelectInterval, compareEnabled, delta }: IppLineChartProps) {
   const [hoveredIntervalId, setHoveredIntervalId] = useState<string | null>(null);
+  const [scrollLeft, setScrollLeft] = useState(0);
   const scrollWrapRef = useRef<HTMLDivElement | null>(null);
   const lastAutoCenteredIntervalIdRef = useRef<string | null>(null);
   const idBase = useId().replaceAll(":", "");
@@ -135,7 +137,23 @@ export function IppLineChart({ points, selectedIntervalId, onSelectInterval, com
     ? ((activePoint.raw.value - previousPoint.raw.value) / previousPoint.raw.value) * 100
     : null;
   const activeDeltaText = activeDelta == null ? null : `${activeDelta >= 0 ? "+" : "-"}${Math.abs(activeDelta).toFixed(1)}%`;
-  const deltaLabel = formatDelta(delta);
+  const tooltipCompareValue = compareEnabled && activePoint?.raw.compareValue != null ? activePoint.raw.compareValue : null;
+  const tooltipCompareDelta = tooltipCompareValue != null && tooltipCompareValue !== 0
+    ? ((activePoint!.raw.value - tooltipCompareValue) / tooltipCompareValue) * 100
+    : null;
+  const tooltipDeltaText = tooltipCompareValue != null
+    ? (tooltipCompareDelta == null ? "—" : `${tooltipCompareDelta >= 0 ? "+" : "-"}${Math.abs(tooltipCompareDelta).toFixed(1)}%`)
+    : (activeDeltaText ?? "—");
+  const tooltipDeltaPositive = tooltipCompareValue != null
+    ? ((tooltipCompareDelta ?? 0) >= 0)
+    : (activeDelta != null ? activeDelta >= 0 : true);
+  const tooltipWidth = tooltipCompareValue != null ? 220 : 184;
+  const railOffsetLeft = scrollWrapRef.current?.offsetLeft ?? 0;
+  const tooltipOverlayLeft = railOffsetLeft + tooltipX - tooltipWidth / 2 - scrollLeft;
+  const tooltipOverlayTop = tooltipY - 10;
+  const deltaLabel = compareEnabled
+    ? formatDelta(delta)
+    : { text: ytdAverage == null ? "—" : `YTD Ø ${ytdAverage.toFixed(1)}`, positive: true };
 
   const findNearestIntervalId = (x: number): string | null => {
     if (!plotted.length) return null;
@@ -173,25 +191,37 @@ export function IppLineChart({ points, selectedIntervalId, onSelectInterval, com
     if (maxLeft <= 0) return;
     const targetLeft = clamp(selectedPoint.x - rail.clientWidth * 0.58, 0, maxLeft);
     rail.scrollTo({ left: targetLeft, behavior: "auto" });
+    setScrollLeft(targetLeft);
     lastAutoCenteredIntervalIdRef.current = targetIntervalId;
   }, [plotted, selectedIntervalId]);
 
+  useEffect(() => {
+    const rail = scrollWrapRef.current;
+    if (!rail) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
+      if (maxLeft <= 0) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (delta === 0) return;
+      event.preventDefault();
+      rail.scrollLeft = clamp(rail.scrollLeft + delta, 0, maxLeft);
+    };
+
+    rail.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      rail.removeEventListener("wheel", handleWheel);
+    };
+  }, []);
+
   return (
-    <div
-      ref={scrollWrapRef}
-      onWheel={(event) => {
-        const rail = scrollWrapRef.current;
-        if (!rail) return;
-        const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
-        if (maxLeft <= 0) return;
-        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-        if (delta === 0) return;
-        event.preventDefault();
-        rail.scrollLeft = clamp(rail.scrollLeft + delta, 0, maxLeft);
-      }}
-      className="ipp-line-scroll-wrap"
-      style={{ width: "calc(100% - 18px)", margin: "0 9px", overflowX: "scroll", overflowY: "hidden", scrollbarGutter: "stable", paddingBottom: 1 }}
-    >
+    <div style={{ position: "relative", width: "100%", overflow: "visible" }}>
+      <div
+        ref={scrollWrapRef}
+        onScroll={(event) => setScrollLeft(event.currentTarget.scrollLeft)}
+        className="ipp-line-scroll-wrap"
+        style={{ width: "calc(100% - 18px)", margin: "0 9px", overflowX: "scroll", overflowY: "hidden", overscrollBehavior: "contain", scrollbarGutter: "stable", paddingBottom: 1 }}
+      >
       <style>{`
         .ipp-line-scroll-wrap::-webkit-scrollbar {
           height: 7px;
@@ -314,45 +344,6 @@ export function IppLineChart({ points, selectedIntervalId, onSelectInterval, com
           );
         })}
 
-        {activePoint && (
-          <g transform={`translate(${tooltipX}, ${tooltipY})`}>
-            <rect x={-92} y={-10} width={184} height={50} rx={8} fill="rgba(255,255,255,0.99)" stroke="rgba(15,23,42,0.10)" strokeWidth={0.8} filter={`url(#${tooltipShadowId})`} />
-            <path
-              d="M -84 -9 H 84 Q 91 -9 91 -2 V 9 H -91 V -2 Q -91 -9 -84 -9 Z"
-              fill="rgba(15,23,42,0.045)"
-            />
-            <line x1={-78} y1={9} x2={78} y2={9} stroke="rgba(15,23,42,0.08)" strokeWidth={1} />
-            <text x={-74} y={2} fontFamily="inherit" fontSize={8.5} fontWeight={800} fill="rgba(15,23,42,0.56)" letterSpacing="0.03em">
-              {activePoint.raw.label}
-            </text>
-            <text x={-74} y={30} fontFamily="inherit" fontSize={10} fontWeight={700} fill="rgba(15,23,42,0.42)">
-              IPP-Wert:
-            </text>
-            <text
-              x={42}
-              y={30}
-              textAnchor="end"
-              fontFamily="inherit"
-              fontSize={15}
-              fontWeight={800}
-              fill="#16A34A"
-            >
-              {activePoint.raw.value.toFixed(1)}
-            </text>
-            <text
-              x={76}
-              y={30}
-              textAnchor="end"
-              fontFamily="inherit"
-              fontSize={10}
-              fontWeight={700}
-              fill={activeDelta != null && activeDelta >= 0 ? "#16A34A" : "#DC2626"}
-            >
-              {activeDeltaText ?? "—"}
-            </text>
-          </g>
-        )}
-
         {plotted.map((point, idx) => {
           if (idx % 2 !== 0 && plotted.length > 10) return null;
           return (
@@ -376,6 +367,57 @@ export function IppLineChart({ points, selectedIntervalId, onSelectInterval, com
         {deltaLabel.text}
       </div>
       </div>
+      </div>
+      {activePoint && (
+        <div
+          style={{
+            position: "absolute",
+            left: tooltipOverlayLeft,
+            top: tooltipOverlayTop,
+            width: tooltipWidth,
+            height: 50,
+            borderRadius: 8,
+            background: "rgba(255,255,255,0.99)",
+            border: "1px solid rgba(15,23,42,0.10)",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.07)",
+            overflow: "hidden",
+            pointerEvents: "none",
+            zIndex: 12,
+          }}
+        >
+          <div
+            style={{
+              height: 19,
+              background: "rgba(15,23,42,0.045)",
+              borderBottom: "1px solid rgba(15,23,42,0.08)",
+              display: "flex",
+              alignItems: "center",
+              padding: "0 10px",
+              fontSize: 8.5,
+              fontWeight: 800,
+              color: "rgba(15,23,42,0.56)",
+              letterSpacing: "0.03em",
+            }}
+          >
+            {activePoint.raw.label}
+          </div>
+          <div style={{ height: 31, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "0 10px" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.42)" }}>IPP-Wert:</span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: "#16A34A", lineHeight: 1 }}>{activePoint.raw.value.toFixed(1)}</span>
+              {tooltipCompareValue != null && (
+                <>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.32)" }}>/</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(15,23,42,0.62)", lineHeight: 1 }}>{tooltipCompareValue.toFixed(1)}</span>
+                </>
+              )}
+              <span style={{ fontSize: 10, fontWeight: 700, color: tooltipDeltaPositive ? "#16A34A" : "#DC2626" }}>
+                {tooltipDeltaText}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

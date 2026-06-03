@@ -6,6 +6,7 @@ import { IppPieChart } from "@/components/admin/gm-dashboard/charts/IppPieChart"
 
 type IppChartPanelProps = {
   linePoints: IppLinePoint[];
+  ytdAverage: number | null;
   selectedIntervalId: string | null;
   onSelectInterval: (intervalId: string) => void;
   compareEnabled: boolean;
@@ -21,6 +22,7 @@ type IppChartPanelProps = {
 
 export function IppChartPanel({
   linePoints,
+  ytdAverage,
   selectedIntervalId,
   onSelectInterval,
   compareEnabled,
@@ -144,6 +146,7 @@ export function IppChartPanel({
         <div style={{ minWidth: 0 }}>
           <IppLineChart
             points={linePoints}
+            ytdAverage={ytdAverage}
             selectedIntervalId={selectedIntervalId}
             onSelectInterval={onSelectInterval}
             compareEnabled={compareEnabled}

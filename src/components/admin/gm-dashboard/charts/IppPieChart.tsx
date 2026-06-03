@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { IppPieSlice } from "@/lib/ipp-dashboard/mock-data";
 
 type IppPieChartProps = {
@@ -13,70 +13,64 @@ type IppPieChartProps = {
 type SliceVisual = {
   stroke: string;
   fill: string;
-  boxGradient: string;
-  boxBorder: string;
+  dot: string;
 };
 
-function polarToCartesian(cx: number, cy: number, radius: number, angleDeg: number) {
-  const angleRad = (angleDeg - 90) * (Math.PI / 180);
-  return {
-    x: cx + radius * Math.cos(angleRad),
-    y: cy + radius * Math.sin(angleRad),
-  };
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
-function describeDonutSlice(
-  cx: number,
-  cy: number,
-  outerRadius: number,
-  innerRadius: number,
-  startAngle: number,
-  endAngle: number,
-) {
-  const outerStart = polarToCartesian(cx, cy, outerRadius, startAngle);
-  const outerEnd = polarToCartesian(cx, cy, outerRadius, endAngle);
-  const innerEnd = polarToCartesian(cx, cy, innerRadius, endAngle);
-  const innerStart = polarToCartesian(cx, cy, innerRadius, startAngle);
-  const largeArcFlag = endAngle - startAngle > 180 ? "1" : "0";
-  return [
-    `M ${outerStart.x} ${outerStart.y}`,
-    `A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 1 ${outerEnd.x} ${outerEnd.y}`,
-    `L ${innerEnd.x} ${innerEnd.y}`,
-    `A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 0 ${innerStart.x} ${innerStart.y}`,
-    "Z",
-  ].join(" ");
+function formatPercent(value: number): string {
+  return `${value.toFixed(1).replace(".", ",")}%`;
+}
+
+function bubbleRadius(count: number, maxCount: number): number {
+  if (maxCount <= 0) return 0;
+  return Math.round(66 * Math.sqrt(clamp(count, 0, maxCount) / maxCount));
 }
 
 export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }: IppPieChartProps) {
   const [mode, setMode] = useState<"int" | "cum">("int");
-  const width = 300;
-  const height = 230;
-  const centerX = 150;
-  const centerY = 108;
-  const outerRadius = 74;
-  const innerRadius = 56;
-  const ringGapDeg = 3.2;
   const activeSlices = mode === "int" ? slices : cumulativeSlices;
   const activeTotal = mode === "int" ? total : cumulativeTotal;
-  const visibleSlices = activeSlices.slice(0, 2);
+  const visibleSlices = useMemo(() => activeSlices.slice(0, 2), [activeSlices]);
+  const maxBubbleCount = useMemo(
+    () => Math.max(...visibleSlices.map((slice) => Math.max(0, slice.count)), 1),
+    [visibleSlices],
+  );
   const visuals: SliceVisual[] = [
     {
       stroke: "#DC2626",
-      fill: "rgba(220,38,38,0.18)",
-      boxGradient: "linear-gradient(90deg, rgba(220,38,38,0.12) 0%, rgba(255,255,255,0.98) 74%)",
-      boxBorder: "rgba(220,38,38,0.24)",
+      fill: "rgba(220,38,38,0.05)",
+      dot: "#DC2626",
     },
     {
-      stroke: "#F87171",
-      fill: "rgba(248,113,113,0.19)",
-      boxGradient: "linear-gradient(90deg, rgba(248,113,113,0.11) 0%, rgba(255,255,255,0.98) 74%)",
-      boxBorder: "rgba(248,113,113,0.24)",
+      stroke: "#D98A7E",
+      fill: "rgba(217,138,126,0.06)",
+      dot: "#D98A7E",
     },
   ];
-  let angleCursor = 0;
 
   return (
-    <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 8, alignItems: "stretch", minHeight: 230, width: "100%" }}>
+    <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch", minHeight: 230, width: "100%" }}>
+      <style>{`
+        @keyframes ippBubblePop {
+          from { opacity: 0; transform: scale(0.35); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .ipp-bubble-pop {
+          transform-origin: center bottom;
+          animation-name: ippBubblePop;
+          animation-duration: 550ms;
+          animation-timing-function: cubic-bezier(0.34, 1.3, 0.5, 1);
+          animation-fill-mode: both;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .ipp-bubble-pop {
+            animation: none !important;
+          }
+        }
+      `}</style>
       <div
         style={{
           position: "absolute",
@@ -128,55 +122,60 @@ export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }
         </button>
       </div>
 
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="auto" style={{ display: "block" }}>
-        <defs>
-          <linearGradient id="ipp-pie-text-grad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#DC2626" />
-            <stop offset="100%" stopColor="#F87171" />
-          </linearGradient>
-          <pattern id="ipp-pie-dot-pattern" x="0" y="0" width="16" height="16" patternUnits="userSpaceOnUse">
-            <circle cx="1.8" cy="1.8" r="0.72" fill="rgba(0,0,0,0.22)" />
-          </pattern>
-        </defs>
-        <rect x={0} y={0} width={width} height={height} fill="url(#ipp-pie-dot-pattern)" opacity={0.28} />
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, paddingTop: 4, paddingRight: 74 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span style={{ fontSize: 42, fontWeight: 800, color: "#DC2626", lineHeight: 1 }}>{activeTotal}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+            Gesamt
+          </span>
+        </div>
+      </div>
+
+      <div style={{ minHeight: 162, display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 26, padding: "2px 8px 0" }}>
         {visibleSlices.map((slice, index) => {
-          const angle = (slice.percent / 100) * 360;
-          const rawStart = angleCursor;
-          const rawEnd = angleCursor + angle;
-          angleCursor = rawEnd;
-          const gap = Math.min(ringGapDeg, Math.max(0, angle - 0.8));
-          const startAngle = rawStart + gap / 2;
-          const endAngle = rawEnd - gap / 2;
-          if (endAngle <= startAngle) return null;
-          const visual = visuals[index] ?? visuals[visuals.length - 1]!;
+          const radius = bubbleRadius(slice.count, maxBubbleCount);
+          const diameter = radius * 2;
+          const labelFontPx = Math.max(15, Math.round(radius * 0.42));
           return (
-            <path
-              key={slice.id}
-              d={describeDonutSlice(centerX, centerY, outerRadius, innerRadius, startAngle, endAngle)}
-              fill={visual.fill}
-              stroke={visual.stroke}
-              strokeWidth={1.8}
-              strokeLinejoin="round"
-            />
+          <div
+            key={`${mode}-${slice.id}`}
+            className="ipp-bubble-pop"
+            style={{
+              width: diameter,
+              height: diameter,
+              borderRadius: "50%",
+              border: `2px solid ${(visuals[index] ?? visuals[visuals.length - 1]!).stroke}`,
+              background: (visuals[index] ?? visuals[visuals.length - 1]!).fill,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxSizing: "border-box",
+              animationDelay: `${index * 100}ms`,
+            }}
+          >
+            <span
+              style={{
+                fontSize: labelFontPx,
+                fontWeight: 800,
+                color: (visuals[index] ?? visuals[visuals.length - 1]!).stroke,
+                letterSpacing: "-0.02em",
+                lineHeight: 1,
+              }}
+            >
+              {formatPercent(slice.percent)}
+            </span>
+          </div>
           );
         })}
-        <text x={centerX} y={112} textAnchor="middle" fontFamily="inherit" fontSize={26} fontWeight={800} fill="url(#ipp-pie-text-grad)">
-          {activeTotal}
-        </text>
-        <text x={centerX} y={131} textAnchor="middle" fontFamily="inherit" fontSize={11} fontWeight={700} fill="url(#ipp-pie-text-grad)">
-          Gesamt
-        </text>
-      </svg>
+      </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 0, marginTop: 2, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
         {visibleSlices.map((slice, index) => (
           <div
-            key={slice.id}
+            key={`row-${slice.id}`}
             style={{
-              borderRadius: 9,
-              border: `1px solid ${visuals[index]?.boxBorder ?? "rgba(0,0,0,0.08)"}`,
-              background: visuals[index]?.boxGradient ?? "rgba(255,255,255,0.94)",
-              padding: "9px 11px",
+              borderBottom: index < visibleSlices.length - 1 ? "1px solid rgba(0,0,0,0.06)" : "none",
+              padding: "10px 2px",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -186,19 +185,18 @@ export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span
                 style={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: "50%",
+                  width: 10,
+                  height: 10,
+                  borderRadius: 3,
                   display: "inline-block",
-                  background: visuals[index]?.stroke ?? slice.color,
-                  boxShadow: "none",
+                  background: (visuals[index] ?? visuals[visuals.length - 1]!).dot,
                 }}
               />
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#1f2937" }}>{slice.label}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{slice.label}</span>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{slice.percent.toFixed(1)}%</div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.45)", marginTop: 2 }}>{slice.count} Fälle</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{formatPercent(slice.percent)}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 2 }}>{slice.count} Fälle</div>
             </div>
           </div>
         ))}

@@ -6,6 +6,7 @@ export type IppFilterState = {
   region: string | null;
   gmId: string | null;
   chain: string | null;
+  marketId: string | null;
   stc: "gold" | "silver" | "bronze" | null;
 };
 
@@ -21,6 +22,7 @@ export type IppMarketOption = {
   region: string;
   gmName: string;
   chain: string;
+  searchText?: string;
 };
 
 type IppFilterBarProps = {
@@ -33,23 +35,31 @@ type IppFilterBarProps = {
 
 export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFilterBarProps) {
   const selectedGm = gms.find((gm) => gm.id === filters.gmId) ?? null;
-  const marketOptions = markets.filter((market) => {
+  const baseMarketOptions = markets.filter((market) => {
     if (filters.region && market.region !== filters.region) return false;
     if (selectedGm && market.gmName && selectedGm.label && market.gmName.trim().toLowerCase() !== selectedGm.label.trim().toLowerCase()) {
       return false;
     }
     return true;
   });
+  const marketOptions = baseMarketOptions.filter((market) => !filters.chain || market.chain === filters.chain);
 
-  const hasActiveFilters = Boolean(filters.region || filters.gmId || filters.chain || filters.stc);
+  const hasActiveFilters = Boolean(filters.region || filters.gmId || filters.chain || filters.marketId || filters.stc);
   const regionOptions: IppMiniDropdownOption[] = regions.map((region) => ({ value: region, label: region }));
   const gmOptions: IppMiniDropdownOption[] = gms
     .filter((gm) => !filters.region || gm.region === filters.region)
     .map((gm) => ({ value: gm.id, label: gm.label }));
-  const chainOptionsMapped: IppMiniDropdownOption[] = Array.from(new Set(marketOptions.map((market) => market.chain)))
+  const chainOptionsMapped: IppMiniDropdownOption[] = Array.from(new Set(baseMarketOptions.map((market) => market.chain)))
     .filter((chain) => chain.length > 0)
     .sort((left, right) => left.localeCompare(right, "de"))
     .map((chain) => ({ value: chain, label: chain }));
+  const marketOptionsMapped: IppMiniDropdownOption[] = marketOptions
+    .map((market) => ({
+      value: market.id,
+      label: market.label,
+      searchText: `${market.searchText ?? ""} ${market.region} ${market.gmName} ${market.chain}`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, "de"));
   const stcOptions: IppMiniDropdownOption[] = [
     { value: "gold", label: "Gold" },
     { value: "silver", label: "Silver" },
@@ -83,7 +93,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
             placeholder="Alle Regionen"
             options={regionOptions}
             minWidth={134}
-            onChange={(region) => onChange({ ...filters, region })}
+            onChange={(region) => onChange({ ...filters, region, marketId: null })}
           />
           <IppMiniDropdown
             label="GM"
@@ -91,7 +101,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
             placeholder="Alle GMs"
             options={gmOptions}
             minWidth={182}
-            onChange={(gmId) => onChange({ ...filters, gmId })}
+            onChange={(gmId) => onChange({ ...filters, gmId, marketId: null })}
           />
           <IppMiniDropdown
             label="Chain"
@@ -99,7 +109,17 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
             placeholder="Alle Chains"
             options={chainOptionsMapped}
             minWidth={250}
-            onChange={(chain) => onChange({ ...filters, chain })}
+            onChange={(chain) => onChange({ ...filters, chain, marketId: null })}
+          />
+          <IppMiniDropdown
+            label="Market"
+            value={filters.marketId}
+            placeholder="Alle Märkte"
+            options={marketOptionsMapped}
+            minWidth={310}
+            searchable
+            searchPlaceholder="Markt, Region, GM, Chain suchen..."
+            onChange={(marketId) => onChange({ ...filters, marketId })}
           />
           <IppMiniDropdown
             label="STC"
@@ -119,7 +139,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
         <button
           className="ipp-reset-filters-btn"
           type="button"
-          onClick={() => onChange({ region: null, gmId: null, chain: null, stc: null })}
+          onClick={() => onChange({ region: null, gmId: null, chain: null, marketId: null, stc: null })}
           disabled={!hasActiveFilters}
           style={{
             alignSelf: "center",

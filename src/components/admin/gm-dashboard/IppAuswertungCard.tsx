@@ -8,7 +8,6 @@ import { IppOverlapModal } from "@/components/admin/gm-dashboard/IppOverlapModal
 import {
   buildIntervals,
   findIntervalById,
-  getIntervalDisplayRange,
   type IntervalMode,
 } from "@/lib/ipp-dashboard/intervals";
 import {
@@ -41,6 +40,37 @@ function deriveChainFromMarketName(name: string): string {
   return token.toUpperCase();
 }
 
+function formatMarketLabel(name: string, address?: string | null, postalCode?: string | null, city?: string | null): string {
+  const displayName = address?.trim() || name.trim();
+  const plzOrt = [postalCode?.trim(), city?.trim()].filter((part): part is string => Boolean(part && part.length > 0)).join(" ");
+  if (displayName && plzOrt) return `${displayName} · ${plzOrt}`;
+  return displayName || plzOrt || "Unbekannter Markt";
+}
+
+function buildMarketSearchText(market: {
+  name?: string | null;
+  dbName?: string | null;
+  address?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  region?: string | null;
+  emEh?: string | null;
+  currentGmName?: string | null;
+}): string {
+  return [
+    market.name,
+    market.dbName,
+    market.address,
+    market.postalCode,
+    market.city,
+    market.region,
+    market.emEh,
+    market.currentGmName,
+  ]
+    .filter((part): part is string => Boolean(part && part.trim().length > 0))
+    .join(" ");
+}
+
 export function IppAuswertungCard() {
   const { calendar, loadCalendar } = useRedMonth();
   const [markets, setMarkets] = useState<IppMarketOption[]>([]);
@@ -55,6 +85,7 @@ export function IppAuswertungCard() {
     region: null,
     gmId: null,
     chain: null,
+    marketId: null,
     stc: null,
   });
 
@@ -82,10 +113,11 @@ export function IppAuswertungCard() {
             .filter((market) => !market.isDeleted)
             .map((market) => ({
               id: market.id,
-              label: market.name,
+              label: formatMarketLabel(market.name, market.address, market.postalCode, market.city),
               region: market.region || "Unbekannt",
               gmName: market.currentGmName || "",
               chain: deriveChainFromMarketName(market.name),
+              searchText: buildMarketSearchText(market),
             }))
             .sort((left, right) => left.label.localeCompare(right.label, "de")),
         );
@@ -149,7 +181,6 @@ export function IppAuswertungCard() {
     }
   }, [comparePreset, customCompareIntervalId, intervals]);
 
-  const selectedInterval = findIntervalById(intervals, selectedIntervalId);
   const activeBaseIntervalId = baseIntervalId ?? selectedIntervalId;
   const customCandidateIntervals = intervals.filter((interval) => interval.id !== activeBaseIntervalId);
 
@@ -168,6 +199,7 @@ export function IppAuswertungCard() {
     region: filters.region,
     gmId: filters.gmId,
     chain: filters.chain,
+    marketId: filters.marketId,
     stc: filters.stc,
   };
 
@@ -185,9 +217,9 @@ export function IppAuswertungCard() {
     () => (compareEnabled ? buildCompareResult(linePoints, activeBaseIntervalId) : null),
     [activeBaseIntervalId, compareEnabled, linePoints],
   );
-  const selectedLinePoint = useMemo(
-    () => linePoints.find((point) => point.intervalId === selectedIntervalId) ?? linePoints[linePoints.length - 1] ?? null,
-    [linePoints, selectedIntervalId],
+  const ytdAverage = useMemo(
+    () => (linePoints.length > 0 ? linePoints.reduce((sum, point) => sum + point.value, 0) / linePoints.length : null),
+    [linePoints],
   );
 
   const pieData = useMemo(
@@ -251,12 +283,12 @@ export function IppAuswertungCard() {
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.38)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            This intervals IPP
+            YTD average IPP
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", lineHeight: 1.05 }}>
-            {selectedLinePoint ? selectedLinePoint.value.toFixed(1) : "—"}
+            {ytdAverage != null ? ytdAverage.toFixed(1) : "—"}
           </div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}>{getIntervalDisplayRange(selectedInterval)}</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}>Alle Intervalle</div>
         </div>
       </header>
 
@@ -306,6 +338,7 @@ export function IppAuswertungCard() {
 
         <IppChartPanel
           linePoints={linePoints}
+          ytdAverage={ytdAverage}
           selectedIntervalId={selectedIntervalId}
           onSelectInterval={setSelectedIntervalId}
           compareEnabled={compareEnabled}

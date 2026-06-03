@@ -17,10 +17,12 @@ import {
 } from "@/components/admin/gm-dashboard/IppFilterBar";
 import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalToolbar";
 import { FuellstandLineChart } from "@/components/admin/gm-dashboard/charts/FuellstandLineChart";
+import { FUELLSTAND_TYPE_CONFIG } from "@/components/admin/gm-dashboard/fuellstand-type-config";
 import {
   buildDoneProgress,
   buildFuellstandSeries,
   type FuellstandFilterScope,
+  type FuellstandTypeKey,
 } from "@/lib/fuellstand-dashboard/mock-data";
 
 function getRangeAroundToday(): { from: string; to: string } {
@@ -75,6 +77,7 @@ export function FuellstandCard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [intervalMode, setIntervalMode] = useState<IntervalMode>("redmonth");
   const [selectedIntervalId, setSelectedIntervalId] = useState<string | null>(null);
+  const [highlightedTypeKey, setHighlightedTypeKey] = useState<FuellstandTypeKey | null>(null);
   const [filters, setFilters] = useState<IppFilterState>({
     region: null,
     gmId: null,
@@ -295,42 +298,104 @@ export function FuellstandCard() {
             border: "1px solid rgba(0,0,0,0.08)",
             background: "#ffffff",
             boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
-            overflow: "hidden",
+            overflow: "visible",
           }}
         >
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              padding: "10px 12px",
+              display: "grid",
+              gridTemplateColumns: "minmax(0,1fr) minmax(360px,440px)",
+              alignItems: "stretch",
+              gap: 0,
+              padding: "10px 10px",
               borderBottom: "1px solid rgba(0,0,0,0.06)",
               background: "rgba(0,0,0,0.015)",
             }}
           >
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "rgba(0,0,0,0.35)", textTransform: "uppercase" }}>
-                Chart
+            <div style={{ minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, paddingRight: 10 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "rgba(0,0,0,0.35)", textTransform: "uppercase" }}>
+                  Chart
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
+                  Füllstand Trends
+                </div>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
-                Füllstand Trends
+              <div style={{ display: "inline-flex", flexWrap: "wrap", gap: 6 }}>
+                {FUELLSTAND_TYPE_CONFIG.map((typeOption) => (
+                  <button
+                    key={typeOption.key}
+                    type="button"
+                    onClick={() => {
+                      setHighlightedTypeKey((current) => (current === typeOption.key ? null : typeOption.key));
+                    }}
+                    aria-pressed={highlightedTypeKey === typeOption.key}
+                    style={{
+                      height: 20,
+                      padding: "0 8px",
+                      borderRadius: 999,
+                      border: `1px solid ${typeOption.pillBorder}`,
+                      background: typeOption.pillBackground,
+                      opacity: highlightedTypeKey === typeOption.key ? 1 : 0.48,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: typeOption.pillText,
+                      letterSpacing: "0.01em",
+                      cursor: "pointer",
+                      appearance: "none",
+                      outline: "none",
+                    }}
+                  >
+                    {typeOption.label}
+                  </button>
+                ))}
               </div>
             </div>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#0B0B0B", display: "inline-block" }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.55)" }}>Voll</span>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4B5563", display: "inline-block" }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.55)" }}>Mittel</span>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#9CA3AF", display: "inline-block" }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.55)" }}>Leer</span>
+            <div
+              style={{
+                minWidth: 0,
+                borderLeft: "1px solid rgba(0,0,0,0.07)",
+                paddingLeft: 10,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: "rgba(0,0,0,0.58)", letterSpacing: "0.03em", textTransform: "uppercase" }}>
+                  Score
+                </span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.52)" }}>
+                  Voll 100 · Mittel 50 · Leer 0
+                </span>
+              </div>
             </div>
           </div>
-          <div style={{ padding: "10px 10px 8px" }}>
-            <FuellstandLineChart
-              points={series}
-              selectedIntervalId={selectedIntervalId}
-              onSelectInterval={setSelectedIntervalId}
+          <div
+            style={{
+              padding: "10px 10px 8px",
+              display: "grid",
+              gridTemplateColumns: "minmax(0,1fr) minmax(360px,440px)",
+              gap: 0,
+              alignItems: "stretch",
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <FuellstandLineChart
+                points={series}
+                selectedIntervalId={selectedIntervalId}
+                onSelectInterval={setSelectedIntervalId}
+                highlightedTypeKey={highlightedTypeKey}
+              />
+            </div>
+            <div
+              style={{
+                borderLeft: "1px solid rgba(0,0,0,0.07)",
+                paddingLeft: 10,
+                minWidth: 0,
+              }}
             />
           </div>
         </section>

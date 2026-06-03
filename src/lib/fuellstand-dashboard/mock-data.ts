@@ -8,13 +8,21 @@ export type FuellstandFilterScope = {
   stc: "gold" | "silver" | "bronze" | null;
 };
 
+export type FuellstandTypeKey = "cooler" | "singleServe" | "multiServe" | "promos" | "warehouse";
+
+export type FuellstandTypeCounts = {
+  voll: number;
+  mittel: number;
+  leer: number;
+  total: number;
+};
+
 export type FuellstandLinePoint = {
   intervalId: string;
   label: string;
   shortLabel: string;
-  voll: number;
-  mittel: number;
-  leer: number;
+  typeScores: Record<FuellstandTypeKey, number>;
+  typeCounts: Record<FuellstandTypeKey, FuellstandTypeCounts>;
 };
 
 export type FuellstandDoneProgress = {
@@ -59,26 +67,64 @@ function roundOne(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-function normalizeTripleToHundred(vollRaw: number, mittelRaw: number, leerRaw: number): { voll: number; mittel: number; leer: number } {
-  const sum = vollRaw + mittelRaw + leerRaw;
-  if (sum <= 0) return { voll: 33.4, mittel: 33.3, leer: 33.3 };
-  let voll = roundOne((vollRaw / sum) * 100);
-  let mittel = roundOne((mittelRaw / sum) * 100);
-  let leer = roundOne((leerRaw / sum) * 100);
-  const drift = roundOne(100 - (voll + mittel + leer));
-  leer = roundOne(leer + drift);
+const TYPE_VARIANTS: Array<{
+  key: FuellstandTypeKey;
+  baseFull: number;
+  baseMid: number;
+  phase: number;
+  totalBase: number;
+  slope: number;
+}> = [
+  { key: "cooler", baseFull: 0.56, baseMid: 0.26, phase: 0.1, totalBase: 34, slope: 0.12 },
+  { key: "singleServe", baseFull: 0.48, baseMid: 0.31, phase: 0.9, totalBase: 31, slope: -0.07 },
+  { key: "multiServe", baseFull: 0.41, baseMid: 0.33, phase: 1.7, totalBase: 29, slope: 0.04 },
+  { key: "promos", baseFull: 0.34, baseMid: 0.36, phase: 2.5, totalBase: 26, slope: -0.11 },
+  { key: "warehouse", baseFull: 0.52, baseMid: 0.27, phase: 3.2, totalBase: 33, slope: 0.09 },
+];
+
+function computeCountsAndScore(
+  type: (typeof TYPE_VARIANTS)[number],
+  seedBase: number,
+  intervalId: string,
+  index: number,
+  totalIntervals: number,
+): { counts: FuellstandTypeCounts; score: number } {
+  const rng = createSeededRandom(hashString(`${seedBase}|${intervalId}|${type.key}`));
+  const progress = totalIntervals <= 1 ? 0 : index / (totalIntervals - 1);
+  const macroWave = Math.sin(index / 1.6 + type.phase) * 0.17 + Math.cos(index / 3.2 + type.phase * 0.7) * 0.11;
+  const microWave = Math.cos(index / 0.95 + type.phase * 1.4) * 0.05;
+  const slopeShift = (progress - 0.5) * type.slope;
+  const spike = (rng() > 0.78 ? (rng() - 0.5) * 0.32 : 0) + (rng() - 0.5) * 0.11;
+  const fullShare = clamp(type.baseFull + macroWave + microWave + slopeShift + spike, 0.04, 0.93);
+  const midShareRaw = clamp(
+    type.baseMid - macroWave * 0.48 + Math.sin(index / 2.1 + type.phase * 0.9) * 0.09 + (rng() - 0.5) * 0.14,
+    0.03,
+    0.9,
+  );
+  const midShare = Math.min(midShareRaw, 0.96 - fullShare);
+  const emptyShare = clamp(1 - fullShare - midShare, 0.01, 0.9);
+
+  const total = Math.max(8, Math.round(type.totalBase + rng() * 22 + Math.sin(index * 0.62 + type.phase) * 8));
+  let voll = Math.round(total * fullShare);
+  let mittel = Math.round(total * midShare);
+  let leer = Math.round(total * emptyShare);
+
+  const drift = total - (voll + mittel + leer);
+  leer += drift;
   if (leer < 0) {
     const missing = Math.abs(leer);
     leer = 0;
-    const half = roundOne(missing / 2);
-    voll = roundOne(clamp(voll - half, 0, 100));
-    mittel = roundOne(clamp(mittel - (missing - half), 0, 100));
+    const shiftFromMittel = Math.min(mittel, Math.ceil(missing / 2));
+    mittel -= shiftFromMittel;
+    voll = Math.max(0, voll - (missing - shiftFromMittel));
   }
-  const fix = roundOne(100 - (voll + mittel + leer));
-  if (fix !== 0) {
-    leer = roundOne(clamp(leer + fix, 0, 100));
-  }
-  return { voll, mittel, leer };
+
+  const fixedTotal = Math.max(1, voll + mittel + leer);
+  const score = roundOne(((voll * 100) + (mittel * 50)) / fixedTotal);
+  return {
+    counts: { voll, mittel, leer, total: fixedTotal },
+    score,
+  };
 }
 
 function scopeKey(scope: FuellstandFilterScope): string {
@@ -88,30 +134,23 @@ function scopeKey(scope: FuellstandFilterScope): string {
 export function buildFuellstandSeries(input: BuildSeriesInput): FuellstandLinePoint[] {
   const sorted = [...input.intervals].sort((left, right) => left.startMs - right.startMs);
   if (sorted.length === 0) return [];
-  const seedBase = hashString(`${scopeKey(input.filters)}|${sorted.map((interval) => interval.id).join("|")}`);
-  const trendRng = createSeededRandom(seedBase);
-  const volatility = 0.08 + trendRng() * 0.1;
+  const seedBase = hashString(`${scopeKey(input.filters)}|availability-score|${sorted.map((interval) => interval.id).join("|")}`);
 
   return sorted.map((interval, index) => {
-    const localRng = createSeededRandom(hashString(`${seedBase}|${interval.id}`));
-    const wave = Math.sin(index / 2.4) * 0.18;
-    const tilt = (index / Math.max(sorted.length - 1, 1)) * 0.12;
-    const noiseA = (localRng() - 0.5) * volatility;
-    const noiseB = (localRng() - 0.5) * volatility;
-    const noiseC = (localRng() - 0.5) * volatility;
-
-    const vollRaw = 0.42 + wave + tilt + noiseA;
-    const mittelRaw = 0.34 - wave * 0.45 + noiseB;
-    const leerRaw = 0.24 - tilt * 0.65 + noiseC;
-    const normalized = normalizeTripleToHundred(vollRaw, mittelRaw, leerRaw);
+    const typeScores = {} as Record<FuellstandTypeKey, number>;
+    const typeCounts = {} as Record<FuellstandTypeKey, FuellstandTypeCounts>;
+    TYPE_VARIANTS.forEach((type) => {
+      const result = computeCountsAndScore(type, seedBase, interval.id, index, sorted.length);
+      typeScores[type.key] = result.score;
+      typeCounts[type.key] = result.counts;
+    });
 
     return {
       intervalId: interval.id,
       label: interval.label,
       shortLabel: interval.shortLabel,
-      voll: normalized.voll,
-      mittel: normalized.mittel,
-      leer: normalized.leer,
+      typeScores,
+      typeCounts,
     };
   });
 }

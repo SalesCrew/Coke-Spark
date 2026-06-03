@@ -31,9 +31,10 @@ type IppFilterBarProps = {
   gms: IppGmOption[];
   markets: IppMarketOption[];
   onChange: (next: IppFilterState) => void;
+  compact?: boolean;
 };
 
-export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFilterBarProps) {
+export function IppFilterBar({ filters, regions, gms, markets, onChange, compact = false }: IppFilterBarProps) {
   const selectedGm = gms.find((gm) => gm.id === filters.gmId) ?? null;
   const baseMarketOptions = markets.filter((market) => {
     if (filters.region && market.region !== filters.region) return false;
@@ -72,10 +73,10 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
         borderRadius: 10,
         border: "1px solid rgba(0,0,0,0.07)",
         background: "rgba(0,0,0,0.02)",
-        padding: "6px 8px",
+        padding: compact ? "6px 10px" : "6px 8px",
         display: "flex",
         flexDirection: "column",
-        gap: 6,
+        gap: compact ? 5 : 6,
       }}
     >
       <style>{`
@@ -85,14 +86,24 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
           transform: translateY(-1px);
         }
       `}</style>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: compact ? "space-between" : "space-between",
+          gap: compact ? 6 : 8,
+          flexWrap: compact ? "nowrap" : "wrap",
+          overflow: "visible",
+          minWidth: 0,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: compact ? 4 : 6, flexWrap: compact ? "nowrap" : "wrap", minWidth: 0, flex: compact ? "1 1 auto" : "0 1 auto" }}>
           <IppMiniDropdown
             label="Region"
             value={filters.region}
             placeholder="Alle Regionen"
             options={regionOptions}
-            minWidth={134}
+            minWidth={compact ? 106 : 134}
             onChange={(region) => onChange({ ...filters, region, marketId: null })}
           />
           <IppMiniDropdown
@@ -100,7 +111,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
             value={filters.gmId}
             placeholder="Alle GMs"
             options={gmOptions}
-            minWidth={182}
+            minWidth={compact ? 132 : 182}
             onChange={(gmId) => onChange({ ...filters, gmId, marketId: null })}
           />
           <IppMiniDropdown
@@ -108,7 +119,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
             value={filters.chain}
             placeholder="Alle Chains"
             options={chainOptionsMapped}
-            minWidth={250}
+            minWidth={compact ? 152 : 250}
             onChange={(chain) => onChange({ ...filters, chain, marketId: null })}
           />
           <IppMiniDropdown
@@ -116,7 +127,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
             value={filters.marketId}
             placeholder="Alle Märkte"
             options={marketOptionsMapped}
-            minWidth={310}
+            minWidth={compact ? 186 : 310}
             searchable
             searchPlaceholder="Markt, Region, GM, Chain suchen..."
             onChange={(marketId) => onChange({ ...filters, marketId })}
@@ -126,7 +137,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
             value={filters.stc}
             placeholder="Alle STCs"
             options={stcOptions}
-            minWidth={142}
+            minWidth={compact ? 102 : 142}
             onChange={(stc) =>
               onChange({
                 ...filters,
@@ -143,13 +154,16 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange }: IppFi
           disabled={!hasActiveFilters}
           style={{
             alignSelf: "center",
+            marginLeft: compact ? 8 : 0,
             borderRadius: 7,
             border: "none",
             background: hasActiveFilters ? "linear-gradient(to bottom,#DC2626,#b91c1c)" : "rgba(220,38,38,0.28)",
             color: "#fff",
-            fontSize: 10,
+            fontSize: compact ? 9 : 10,
             fontWeight: 800,
-            padding: "7px 10px",
+            padding: compact ? "6px 9px" : "7px 10px",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
             cursor: hasActiveFilters ? "pointer" : "not-allowed",
             opacity: hasActiveFilters ? 1 : 0.55,
             boxShadow: hasActiveFilters

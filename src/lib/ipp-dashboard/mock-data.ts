@@ -84,6 +84,14 @@ export function buildMockLineSeries(input: BuildLineSeriesInput): IppLinePoint[]
   const slope = 0.95 / Math.max(sorted.length - 1, 1) + seedRng() * 0.12;
   const filterBias = (seedRng() - 0.5) * 0.18;
   const compareBias = input.compareIntervalId ? ((hashString(input.compareIntervalId) % 100) / 1000) : 0;
+  const forcedMinusIndices = new Set<number>();
+  if (input.compareIntervalId && sorted.length >= 8) {
+    const span = Math.max(sorted.length - 4, 1);
+    const first = 2 + (hashString(`${seedBase}|forced-minus-a`) % span);
+    const second = 2 + (hashString(`${seedBase}|forced-minus-b`) % span);
+    forcedMinusIndices.add(first);
+    if (second !== first) forcedMinusIndices.add(second);
+  }
 
   return sorted.map((interval, index) => {
     const noiseRng = createSeededRandom(hashString(`${seedBase}|${interval.id}`));
@@ -93,7 +101,14 @@ export function buildMockLineSeries(input: BuildLineSeriesInput): IppLinePoint[]
     let compareValue: number | null = null;
     if (input.compareIntervalId) {
       const compareNoise = (noiseRng() - 0.5) * 0.12;
-      compareValue = toOneDecimal(clamp(value - 0.18 - compareBias + compareNoise, 5.0, 7.0));
+      const baseCompare = value - 0.18 - compareBias + compareNoise;
+      if (forcedMinusIndices.has(index)) {
+        // Inject a few deterministic "minus" intervals for overlap testing.
+        const underperformLift = 0.12 + noiseRng() * 0.12;
+        compareValue = toOneDecimal(clamp(value + underperformLift, 5.0, 7.0));
+      } else {
+        compareValue = toOneDecimal(clamp(baseCompare, 5.0, 7.0));
+      }
     }
     return {
       intervalId: interval.id,

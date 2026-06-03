@@ -249,6 +249,7 @@ export function PlatzierungenCard() {
           gms={gms}
           markets={markets}
           onChange={setFilters}
+          compact
         />
 
         <IppIntervalToolbar

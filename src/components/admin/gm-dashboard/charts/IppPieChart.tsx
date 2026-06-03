@@ -53,6 +53,18 @@ export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }
 
   return (
     <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch", minHeight: 230, width: "100%" }}>
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          opacity: 0.16,
+          backgroundImage: "radial-gradient(rgba(0,0,0,0.22) 0.72px, transparent 0.72px)",
+          backgroundSize: "16px 16px",
+          backgroundPosition: "0 0",
+        }}
+      />
       <style>{`
         @keyframes ippBubblePop {
           from { opacity: 0; transform: scale(0.35); }
@@ -124,7 +136,20 @@ export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, paddingTop: 4, paddingRight: 74 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ fontSize: 42, fontWeight: 800, color: "#DC2626", lineHeight: 1 }}>{activeTotal}</span>
+          <span
+            style={{
+              fontSize: 42,
+              fontWeight: 800,
+              lineHeight: 1,
+              background: "linear-gradient(135deg, #B91C1C 0%, #DC2626 62%, #EF4444 100%)",
+              WebkitBackgroundClip: "text",
+              backgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              color: "transparent",
+            }}
+          >
+            {activeTotal}
+          </span>
           <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.18em", textTransform: "uppercase" }}>
             Gesamt
           </span>

@@ -56,6 +56,8 @@ export function IppLineChart({ points, ytdAverage, selectedIntervalId, onSelectI
   const [hoveredIntervalId, setHoveredIntervalId] = useState<string | null>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
   const scrollWrapRef = useRef<HTMLDivElement | null>(null);
+  const hoverSurfaceRef = useRef<SVGRectElement | null>(null);
+  const lastPointerClientXRef = useRef<number | null>(null);
   const lastAutoCenteredIntervalIdRef = useRef<string | null>(null);
   const idBase = useId().replaceAll(":", "");
   const tooltipShadowId = `${idBase}-tooltipShadow`;
@@ -116,18 +118,85 @@ export function IppLineChart({ points, ytdAverage, selectedIntervalId, onSelectI
     : "";
   const overlapGapSegments = useMemo(() => {
     if (!compareEnabled || plotted.length < 2) return [] as Array<{ d: string; fill: string }>;
-    const segments: Array<{ d: string; fill: string }> = [];
+    type GapPoint = { x: number; baseY: number; compareY: number };
+    type GapRegion = { baseAbove: boolean; points: GapPoint[] };
+    const regions: GapRegion[] = [];
+    let currentRegion: GapRegion | null = null;
+    const stripMoveTo = (path: string): string => {
+      const trimmed = path.trim();
+      if (!trimmed.startsWith("M")) return trimmed;
+      return trimmed.replace(/^M\s*[-\d.]+\s+[-\d.]+\s*/, "");
+    };
+    const regionToPath = (region: GapRegion): string | null => {
+      if (region.points.length < 2) return null;
+      const basePoints = region.points.map((point) => ({ x: point.x, y: point.baseY }));
+      const comparePoints = region.points.map((point) => ({ x: point.x, y: point.compareY }));
+      const basePath = buildSmoothPath(basePoints);
+      const compareReversed = [...comparePoints].reverse();
+      const comparePathReversed = buildSmoothPath(compareReversed);
+      const compareTail = comparePoints[comparePoints.length - 1]!;
+      const compareContinuation = stripMoveTo(comparePathReversed);
+      return `${basePath} L ${compareTail.x} ${compareTail.y}${compareContinuation ? ` ${compareContinuation}` : ""} Z`;
+    };
+    const pushPoint = (point: GapPoint, baseAbove: boolean) => {
+      if (!currentRegion) {
+        currentRegion = { baseAbove, points: [point] };
+        return;
+      }
+      if (currentRegion.baseAbove !== baseAbove) {
+        if (currentRegion.points.length >= 2) regions.push(currentRegion);
+        currentRegion = { baseAbove, points: [point] };
+        return;
+      }
+      const last = currentRegion.points[currentRegion.points.length - 1]!;
+      if (Math.abs(last.x - point.x) < 1e-6 && Math.abs(last.baseY - point.baseY) < 1e-6 && Math.abs(last.compareY - point.compareY) < 1e-6) {
+        return;
+      }
+      currentRegion.points.push(point);
+    };
+
     for (let idx = 0; idx < plotted.length - 1; idx += 1) {
       const left = plotted[idx]!;
       const right = plotted[idx + 1]!;
       if (left.compareY == null || right.compareY == null) continue;
-      const baseAbove = ((left.y + right.y) / 2) < ((left.compareY + right.compareY) / 2);
-      segments.push({
-        d: `M ${left.x} ${left.y} L ${right.x} ${right.y} L ${right.x} ${right.compareY} L ${left.x} ${left.compareY} Z`,
-        fill: baseAbove ? "rgba(22,163,74,0.14)" : "rgba(220,38,38,0.12)",
-      });
+      const start: GapPoint = { x: left.x, baseY: left.y, compareY: left.compareY };
+      const end: GapPoint = { x: right.x, baseY: right.y, compareY: right.compareY };
+      const d0 = start.baseY - start.compareY;
+      const d1 = end.baseY - end.compareY;
+      const startAbove = d0 <= 0;
+      const endAbove = d1 <= 0;
+
+      if (idx === 0) pushPoint(start, startAbove);
+
+      const crosses = d0 * d1 < 0;
+      if (crosses) {
+        const denom = d0 - d1;
+        const t = Math.abs(denom) < 1e-9 ? 0.5 : clamp(d0 / denom, 0, 1);
+        const cross: GapPoint = {
+          x: start.x + (end.x - start.x) * t,
+          baseY: start.baseY + (end.baseY - start.baseY) * t,
+          compareY: start.compareY + (end.compareY - start.compareY) * t,
+        };
+        pushPoint(cross, startAbove);
+        if (currentRegion && currentRegion.points.length >= 2) regions.push(currentRegion);
+        currentRegion = { baseAbove: endAbove, points: [cross] };
+      }
+
+      pushPoint(end, endAbove);
     }
-    return segments;
+
+    if (currentRegion && currentRegion.points.length >= 2) regions.push(currentRegion);
+
+    return regions
+      .map((region) => {
+        const d = regionToPath(region);
+        if (!d) return null;
+        return {
+          d,
+          fill: region.baseAbove ? "rgba(22,163,74,0.14)" : "rgba(220,38,38,0.12)",
+        };
+      })
+      .filter((segment): segment is { d: string; fill: string } => Boolean(segment));
   }, [compareEnabled, plotted]);
 
   const tooltipX = activePoint ? activePoint.x : 0;
@@ -199,6 +268,13 @@ export function IppLineChart({ points, ytdAverage, selectedIntervalId, onSelectI
     const rail = scrollWrapRef.current;
     if (!rail) return;
 
+    const syncHoverToPointer = () => {
+      if (lastPointerClientXRef.current == null) return;
+      const hoverSurface = hoverSurfaceRef.current;
+      if (!hoverSurface) return;
+      updateHoveredFromClientX(lastPointerClientXRef.current, hoverSurface.getBoundingClientRect());
+    };
+
     const handleWheel = (event: WheelEvent) => {
       const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
       if (maxLeft <= 0) return;
@@ -206,19 +282,26 @@ export function IppLineChart({ points, ytdAverage, selectedIntervalId, onSelectI
       if (delta === 0) return;
       event.preventDefault();
       rail.scrollLeft = clamp(rail.scrollLeft + delta, 0, maxLeft);
+      requestAnimationFrame(syncHoverToPointer);
     };
 
     rail.addEventListener("wheel", handleWheel, { passive: false });
     return () => {
       rail.removeEventListener("wheel", handleWheel);
     };
-  }, []);
+  }, [chartWidth, hoveredIntervalId, paddingLeft, plotted]);
 
   return (
     <div style={{ position: "relative", width: "100%", overflow: "visible" }}>
       <div
         ref={scrollWrapRef}
-        onScroll={(event) => setScrollLeft(event.currentTarget.scrollLeft)}
+        onScroll={(event) => {
+          setScrollLeft(event.currentTarget.scrollLeft);
+          if (lastPointerClientXRef.current == null) return;
+          const hoverSurface = hoverSurfaceRef.current;
+          if (!hoverSurface) return;
+          updateHoveredFromClientX(lastPointerClientXRef.current, hoverSurface.getBoundingClientRect());
+        }}
         className="ipp-line-scroll-wrap"
         style={{ width: "calc(100% - 18px)", margin: "0 9px", overflowX: "scroll", overflowY: "hidden", overscrollBehavior: "contain", scrollbarGutter: "stable", paddingBottom: 1 }}
       >
@@ -304,13 +387,20 @@ export function IppLineChart({ points, ytdAverage, selectedIntervalId, onSelectI
         )}
 
         <rect
+          ref={hoverSurfaceRef}
           x={paddingLeft}
           y={paddingTop}
           width={chartWidth}
           height={chartHeight}
           fill="transparent"
-          onMouseMove={(event) => updateHoveredFromClientX(event.clientX, event.currentTarget.getBoundingClientRect())}
-          onMouseLeave={() => setHoveredIntervalId(null)}
+          onMouseMove={(event) => {
+            lastPointerClientXRef.current = event.clientX;
+            updateHoveredFromClientX(event.clientX, event.currentTarget.getBoundingClientRect());
+          }}
+          onMouseLeave={() => {
+            lastPointerClientXRef.current = null;
+            setHoveredIntervalId(null);
+          }}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             if (rect.width <= 0) return;

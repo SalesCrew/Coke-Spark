@@ -9,14 +9,24 @@ import {
   clearGmVisitPreloadCache,
   commitGmVisitPhotos,
   createGmVisitSession,
+  fetchActiveGmVisitSession,
   fetchGmVisitSession,
+  fetchGmVisitStartPayload,
   presignGmVisitPhoto,
+  clearGmVisitStartPreloadCache,
   readGmVisitPreloadCache,
+  readGmVisitStartPreloadCache,
   saveGmVisitAnswer,
   submitGmVisitSession,
   type GmVisitSessionReadPayload,
+  type GmVisitStartPayload,
   type GmVisitStartSection,
 } from "@/lib/api/backend";
+import {
+  clearLocalActiveVisitSnapshot,
+  readLocalActiveVisitSnapshot,
+  saveLocalActiveVisitSnapshot,
+} from "@/lib/gm/visitSessionPersistence";
 import { getPhotoTagPoolStorageKey } from "@/utils/photoTags";
 import { computeHiddenQuestionIds as computeRuleHiddenQuestionIds } from "@/lib/conditional-visibility";
 import {
@@ -646,6 +656,19 @@ function fmtHM(s: number): string {
 
 function nowHHMM(): string {
   const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function secondsSince(iso: string | null): number {
+  if (!iso) return 0;
+  const ms = Date.now() - new Date(iso).getTime();
+  return ms > 0 ? Math.floor(ms / 1000) : 0;
+}
+
+function hhmmFromIso(iso: string | null): string {
+  if (!iso) return nowHHMM();
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return nowHHMM();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
@@ -2615,6 +2638,21 @@ function MarktbesuchInner() {
     router.replace(`?${next.toString()}`, { scroll: false });
   }, [paramsString, router]);
 
+  const hydrateFromStartPayload = useCallback((payload: GmVisitStartPayload) => {
+    setVisitSections(payload.sections ?? []);
+    setVisitSessionId(null);
+    setVisitSessionStartedAt(null);
+    setAnswers({});
+    setKuehlerAnswers({});
+    setMhdAnswers({});
+    setQuestionComments({});
+    setPhotoMetaByQuestionId({});
+    setPhotoAnswerIdByQuestionId({});
+    setTimerRunning(false);
+    setTimerStopped(false);
+    setTimerSeconds(0);
+  }, []);
+
   const hydrateFromSessionPayload = useCallback((payload: GmVisitSessionReadPayload) => {
     const nextFragebogenAnswers: Record<string, string | string[]> = {};
     const nextKuehlerAnswers: Record<string, string | string[]> = {};
@@ -2719,6 +2757,14 @@ function MarktbesuchInner() {
 
     setVisitSessionId(payload.session.id);
     setVisitSessionStartedAt(payload.session.startedAt ?? null);
+    setVonVal(hhmmFromIso(payload.session.startedAt ?? null));
+    if (payload.session.status === "draft" && !payload.session.submittedAt) {
+      setTimerSeconds(secondsSince(payload.session.startedAt ?? null));
+      setTimerRunning(true);
+      setTimerStopped(false);
+      setPhase("active");
+      setPhaseVisible(true);
+    }
     setVisitSections((payload.sections ?? []).map((section) => ({
       section: section.section,
       campaignId: section.campaignId,
@@ -2786,6 +2832,20 @@ function MarktbesuchInner() {
       }
     }
 
+    if (!resumeId) {
+      const preloaded = readGmVisitStartPreloadCache({ marketId, campaignIds });
+      if (preloaded && Array.isArray(preloaded.sections)) {
+        hydrateFromStartPayload(preloaded);
+        clearGmVisitStartPreloadCache({ marketId, campaignIds });
+        setVisitStartError(null);
+        setVisitStartLoading(false);
+        setVisitBootstrapDone(true);
+        return () => {
+          active = false;
+        };
+      }
+    }
+
     setVisitStartLoading(true);
     setVisitStartError(null);
     const run = async () => {
@@ -2797,12 +2857,62 @@ function MarktbesuchInner() {
           setVisitBootstrapDone(true);
           return;
         }
-        const clientSessionToken = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).slice(0, 120);
-        const payload = await createGmVisitSession({ marketId, campaignIds, clientSessionToken });
+
+        const localSnapshot = readLocalActiveVisitSnapshot({ marketId, campaignIds });
+        let activeVisit: Awaited<ReturnType<typeof fetchActiveGmVisitSession>> | null = null;
+        try {
+          activeVisit = await fetchActiveGmVisitSession({ marketId, campaignIds });
+        } catch (error) {
+          if (!localSnapshot) throw error;
+        }
         if (isStale()) return;
-        const hydratedPayload = await fetchGmVisitSession(payload.session.id);
+        if (activeVisit?.session?.id) {
+          const hydratedPayload = await fetchGmVisitSession(activeVisit.session.id);
+          if (isStale()) return;
+          hydrateFromSessionPayload(hydratedPayload);
+          setVisitBootstrapDone(true);
+          return;
+        }
+
+        if (localSnapshot) {
+          setVisitSessionStartedAt(localSnapshot.clientStartedAt);
+          setVonVal(hhmmFromIso(localSnapshot.clientStartedAt));
+          setTimerSeconds(secondsSince(localSnapshot.clientStartedAt));
+          setTimerRunning(true);
+          setTimerStopped(false);
+          setPhase("active");
+          setPhaseVisible(true);
+          try {
+            const created = await createGmVisitSession({
+              marketId,
+              campaignIds,
+              clientSessionToken: localSnapshot.clientSessionToken,
+              startedAt: localSnapshot.clientStartedAt,
+            });
+            if (isStale()) return;
+            saveLocalActiveVisitSnapshot({
+              marketId,
+              campaignIds,
+              clientSessionToken: localSnapshot.clientSessionToken,
+              clientStartedAt: localSnapshot.clientStartedAt,
+              sessionId: created.session.id,
+            });
+            const hydratedPayload = await fetchGmVisitSession(created.session.id);
+            if (isStale()) return;
+            hydrateFromSessionPayload(hydratedPayload);
+            setVisitBootstrapDone(true);
+            return;
+          } catch {
+            if (isStale()) return;
+            setVisitStartError("Marktbesuch-Start ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+            setVisitBootstrapDone(true);
+            return;
+          }
+        }
+
+        const payload = await fetchGmVisitStartPayload(marketId, campaignIds);
         if (isStale()) return;
-        hydrateFromSessionPayload(hydratedPayload);
+        hydrateFromStartPayload(payload);
         setVisitBootstrapDone(true);
       } catch (error) {
         if (isStale()) return;
@@ -2824,6 +2934,7 @@ function MarktbesuchInner() {
     campaignIds,
     hasVisitStartParams,
     hydrateFromSessionPayload,
+    hydrateFromStartPayload,
     marketId,
     sessionIdFromParams,
     visitBootstrapDone,
@@ -3180,6 +3291,9 @@ function MarktbesuchInner() {
       } else {
         await submitGmVisitSession(visitSessionId);
       }
+      if (hasVisitStartParams) {
+        clearLocalActiveVisitSnapshot({ marketId, campaignIds });
+      }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
       }
@@ -3504,6 +3618,71 @@ function MarktbesuchInner() {
   const fragebogenProgressPct = visibleSAMPLE_QUESTIONS.length > 0 ? (answeredCount / visibleSAMPLE_QUESTIONS.length) * 100 : 0;
   const kuehlerProgressPct = visibleKUEHLER_QUESTIONS.length > 0 ? (kuehlerAnsweredCount / visibleKUEHLER_QUESTIONS.length) * 100 : 0;
   const mhdProgressPct = visibleMHD_QUESTIONS.length > 0 ? (mhdAnsweredCount / visibleMHD_QUESTIONS.length) * 100 : 0;
+  const visitStartBlocked = visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0));
+
+  async function handleTimerStart() {
+    if (visitStartBlocked) return;
+    if (visitSessionId) {
+      const startedAt = visitSessionStartedAt ?? new Date().toISOString();
+      setVisitSessionStartedAt(startedAt);
+      setVonVal(hhmmFromIso(startedAt));
+      setTimerSeconds(secondsSince(startedAt));
+      setTimerRunning(true);
+      setTimerStopped(false);
+      transitionTo("active");
+      return;
+    }
+    if (!hasVisitStartParams) {
+      setTimerRunning(true);
+      setTimerStopped(false);
+      transitionTo("active");
+      return;
+    }
+
+    const localSnapshot = readLocalActiveVisitSnapshot({ marketId, campaignIds });
+    const clientStartedAt = localSnapshot?.clientStartedAt ?? new Date().toISOString();
+    const clientSessionToken =
+      localSnapshot?.clientSessionToken ??
+      (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).slice(0, 120);
+
+    saveLocalActiveVisitSnapshot({
+      marketId,
+      campaignIds,
+      clientStartedAt,
+      clientSessionToken,
+      sessionId: localSnapshot?.sessionId ?? null,
+    });
+    setVisitStartError(null);
+    setVisitSessionStartedAt(clientStartedAt);
+    setVonVal(hhmmFromIso(clientStartedAt));
+    setTimerSeconds(secondsSince(clientStartedAt));
+    setTimerRunning(true);
+    setTimerStopped(false);
+    transitionTo("active");
+
+    try {
+      setVisitStartLoading(true);
+      const created = await createGmVisitSession({
+        marketId,
+        campaignIds,
+        clientSessionToken,
+        startedAt: clientStartedAt,
+      });
+      saveLocalActiveVisitSnapshot({
+        marketId,
+        campaignIds,
+        clientStartedAt,
+        clientSessionToken,
+        sessionId: created.session.id,
+      });
+      const hydratedPayload = await fetchGmVisitSession(created.session.id);
+      hydrateFromSessionPayload(hydratedPayload);
+    } catch {
+      setVisitStartError("Marktbesuch-Start ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+    } finally {
+      setVisitStartLoading(false);
+    }
+  }
 
   const currentQ = visibleSAMPLE_QUESTIONS[currentQIndex];
   const currentAnswer = answers[currentQ?.id];
@@ -3745,24 +3924,21 @@ function MarktbesuchInner() {
 
               {/* Timer starten button */}
               <button
-                onClick={() => {
-                  setTimerRunning(true);
-                  transitionTo("active");
-                }}
-                disabled={visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))}
+                onClick={() => { void handleTimerStart(); }}
+                disabled={visitStartBlocked}
                 style={{
                   width: "100%", padding: "9px 0",
                   fontSize: 11, fontWeight: 700, letterSpacing: "0.02em",
-                  color: visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0)) ? "rgba(0,0,0,0.28)" : "#fff",
+                  color: visitStartBlocked ? "rgba(0,0,0,0.28)" : "#fff",
                   border: "none",
                   borderRadius: 9,
-                  cursor: visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0)) ? "not-allowed" : "pointer",
+                  cursor: visitStartBlocked ? "not-allowed" : "pointer",
                   background:
-                    visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))
+                    visitStartBlocked
                       ? "rgba(0,0,0,0.08)"
                       : "linear-gradient(to bottom, #DC2626, #b91c1c)",
                   boxShadow:
-                    visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))
+                    visitStartBlocked
                       ? "none"
                       : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
                   transition: "opacity 0.15s ease",
@@ -3782,23 +3958,17 @@ function MarktbesuchInner() {
               {/* Skip */}
               <button
                 onClick={() => {
-                  if (visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))) return;
+                  if (visitStartBlocked) return;
                   transitionTo("active");
                 }}
                 style={{
                   marginTop: 10, width: "100%",
                   fontSize: 10,
-                  color:
-                    visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))
-                      ? "rgba(0,0,0,0.16)"
-                      : "rgba(0,0,0,0.3)",
+                  color: visitStartBlocked ? "rgba(0,0,0,0.16)" : "rgba(0,0,0,0.3)",
                   fontWeight: 500,
                   background: "none",
                   border: "none",
-                  cursor:
-                    visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0))
-                      ? "not-allowed"
-                      : "pointer",
+                  cursor: visitStartBlocked ? "not-allowed" : "pointer",
                   padding: "3px 0", letterSpacing: "0.01em",
                 }}
               >

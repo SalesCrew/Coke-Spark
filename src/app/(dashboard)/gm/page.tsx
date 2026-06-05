@@ -14,15 +14,22 @@ import { ActivityLauncher } from "@/components/dashboard/ActivityLauncher";
 import Aurora from "@/components/ui/Aurora";
 import { RedMonthProvider } from "@/context/RedMonthContext";
 import {
+  cancelGmVisitSession,
+  clearGmVisitPreloadCache,
   fetchGmBonusSummary,
+  fetchGmVisitSession,
   fetchGmKpiSummary,
+  fetchLatestActiveGmVisitSession,
   logoutCurrentUser,
   readAuthSession,
   fetchGmKuehlerMhdProgress,
   readCachedGmKpiSummary,
+  setGmVisitPreloadCache,
   type GmKpiSummary,
   type GmKuehlerMhdProgressPayload,
+  type GmVisitSessionReadPayload,
 } from "@/lib/api/backend";
+import { clearLocalActiveVisitSnapshot } from "@/lib/gm/visitSessionPersistence";
 import type { PraemienGmBonusSummary } from "@/types/praemien";
 
 const gmMenuItems = [
@@ -34,13 +41,66 @@ const gmMenuItems = [
   { label: "Logout", icon: <LogOut size={11} strokeWidth={1.9} />, action: "logout" as const, tone: "danger" as const },
 ];
 
+function formatElapsedTime(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, totalSeconds);
+  const h = String(Math.floor(safeSeconds / 3600)).padStart(2, "0");
+  const m = String(Math.floor((safeSeconds % 3600) / 60)).padStart(2, "0");
+  const s = String(safeSeconds % 60).padStart(2, "0");
+  return `${h}:${m}:${s}`;
+}
+
 export default function GMDashboard() {
   const router = useRouter();
   const [bonusModalOpen, setBonusModalOpen] = useState(false);
   const [bonusSummary, setBonusSummary] = useState<PraemienGmBonusSummary | null>(null);
   const [gmKpiSummary, setGmKpiSummary] = useState<GmKpiSummary | null>(null);
   const [kuehlerMhdProgress, setKuehlerMhdProgress] = useState<GmKuehlerMhdProgressPayload | null>(null);
+  const [activeVisitPayload, setActiveVisitPayload] = useState<GmVisitSessionReadPayload | null>(null);
+  const [activeVisitSeconds, setActiveVisitSeconds] = useState(0);
+  const [activeVisitOpening, setActiveVisitOpening] = useState(false);
+  const [activeVisitCancelConfirm, setActiveVisitCancelConfirm] = useState(false);
+  const [activeVisitCancelling, setActiveVisitCancelling] = useState(false);
+  const [activeVisitCancelError, setActiveVisitCancelError] = useState<string | null>(null);
   const [bonusLoading, setBonusLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const activeVisit = await fetchLatestActiveGmVisitSession();
+        if (cancelled || !activeVisit.session?.id) return;
+        const payload = await fetchGmVisitSession(activeVisit.session.id);
+        if (cancelled) return;
+        setGmVisitPreloadCache(payload);
+        setActiveVisitPayload(payload);
+        setActiveVisitCancelConfirm(false);
+        setActiveVisitCancelError(null);
+      } catch {
+        // Dashboard remains usable when there is no resumable visit or the lookup fails.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeVisitPayload?.session.startedAt) {
+      setActiveVisitSeconds(0);
+      return;
+    }
+    const startedAtMs = new Date(activeVisitPayload.session.startedAt).getTime();
+    if (!Number.isFinite(startedAtMs)) {
+      setActiveVisitSeconds(0);
+      return;
+    }
+    const update = () => {
+      setActiveVisitSeconds(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)));
+    };
+    update();
+    const intervalId = window.setInterval(update, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [activeVisitPayload?.session.startedAt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,10 +154,207 @@ export default function GMDashboard() {
   const gmDisplayName = [authSession?.user.firstName?.trim(), authSession?.user.lastName?.trim()]
     .filter((part): part is string => Boolean(part && part.length > 0))
     .join(" ");
+  const activeVisitCampaignNames = Array.from(
+    new Set((activeVisitPayload?.sections ?? []).map((section) => section.campaignName).filter(Boolean)),
+  );
+  const activeVisitCampaignIds = Array.from(
+    new Set((activeVisitPayload?.sections ?? []).map((section) => section.campaignId).filter(Boolean)),
+  );
+  const activeVisitAddress = activeVisitPayload
+    ? `${activeVisitPayload.market.address}, ${activeVisitPayload.market.postalCode} ${activeVisitPayload.market.city}`.trim()
+    : "";
+
+  async function openActiveVisit() {
+    if (!activeVisitPayload || activeVisitOpening) return;
+    setActiveVisitOpening(true);
+    try {
+      setGmVisitPreloadCache(activeVisitPayload);
+      router.push(
+        `/gm/marktbesuch?chain=${encodeURIComponent(activeVisitPayload.market.name)}&address=${encodeURIComponent(activeVisitAddress)}&marketId=${encodeURIComponent(activeVisitPayload.market.id)}&campaignIds=${encodeURIComponent(activeVisitCampaignIds.join(","))}&sessionId=${encodeURIComponent(activeVisitPayload.session.id)}`,
+      );
+    } finally {
+      setActiveVisitOpening(false);
+    }
+  }
+
+  async function confirmCancelActiveVisit() {
+    if (!activeVisitPayload || activeVisitCancelling) return;
+    setActiveVisitCancelling(true);
+    setActiveVisitCancelError(null);
+    try {
+      await cancelGmVisitSession(activeVisitPayload.session.id);
+      clearGmVisitPreloadCache(activeVisitPayload.session.id);
+      clearLocalActiveVisitSnapshot({
+        marketId: activeVisitPayload.market.id,
+        campaignIds: activeVisitCampaignIds,
+      });
+      setActiveVisitPayload(null);
+      setActiveVisitCancelConfirm(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Fragebogen konnte nicht abgebrochen werden.";
+      setActiveVisitCancelError(message);
+    } finally {
+      setActiveVisitCancelling(false);
+    }
+  }
 
   return (
     <RedMonthProvider>
     <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7" }}>
+      {activeVisitPayload && (
+        <div
+          style={{
+            position: "fixed",
+            top: 20,
+            right: 22,
+            zIndex: 80,
+            width: 312,
+            maxWidth: "calc(100vw - 32px)",
+            textAlign: "left",
+            border: "1px solid rgba(220,38,38,0.10)",
+            borderRadius: 12,
+            background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.91))",
+            boxShadow: "0 16px 38px rgba(17,24,39,0.10), 0 2px 8px rgba(220,38,38,0.08), inset 0 1px 0 rgba(255,255,255,0.78)",
+            backdropFilter: "blur(20px)",
+            padding: "13px 14px 11px",
+            fontFamily: "inherit",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: "#DC2626",
+                boxShadow: "0 0 0 4px rgba(220,38,38,0.09)",
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#111827", letterSpacing: "0" }}>
+              Aktiver Fragebogen
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 800, color: "#DC2626", fontVariantNumeric: "tabular-nums" }}>
+              {formatElapsedTime(activeVisitSeconds)}
+            </span>
+          </div>
+          {activeVisitCancelConfirm ? (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", lineHeight: 1.25, marginBottom: 6 }}>
+                Fragebogen abbrechen?
+              </div>
+              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.58)", lineHeight: 1.38 }}>
+                Willst du wirklich abbrechen? Alle Daten aus diesem laufenden Fragebogen werden geloescht.
+              </div>
+              {activeVisitCancelError && (
+                <div style={{ marginTop: 8, fontSize: 10, fontWeight: 700, color: "#DC2626", lineHeight: 1.35 }}>
+                  {activeVisitCancelError}
+                </div>
+              )}
+              <div style={{ marginTop: 11, display: "grid", gridTemplateColumns: "1fr 1.15fr", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeVisitCancelling) return;
+                    setActiveVisitCancelConfirm(false);
+                    setActiveVisitCancelError(null);
+                  }}
+                  disabled={activeVisitCancelling}
+                  style={{
+                    height: 30,
+                    borderRadius: 8,
+                    border: "1px solid rgba(17,24,39,0.08)",
+                    background: "rgba(17,24,39,0.04)",
+                    color: "rgba(17,24,39,0.58)",
+                    fontSize: 10,
+                    fontWeight: 850,
+                    cursor: activeVisitCancelling ? "not-allowed" : "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Zurueck
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void confirmCancelActiveVisit(); }}
+                  disabled={activeVisitCancelling}
+                  style={{
+                    height: 30,
+                    borderRadius: 8,
+                    border: "1px solid rgba(220,38,38,0.18)",
+                    background: activeVisitCancelling ? "rgba(220,38,38,0.08)" : "rgba(220,38,38,0.10)",
+                    color: activeVisitCancelling ? "rgba(220,38,38,0.48)" : "#DC2626",
+                    fontSize: 10,
+                    fontWeight: 900,
+                    cursor: activeVisitCancelling ? "wait" : "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {activeVisitCancelling ? "Loesche..." : "Abbrechen bestaetigen"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#111827", lineHeight: 1.25, marginBottom: 5 }}>
+                {activeVisitCampaignNames[0] ?? "Marktbesuch"}
+              </div>
+              {activeVisitCampaignNames.length > 1 && (
+                <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(17,24,39,0.52)", marginBottom: 5 }}>
+                  +{activeVisitCampaignNames.length - 1} weitere Sektion
+                </div>
+              )}
+              <div style={{ fontSize: 10, fontWeight: 650, color: "rgba(17,24,39,0.54)", lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {activeVisitPayload.market.name}
+              </div>
+              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.46)", lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {activeVisitAddress}
+              </div>
+              <div style={{ marginTop: 10, height: 1, background: "linear-gradient(90deg, rgba(34,197,94,0.16), rgba(220,38,38,0.10), rgba(17,24,39,0.045))" }} />
+              <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => { void openActiveVisit(); }}
+                  disabled={activeVisitOpening}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    padding: 0,
+                    textAlign: "left",
+                    fontSize: 10,
+                    fontWeight: 900,
+                    color: activeVisitOpening ? "rgba(22,163,74,0.48)" : "#16A34A",
+                    cursor: activeVisitOpening ? "wait" : "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {activeVisitOpening ? "Oeffne..." : "Zum Fragebogen"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveVisitCancelConfirm(true);
+                    setActiveVisitCancelError(null);
+                  }}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    padding: 0,
+                    textAlign: "right",
+                    fontSize: 10,
+                    fontWeight: 850,
+                    color: "rgba(220,38,38,0.72)",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Fragebogen abbrechen
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       <div
         style={{
           position: "fixed",

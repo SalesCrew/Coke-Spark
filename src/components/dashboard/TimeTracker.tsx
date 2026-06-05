@@ -17,6 +17,12 @@ import {
   type DaySession,
   type TodaySubmissionItem,
 } from "@/lib/api/backend";
+import {
+  persistLocalDaySessionFromBackend,
+  readLatestLocalDaySessionSnapshot,
+  saveLocalDaySessionStartSnapshot,
+  type LocalDaySessionSnapshot,
+} from "@/lib/gm/daySessionPersistence";
 
 interface TimeTrackerProps {
   currentPhase?: string; // exposed for debug panel
@@ -321,6 +327,49 @@ export function TimeTracker(_: TimeTrackerProps) {
     }
   }, []);
 
+  const applyLocalDaySessionSnapshot = useCallback((snapshot: LocalDaySessionSnapshot) => {
+    const session = snapshot.session;
+    setDaySession(session);
+    setConfirmedStartKm(session?.startKm ?? null);
+    setEndKmInput(session?.endKm != null ? String(session.endKm) : "");
+    setPaused(false);
+    setSeconds(secondsSince(snapshot.clientStartedAt));
+    if (snapshot.status === "ended") {
+      setRunning(false);
+      setPhase(session && !session.isEndKmCompleted ? "endKm" : "idle");
+      return;
+    }
+    setRunning(true);
+    if (session?.isStartKmCompleted) {
+      setPhase("recording");
+    } else {
+      setPhase("startKm");
+    }
+  }, []);
+
+  const reconcileLocalDayStart = useCallback(async (snapshot: LocalDaySessionSnapshot) => {
+    try {
+      const { session } = await startDaySession({
+        timezone: snapshot.timezone,
+        startedAt: snapshot.clientStartedAt,
+      });
+      persistLocalDaySessionFromBackend(session);
+      setDaySession(session);
+      setConfirmedStartKm(session.startKm ?? null);
+      setEndKmInput(session.endKm != null ? String(session.endKm) : "");
+      if (session.status === "started") {
+        setRunning(true);
+        setPaused(false);
+        setSeconds(secondsSince(session.dayStartedAt));
+        setPhase(session.isStartKmCompleted ? "recording" : "startKm");
+      }
+      setPersistError(null);
+      notifyDaySessionUpdated();
+    } catch {
+      setPersistError("Tagesstart ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+    }
+  }, [notifyDaySessionUpdated]);
+
   useEffect(() => {
     if (!active) return;
     const id = setInterval(() => setSeconds(s => s + 1), 1000);
@@ -329,11 +378,18 @@ export function TimeTracker(_: TimeTrackerProps) {
 
   const hydrateFromBackend = useCallback(async () => {
     setPersistError(null);
+    const localSnapshot = readLatestLocalDaySessionSnapshot();
     try {
       const payload = await fetchCurrentDaySession();
       const session = payload.session;
       setDaySession(session);
       if (!session) {
+        if (localSnapshot) {
+          applyLocalDaySessionSnapshot(localSnapshot);
+          setPersistError("Tagesstart ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+          void reconcileLocalDayStart(localSnapshot);
+          return;
+        }
         setRunning(false);
         setPaused(false);
         setSeconds(0);
@@ -341,6 +397,7 @@ export function TimeTracker(_: TimeTrackerProps) {
         setPhase("idle");
         return;
       }
+      persistLocalDaySessionFromBackend(session);
       setConfirmedStartKm(session.startKm ?? null);
       setEndKmInput(session.endKm != null ? String(session.endKm) : "");
       if (session.status === "started") {
@@ -370,10 +427,16 @@ export function TimeTracker(_: TimeTrackerProps) {
       setSeconds(0);
       setPhase("idle");
     } catch (error) {
+      if (localSnapshot) {
+        applyLocalDaySessionSnapshot(localSnapshot);
+        setPersistError("Tagesstart ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+        void reconcileLocalDayStart(localSnapshot);
+        return;
+      }
       const message = error instanceof Error ? error.message : "Arbeitstag konnte nicht geladen werden.";
       setPersistError(message);
     }
-  }, []);
+  }, [applyLocalDaySessionSnapshot, reconcileLocalDayStart]);
 
   const hydrateTodaySubmissions = useCallback(async (): Promise<TodaySubmissionItem[]> => {
     try {
@@ -507,10 +570,26 @@ export function TimeTracker(_: TimeTrackerProps) {
   // ── Start KM ─────────────────────────────────────────────────────────────
   const handleStartPressed = useCallback(async () => {
     if (persistBusy) return;
+    const clientStartedAt = new Date().toISOString();
+    const localSnapshot = saveLocalDaySessionStartSnapshot({
+      startedAt: clientStartedAt,
+      timezone: trackerTimezone,
+    });
     setPersistBusy(true);
     setPersistError(null);
+    setStartKmInput("");
+    setActiveKmField(null);
+    setRunning(true);
+    setPaused(false);
+    setSeconds(0);
+    transitionTo("startKm");
+    notifyDaySessionUpdated();
     try {
-      const { session } = await startDaySession();
+      const { session } = await startDaySession({
+        timezone: trackerTimezone,
+        startedAt: clientStartedAt,
+      });
+      persistLocalDaySessionFromBackend(session);
       setDaySession(session);
       setStartKmInput("");
       setActiveKmField(null);
@@ -524,12 +603,20 @@ export function TimeTracker(_: TimeTrackerProps) {
       }
       notifyDaySessionUpdated();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Tagesstart konnte nicht gespeichert werden.";
+      const message = localSnapshot
+        ? "Tagesstart ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist."
+        : error instanceof Error ? error.message : "Tagesstart konnte nicht gespeichert werden.";
+      if (!localSnapshot) {
+        setRunning(false);
+        setPaused(false);
+        setSeconds(0);
+        transitionTo("idle");
+      }
       setPersistError(message);
     } finally {
       setPersistBusy(false);
     }
-  }, [notifyDaySessionUpdated, persistBusy]);
+  }, [notifyDaySessionUpdated, persistBusy, trackerTimezone]);
   const handleStartKmCancel  = useCallback(() => { transitionTo("idle"); }, []);
   const handleStartKmConfirm = useCallback(async () => {
     const num = parseInt(startKmInput, 10);
@@ -538,6 +625,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistError(null);
     try {
       const { session } = await setDaySessionStartKm(num);
+      persistLocalDaySessionFromBackend(session);
       setDaySession(session);
       setConfirmedStartKm(num);
       setRunning(true);
@@ -557,6 +645,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistError(null);
     try {
       const { session } = await deferDaySessionStartKm();
+      persistLocalDaySessionFromBackend(session);
       setDaySession(session);
       setConfirmedStartKm(null);
       setRunning(true);
@@ -579,6 +668,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistError(null);
     try {
       const { session } = await endDaySession();
+      persistLocalDaySessionFromBackend(session);
       setDaySession(session);
       setOpenEndKmOnly(false);
       setEndKmInput(session.endKm != null ? String(session.endKm) : "");
@@ -608,6 +698,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistError(null);
     try {
       const endResult = await setDaySessionEndKm(num);
+      persistLocalDaySessionFromBackend(endResult.session);
       setDaySession(endResult.session);
       if (openEndKmOnly) {
         setOpenEndKmOnly(false);
@@ -615,6 +706,7 @@ export function TimeTracker(_: TimeTrackerProps) {
         return;
       }
       const submitResult = await submitDaySession();
+      persistLocalDaySessionFromBackend(submitResult.session);
       setDaySession(submitResult.session);
       notifyDaySessionUpdated();
       const freshItems = await hydrateTodaySubmissions();
@@ -632,6 +724,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistError(null);
     try {
       const { session } = await deferDaySessionEndKm();
+      persistLocalDaySessionFromBackend(session);
       setDaySession(session);
       setOpenEndKmOnly(false);
       if (openEndKmOnly) {
@@ -670,10 +763,13 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistError(null);
     try {
       const endAt = toIsoFromLocalHm(forgotEndTime);
-      await endDaySession({ endAt: endAt ?? undefined });
+      const ended = await endDaySession({ endAt: endAt ?? undefined });
+      persistLocalDaySessionFromBackend(ended.session);
       const endResult = await setDaySessionEndKm(num);
+      persistLocalDaySessionFromBackend(endResult.session);
       setDaySession(endResult.session);
       const submitResult = await submitDaySession();
+      persistLocalDaySessionFromBackend(submitResult.session);
       setDaySession(submitResult.session);
       notifyDaySessionUpdated();
       const freshItems = await hydrateTodaySubmissions();

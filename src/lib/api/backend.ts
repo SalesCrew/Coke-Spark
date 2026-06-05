@@ -1759,7 +1759,7 @@ export async function fetchGmVisitStartPayload(marketId: string, campaignIds: st
     marketId,
     campaignIds: campaignIds.join(","),
   });
-  return (await authedFetch(`/markets/gm/visit-start?${params.toString()}`)) as GmVisitStartPayload;
+  return (await authedFetch(`/markets/gm/visit-sessions/start-payload?${params.toString()}`, { cache: "no-store" })) as GmVisitStartPayload;
 }
 
 export type GmVisitSessionPayload = GmVisitStartPayload & {
@@ -1773,6 +1773,7 @@ export type GmVisitSessionPayload = GmVisitStartPayload & {
 export type GmVisitPreloadCachePayload = GmVisitSessionReadPayload;
 
 const GM_VISIT_PRELOAD_CACHE_PREFIX = "gm_visit_preload_v2:";
+const GM_VISIT_START_PRELOAD_CACHE_PREFIX = "gm_visit_start_preload_v1:";
 const GM_VISIT_PRELOAD_CACHE_TTL_MS = 10 * 60 * 1000;
 
 type GmVisitPreloadCacheEnvelope = {
@@ -1784,9 +1785,22 @@ type GmVisitPreloadCacheEnvelope = {
 
 const gmVisitPreloadMemoryCache: Record<string, GmVisitPreloadCacheEnvelope> = {};
 
+type GmVisitStartPreloadCacheEnvelope = {
+  ownerUserId: string;
+  marketId: string;
+  campaignIds: string[];
+  createdAtMs: number;
+  payload: GmVisitStartPayload;
+};
+
+const gmVisitStartPreloadMemoryCache: Record<string, GmVisitStartPreloadCacheEnvelope> = {};
+
 function clearInMemoryGmVisitPreloadCache(): void {
   for (const key of Object.keys(gmVisitPreloadMemoryCache)) {
     delete gmVisitPreloadMemoryCache[key];
+  }
+  for (const key of Object.keys(gmVisitStartPreloadMemoryCache)) {
+    delete gmVisitStartPreloadMemoryCache[key];
   }
 }
 
@@ -1796,6 +1810,22 @@ function getActiveAuthUserId(): string | null {
 
 function getGmVisitPreloadMemoryKey(sessionId: string, userId: string): string {
   return `${userId}:${sessionId}`;
+}
+
+function normalizeVisitPreloadCampaignIds(campaignIds: string[]): string[] {
+  return Array.from(new Set(campaignIds.map((id) => id.trim()).filter(Boolean))).sort();
+}
+
+function getGmVisitStartPreloadMemoryKey(userId: string, marketId: string, campaignIds: string[]): string {
+  return `${userId}:${marketId}:${normalizeVisitPreloadCampaignIds(campaignIds).join(",")}`;
+}
+
+export function getGmVisitStartPreloadCacheKey(marketId: string, campaignIds: string[]): string {
+  const userId = getActiveAuthUserId();
+  const campaignKey = normalizeVisitPreloadCampaignIds(campaignIds).join(",");
+  return userId
+    ? `${GM_VISIT_START_PRELOAD_CACHE_PREFIX}${userId}:${marketId}:${campaignKey}`
+    : `${GM_VISIT_START_PRELOAD_CACHE_PREFIX}anon:${marketId}:${campaignKey}`;
 }
 
 export function getGmVisitPreloadCacheKey(sessionId: string): string {
@@ -1884,19 +1914,143 @@ export function clearGmVisitPreloadCache(sessionId: string): void {
   }
 }
 
+export function setGmVisitStartPreloadCache(input: {
+  marketId: string;
+  campaignIds: string[];
+  payload: GmVisitStartPayload;
+}): void {
+  const userId = getActiveAuthUserId();
+  if (!userId || !Array.isArray(input.payload.sections)) return;
+  const normalizedCampaignIds = normalizeVisitPreloadCampaignIds(input.campaignIds);
+  const envelope: GmVisitStartPreloadCacheEnvelope = {
+    ownerUserId: userId,
+    marketId: input.marketId,
+    campaignIds: normalizedCampaignIds,
+    createdAtMs: Date.now(),
+    payload: input.payload,
+  };
+  gmVisitStartPreloadMemoryCache[getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds)] = envelope;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds), JSON.stringify(envelope));
+  } catch {
+    // Keep in-memory cache as best-effort fallback.
+  }
+}
+
+export function readGmVisitStartPreloadCache(input: {
+  marketId: string;
+  campaignIds: string[];
+}): GmVisitStartPayload | null {
+  const userId = getActiveAuthUserId();
+  if (!userId) return null;
+  const normalizedCampaignIds = normalizeVisitPreloadCampaignIds(input.campaignIds);
+  const memoryKey = getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds);
+  const inMemory = gmVisitStartPreloadMemoryCache[memoryKey];
+  if (inMemory) {
+    if (
+      inMemory.ownerUserId === userId &&
+      inMemory.marketId === input.marketId &&
+      inMemory.campaignIds.join(",") === normalizedCampaignIds.join(",") &&
+      Date.now() - inMemory.createdAtMs <= GM_VISIT_PRELOAD_CACHE_TTL_MS &&
+      Array.isArray(inMemory.payload.sections)
+    ) {
+      return inMemory.payload;
+    }
+    delete gmVisitStartPreloadMemoryCache[memoryKey];
+  }
+  if (typeof window === "undefined") return null;
+  const key = getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds);
+  let raw: string | null = null;
+  try {
+    raw = window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<GmVisitStartPreloadCacheEnvelope>;
+    const parsedCampaignIds = Array.isArray(parsed.campaignIds)
+      ? normalizeVisitPreloadCampaignIds(parsed.campaignIds.filter((entry): entry is string => typeof entry === "string"))
+      : [];
+    if (
+      !parsed ||
+      parsed.ownerUserId !== userId ||
+      parsed.marketId !== input.marketId ||
+      parsedCampaignIds.join(",") !== normalizedCampaignIds.join(",")
+    ) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    const createdAtMs = Number(parsed.createdAtMs ?? 0);
+    if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs > GM_VISIT_PRELOAD_CACHE_TTL_MS) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    const payload = parsed.payload;
+    if (!payload || !Array.isArray(payload.sections)) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return payload;
+  } catch {
+    window.sessionStorage.removeItem(key);
+    return null;
+  }
+}
+
+export function clearGmVisitStartPreloadCache(input: {
+  marketId: string;
+  campaignIds: string[];
+}): void {
+  const userId = getActiveAuthUserId();
+  const normalizedCampaignIds = normalizeVisitPreloadCampaignIds(input.campaignIds);
+  if (userId) {
+    delete gmVisitStartPreloadMemoryCache[getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds)];
+  }
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds));
+  } catch {
+    // noop
+  }
+}
+
 export async function fetchGmVisitSession(sessionId: string): Promise<GmVisitSessionReadPayload> {
-  return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`)) as GmVisitSessionReadPayload;
+  return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`, { cache: "no-store" })) as GmVisitSessionReadPayload;
+}
+
+export async function fetchActiveGmVisitSession(input: {
+  marketId: string;
+  campaignIds: string[];
+}): Promise<GmVisitSessionPayload | { session: null }> {
+  const params = new URLSearchParams({
+    marketId: input.marketId,
+    campaignIds: input.campaignIds.join(","),
+  });
+  return (await authedFetch(`/markets/gm/visit-sessions/active?${params.toString()}`, { cache: "no-store" })) as GmVisitSessionPayload | { session: null };
+}
+
+export async function fetchLatestActiveGmVisitSession(): Promise<GmVisitSessionPayload | { session: null }> {
+  return (await authedFetch("/markets/gm/visit-sessions/latest-active", { cache: "no-store" })) as GmVisitSessionPayload | { session: null };
 }
 
 export async function createGmVisitSession(input: {
   marketId: string;
   campaignIds: string[];
   clientSessionToken?: string;
+  startedAt?: string;
 }): Promise<GmVisitSessionPayload> {
   return (await authedFetch("/markets/gm/visit-sessions", {
     method: "POST",
     body: JSON.stringify(input),
   })) as GmVisitSessionPayload;
+}
+
+export async function cancelGmVisitSession(sessionId: string): Promise<{ ok: boolean; sessionId: string; status: "cancelled" }> {
+  return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`, {
+    method: "DELETE",
+  })) as { ok: boolean; sessionId: string; status: "cancelled" };
 }
 
 export async function saveGmVisitAnswer(input: {
@@ -2738,10 +2892,10 @@ export async function fetchAdminZeiterfassungGmAggregates(input?: {
   };
 }
 
-export async function startDaySession(input?: { timezone?: string }): Promise<{ session: DaySession }> {
+export async function startDaySession(input?: { timezone?: string; startedAt?: string }): Promise<{ session: DaySession }> {
   return (await authedFetch("/day-session/start", {
     method: "POST",
-    body: JSON.stringify({ timezone: input?.timezone }),
+    body: JSON.stringify({ timezone: input?.timezone, startedAt: input?.startedAt }),
   })) as { session: DaySession };
 }
 

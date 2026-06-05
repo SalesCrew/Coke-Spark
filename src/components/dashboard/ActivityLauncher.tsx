@@ -19,10 +19,11 @@ import {
   Search,
 } from "lucide-react";
 import {
-  createGmVisitSession,
-  fetchGmVisitSession,
+  fetchActiveGmVisitSession,
   fetchCurrentDaySession,
   fetchActiveTimeTrackingDrafts,
+  fetchGmVisitSession,
+  fetchGmVisitStartPayload,
   fetchGmAssignedStartMarkets,
   fetchGmFlexStartMarkets,
   startDayPause,
@@ -33,9 +34,11 @@ import {
   submitTimeTrackingEntry,
   cancelTimeTrackingEntry,
   setGmVisitPreloadCache,
+  setGmVisitStartPreloadCache,
   type TimeTrackingActivityType,
   type TimeTrackingEntry,
 } from "@/lib/api/backend";
+import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
 import type { MarketRecord } from "@/types/markets";
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
@@ -1081,7 +1084,7 @@ export function ActivityLauncher() {
     if (!silent) setDayGateLoading(true);
     try {
       const payload = await fetchCurrentDaySession();
-      setDayStarted(Boolean(payload.gate?.dayStarted));
+      setDayStarted(Boolean(payload.gate?.dayStarted) || Boolean(readLatestLocalDaySessionSnapshot()));
     } catch {
       setDayStarted(true);
     } finally {
@@ -1251,23 +1254,32 @@ export function ActivityLauncher() {
     void (async () => {
       const isStale = () => launchRequestSeqRef.current !== requestSeq;
       try {
-        const clientSessionToken = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).slice(0, 120);
-        const session = await createGmVisitSession({
+        const activeVisit = await fetchActiveGmVisitSession({
           marketId: selectedMarket.id,
           campaignIds: selectedSectionIds,
-          clientSessionToken,
         });
         if (isStale()) return;
-        const payload = await fetchGmVisitSession(session.session.id);
-        if (isStale()) return;
-        setGmVisitPreloadCache(payload);
+        if (activeVisit.session?.id) {
+          const payload = await fetchGmVisitSession(activeVisit.session.id);
+          if (isStale()) return;
+          setGmVisitPreloadCache(payload);
+        } else {
+          const payload = await fetchGmVisitStartPayload(selectedMarket.id, selectedSectionIds);
+          if (isStale()) return;
+          setGmVisitStartPreloadCache({
+            marketId: selectedMarket.id,
+            campaignIds: selectedSectionIds,
+            payload,
+          });
+        }
         if (launchIntervalRef.current) {
           clearInterval(launchIntervalRef.current);
           launchIntervalRef.current = null;
         }
         setLaunchProgress(100);
+        const sessionParam = activeVisit.session?.id ? `&sessionId=${encodeURIComponent(activeVisit.session.id)}` : "";
         router.push(
-          `/gm/marktbesuch?chain=${encodeURIComponent(selectedMarket.chain)}&address=${encodeURIComponent(selectedMarket.address)}&marketId=${encodeURIComponent(selectedMarket.id)}&campaignIds=${encodeURIComponent(selectedSectionIds.join(","))}&sessionId=${encodeURIComponent(session.session.id)}`,
+          `/gm/marktbesuch?chain=${encodeURIComponent(selectedMarket.chain)}&address=${encodeURIComponent(selectedMarket.address)}&marketId=${encodeURIComponent(selectedMarket.id)}&campaignIds=${encodeURIComponent(selectedSectionIds.join(","))}${sessionParam}`,
         );
       } catch {
         if (isStale()) return;

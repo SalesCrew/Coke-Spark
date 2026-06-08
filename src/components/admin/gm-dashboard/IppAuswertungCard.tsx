@@ -275,7 +275,7 @@ export function IppAuswertungCard() {
       >
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Erste Key Card
+            IPP und Platzierungs Auswertung
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
             IPP Auswertung

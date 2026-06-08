@@ -340,18 +340,19 @@ function DateRangeDropdown({
                   onClick={() => handleDateClick(day.key)}
                   style={{
                     height: 28,
-                    border: "none",
+                    border: active ? "1px solid rgba(220,38,38,0.24)" : "1px solid transparent",
                     borderRadius: active ? 8 : 7,
                     background: active
-                      ? "linear-gradient(to bottom,#DC2626,#b91c1c)"
+                      ? "linear-gradient(to bottom,rgba(254,242,242,0.96),rgba(255,255,255,0.92))"
                       : inRange
-                        ? "rgba(220,38,38,0.08)"
+                        ? "rgba(220,38,38,0.035)"
                         : "transparent",
-                    color: active ? "#fff" : day.inMonth ? "#111827" : "rgba(100,116,139,0.30)",
+                    color: active ? "#B91C1C" : day.inMonth ? "#111827" : "rgba(100,116,139,0.30)",
                     fontSize: 10,
-                    fontWeight: active || inRange ? 850 : 700,
+                    fontWeight: active ? 850 : inRange ? 800 : 700,
                     cursor: "pointer",
-                    boxShadow: active ? "inset 0 1px 0.6px rgba(255,255,255,0.28), 0 5px 12px rgba(220,38,38,0.16)" : "none",
+                    boxShadow: active ? "inset 0 1px 0.6px rgba(255,255,255,0.92), 0 1px 4px rgba(220,38,38,0.08)" : "none",
+                    boxSizing: "border-box",
                   }}
                 >
                   {day.label}
@@ -602,7 +603,17 @@ export function PlaceholderCardNine() {
           </button>
         </div>
 
-        <div style={{ position: "relative", display: "flex", justifyContent: "center", marginTop: 0, width: "100%", maxWidth: 360 }}>
+        <div
+          style={{
+            position: "relative",
+            display: "flex",
+            justifyContent: "center",
+            alignSelf: "center",
+            margin: "0 auto",
+            width: "100%",
+            maxWidth: 360,
+          }}
+        >
           <svg viewBox="0 0 360 160" width="100%" height={160} style={{ display: "block" }}>
             <path
               d={describeDonutSegment(180, 146, 123, 93, gaugeStart, leftEnd)}

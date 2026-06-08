@@ -205,7 +205,7 @@ export function PlatzierungenCard() {
       >
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Dritte Key Card
+            Platzierungen
           </div>
           <div style={{ fontSize: 17, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
             Coke Platzierungen vs Mitbewerber Platzierungen

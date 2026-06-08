@@ -2290,6 +2290,16 @@ function JumpNavigator({
     { key: "kuehler",    label: "Kühler",     color: "#d97706", answered: kuehlerAnsweredCount, total: kuehlerQuestions.length },
     { key: "mhd",        label: "MHD",        color: "#7C3AED", answered: mhdAnsweredCount, total: mhdQuestions.length },
   ];
+  const visibleSectionTabs = sectionTabs.filter((tab) => tab.total > 0);
+  const effectiveActiveNavSection = visibleSectionTabs.some((tab) => tab.key === activeNavSection)
+    ? activeNavSection
+    : visibleSectionTabs[0]?.key ?? activeNavSection;
+
+  useEffect(() => {
+    if (visibleSectionTabs.length === 0) return;
+    if (visibleSectionTabs.some((tab) => tab.key === activeNavSection)) return;
+    setActiveNavSection(visibleSectionTabs[0].key);
+  }, [activeNavSection, visibleSectionTabs]);
 
   // Reusable module-group renderer
   function renderGroups(
@@ -2402,9 +2412,9 @@ function JumpNavigator({
           {/* Section tabs */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(0,0,0,0.25)", marginBottom: 8 }}>Sektionen</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {sectionTabs.map(({ key, label, color, answered, total }) => {
-                const isActive = activeNavSection === key;
+            <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+              {visibleSectionTabs.map(({ key, label, color, answered, total }) => {
+                const isActive = effectiveActiveNavSection === key;
                 const done = answered === total;
                 const isFlashing = flashSections.includes(key);
                 return (
@@ -2412,7 +2422,24 @@ function JumpNavigator({
                     key={key}
                     onClick={(e) => { e.stopPropagation(); setActiveNavSection(key); }}
                     className={isFlashing ? "nav-flash" : ""}
-                    style={{ flex: 1, padding: "7px 4px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 10, fontWeight: isActive ? 700 : 500, transition: "all 0.16s ease", background: isFlashing ? `${color}22` : isActive ? `${color}12` : "rgba(0,0,0,0.03)", color: isActive || isFlashing ? color : "rgba(0,0,0,0.45)", boxShadow: isActive ? `inset 0 0 0 1px ${color}30` : isFlashing ? `inset 0 0 0 1.5px ${color}60` : "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}
+                    style={{
+                      flex: visibleSectionTabs.length >= 3 ? 1 : "0 1 236px",
+                      maxWidth: visibleSectionTabs.length === 1 ? 260 : undefined,
+                      padding: "7px 4px",
+                      borderRadius: 9,
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 10,
+                      fontWeight: isActive ? 700 : 500,
+                      transition: "all 0.16s ease",
+                      background: isFlashing ? `${color}22` : isActive ? `${color}12` : "rgba(0,0,0,0.03)",
+                      color: isActive || isFlashing ? color : "rgba(0,0,0,0.45)",
+                      boxShadow: isActive ? `inset 0 0 0 1px ${color}30` : isFlashing ? `inset 0 0 0 1.5px ${color}60` : "none",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
                   >
                     <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: done ? color : isActive ? `${color}80` : "rgba(0,0,0,0.12)", transition: "all 0.15s ease" }} />
                     {label}
@@ -2435,9 +2462,9 @@ function JumpNavigator({
         }}>
           <style>{`.nav-scroll::-webkit-scrollbar { display: none; }`}</style>
           <div className="nav-scroll">
-            {activeNavSection === "fragebogen" && renderGroups(fragebogenGroups, answers, "#DC2626", handlePillTap, currentIndex)}
-            {activeNavSection === "kuehler"    && renderGroups(kuehlerGroups, kuehlerAnswers, "#d97706", (idx) => { onJumpKuehler(idx); onClose(); }, currentKuehlerIndex)}
-            {activeNavSection === "mhd"        && renderGroups(mhdGroups, mhdAnswers, "#7C3AED", (idx) => { onJumpMhd(idx); onClose(); }, currentMhdIndex)}
+            {effectiveActiveNavSection === "fragebogen" && renderGroups(fragebogenGroups, answers, "#DC2626", handlePillTap, currentIndex)}
+            {effectiveActiveNavSection === "kuehler"    && renderGroups(kuehlerGroups, kuehlerAnswers, "#d97706", (idx) => { onJumpKuehler(idx); onClose(); }, currentKuehlerIndex)}
+            {effectiveActiveNavSection === "mhd"        && renderGroups(mhdGroups, mhdAnswers, "#7C3AED", (idx) => { onJumpMhd(idx); onClose(); }, currentMhdIndex)}
           </div>
         </div>
       </div>
@@ -4846,23 +4873,24 @@ function MarktbesuchInner() {
             onMouseDown={(event) => event.stopPropagation()}
             style={{
               width: "min(360px, calc(100vw - 36px))",
-              borderRadius: 18,
-              border: "1px solid rgba(255,255,255,0.88)",
-              background: "rgba(255,255,255,0.92)",
-              boxShadow: "0 20px 54px rgba(15,23,42,0.18), 0 2px 12px rgba(15,23,42,0.08)",
+              borderRadius: 14,
+              border: "1px solid rgba(0,0,0,0.06)",
+              background: "#ffffff",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.04), 0 18px 42px rgba(15,23,42,0.10)",
               padding: 16,
               display: "flex",
               flexDirection: "column",
               gap: 12,
+              fontFamily: "var(--font-inter), Inter, system-ui, sans-serif",
             }}
           >
             {visitExitDialog === "choice" ? (
               <>
                 <div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#111827", lineHeight: 1.15 }}>
+                  <div style={{ fontSize: 14, fontWeight: 750, color: "#1a1a1a", lineHeight: 1.2 }}>
                     Fragebogen später fortsetzen?
                   </div>
-                  <div style={{ marginTop: 7, fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.52)", lineHeight: 1.55 }}>
+                  <div style={{ marginTop: 7, fontSize: 10, fontWeight: 450, color: "rgba(0,0,0,0.46)", lineHeight: 1.5 }}>
                     Deine bisherigen Antworten werden gespeichert. Der Marktbesuch bleibt ohne Endzeit offen und kann später über den aktiven Fragebogen wieder geöffnet werden.
                   </div>
                 </div>
@@ -4881,15 +4909,19 @@ function MarktbesuchInner() {
                     style={{
                       width: "100%",
                       border: "none",
-                      borderRadius: 9,
-                      padding: "9px 12px",
+                      borderRadius: 7,
+                      padding: "8px 12px",
                       color: "#fff",
-                      fontSize: 11,
-                      fontWeight: 800,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.01em",
                       cursor: visitExitBusy ? "not-allowed" : "pointer",
                       opacity: visitExitBusy ? 0.72 : 1,
-                      background: "linear-gradient(to bottom,#111827,#020617)",
-                      boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.24), inset 0 -1px 0 rgba(255,255,255,0.10), 0 0 0 1px rgba(2,6,23,0.72), 0 1px 6px rgba(15,23,42,0.28)",
+                      background: visitExitBusy ? "rgba(0,0,0,0.10)" : "linear-gradient(to bottom, #059669, #0cb880)",
+                      boxShadow: visitExitBusy
+                        ? "none"
+                        : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #048560, 0 1px 6px rgba(5,80,50,0.14)",
+                      fontFamily: "inherit",
                     }}
                   >
                     {visitExitBusy ? "Speichere..." : "Später fortsetzen"}
@@ -4905,14 +4937,17 @@ function MarktbesuchInner() {
                     disabled={visitExitBusy}
                     style={{
                       width: "100%",
-                      border: "1px solid rgba(220,38,38,0.18)",
-                      borderRadius: 9,
+                      border: "none",
+                      borderRadius: 7,
                       padding: "8px 12px",
-                      color: "#DC2626",
-                      fontSize: 11,
-                      fontWeight: 800,
+                      color: "rgba(180,60,60,0.72)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.01em",
                       cursor: visitExitBusy ? "not-allowed" : "pointer",
                       background: "rgba(220,38,38,0.06)",
+                      boxShadow: "0 0 0 0.5px rgba(220,38,38,0.12)",
+                      fontFamily: "inherit",
                     }}
                   >
                     Fragebogen abbrechen
@@ -4922,10 +4957,10 @@ function MarktbesuchInner() {
             ) : (
               <>
                 <div>
-                  <div style={{ fontSize: 16, fontWeight: 850, color: "#b91c1c", lineHeight: 1.15 }}>
+                  <div style={{ fontSize: 14, fontWeight: 750, color: "#1a1a1a", lineHeight: 1.2 }}>
                     Wirklich abbrechen?
                   </div>
-                  <div style={{ marginTop: 8, borderRadius: 12, border: "1px solid rgba(185,28,28,0.24)", background: "rgba(185,28,28,0.08)", color: "#7f1d1d", padding: "10px 11px", fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
+                  <div style={{ marginTop: 8, borderRadius: 10, border: "1px solid rgba(185,28,28,0.18)", background: "rgba(185,28,28,0.06)", color: "#7f1d1d", padding: "9px 10px", fontSize: 10, fontWeight: 650, lineHeight: 1.45 }}>
                     Alle Daten aus diesem Lauf werden gelöscht. Antworten, Fotos und Fortschritt werden verworfen und der Fragebogen kann danach nicht weitergeführt werden.
                   </div>
                 </div>
@@ -4948,13 +4983,15 @@ function MarktbesuchInner() {
                     style={{
                       flex: 1,
                       border: "none",
-                      borderRadius: 9,
-                      padding: "9px 10px",
-                      color: "rgba(0,0,0,0.56)",
-                      fontSize: 11,
-                      fontWeight: 800,
+                      borderRadius: 7,
+                      padding: "8px 10px",
+                      color: "rgba(0,0,0,0.48)",
+                      fontSize: 10,
+                      fontWeight: 650,
                       cursor: visitExitBusy ? "not-allowed" : "pointer",
-                      background: "rgba(0,0,0,0.06)",
+                      background: "rgba(0,0,0,0.04)",
+                      boxShadow: "0 0 0 0.5px rgba(0,0,0,0.06)",
+                      fontFamily: "inherit",
                     }}
                   >
                     Zurück
@@ -4966,15 +5003,19 @@ function MarktbesuchInner() {
                     style={{
                       flex: 1,
                       border: "none",
-                      borderRadius: 9,
-                      padding: "9px 10px",
+                      borderRadius: 7,
+                      padding: "8px 10px",
                       color: "#fff",
-                      fontSize: 11,
-                      fontWeight: 850,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.01em",
                       cursor: visitExitBusy ? "not-allowed" : "pointer",
                       opacity: visitExitBusy ? 0.72 : 1,
-                      background: "linear-gradient(to bottom,#DC2626,#b91c1c)",
-                      boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+                      background: visitExitBusy ? "rgba(0,0,0,0.10)" : "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                      boxShadow: visitExitBusy
+                        ? "none"
+                        : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+                      fontFamily: "inherit",
                     }}
                   >
                     {visitExitBusy ? "Breche ab..." : "Endgültig abbrechen"}

@@ -259,39 +259,48 @@ export default function GMDashboard() {
             width: 312,
             maxWidth: "calc(100vw - 32px)",
             textAlign: "left",
-            border: "1px solid rgba(220,38,38,0.10)",
-            borderRadius: 12,
-            background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.91))",
-            boxShadow: "0 16px 38px rgba(17,24,39,0.10), 0 2px 8px rgba(220,38,38,0.08), inset 0 1px 0 rgba(255,255,255,0.78)",
-            backdropFilter: "blur(20px)",
-            padding: "13px 14px 11px",
-            fontFamily: "inherit",
+            border: "1px solid rgba(0,0,0,0.06)",
+            borderRadius: 14,
+            backgroundColor: "#ffffff",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.04), 0 18px 42px rgba(15,23,42,0.10)",
+            padding: "14px",
+            fontFamily: "var(--font-inter), Inter, system-ui, sans-serif",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
             <span
               style={{
-                width: 8,
-                height: 8,
+                width: 7,
+                height: 7,
                 borderRadius: 999,
                 background: "#DC2626",
-                boxShadow: "0 0 0 4px rgba(220,38,38,0.09)",
+                boxShadow: "0 0 0 3px rgba(220,38,38,0.08)",
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: 11, fontWeight: 800, color: "#111827", letterSpacing: "0" }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.42)", letterSpacing: "0.08em", textTransform: "uppercase" as const }}>
               Aktiver Fragebogen
             </span>
-            <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 800, color: "#DC2626", fontVariantNumeric: "tabular-nums" }}>
+            <span style={{
+              marginLeft: "auto",
+              padding: "3px 7px",
+              borderRadius: 7,
+              background: "rgba(220,38,38,0.06)",
+              boxShadow: "inset 0 0 0 1px rgba(220,38,38,0.11)",
+              fontSize: 10,
+              fontWeight: 750,
+              color: "#DC2626",
+              fontVariantNumeric: "tabular-nums",
+            }}>
               {formatElapsedTime(activeVisitSeconds)}
             </span>
           </div>
           {activeVisitCancelConfirm ? (
             <>
-              <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", lineHeight: 1.25, marginBottom: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 750, color: "#1a1a1a", lineHeight: 1.25, marginBottom: 5 }}>
                 Fragebogen abbrechen?
               </div>
-              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.58)", lineHeight: 1.38 }}>
+              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.46)", lineHeight: 1.45 }}>
                 Willst du wirklich abbrechen? Alle Daten aus diesem laufenden Fragebogen werden geloescht.
               </div>
               {activeVisitCancelError && (
@@ -310,14 +319,15 @@ export default function GMDashboard() {
                   disabled={activeVisitCancelling}
                   style={{
                     height: 30,
-                    borderRadius: 8,
-                    border: "1px solid rgba(17,24,39,0.08)",
-                    background: "rgba(17,24,39,0.04)",
-                    color: "rgba(17,24,39,0.58)",
+                    borderRadius: 7,
+                    border: "none",
+                    background: "rgba(0,0,0,0.04)",
+                    color: "rgba(0,0,0,0.48)",
                     fontSize: 10,
-                    fontWeight: 850,
+                    fontWeight: 650,
                     cursor: activeVisitCancelling ? "not-allowed" : "pointer",
                     fontFamily: "inherit",
+                    boxShadow: "0 0 0 0.5px rgba(0,0,0,0.06)",
                   }}
                 >
                   Zurueck
@@ -328,14 +338,18 @@ export default function GMDashboard() {
                   disabled={activeVisitCancelling}
                   style={{
                     height: 30,
-                    borderRadius: 8,
-                    border: "1px solid rgba(220,38,38,0.18)",
-                    background: activeVisitCancelling ? "rgba(220,38,38,0.08)" : "rgba(220,38,38,0.10)",
-                    color: activeVisitCancelling ? "rgba(220,38,38,0.48)" : "#DC2626",
+                    borderRadius: 7,
+                    border: "none",
+                    background: activeVisitCancelling ? "rgba(0,0,0,0.10)" : "linear-gradient(to bottom, #DC2626, #b91c1c)",
+                    color: activeVisitCancelling ? "rgba(0,0,0,0.26)" : "#ffffff",
                     fontSize: 10,
-                    fontWeight: 900,
+                    fontWeight: 700,
+                    letterSpacing: "0.01em",
                     cursor: activeVisitCancelling ? "wait" : "pointer",
                     fontFamily: "inherit",
+                    boxShadow: activeVisitCancelling
+                      ? "none"
+                      : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
                   }}
                 >
                   {activeVisitCancelling ? "Loesche..." : "Abbrechen bestaetigen"}
@@ -344,36 +358,43 @@ export default function GMDashboard() {
             </>
           ) : (
             <>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#111827", lineHeight: 1.25, marginBottom: 5 }}>
+              <div style={{ fontSize: 13, fontWeight: 750, color: "#1a1a1a", lineHeight: 1.25, marginBottom: 5 }}>
                 {activeVisitCampaignNames[0] ?? "Marktbesuch"}
               </div>
               {activeVisitCampaignNames.length > 1 && (
-                <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(17,24,39,0.52)", marginBottom: 5 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.38)", marginBottom: 5 }}>
                   +{activeVisitCampaignNames.length - 1} weitere Sektion
                 </div>
               )}
-              <div style={{ fontSize: 10, fontWeight: 650, color: "rgba(17,24,39,0.54)", lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <div style={{ fontSize: 10, fontWeight: 650, color: "rgba(0,0,0,0.52)", lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {activeVisitPayload.market.name}
               </div>
-              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.46)", lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.36)", lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {activeVisitAddress}
               </div>
-              <div style={{ marginTop: 10, height: 1, background: "linear-gradient(90deg, rgba(34,197,94,0.16), rgba(220,38,38,0.10), rgba(17,24,39,0.045))" }} />
-              <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", gap: 10 }}>
+              <div style={{ marginTop: 10, height: 1, background: "rgba(0,0,0,0.06)" }} />
+              <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: "1fr 1fr", alignItems: "center", gap: 8 }}>
                 <button
                   type="button"
                   onClick={() => { void openActiveVisit(); }}
                   disabled={activeVisitOpening}
                   style={{
+                    height: 29,
                     border: "none",
-                    background: "transparent",
-                    padding: 0,
-                    textAlign: "left",
+                    borderRadius: 7,
+                    background: activeVisitOpening ? "rgba(0,0,0,0.10)" : "linear-gradient(to bottom, #059669, #0cb880)",
+                    padding: "0 10px",
+                    textAlign: "center",
                     fontSize: 10,
-                    fontWeight: 900,
-                    color: activeVisitOpening ? "rgba(22,163,74,0.48)" : "#16A34A",
+                    fontWeight: 700,
+                    letterSpacing: "0.01em",
+                    color: activeVisitOpening ? "rgba(0,0,0,0.26)" : "#ffffff",
                     cursor: activeVisitOpening ? "wait" : "pointer",
                     fontFamily: "inherit",
+                    boxShadow: activeVisitOpening
+                      ? "none"
+                      : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #048560, 0 1px 6px rgba(5,80,50,0.14)",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {activeVisitOpening ? "Oeffne..." : "Zum Fragebogen"}
@@ -385,15 +406,20 @@ export default function GMDashboard() {
                     setActiveVisitCancelError(null);
                   }}
                   style={{
+                    height: 29,
                     border: "none",
-                    background: "transparent",
-                    padding: 0,
-                    textAlign: "right",
-                    fontSize: 10,
-                    fontWeight: 850,
-                    color: "rgba(220,38,38,0.72)",
+                    borderRadius: 7,
+                    background: "rgba(220,38,38,0.06)",
+                    padding: "0 9px",
+                    textAlign: "center",
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: "0.01em",
+                    color: "rgba(180,60,60,0.72)",
                     cursor: "pointer",
                     fontFamily: "inherit",
+                    boxShadow: "0 0 0 0.5px rgba(220,38,38,0.12)",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   Fragebogen abbrechen

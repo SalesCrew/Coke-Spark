@@ -300,9 +300,10 @@ function isQuestionComplete(q: SampleQuestion, rawAnswer: string | string[] | un
   return normalizeAnswerForPersistence(q, rawAnswer) !== undefined;
 }
 
-/** True when a tagged photo question specifically is ready to proceed (covers both required and optional) */
+/** True when a tagged photo question specifically is ready to proceed. Optional photo questions are skippable. */
 function isTaggedPhotoReady(q: SampleQuestion, rawAnswer: string | string[] | undefined): boolean {
   if (q.type !== "photo") return true;
+  if (!q.required) return true;
   if (!q.config?.tagsEnabled || !q.config?.tagIds?.length) return true; // no tags configured
   const state = decodePhotoAnswer(rawAnswer);
   return state.photos.length > 0 && state.selectedTagIds.length > 0;
@@ -2120,7 +2121,7 @@ function QuestionCard({
                   <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.35)" }}>
                     Tags
                   </span>
-                  {selectedTagIds.length === 0 && (
+                  {question.required && selectedTagIds.length === 0 && (
                     <span style={{ fontSize: 9, color: "rgba(220,38,38,0.7)", fontWeight: 600, marginLeft: 2 }}>— mind. 1 auswählen</span>
                   )}
                 </div>
@@ -2269,14 +2270,32 @@ function JumpNavigator({
   const fragebogenGroups = buildGroups(questions, answers);
   const kuehlerGroups = buildGroups(kuehlerQuestions, kuehlerAnswers);
   const mhdGroups = buildGroups(mhdQuestions, mhdAnswers);
+  const moduleIdsSignature = Array.from(
+    new Set([...fragebogenGroups, ...kuehlerGroups, ...mhdGroups].map((group) => group.moduleId)),
+  ).join("|");
 
   // Active section tab inside the navigator
   type NavSection = "fragebogen" | "kuehler" | "mhd";
   const [activeNavSection, setActiveNavSection] = useState<NavSection>("fragebogen");
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
 
+  useEffect(() => {
+    if (!moduleIdsSignature) return;
+    const moduleIds = moduleIdsSignature.split("|");
+    setExpandedModules((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      moduleIds.forEach((moduleId) => {
+        if (moduleId in next) return;
+        next[moduleId] = true;
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [moduleIdsSignature]);
+
   function toggleModule(moduleId: string) {
-    setExpandedModules((prev) => ({ ...prev, [moduleId]: !prev[moduleId] }));
+    setExpandedModules((prev) => ({ ...prev, [moduleId]: prev[moduleId] === false }));
   }
 
   function handlePillTap(i: number) { onJump(i); onClose(); }
@@ -2312,7 +2331,7 @@ function JumpNavigator({
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {groups.map((group) => {
-          const isExpanded = !!expandedModules[group.moduleId];
+          const isExpanded = expandedModules[group.moduleId] !== false;
           const groupAnswered = group.questions.filter(({ q }) => answerMap[q.id] !== undefined).length;
           const groupTotal = group.questions.length;
           const allGroupDone = groupAnswered === groupTotal;
@@ -2322,7 +2341,7 @@ function JumpNavigator({
           return (
             <div key={group.moduleId}>
               <button
-                onClick={() => { if (!isExpanded) onTap(group.questions[0].idx); else toggleModule(group.moduleId); }}
+                onClick={() => onTap(group.questions[0].idx)}
                 onContextMenu={(e) => { e.preventDefault(); toggleModule(group.moduleId); }}
                 className={flashModules.includes(group.moduleId) ? "nav-flash" : ""}
                 style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left", transition: "all 0.15s ease", background: flashModules.includes(group.moduleId) ? `${color}14` : hasCurrentQ && !isExpanded ? `${color}0a` : "transparent", boxShadow: flashModules.includes(group.moduleId) ? `inset 0 0 0 1.5px ${color}50` : hasCurrentQ && !isExpanded ? `inset 0 0 0 1px ${color}26` : "none" }}
@@ -2336,7 +2355,7 @@ function JumpNavigator({
                 <span style={{ fontSize: 11, fontWeight: hasCurrentQ ? 600 : 500, color: hasCurrentQ ? "#1a1a1a" : "rgba(0,0,0,0.55)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {group.moduleName}
                 </span>
-                <div onClick={(e) => { e.stopPropagation(); toggleModule(group.moduleId); }} style={{ width: 20, height: 20, borderRadius: 5, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.04)", transition: "transform 0.18s ease", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                <div onClick={(e) => { e.stopPropagation(); toggleModule(group.moduleId); }} style={{ width: 20, height: 20, borderRadius: 5, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.04)", transition: "transform 0.18s ease", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)", cursor: "pointer" }}>
                   <ChevronDown size={10} strokeWidth={2.5} color="rgba(0,0,0,0.3)" />
                 </div>
               </button>

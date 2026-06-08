@@ -66,6 +66,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isBilla = pathname.startsWith("/admin/billa");
   const isFbManagement = pathname.startsWith("/admin/fbmanagement");
   const isFbNeu = pathname === "/admin/fbmanagement/neu";
+  const isFbExtend = pathname.startsWith("/admin/fbmanagement/erweitern/");
   const isPraemien = pathname.startsWith("/admin/praemien");
   const isMaerkte = pathname.startsWith("/admin/maerkte");
   const isLager = pathname.startsWith("/admin/lager");
@@ -658,7 +659,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Fragebogen erstellen
                   </button>
                 </>
-              ) : isFbNeu ? (
+              ) : isFbNeu || isFbExtend ? (
                 <Link href="/admin/fbmanagement" style={{ textDecoration: "none" }}>
                   <button
                     style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.5)", background: "linear-gradient(to bottom, #ffffff, #f5f5f5)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)" }}

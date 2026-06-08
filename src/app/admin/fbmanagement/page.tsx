@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle, ListPlus } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
 import type { Campaign, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { ConditionalRule, Fragebogen, Module, Question } from "@/types/fragebogen";
@@ -5340,6 +5341,7 @@ function MarketAddPanel({
 // ── Page ──────────────────────────────────────────────────────
 
 export default function FbManagementPage() {
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [marketFilter, setMarketFilter] = useState<"all" | "finished" | "pending">("all");
   const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
@@ -5764,7 +5766,8 @@ export default function FbManagementPage() {
     event.preventDefault();
     if (isDeletingCampaign || isCampaignBusy(targetCampaignId)) return;
     const menuWidth = 200;
-    const menuHeight = 56;
+    const targetCampaign = campaignsView.find((entry) => entry.id === targetCampaignId);
+    const menuHeight = targetCampaign && targetCampaign.section !== "flex" ? 90 : 56;
     const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
     const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
     setCampaignContextMenu({
@@ -5772,7 +5775,7 @@ export default function FbManagementPage() {
       x: Math.min(Math.max(8, event.clientX), maxX),
       y: Math.min(Math.max(8, event.clientY), maxY),
     });
-  }, [campaignPendingOps, isDeletingCampaign]);
+  }, [campaignPendingOps, campaignsView, isDeletingCampaign]);
   const handleOpenCampaignDeleteDialog = useCallback((mode: "soft" | "hard") => {
     if (!campaignContextMenu?.campaignId) return;
     setCampaignDeleteDialog({ campaignId: campaignContextMenu.campaignId, mode });
@@ -6889,6 +6892,44 @@ export default function FbManagementPage() {
           }}
           onMouseDown={(event) => event.stopPropagation()}
         >
+          {contextMenuCampaign.section !== "flex" && (
+            <button
+              type="button"
+              onClick={() => {
+                setCampaignContextMenu(null);
+                router.push(`/admin/fbmanagement/erweitern/${contextMenuCampaign.id}`);
+              }}
+              disabled={isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                width: "100%",
+                border: "none",
+                borderRadius: 6,
+                padding: "7px 10px",
+                background: "none",
+                textAlign: "left",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#111827",
+                cursor: isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id) ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+                transition: "background-color 0.1s ease",
+                opacity: isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id) ? 0.6 : 1,
+              }}
+              onMouseEnter={(event) => {
+                if (isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)) return;
+                event.currentTarget.style.backgroundColor = "rgba(0,0,0,0.045)";
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.backgroundColor = "transparent";
+              }}
+            >
+              <ListPlus size={12} strokeWidth={1.9} color="#111827" />
+              Erweitern...
+            </button>
+          )}
           <button
             type="button"
             onClick={() => handleOpenCampaignDeleteDialog("soft")}

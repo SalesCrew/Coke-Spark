@@ -309,6 +309,7 @@ function purgeAuthScopedClientState(options?: { emit?: boolean }): void {
       removeStorageKeysWithPrefix(window.sessionStorage, GM_KPI_SUMMARY_CACHE_PREFIX);
       window.sessionStorage.removeItem(LEGACY_GM_KPI_SUMMARY_CACHE_KEY);
       removeStorageKeysWithPrefix(window.sessionStorage, GM_VISIT_PRELOAD_CACHE_PREFIX);
+      removeStorageKeysWithPrefix(window.sessionStorage, GM_ACTIVE_VISIT_HANDOFF_CACHE_PREFIX);
       window.localStorage.removeItem("admin_market_visits_v1");
       window.localStorage.removeItem("admin_photo_tag_pool_v1");
       removeStorageKeysWithPrefix(window.localStorage, "admin_photo_tag_pool_v2:");
@@ -1774,7 +1775,9 @@ export type GmVisitPreloadCachePayload = GmVisitSessionReadPayload;
 
 const GM_VISIT_PRELOAD_CACHE_PREFIX = "gm_visit_preload_v2:";
 const GM_VISIT_START_PRELOAD_CACHE_PREFIX = "gm_visit_start_preload_v1:";
+const GM_ACTIVE_VISIT_HANDOFF_CACHE_PREFIX = "gm_active_visit_handoff_v1:";
 const GM_VISIT_PRELOAD_CACHE_TTL_MS = 10 * 60 * 1000;
+const GM_ACTIVE_VISIT_HANDOFF_CACHE_TTL_MS = 2 * 60 * 1000;
 
 type GmVisitPreloadCacheEnvelope = {
   ownerUserId: string;
@@ -1795,12 +1798,24 @@ type GmVisitStartPreloadCacheEnvelope = {
 
 const gmVisitStartPreloadMemoryCache: Record<string, GmVisitStartPreloadCacheEnvelope> = {};
 
+type GmActiveVisitHandoffCacheEnvelope = {
+  ownerUserId: string;
+  sessionId: string;
+  createdAtMs: number;
+  payload: GmVisitSessionReadPayload;
+};
+
+const gmActiveVisitHandoffMemoryCache: Record<string, GmActiveVisitHandoffCacheEnvelope> = {};
+
 function clearInMemoryGmVisitPreloadCache(): void {
   for (const key of Object.keys(gmVisitPreloadMemoryCache)) {
     delete gmVisitPreloadMemoryCache[key];
   }
   for (const key of Object.keys(gmVisitStartPreloadMemoryCache)) {
     delete gmVisitStartPreloadMemoryCache[key];
+  }
+  for (const key of Object.keys(gmActiveVisitHandoffMemoryCache)) {
+    delete gmActiveVisitHandoffMemoryCache[key];
   }
 }
 
@@ -1818,6 +1833,15 @@ function normalizeVisitPreloadCampaignIds(campaignIds: string[]): string[] {
 
 function getGmVisitStartPreloadMemoryKey(userId: string, marketId: string, campaignIds: string[]): string {
   return `${userId}:${marketId}:${normalizeVisitPreloadCampaignIds(campaignIds).join(",")}`;
+}
+
+function getGmActiveVisitHandoffMemoryKey(userId: string): string {
+  return userId;
+}
+
+function getGmActiveVisitHandoffCacheKey(): string {
+  const userId = getActiveAuthUserId();
+  return userId ? `${GM_ACTIVE_VISIT_HANDOFF_CACHE_PREFIX}${userId}` : `${GM_ACTIVE_VISIT_HANDOFF_CACHE_PREFIX}anon`;
 }
 
 export function getGmVisitStartPreloadCacheKey(marketId: string, campaignIds: string[]): string {
@@ -2016,6 +2040,103 @@ export function clearGmVisitStartPreloadCache(input: {
   }
 }
 
+export function setLatestActiveGmVisitHandoff(payload: GmVisitSessionReadPayload): void {
+  const userId = getActiveAuthUserId();
+  const sessionId = payload?.session?.id;
+  if (!userId || !sessionId || payload.session.status !== "draft" || payload.session.submittedAt) return;
+  const envelope: GmActiveVisitHandoffCacheEnvelope = {
+    ownerUserId: userId,
+    sessionId,
+    createdAtMs: Date.now(),
+    payload,
+  };
+  gmActiveVisitHandoffMemoryCache[getGmActiveVisitHandoffMemoryKey(userId)] = envelope;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(getGmActiveVisitHandoffCacheKey(), JSON.stringify(envelope));
+  } catch {
+    // Keep in-memory cache as best-effort fallback.
+  }
+}
+
+export function readLatestActiveGmVisitHandoff(): GmVisitSessionReadPayload | null {
+  const userId = getActiveAuthUserId();
+  if (!userId) return null;
+  const memoryKey = getGmActiveVisitHandoffMemoryKey(userId);
+  const inMemory = gmActiveVisitHandoffMemoryCache[memoryKey];
+  if (inMemory) {
+    if (
+      inMemory.ownerUserId === userId &&
+      Date.now() - inMemory.createdAtMs <= GM_ACTIVE_VISIT_HANDOFF_CACHE_TTL_MS &&
+      inMemory.payload.session?.id === inMemory.sessionId &&
+      inMemory.payload.session.status === "draft" &&
+      !inMemory.payload.session.submittedAt
+    ) {
+      return inMemory.payload;
+    }
+    delete gmActiveVisitHandoffMemoryCache[memoryKey];
+  }
+  if (typeof window === "undefined") return null;
+  const key = getGmActiveVisitHandoffCacheKey();
+  let raw: string | null = null;
+  try {
+    raw = window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<GmActiveVisitHandoffCacheEnvelope>;
+    const createdAtMs = Number(parsed.createdAtMs ?? 0);
+    const payload = parsed.payload;
+    if (
+      !parsed ||
+      parsed.ownerUserId !== userId ||
+      !parsed.sessionId ||
+      !Number.isFinite(createdAtMs) ||
+      Date.now() - createdAtMs > GM_ACTIVE_VISIT_HANDOFF_CACHE_TTL_MS ||
+      !payload ||
+      payload.session?.id !== parsed.sessionId ||
+      payload.session.status !== "draft" ||
+      payload.session.submittedAt
+    ) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return payload;
+  } catch {
+    window.sessionStorage.removeItem(key);
+    return null;
+  }
+}
+
+export function clearLatestActiveGmVisitHandoff(sessionId?: string): void {
+  const userId = getActiveAuthUserId();
+  if (userId) {
+    const memoryKey = getGmActiveVisitHandoffMemoryKey(userId);
+    const inMemory = gmActiveVisitHandoffMemoryCache[memoryKey];
+    if (!sessionId || inMemory?.sessionId === sessionId) {
+      delete gmActiveVisitHandoffMemoryCache[memoryKey];
+    }
+  }
+  if (typeof window === "undefined") return;
+  const key = getGmActiveVisitHandoffCacheKey();
+  try {
+    if (!sessionId) {
+      window.sessionStorage.removeItem(key);
+      return;
+    }
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Partial<GmActiveVisitHandoffCacheEnvelope>;
+    if (parsed.sessionId === sessionId) {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    window.sessionStorage.removeItem(key);
+  }
+}
+
 export async function fetchGmVisitSession(sessionId: string): Promise<GmVisitSessionReadPayload> {
   return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`, { cache: "no-store" })) as GmVisitSessionReadPayload;
 }
@@ -2051,6 +2172,16 @@ export async function cancelGmVisitSession(sessionId: string): Promise<{ ok: boo
   return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`, {
     method: "DELETE",
   })) as { ok: boolean; sessionId: string; status: "cancelled" };
+}
+
+export async function updateGmVisitSessionStart(
+  sessionId: string,
+  input: { startedAt: string },
+): Promise<{ ok: boolean; session: { id: string; status: "draft"; startedAt: string; submittedAt: null } }> {
+  return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}/start`, {
+    method: "PATCH",
+    body: JSON.stringify({ startedAt: input.startedAt }),
+  })) as { ok: boolean; session: { id: string; status: "draft"; startedAt: string; submittedAt: null } };
 }
 
 export async function saveGmVisitAnswer(input: {

@@ -124,4 +124,3 @@ export function clearLocalActiveVisitSnapshot(input: {
   if (!localStorage || !userId) return;
   localStorage.removeItem(keyFor(userId, input.marketId, input.campaignIds));
 }
-

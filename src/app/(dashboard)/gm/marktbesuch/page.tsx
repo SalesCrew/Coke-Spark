@@ -18,16 +18,13 @@ import {
   readGmVisitPreloadCache,
   readGmVisitStartPreloadCache,
   saveGmVisitAnswer,
+  setLatestActiveGmVisitHandoff,
   submitGmVisitSession,
+  updateGmVisitSessionStart,
   type GmVisitSessionReadPayload,
   type GmVisitStartPayload,
   type GmVisitStartSection,
 } from "@/lib/api/backend";
-import {
-  clearLocalActiveVisitSnapshot,
-  readLocalActiveVisitSnapshot,
-  saveLocalActiveVisitSnapshot,
-} from "@/lib/gm/visitSessionPersistence";
 import { getPhotoTagPoolStorageKey } from "@/utils/photoTags";
 import { computeHiddenQuestionIds as computeRuleHiddenQuestionIds } from "@/lib/conditional-visibility";
 import {
@@ -2340,7 +2337,7 @@ function JumpNavigator({
                     const isDone = answerMap[q.id] !== undefined;
                     const isCurrent = highlightCurrentIdx === idx;
                     return (
-                      <button key={q.id} onClick={() => onTap(idx)} style={{ width: "100%", padding: "6px 10px", borderRadius: 7, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, textAlign: "left", transition: "all 0.15s ease", background: isCurrent ? `${color}0a` : "transparent", boxShadow: isCurrent ? `inset 0 0 0 1px ${color}20` : "none" }}>
+                      <button key={`${q.id}-${idx}`} onClick={() => onTap(idx)} style={{ width: "100%", padding: "6px 10px", borderRadius: 7, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, textAlign: "left", transition: "all 0.15s ease", background: isCurrent ? `${color}0a` : "transparent", boxShadow: isCurrent ? `inset 0 0 0 1px ${color}20` : "none" }}>
                         <div style={{ width: 16, height: 16, borderRadius: 5, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: isDone ? color : isCurrent ? `${color}14` : "rgba(0,0,0,0.05)" }}>
                           {isDone ? <Check size={7} strokeWidth={3} color="#fff" /> : <span style={{ fontSize: 8, fontWeight: 700, color: isCurrent ? color : "rgba(0,0,0,0.3)" }}>{idx + 1}</span>}
                         </div>
@@ -2813,6 +2810,36 @@ function MarktbesuchInner() {
   }, [setSessionIdInUrl]);
 
   useEffect(() => {
+    if (!hasVisitStartParams || phase !== "abschluss" || !manualTimeEdited || !visitSessionId || !visitSessionStartedAt || !isValidHm(vonVal)) return;
+    const baseDate = new Date(visitSessionStartedAt);
+    if (!Number.isFinite(baseDate.getTime())) return;
+    const startedAtIso = toIsoForLocalTime(baseDate, vonVal);
+    if (startedAtIso === visitSessionStartedAt) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setSubmitSessionError(null);
+      void updateGmVisitSessionStart(visitSessionId, { startedAt: startedAtIso })
+        .then((result) => {
+          setVisitSessionStartedAt(result.session.startedAt);
+          setTimerSeconds(secondsSince(result.session.startedAt));
+        })
+        .catch((error) => {
+          console.error("visit start time update failed", error);
+          setSubmitSessionError("Startzeit konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.");
+        });
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    hasVisitStartParams,
+    manualTimeEdited,
+    phase,
+    visitSessionId,
+    visitSessionStartedAt,
+    vonVal,
+  ]);
+
+  useEffect(() => {
     if (!hasVisitStartParams || visitBootstrapDone) return;
     const runKey = `${marketId}|${campaignIdsParam}|${sessionIdFromParams.trim()}|${visitStartRetryNonce}`;
     if (bootstrapRunKeyRef.current === runKey) return;
@@ -2862,13 +2889,7 @@ function MarktbesuchInner() {
           return;
         }
 
-        const localSnapshot = readLocalActiveVisitSnapshot({ marketId, campaignIds });
-        let activeVisit: Awaited<ReturnType<typeof fetchActiveGmVisitSession>> | null = null;
-        try {
-          activeVisit = await fetchActiveGmVisitSession({ marketId, campaignIds });
-        } catch (error) {
-          if (!localSnapshot) throw error;
-        }
+        const activeVisit = await fetchActiveGmVisitSession({ marketId, campaignIds });
         if (isStale()) return;
         if (activeVisit?.session?.id) {
           const hydratedPayload = await fetchGmVisitSession(activeVisit.session.id);
@@ -2876,42 +2897,6 @@ function MarktbesuchInner() {
           hydrateFromSessionPayload(hydratedPayload);
           setVisitBootstrapDone(true);
           return;
-        }
-
-        if (localSnapshot) {
-          setVisitSessionStartedAt(localSnapshot.clientStartedAt);
-          setVonVal(hhmmFromIso(localSnapshot.clientStartedAt));
-          setTimerSeconds(secondsSince(localSnapshot.clientStartedAt));
-          setTimerRunning(true);
-          setTimerStopped(false);
-          setPhase("active");
-          setPhaseVisible(true);
-          try {
-            const created = await createGmVisitSession({
-              marketId,
-              campaignIds,
-              clientSessionToken: localSnapshot.clientSessionToken,
-              startedAt: localSnapshot.clientStartedAt,
-            });
-            if (isStale()) return;
-            saveLocalActiveVisitSnapshot({
-              marketId,
-              campaignIds,
-              clientSessionToken: localSnapshot.clientSessionToken,
-              clientStartedAt: localSnapshot.clientStartedAt,
-              sessionId: created.session.id,
-            });
-            const hydratedPayload = await fetchGmVisitSession(created.session.id);
-            if (isStale()) return;
-            hydrateFromSessionPayload(hydratedPayload);
-            setVisitBootstrapDone(true);
-            return;
-          } catch {
-            if (isStale()) return;
-            setVisitStartError("Marktbesuch-Start ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
-            setVisitBootstrapDone(true);
-            return;
-          }
         }
 
         const payload = await fetchGmVisitStartPayload(marketId, campaignIds);
@@ -3185,6 +3170,7 @@ function MarktbesuchInner() {
   }, [activeSection, phase]);
 
   const cc = chainColor(chain);
+  const isVisitBootstrapLoading = hasVisitStartParams && !visitBootstrapDone && visitStartLoading;
 
   // Phase transition helper
   function transitionTo(next: Phase) {
@@ -3244,6 +3230,83 @@ function MarktbesuchInner() {
     return { ok: failedQuestionIds.length === 0, failedQuestionIds };
   }, []);
 
+  async function persistVisitStartBeforeLeaving(): Promise<boolean> {
+    if (!hasVisitStartParams || !manualTimeEdited) return true;
+    if (!visitSessionId) return false;
+    if (!visitSessionStartedAt || !isValidHm(vonVal)) {
+      setVisitExitError("Startzeit konnte nicht gespeichert werden. Bitte gueltige Zeit im Format HH:MM eingeben.");
+      return false;
+    }
+    let startedAtIso = visitSessionStartedAt ?? new Date().toISOString();
+    const baseDate = new Date(visitSessionStartedAt);
+    if (Number.isFinite(baseDate.getTime())) {
+      startedAtIso = toIsoForLocalTime(baseDate, vonVal);
+    }
+    try {
+      const result = await updateGmVisitSessionStart(visitSessionId, { startedAt: startedAtIso });
+      setVisitSessionStartedAt(result.session.startedAt);
+      setTimerSeconds(secondsSince(result.session.startedAt));
+      return true;
+    } catch (error) {
+      console.error("visit start time update before leaving failed", error);
+      setVisitExitError("Startzeit konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.");
+      return false;
+    }
+  }
+
+  function buildActiveVisitHandoffPayload(): GmVisitSessionReadPayload | null {
+    if (!hasVisitStartParams || !visitSessionId || !visitSessionStartedAt) return null;
+    const addressParts = address
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const lastAddressPart = addressParts[addressParts.length - 1] ?? "";
+    const postalCityMatch = lastAddressPart.match(/^(\d{4,5})\s+(.+)$/);
+    const streetAddress = postalCityMatch && addressParts.length > 1
+      ? addressParts.slice(0, -1).join(", ")
+      : address;
+
+    return {
+      session: {
+        id: visitSessionId,
+        status: "draft",
+        startedAt: visitSessionStartedAt,
+        submittedAt: null,
+      },
+      market: {
+        id: marketId,
+        name: chain,
+        address: streetAddress,
+        postalCode: postalCityMatch?.[1] ?? "",
+        city: postalCityMatch?.[2] ?? "",
+      },
+      sections: visitSections.map((section, orderIndex) => ({
+        id: `handoff-${section.campaignId}-${section.section}-${orderIndex}`,
+        section: section.section,
+        campaignId: section.campaignId,
+        campaignName: section.campaignName,
+        fragebogenId: section.fragebogenId || null,
+        fragebogenName: section.fragebogenName,
+        orderIndex,
+        questions: section.questions.map((question) => ({
+          id: question.id,
+          questionId: question.questionId,
+          type: question.type,
+          text: question.text,
+          required: question.required,
+          singleChoiceAvailability: question.singleChoiceAvailability ?? null,
+          singleChoiceAvailabilityType: question.singleChoiceAvailabilityType ?? null,
+          config: question.config,
+          rules: question.rules,
+          chains: question.chains,
+          appliesToMarketChain: question.appliesToMarketChain,
+          answer: null,
+          comment: questionComments[question.id] ?? "",
+        })),
+      })),
+    };
+  }
+
   async function handleContinueVisitLater() {
     if (visitExitBusy) return;
     setVisitExitBusy(true);
@@ -3253,6 +3316,12 @@ function MarktbesuchInner() {
       if (!flushResult.ok) {
         setVisitExitError("Speichern der Antworten fehlgeschlagen. Bitte kurz warten und erneut versuchen.");
         return;
+      }
+      const startPersisted = await persistVisitStartBeforeLeaving();
+      if (!startPersisted) return;
+      const handoffPayload = buildActiveVisitHandoffPayload();
+      if (handoffPayload) {
+        setLatestActiveGmVisitHandoff(handoffPayload);
       }
       router.push("/gm");
     } catch (error) {
@@ -3270,9 +3339,6 @@ function MarktbesuchInner() {
     try {
       if (visitSessionId) {
         await cancelGmVisitSession(visitSessionId);
-      }
-      if (hasVisitStartParams) {
-        clearLocalActiveVisitSnapshot({ marketId, campaignIds });
       }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
@@ -3336,9 +3402,6 @@ function MarktbesuchInner() {
         });
       } else {
         await submitGmVisitSession(visitSessionId);
-      }
-      if (hasVisitStartParams) {
-        clearLocalActiveVisitSnapshot({ marketId, campaignIds });
       }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
@@ -3668,16 +3731,6 @@ function MarktbesuchInner() {
 
   async function handleTimerStart() {
     if (visitStartBlocked) return;
-    if (visitSessionId) {
-      const startedAt = visitSessionStartedAt ?? new Date().toISOString();
-      setVisitSessionStartedAt(startedAt);
-      setVonVal(hhmmFromIso(startedAt));
-      setTimerSeconds(secondsSince(startedAt));
-      setTimerRunning(true);
-      setTimerStopped(false);
-      transitionTo("active");
-      return;
-    }
     if (!hasVisitStartParams) {
       setTimerRunning(true);
       setTimerStopped(false);
@@ -3685,46 +3738,34 @@ function MarktbesuchInner() {
       return;
     }
 
-    const localSnapshot = readLocalActiveVisitSnapshot({ marketId, campaignIds });
-    const clientStartedAt = localSnapshot?.clientStartedAt ?? new Date().toISOString();
+    const clientStartedAt = new Date().toISOString();
     const clientSessionToken =
-      localSnapshot?.clientSessionToken ??
       (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).slice(0, 120);
-
-    saveLocalActiveVisitSnapshot({
-      marketId,
-      campaignIds,
-      clientStartedAt,
-      clientSessionToken,
-      sessionId: localSnapshot?.sessionId ?? null,
-    });
     setVisitStartError(null);
-    setVisitSessionStartedAt(clientStartedAt);
-    setVonVal(hhmmFromIso(clientStartedAt));
-    setTimerSeconds(secondsSince(clientStartedAt));
-    setTimerRunning(true);
-    setTimerStopped(false);
-    transitionTo("active");
 
     try {
       setVisitStartLoading(true);
+      const sessionId = visitSessionId;
+      if (sessionId) {
+        const updated = await updateGmVisitSessionStart(sessionId, { startedAt: clientStartedAt });
+        const hydratedPayload = await fetchGmVisitSession(updated.session.id);
+        hydrateFromSessionPayload(hydratedPayload);
+        return;
+      }
+
       const created = await createGmVisitSession({
         marketId,
         campaignIds,
         clientSessionToken,
         startedAt: clientStartedAt,
       });
-      saveLocalActiveVisitSnapshot({
-        marketId,
-        campaignIds,
-        clientStartedAt,
-        clientSessionToken,
-        sessionId: created.session.id,
-      });
       const hydratedPayload = await fetchGmVisitSession(created.session.id);
       hydrateFromSessionPayload(hydratedPayload);
-    } catch {
-      setVisitStartError("Marktbesuch-Start ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : "Start konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.";
+      setVisitStartError(message);
     } finally {
       setVisitStartLoading(false);
     }
@@ -3766,7 +3807,68 @@ function MarktbesuchInner() {
       >
 
         {/* ── IDLE PHASE ──────────────────────────────────────────────────── */}
-        {phase === "idle" && (
+        {phase === "idle" && isVisitBootstrapLoading && (
+          <div style={{
+            minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 24px 80px",
+          }}>
+            <style>{`
+              @keyframes visitBootstrapIn {
+                from { opacity: 0; transform: scale(0.96) translateY(8px); }
+                to { opacity: 1; transform: scale(1) translateY(0); }
+              }
+              @keyframes visitBootstrapStripe {
+                from { background-position: 0 0; }
+                to { background-position: 28px 0; }
+              }
+            `}</style>
+            <div style={{
+              width: "100%",
+              maxWidth: 320,
+              backgroundColor: "rgba(255,255,255,0.74)",
+              backdropFilter: "blur(16px)",
+              WebkitBackdropFilter: "blur(16px)",
+              borderRadius: 18,
+              border: "1px solid rgba(255,255,255,0.9)",
+              boxShadow: "0 2px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)",
+              padding: "24px 24px 22px",
+              animation: "visitBootstrapIn 0.28s cubic-bezier(0.4,0,0.2,1) both",
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#991b1b", letterSpacing: "-0.01em", textAlign: "center" }}>
+                Marktbesuch wird vorbereitet...
+              </div>
+              <div
+                style={{
+                  marginTop: 10,
+                  height: 8,
+                  borderRadius: 99,
+                  background: "rgba(0,0,0,0.06)",
+                  overflow: "hidden",
+                  boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.04)",
+                }}
+              >
+                <div
+                  style={{
+                    width: "88%",
+                    height: "100%",
+                    borderRadius: 99,
+                    backgroundImage: "repeating-linear-gradient(-45deg, rgba(220,38,38,0.92) 0px, rgba(220,38,38,0.92) 4px, rgba(248,113,113,0.45) 4px, rgba(248,113,113,0.45) 8px)",
+                    backgroundColor: "#DC2626",
+                    animation: "visitBootstrapStripe 0.8s linear infinite",
+                  }}
+                />
+              </div>
+              <div style={{ marginTop: 7, fontSize: 10, color: "rgba(0,0,0,0.42)", textAlign: "center" }}>
+                Besuchsfragen werden geladen...
+              </div>
+            </div>
+          </div>
+        )}
+
+        {phase === "idle" && !isVisitBootstrapLoading && (
           <div style={{
             minHeight: "100vh",
             display: "flex", flexDirection: "column",
@@ -3930,9 +4032,9 @@ function MarktbesuchInner() {
                 <div style={{ fontSize: 11, color: "rgba(0,0,0,0.38)", lineHeight: 1.5 }}>
                   Timer läuft automatisch. Du kannst die Zeit danach anpassen.
                 </div>
-                {visitStartLoading && (
+                {visitStartLoading && visitBootstrapDone && (
                   <div style={{ marginTop: 8, fontSize: 10, color: "rgba(0,0,0,0.42)" }}>
-                    Besuchsfragen werden geladen...
+                    Start wird gespeichert...
                   </div>
                 )}
                 {visitStartError && (
@@ -4442,7 +4544,7 @@ function MarktbesuchInner() {
                               const dotBg = allAnswered ? "#22c55e" : done ? "#DC2626" : current ? "rgba(220,38,38,0.45)" : "rgba(0,0,0,0.12)";
                               const size = current && !done ? 9 : 7;
                               return (
-                                <div key={q.id} style={{
+                                <div key={`${q.id}-${i}`} style={{
                                   position: "absolute", left: `${leftPct}%`, transform: "translateX(-50%)",
                                   width: size, height: size, borderRadius: "50%", backgroundColor: dotBg,
                                   boxShadow: done ? allAnswered ? "0 0 0 2px rgba(34,197,94,0.2)" : "0 0 0 2px rgba(220,38,38,0.15)" : current ? "0 0 0 3px rgba(220,38,38,0.12)" : "none",
@@ -4539,7 +4641,7 @@ function MarktbesuchInner() {
                         const active = i === kuehlerQIndex;
                         const isLastDot = i === visibleKUEHLER_QUESTIONS.length - 1;
                         return (
-                          <div key={q.id} style={{ display: "flex", alignItems: "center", flex: isLastDot ? "0 0 auto" : 1, minWidth: 0 }}>
+                          <div key={`${q.id}-${i}`} style={{ display: "flex", alignItems: "center", flex: isLastDot ? "0 0 auto" : 1, minWidth: 0 }}>
                             <div style={{
                               width: active ? 7 : 6, height: active ? 7 : 6, borderRadius: "50%", flexShrink: 0,
                               backgroundColor: done ? "#d97706" : active ? "#fbbf24" : "rgba(217,119,6,0.18)",
@@ -4632,7 +4734,7 @@ function MarktbesuchInner() {
                         const isFirst = i === 0;
                         const isLastDot = i === visibleMHD_QUESTIONS.length - 1;
                         return (
-                          <div key={q.id} style={{ display: "flex", alignItems: "center", flex: isLastDot ? "0 0 auto" : 1, minWidth: 0 }}>
+                          <div key={`${q.id}-${i}`} style={{ display: "flex", alignItems: "center", flex: isLastDot ? "0 0 auto" : 1, minWidth: 0 }}>
                             <div style={{
                               width: active ? 7 : 6, height: active ? 7 : 6,
                               borderRadius: "50%", flexShrink: 0,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Home, Clock, Calendar, User, Map, LogOut } from "lucide-react";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
@@ -21,6 +21,8 @@ import {
   fetchGmKpiSummary,
   fetchLatestActiveGmVisitSession,
   logoutCurrentUser,
+  clearLatestActiveGmVisitHandoff,
+  readLatestActiveGmVisitHandoff,
   readAuthSession,
   fetchGmKuehlerMhdProgress,
   readCachedGmKpiSummary,
@@ -29,7 +31,6 @@ import {
   type GmKuehlerMhdProgressPayload,
   type GmVisitSessionReadPayload,
 } from "@/lib/api/backend";
-import { clearLocalActiveVisitSnapshot } from "@/lib/gm/visitSessionPersistence";
 import type { PraemienGmBonusSummary } from "@/types/praemien";
 
 const gmMenuItems = [
@@ -61,28 +62,71 @@ export default function GMDashboard() {
   const [activeVisitCancelConfirm, setActiveVisitCancelConfirm] = useState(false);
   const [activeVisitCancelling, setActiveVisitCancelling] = useState(false);
   const [activeVisitCancelError, setActiveVisitCancelError] = useState<string | null>(null);
+  const [activeVisitSource, setActiveVisitSource] = useState<"backend" | "handoff" | null>(null);
   const [bonusLoading, setBonusLoading] = useState(true);
+
+  const rememberActiveVisitPayload = useCallback((
+    payload: GmVisitSessionReadPayload,
+    source: "backend" | "handoff" = "backend",
+  ): boolean => {
+    if (payload.session.status !== "draft" || payload.session.submittedAt) return false;
+    const campaignIds = Array.from(
+      new Set((payload.sections ?? []).map((section) => section.campaignId).filter(Boolean)),
+    );
+    if (campaignIds.length === 0) return false;
+    if (source === "backend") {
+      setGmVisitPreloadCache(payload);
+      clearLatestActiveGmVisitHandoff(payload.session.id);
+    }
+    setActiveVisitPayload(payload);
+    setActiveVisitSource(source);
+    setActiveVisitCancelConfirm(false);
+    setActiveVisitCancelError(null);
+    return true;
+  }, []);
+
+  const loadActiveVisitPopup = useCallback(async () => {
+    try {
+      const activeVisit = await fetchLatestActiveGmVisitSession();
+      if (activeVisit.session?.id) {
+        const payload = await fetchGmVisitSession(activeVisit.session.id);
+        if (rememberActiveVisitPayload(payload, "backend")) return;
+      }
+    } catch {
+      // Dashboard remains usable when the backend active-visit lookup fails.
+      return;
+    }
+
+    clearLatestActiveGmVisitHandoff();
+    setActiveVisitPayload(null);
+    setActiveVisitSource(null);
+    setActiveVisitCancelConfirm(false);
+    setActiveVisitCancelError(null);
+  }, [rememberActiveVisitPayload]);
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        const activeVisit = await fetchLatestActiveGmVisitSession();
-        if (cancelled || !activeVisit.session?.id) return;
-        const payload = await fetchGmVisitSession(activeVisit.session.id);
-        if (cancelled) return;
-        setGmVisitPreloadCache(payload);
-        setActiveVisitPayload(payload);
-        setActiveVisitCancelConfirm(false);
-        setActiveVisitCancelError(null);
-      } catch {
-        // Dashboard remains usable when there is no resumable visit or the lookup fails.
-      }
-    })();
+    const refresh = () => {
+      if (cancelled) return;
+      void loadActiveVisitPopup();
+    };
+    const handoff = readLatestActiveGmVisitHandoff();
+    if (handoff) {
+      rememberActiveVisitPayload(handoff, "handoff");
+    }
+    refresh();
+    if (typeof window !== "undefined") {
+      window.addEventListener("focus", refresh);
+      document.addEventListener("visibilitychange", refresh);
+    }
     return () => {
       cancelled = true;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("focus", refresh);
+        document.removeEventListener("visibilitychange", refresh);
+      }
     };
-  }, []);
+  }, [loadActiveVisitPopup, rememberActiveVisitPayload]);
 
   useEffect(() => {
     if (!activeVisitPayload?.session.startedAt) {
@@ -161,14 +205,20 @@ export default function GMDashboard() {
     new Set((activeVisitPayload?.sections ?? []).map((section) => section.campaignId).filter(Boolean)),
   );
   const activeVisitAddress = activeVisitPayload
-    ? `${activeVisitPayload.market.address}, ${activeVisitPayload.market.postalCode} ${activeVisitPayload.market.city}`.trim()
+    ? [
+      activeVisitPayload.market.address,
+      [activeVisitPayload.market.postalCode, activeVisitPayload.market.city].filter(Boolean).join(" "),
+    ].filter(Boolean).join(", ")
     : "";
 
   async function openActiveVisit() {
     if (!activeVisitPayload || activeVisitOpening) return;
     setActiveVisitOpening(true);
     try {
-      setGmVisitPreloadCache(activeVisitPayload);
+      if (activeVisitSource === "backend" && (activeVisitPayload.sections ?? []).some((section) => section.questions.length > 0)) {
+        setGmVisitPreloadCache(activeVisitPayload);
+      }
+      clearLatestActiveGmVisitHandoff(activeVisitPayload.session.id);
       router.push(
         `/gm/marktbesuch?chain=${encodeURIComponent(activeVisitPayload.market.name)}&address=${encodeURIComponent(activeVisitAddress)}&marketId=${encodeURIComponent(activeVisitPayload.market.id)}&campaignIds=${encodeURIComponent(activeVisitCampaignIds.join(","))}&sessionId=${encodeURIComponent(activeVisitPayload.session.id)}`,
       );
@@ -184,11 +234,9 @@ export default function GMDashboard() {
     try {
       await cancelGmVisitSession(activeVisitPayload.session.id);
       clearGmVisitPreloadCache(activeVisitPayload.session.id);
-      clearLocalActiveVisitSnapshot({
-        marketId: activeVisitPayload.market.id,
-        campaignIds: activeVisitCampaignIds,
-      });
+      clearLatestActiveGmVisitHandoff(activeVisitPayload.session.id);
       setActiveVisitPayload(null);
+      setActiveVisitSource(null);
       setActiveVisitCancelConfirm(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Fragebogen konnte nicht abgebrochen werden.";

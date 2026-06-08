@@ -32,9 +32,10 @@ type IppFilterBarProps = {
   markets: IppMarketOption[];
   onChange: (next: IppFilterState) => void;
   compact?: boolean;
+  showReset?: boolean;
 };
 
-export function IppFilterBar({ filters, regions, gms, markets, onChange, compact = false }: IppFilterBarProps) {
+export function IppFilterBar({ filters, regions, gms, markets, onChange, compact = false, showReset = true }: IppFilterBarProps) {
   const selectedGm = gms.find((gm) => gm.id === filters.gmId) ?? null;
   const baseMarketOptions = markets.filter((market) => {
     if (filters.region && market.region !== filters.region) return false;
@@ -147,6 +148,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
           />
         </div>
 
+        {showReset && (
         <button
           className="ipp-reset-filters-btn"
           type="button"
@@ -174,6 +176,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
         >
           Alle Filter zurücksetzen
         </button>
+        )}
       </div>
     </section>
   );

@@ -25,7 +25,7 @@ export default function GmDashboardPage() {
           display: "grid",
           gridTemplateColumns: "minmax(520px, 1.35fr) minmax(260px, 0.65fr)",
           gap: 12,
-          alignItems: "start",
+          alignItems: "stretch",
         }}
       >
         <PlatzierungenCard />

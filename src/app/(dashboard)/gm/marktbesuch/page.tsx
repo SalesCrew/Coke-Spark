@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   BackendApiError,
+  cancelGmVisitSession,
   clearGmVisitPreloadCache,
   commitGmVisitPhotos,
   createGmVisitSession,
@@ -2620,6 +2621,9 @@ function MarktbesuchInner() {
   const [visitBootstrapDone, setVisitBootstrapDone] = useState(false);
   const [isSubmittingSession, setIsSubmittingSession] = useState(false);
   const [submitSessionError, setSubmitSessionError] = useState<string | null>(null);
+  const [visitExitDialog, setVisitExitDialog] = useState<"choice" | "abort-confirm" | null>(null);
+  const [visitExitBusy, setVisitExitBusy] = useState(false);
+  const [visitExitError, setVisitExitError] = useState<string | null>(null);
   const [photoSyncBusyByQuestionId, setPhotoSyncBusyByQuestionId] = useState<Record<string, boolean>>({});
   const [photoSyncErrorByQuestionId, setPhotoSyncErrorByQuestionId] = useState<Record<string, string | null>>({});
   const [photoMetaByQuestionId, setPhotoMetaByQuestionId] = useState<Record<string, UploadedPhotoMeta[]>>({});
@@ -3239,6 +3243,48 @@ function MarktbesuchInner() {
     const failedQuestionIds = Array.from(new Set([...immediateFailed, ...inFlightFailed].filter((id) => id.length > 0)));
     return { ok: failedQuestionIds.length === 0, failedQuestionIds };
   }, []);
+
+  async function handleContinueVisitLater() {
+    if (visitExitBusy) return;
+    setVisitExitBusy(true);
+    setVisitExitError(null);
+    try {
+      const flushResult = await flushPendingAnswerSaves();
+      if (!flushResult.ok) {
+        setVisitExitError("Speichern der Antworten fehlgeschlagen. Bitte kurz warten und erneut versuchen.");
+        return;
+      }
+      router.push("/gm");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Marktbesuch konnte nicht gespeichert werden.";
+      setVisitExitError(message || "Marktbesuch konnte nicht gespeichert werden.");
+    } finally {
+      setVisitExitBusy(false);
+    }
+  }
+
+  async function handleConfirmAbortVisit() {
+    if (visitExitBusy) return;
+    setVisitExitBusy(true);
+    setVisitExitError(null);
+    try {
+      if (visitSessionId) {
+        await cancelGmVisitSession(visitSessionId);
+      }
+      if (hasVisitStartParams) {
+        clearLocalActiveVisitSnapshot({ marketId, campaignIds });
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
+      }
+      router.push("/gm");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Fragebogen konnte nicht abgebrochen werden.";
+      setVisitExitError(message || "Fragebogen konnte nicht abgebrochen werden.");
+    } finally {
+      setVisitExitBusy(false);
+    }
+  }
 
   async function handleSubmitVisit() {
     setSubmitSessionError(null);
@@ -4310,7 +4356,10 @@ function MarktbesuchInner() {
             display: "flex", alignItems: "center", gap: 10,
           }}>
             <button
-              onClick={() => router.push("/gm")}
+              onClick={() => {
+                setVisitExitError(null);
+                setVisitExitDialog("choice");
+              }}
               style={{
                 width: 28, height: 28, borderRadius: 8, border: "none",
                 backgroundColor: "rgba(255,255,255,0.75)", cursor: "pointer",
@@ -4662,6 +4711,176 @@ function MarktbesuchInner() {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {visitExitDialog && (
+        <div
+          role="presentation"
+          onMouseDown={(event) => {
+            if (visitExitBusy) return;
+            if (event.target === event.currentTarget) {
+              setVisitExitDialog(null);
+              setVisitExitError(null);
+            }
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 40,
+            background: "rgba(15,23,42,0.18)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={visitExitDialog === "choice" ? "Fragebogen später fortsetzen" : "Fragebogen abbrechen bestätigen"}
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              width: "min(360px, calc(100vw - 36px))",
+              borderRadius: 18,
+              border: "1px solid rgba(255,255,255,0.88)",
+              background: "rgba(255,255,255,0.92)",
+              boxShadow: "0 20px 54px rgba(15,23,42,0.18), 0 2px 12px rgba(15,23,42,0.08)",
+              padding: 16,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            {visitExitDialog === "choice" ? (
+              <>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#111827", lineHeight: 1.15 }}>
+                    Fragebogen später fortsetzen?
+                  </div>
+                  <div style={{ marginTop: 7, fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.52)", lineHeight: 1.55 }}>
+                    Deine bisherigen Antworten werden gespeichert. Der Marktbesuch bleibt ohne Endzeit offen und kann später über den aktiven Fragebogen wieder geöffnet werden.
+                  </div>
+                </div>
+
+                {visitExitError && (
+                  <div style={{ borderRadius: 10, border: "1px solid rgba(185,28,28,0.22)", background: "rgba(185,28,28,0.07)", color: "#991b1b", padding: "8px 10px", fontSize: 10, fontWeight: 700, lineHeight: 1.4 }}>
+                    {visitExitError}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => void handleContinueVisitLater()}
+                    disabled={visitExitBusy}
+                    style={{
+                      width: "100%",
+                      border: "none",
+                      borderRadius: 9,
+                      padding: "9px 12px",
+                      color: "#fff",
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: visitExitBusy ? "not-allowed" : "pointer",
+                      opacity: visitExitBusy ? 0.72 : 1,
+                      background: "linear-gradient(to bottom,#111827,#020617)",
+                      boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.24), inset 0 -1px 0 rgba(255,255,255,0.10), 0 0 0 1px rgba(2,6,23,0.72), 0 1px 6px rgba(15,23,42,0.28)",
+                    }}
+                  >
+                    {visitExitBusy ? "Speichere..." : "Später fortsetzen"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (visitExitBusy) return;
+                      setVisitExitError(null);
+                      setVisitExitDialog("abort-confirm");
+                    }}
+                    disabled={visitExitBusy}
+                    style={{
+                      width: "100%",
+                      border: "1px solid rgba(220,38,38,0.18)",
+                      borderRadius: 9,
+                      padding: "8px 12px",
+                      color: "#DC2626",
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: visitExitBusy ? "not-allowed" : "pointer",
+                      background: "rgba(220,38,38,0.06)",
+                    }}
+                  >
+                    Fragebogen abbrechen
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 850, color: "#b91c1c", lineHeight: 1.15 }}>
+                    Wirklich abbrechen?
+                  </div>
+                  <div style={{ marginTop: 8, borderRadius: 12, border: "1px solid rgba(185,28,28,0.24)", background: "rgba(185,28,28,0.08)", color: "#7f1d1d", padding: "10px 11px", fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
+                    Alle Daten aus diesem Lauf werden gelöscht. Antworten, Fotos und Fortschritt werden verworfen und der Fragebogen kann danach nicht weitergeführt werden.
+                  </div>
+                </div>
+
+                {visitExitError && (
+                  <div style={{ borderRadius: 10, border: "1px solid rgba(185,28,28,0.22)", background: "rgba(185,28,28,0.07)", color: "#991b1b", padding: "8px 10px", fontSize: 10, fontWeight: 700, lineHeight: 1.4 }}>
+                    {visitExitError}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (visitExitBusy) return;
+                      setVisitExitError(null);
+                      setVisitExitDialog("choice");
+                    }}
+                    disabled={visitExitBusy}
+                    style={{
+                      flex: 1,
+                      border: "none",
+                      borderRadius: 9,
+                      padding: "9px 10px",
+                      color: "rgba(0,0,0,0.56)",
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: visitExitBusy ? "not-allowed" : "pointer",
+                      background: "rgba(0,0,0,0.06)",
+                    }}
+                  >
+                    Zurück
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmAbortVisit()}
+                    disabled={visitExitBusy}
+                    style={{
+                      flex: 1,
+                      border: "none",
+                      borderRadius: 9,
+                      padding: "9px 10px",
+                      color: "#fff",
+                      fontSize: 11,
+                      fontWeight: 850,
+                      cursor: visitExitBusy ? "not-allowed" : "pointer",
+                      opacity: visitExitBusy ? 0.72 : 1,
+                      background: "linear-gradient(to bottom,#DC2626,#b91c1c)",
+                      boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
+                    }}
+                  >
+                    {visitExitBusy ? "Breche ab..." : "Endgültig abbrechen"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 

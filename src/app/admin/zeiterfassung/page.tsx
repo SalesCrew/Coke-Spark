@@ -104,7 +104,7 @@ interface DisplaySegment {
 }
 
 function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
-  if (Array.isArray(session.timeline) && session.timeline.length > 0) {
+  if (Array.isArray(session.timeline)) {
     const entryIdByKey = new Map<string, string>();
     const entryCommentByKey = new Map<string, string | undefined>();
     for (const entry of session.entries) {

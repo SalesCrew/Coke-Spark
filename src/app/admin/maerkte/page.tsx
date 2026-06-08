@@ -133,6 +133,8 @@ const FrequencyCircle = React.memo(function FrequencyCircle({ visited, frequency
 // ── Market row (memoized for virtual list) ─────────────────────
 
 const MARKET_ROW_H = 54; // px — must match the actual rendered row height
+const MARKET_LIST_GRID = "minmax(240px,1.55fr) 34px minmax(140px,0.9fr) minmax(70px,0.45fr) 54px minmax(110px,0.75fr) 56px minmax(110px,0.75fr) 38px 40px";
+const MARKET_LIST_GAP = "0 10px";
 
 const MarketRow = React.memo(function MarketRow({
   market,
@@ -165,7 +167,7 @@ const MarketRow = React.memo(function MarketRow({
         event.preventDefault();
         onOpenContextMenu(event, market.id);
       }}
-      style={{ display: "grid", gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px", gap: "0 12px", padding: "10px 18px", borderBottom: "1px solid rgba(0,0,0,0.04)", cursor: "pointer", background: active ? "rgba(220,38,38,0.04)" : rowBaseBackground, borderLeft: active ? `3px solid ${R}` : "3px solid transparent", transition: "background 0.1s ease, border-left-color 0.1s ease", alignItems: "center", height: MARKET_ROW_H, boxSizing: "border-box" }}
+      style={{ display: "grid", gridTemplateColumns: MARKET_LIST_GRID, gap: MARKET_LIST_GAP, padding: "10px 18px", borderBottom: "1px solid rgba(0,0,0,0.04)", cursor: "pointer", background: active ? "rgba(220,38,38,0.04)" : rowBaseBackground, borderLeft: active ? `3px solid ${R}` : "3px solid transparent", transition: "background 0.1s ease, border-left-color 0.1s ease", alignItems: "center", height: MARKET_ROW_H, boxSizing: "border-box" }}
       onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(220,38,38,0.04)"; }}
       onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = rowBaseBackground; }}
     >
@@ -187,11 +189,12 @@ const MarketRow = React.memo(function MarketRow({
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 11, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{market.address}</div>
       </div>
-      {/* Region / Ort */}
-      <div>
-        <div style={{ fontSize: 11, color: "#374151" }}>{market.region}</div>
-        <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>{market.postalCode} {market.city}</div>
-      </div>
+      {/* Region */}
+      <div style={{ minWidth: 0, fontSize: 11, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{market.region}</div>
+      {/* PLZ */}
+      <div style={{ minWidth: 0, fontSize: 11, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" }}>{market.postalCode}</div>
+      {/* Ort */}
+      <div style={{ minWidth: 0, fontSize: 11, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{market.city}</div>
       {/* EM/EH */}
       <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.5)" }}>{market.emEh}</span>
       {/* Verplant an */}
@@ -2172,9 +2175,9 @@ export default function MaerktePage() {
             </div>
 
             {/* Column header */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px", gap: "0 12px", padding: "7px 18px", background: "rgba(0,0,0,0.018)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-              {["Markt", "Info", "Adresse", "Region / Ort", "EM/EH", "Verplant an", "IPP", "Freq."].map((h, i) => (
-                <span key={i} style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)" }}>{h}</span>
+            <div style={{ display: "grid", gridTemplateColumns: MARKET_LIST_GRID, gap: MARKET_LIST_GAP, padding: "7px 18px", background: "rgba(0,0,0,0.018)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+              {["Markt", "Info", "Adresse", "Region", "PLZ", "Ort", "EM/EH", "Verplant an", "IPP", "Freq."].map((h, i) => (
+                <span key={i} style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h}</span>
               ))}
             </div>
 
@@ -2465,8 +2468,8 @@ function MaerktePageSkeleton() {
             <div style={{ ...shimmer, height: 16, width: 170, borderRadius: 999 }} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px", gap: "0 12px", padding: "7px 18px", background: "rgba(0,0,0,0.018)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-            {Array.from({ length: 8 }).map((_, index) => (
+          <div style={{ display: "grid", gridTemplateColumns: MARKET_LIST_GRID, gap: MARKET_LIST_GAP, padding: "7px 18px", background: "rgba(0,0,0,0.018)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+            {Array.from({ length: 10 }).map((_, index) => (
               <div key={index} style={{ ...shimmer, height: 9, width: `${72 + (index % 2) * 16}%` }} />
             ))}
           </div>
@@ -2477,8 +2480,8 @@ function MaerktePageSkeleton() {
                 key={index}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1fr 50px 160px 120px 70px 130px 40px 40px",
-                  gap: "0 12px",
+                  gridTemplateColumns: MARKET_LIST_GRID,
+                  gap: MARKET_LIST_GAP,
                   padding: "10px 18px",
                   borderBottom: "1px solid rgba(0,0,0,0.04)",
                   alignItems: "center",

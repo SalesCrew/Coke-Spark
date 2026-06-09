@@ -365,6 +365,7 @@ export function TimeTracker(_: TimeTrackerProps) {
 
   const enterForgotEndMode = useCallback(() => {
     setHasTriggeredForgotEnd(true);
+    setStartKmInput("");
     setEndKmInput("");
     setNewCarSlot("input");
     setNewCarConfirmed(false);
@@ -720,6 +721,8 @@ export function TimeTracker(_: TimeTrackerProps) {
       persistLocalDaySessionFromBackend(session);
       setDaySession(session);
       setOpenEndKmOnly(false);
+      setConfirmedStartKm(session.startKm ?? null);
+      if (session.startKm == null) setStartKmInput("");
       setEndKmInput(session.endKm != null ? String(session.endKm) : "");
       setNewCarSlot("input");
       setNewCarConfirmed(false);
@@ -739,13 +742,30 @@ export function TimeTracker(_: TimeTrackerProps) {
     setOpenEndKmOnly(false);
     setRunning(true); setPaused(false); transitionTo("recording");
   }, []);
+  const knownStartKmForEnd = confirmedStartKm ?? daySession?.startKm ?? null;
+  const needsStartKmForEnd = knownStartKmForEnd === null;
+  const pendingStartKmForEnd = parseInt(startKmInput, 10);
+  const startKmReadyForEnd = !needsStartKmForEnd || (startKmInput.length > 0 && pendingStartKmForEnd > 0);
+  const compareStartKmForEnd = needsStartKmForEnd ? (startKmReadyForEnd ? pendingStartKmForEnd : null) : knownStartKmForEnd;
+  const endKmNum   = parseInt(endKmInput, 10);
+  const endKmValid = startKmReadyForEnd && endKmInput.length > 0 && endKmNum > 0 &&
+    (newCarConfirmed || compareStartKmForEnd === null || endKmNum > compareStartKmForEnd);
+
   const handleEndKmConfirm = useCallback(async () => {
     const num = parseInt(endKmInput, 10);
     if (!num || num <= 0 || persistBusy) return;
-    if (!newCarConfirmed && confirmedStartKm !== null && num <= confirmedStartKm) return;
+    const startNum = needsStartKmForEnd ? parseInt(startKmInput, 10) : knownStartKmForEnd;
+    if (needsStartKmForEnd && (!startNum || startNum <= 0)) return;
+    if (!newCarConfirmed && startNum !== null && num <= startNum) return;
     setPersistBusy(true);
     setPersistError(null);
     try {
+      if (needsStartKmForEnd && startNum !== null) {
+        const startResult = await setDaySessionStartKm(startNum);
+        persistLocalDaySessionFromBackend(startResult.session);
+        setDaySession(startResult.session);
+        setConfirmedStartKm(startNum);
+      }
       const endResult = await setDaySessionEndKm(num);
       persistLocalDaySessionFromBackend(endResult.session);
       setDaySession(endResult.session);
@@ -766,7 +786,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     } finally {
       setPersistBusy(false);
     }
-  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, confirmedStartKm, hydrateTodaySubmissions, openEndKmOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, needsStartKmForEnd, startKmInput, knownStartKmForEnd, hydrateTodaySubmissions, openEndKmOnly]); // eslint-disable-line react-hooks/exhaustive-deps
   const handleEndKmDefer = useCallback(async () => {
     if (persistBusy) return;
     setPersistBusy(true);
@@ -791,22 +811,22 @@ export function TimeTracker(_: TimeTrackerProps) {
   const handleOpenEndKmOnly = useCallback(() => {
     if (!running || persistBusy) return;
     setOpenEndKmOnly(true);
+    setConfirmedStartKm(daySession?.startKm ?? confirmedStartKm);
+    if ((daySession?.startKm ?? confirmedStartKm) == null) setStartKmInput("");
     setEndKmInput(daySession?.endKm != null ? String(daySession.endKm) : "");
     setNewCarSlot("input");
     setNewCarConfirmed(false);
     setActiveKmField(null);
     transitionTo("endKm");
-  }, [running, persistBusy, daySession]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const endKmNum   = parseInt(endKmInput, 10);
-  const endKmValid = endKmInput.length > 0 && endKmNum > 0 &&
-    (newCarConfirmed || confirmedStartKm === null || endKmNum > confirmedStartKm);
+  }, [running, persistBusy, daySession, confirmedStartKm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── forgotEnd confirm ─────────────────────────────────────────────────────
   const handleForgotEndConfirm = useCallback(async () => {
     const num = parseInt(endKmInput, 10);
     if (!num || num <= 0 || persistBusy) return;
-    if (!newCarConfirmed && confirmedStartKm !== null && num <= confirmedStartKm) return;
+    const startNum = needsStartKmForEnd ? parseInt(startKmInput, 10) : knownStartKmForEnd;
+    if (needsStartKmForEnd && (!startNum || startNum <= 0)) return;
+    if (!newCarConfirmed && startNum !== null && num <= startNum) return;
     if (!forgotEndTime) return;
     setPersistBusy(true);
     setPersistError(null);
@@ -817,6 +837,12 @@ export function TimeTracker(_: TimeTrackerProps) {
       if (!endAt) {
         setPersistError("Endzeit konnte nicht auf den Arbeitstag gesetzt werden.");
         return;
+      }
+      if (needsStartKmForEnd && startNum !== null) {
+        const startResult = await setDaySessionStartKm(startNum);
+        persistLocalDaySessionFromBackend(startResult.session);
+        setDaySession(startResult.session);
+        setConfirmedStartKm(startNum);
       }
       const ended = await endDaySession({ endAt });
       persistLocalDaySessionFromBackend(ended.session);
@@ -835,7 +861,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     } finally {
       setPersistBusy(false);
     }
-  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, confirmedStartKm, forgotEndTime, hydrateTodaySubmissions, daySession, trackerTimezone]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, needsStartKmForEnd, startKmInput, knownStartKmForEnd, forgotEndTime, hydrateTodaySubmissions, daySession, trackerTimezone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const forgotEndValid = endKmValid && !!forgotEndTime;
 
@@ -1008,11 +1034,24 @@ export function TimeTracker(_: TimeTrackerProps) {
               <KmCard>
                 <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)", marginBottom: 5 }}>Tagesende</span>
                 <span style={{ fontSize: 16, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", marginBottom: 8 }}>KM-Stand eingeben</span>
-                {confirmedStartKm !== null && !newCarConfirmed && (
+                {needsStartKmForEnd && (
+                  <>
+                    <span style={{ fontSize: 9, color: "rgba(0,0,0,0.42)", textAlign: "center", lineHeight: 1.45, maxWidth: 200, marginBottom: 10 }}>
+                      Noch kein Start-KM erfasst. Bitte auch nachfüllen.
+                    </span>
+                    <div style={{ width: "100%", maxWidth: 200, marginBottom: 10 }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.3)", display: "block", marginBottom: 4 }}>Start-KM</span>
+                      <KmInput inputRef={startKmRef} rawValue={startKmInput} isValid={startKmValid} isFocused={activeKmField === "start"}
+                        onChange={v => setStartKmInput(v)} onFocus={() => setActiveKmField("start")} onBlur={() => setActiveKmField(null)}
+                        onKeyDown={e => { if (e.key === "Enter" && endKmValid) handleEndKmConfirm(); if (e.key === "Escape") handleEndKmCancel(); }} />
+                    </div>
+                  </>
+                )}
+                {knownStartKmForEnd !== null && !newCarConfirmed && (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 7, background: "rgba(0,0,0,0.03)", marginBottom: 10, width: "100%", maxWidth: 200, boxSizing: "border-box" }}>
                     <div style={{ width: 4, height: 4, borderRadius: "50%", background: "rgba(0,0,0,0.2)", flexShrink: 0 }} />
                     <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", fontWeight: 500, flex: 1 }}>Start heute</span>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.55)", fontVariantNumeric: "tabular-nums" }}>{confirmedStartKm.toLocaleString("de-AT")} km</span>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.55)", fontVariantNumeric: "tabular-nums" }}>{knownStartKmForEnd.toLocaleString("de-AT")} km</span>
                   </div>
                 )}
                 {newCarConfirmed && (
@@ -1077,12 +1116,26 @@ export function TimeTracker(_: TimeTrackerProps) {
                     Bitte tatsächliche Endzeit und finalen KM-Stand erfassen.
                   </span>
 
+                  {needsStartKmForEnd && (
+                    <>
+                      <span style={{ fontSize: 9, color: "rgba(146,64,14,0.72)", textAlign: "center" as const, lineHeight: 1.45, maxWidth: 200, marginBottom: 10, fontWeight: 600 }}>
+                        Noch kein Start-KM erfasst. Bitte auch nachfüllen.
+                      </span>
+                      <div style={{ width: "100%", maxWidth: 200, marginBottom: 10 }}>
+                        <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.3)", display: "block", marginBottom: 4 }}>Start-KM</span>
+                        <KmInput inputRef={startKmRef} rawValue={startKmInput} isValid={startKmValid} isFocused={activeKmField === "start"}
+                          onChange={v => setStartKmInput(v)} onFocus={() => setActiveKmField("start")} onBlur={() => setActiveKmField(null)}
+                          onKeyDown={e => { if (e.key === "Enter" && forgotEndValid) handleForgotEndConfirm(); }} />
+                      </div>
+                    </>
+                  )}
+
                   {/* Context reference row */}
-                  {confirmedStartKm !== null && !newCarConfirmed && (
+                  {knownStartKmForEnd !== null && !newCarConfirmed && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 7, background: "rgba(0,0,0,0.03)", marginBottom: 10, width: "100%", maxWidth: 200, boxSizing: "border-box" }}>
                       <div style={{ width: 4, height: 4, borderRadius: "50%", background: "rgba(0,0,0,0.2)", flexShrink: 0 }} />
                       <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", fontWeight: 500, flex: 1 }}>Start-KM</span>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.55)", fontVariantNumeric: "tabular-nums" }}>{confirmedStartKm.toLocaleString("de-AT")} km</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.55)", fontVariantNumeric: "tabular-nums" }}>{knownStartKmForEnd.toLocaleString("de-AT")} km</span>
                     </div>
                   )}
                   {newCarConfirmed && (

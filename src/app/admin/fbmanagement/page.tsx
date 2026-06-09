@@ -48,6 +48,7 @@ const ADD_PANEL_INITIAL_LIMIT = 80;
 const ADD_PANEL_LOAD_STEP = 80;
 const VISIT_STATUS_BATCH_SIZE = 50;
 const VISIT_STATUS_MAX_CONCURRENT_BATCHES = 2;
+const VISIT_DETAIL_PREFETCH_MAX_CONCURRENT = 1;
 const HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT = "Ich bin mir sicher, dass ich alle Daten zu dieser Kampagne Löschen will!";
 
 type CampaignContextMenuState = {
@@ -5598,6 +5599,7 @@ export default function FbManagementPage() {
   const campaignContextMenuRef = useRef<HTMLDivElement | null>(null);
   const visitStatusInFlightRef = useRef<Record<string, Promise<void>>>({});
   const visitDetailInFlightRef = useRef<Record<string, Promise<void>>>({});
+  const visitDetailPrefetchStartedRef = useRef<Set<string>>(new Set());
 
   // ── Market management state ────────────────────────────────────
   const [marketSearch, setMarketSearch] = useState("");
@@ -6056,6 +6058,80 @@ export default function FbManagementPage() {
     visitStatusLoadingByCampaignId,
   ]);
 
+  useEffect(() => {
+    if (loading || campaignsData.length === 0) return;
+    let cancelled = false;
+    const runPrefetch = () => {
+      if (cancelled) return;
+      const campaignOrder = Array.from(new Set([
+        ...(campaignId ? [campaignId] : []),
+        ...visibleCampaigns.map((entry) => entry.id),
+        ...campaignsData.map((entry) => entry.id),
+      ]));
+      const queue: Array<{ campaignId: string; marketId: string; sessionId: string | null }> = [];
+      for (const targetCampaignId of campaignOrder) {
+        const statusByMarket = visitStatusByCampaignId[targetCampaignId];
+        if (!statusByMarket) continue;
+        for (const status of Object.values(statusByMarket)) {
+          if (!status.hasSubmittedVisit) continue;
+          const detailKey = getVisitDetailKey(targetCampaignId, status.marketId, status.sessionId);
+          if (
+            visitDetailByKey[detailKey]
+            || visitDetailLoadingByKey[detailKey]
+            || visitDetailPrefetchStartedRef.current.has(detailKey)
+          ) {
+            continue;
+          }
+          visitDetailPrefetchStartedRef.current.add(detailKey);
+          queue.push({ campaignId: targetCampaignId, marketId: status.marketId, sessionId: status.sessionId });
+        }
+      }
+      if (queue.length === 0) return;
+      const workerCount = Math.min(VISIT_DETAIL_PREFETCH_MAX_CONCURRENT, queue.length);
+      const runWorker = async () => {
+        while (!cancelled && queue.length > 0) {
+          const next = queue.shift();
+          if (!next) return;
+          await refreshMarketVisitDetail(next.campaignId, next.marketId, next.sessionId);
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+      };
+      void Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+    };
+
+    if (typeof window === "undefined") {
+      runPrefetch();
+      return () => {
+        cancelled = true;
+      };
+    }
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const idleId = idleWindow.requestIdleCallback?.(runPrefetch, { timeout: 1800 });
+    if (idleId != null) {
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(idleId);
+      };
+    }
+    const timeoutId = window.setTimeout(runPrefetch, 650);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    campaignId,
+    campaignsData,
+    loading,
+    refreshMarketVisitDetail,
+    visibleCampaigns,
+    visitDetailByKey,
+    visitDetailLoadingByKey,
+    visitStatusByCampaignId,
+  ]);
+
   const assignedIds = campaignMarketIds;
   const isCampaignBusy = (campaignId: string) => (campaignPendingOps[campaignId] ?? 0) > 0;
   const campaignBusy = campaignId ? isCampaignBusy(campaignId) : false;
@@ -6291,6 +6367,11 @@ export default function FbManagementPage() {
   }, [campaignId, marketEditMode, marketFilter, marketSearch, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
 
   const invalidateCampaignVisitStatus = useCallback((targetCampaignId: string) => {
+    for (const key of Array.from(visitDetailPrefetchStartedRef.current)) {
+      if (key.startsWith(`${targetCampaignId}:`)) {
+        visitDetailPrefetchStartedRef.current.delete(key);
+      }
+    }
     setVisitStatusByCampaignId((current) => {
       const next = { ...current };
       delete next[targetCampaignId];

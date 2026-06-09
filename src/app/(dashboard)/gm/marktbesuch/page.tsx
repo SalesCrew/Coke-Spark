@@ -41,6 +41,7 @@ import {
   MapPin,
   CheckCircle2,
   Camera,
+  Calendar,
   NotebookPen,
   Tag,
 } from "lucide-react";
@@ -701,6 +702,70 @@ function toIsoForLocalTime(baseDate: Date, hm: string): string {
   return local.toISOString();
 }
 
+const CALENDAR_WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+
+function formatDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formatMonthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function parseDateKey(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year ?? 0, (month ?? 1) - 1, day ?? 1);
+}
+
+function parseMonthKey(value: string): Date {
+  const [year, month] = value.split("-").map(Number);
+  return new Date(year ?? 0, (month ?? 1) - 1, 1);
+}
+
+function formatVisitDateLabel(value: string): string {
+  return new Intl.DateTimeFormat("de-AT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  }).format(parseDateKey(value));
+}
+
+function formatVisitMonthLabel(value: string): string {
+  return new Intl.DateTimeFormat("de-AT", {
+    month: "long",
+    year: "numeric",
+  }).format(parseMonthKey(value));
+}
+
+function moveCalendarMonth(value: string, delta: number): string {
+  const date = parseMonthKey(value);
+  date.setMonth(date.getMonth() + delta);
+  return formatMonthKey(date);
+}
+
+function buildCalendarDays(monthKey: string): Array<{ key: string; label: number; inMonth: boolean }> {
+  const monthDate = parseMonthKey(monthKey);
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const mondayOffset = (firstOfMonth.getDay() + 6) % 7;
+  const start = new Date(year, month, 1 - mondayOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return {
+      key: formatDateKey(day),
+      label: day.getDate(),
+      inMonth: day.getMonth() === month,
+    };
+  });
+}
+
+function toIsoForDateKeyTime(dateKey: string, hm: string): string {
+  return toIsoForLocalTime(parseDateKey(dateKey), hm);
+}
+
 function chainColor(chain: string): { bg: string; text: string } {
   const k = chain.toUpperCase();
   if (k.includes("BILLA")) return { bg: "rgba(234,179,8,0.12)", text: "#a16207" };
@@ -842,6 +907,207 @@ function ClockPicker({ onSelect, onCancel, initialHour = 8, initialMinute = 0 }:
 // ─────────────────────────────────────────────────────────────────────────────
 // QuestionCard — renders a single question with animation
 // ─────────────────────────────────────────────────────────────────────────────
+
+function VisitDatePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => formatMonthKey(value ? parseDateKey(value) : new Date()));
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 });
+  const calendarDays = useMemo(() => buildCalendarDays(visibleMonth), [visibleMonth]);
+
+  useEffect(() => {
+    if (!open) return;
+    setVisibleMonth(formatMonthKey(value ? parseDateKey(value) : new Date()));
+  }, [open, value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const positionPanel = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = 252;
+      const height = 224;
+      const left = Math.min(Math.max(rect.right - width, 8), window.innerWidth - width - 8);
+      const top = window.innerHeight - rect.bottom > height + 12
+        ? rect.bottom + 6
+        : Math.max(8, rect.top - height - 6);
+      setPanelPosition({ top, left });
+    };
+    positionPanel();
+    window.addEventListener("resize", positionPanel);
+    window.addEventListener("scroll", positionPanel, true);
+    return () => {
+      window.removeEventListener("resize", positionPanel);
+      window.removeEventListener("scroll", positionPanel, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} style={{ position: "relative", display: "inline-flex" }}>
+      <style>{`
+        .visit-date-trigger:hover {
+          background: rgba(0,0,0,0.04) !important;
+        }
+        .visit-date-day:hover {
+          background: rgba(0,0,0,0.06) !important;
+          color: #111827 !important;
+        }
+      `}</style>
+      <button
+        ref={triggerRef}
+        className="visit-date-trigger"
+        type="button"
+        aria-label="Besuchstag waehlen"
+        onClick={() => setOpen((current) => !current)}
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 6,
+          border: "none",
+          background: "transparent",
+          color: "#111827",
+          padding: 0,
+          outline: "none",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          cursor: "pointer",
+          boxShadow: "none",
+          transition: "all 0.14s ease",
+          fontFamily: "inherit",
+        }}
+      >
+        <Calendar size={11} strokeWidth={1.8} color={open ? "rgba(220,38,38,0.8)" : "rgba(0,0,0,0.25)"} />
+      </button>
+
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          ref={panelRef}
+          style={{
+            position: "fixed",
+            top: panelPosition.top,
+            left: panelPosition.left,
+            width: 252,
+            zIndex: 220,
+            borderRadius: 11,
+            border: "1px solid rgba(0,0,0,0.10)",
+            background: "#fff",
+            boxShadow: "0 14px 32px rgba(0,0,0,0.15)",
+            padding: 8,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+            <button
+              type="button"
+              aria-label="Vorheriger Monat"
+              onClick={() => setVisibleMonth((current) => moveCalendarMonth(current, -1))}
+              style={{
+                width: 25,
+                height: 25,
+                borderRadius: 8,
+                border: "1px solid rgba(0,0,0,0.08)",
+                background: "linear-gradient(to bottom,#fff,#f5f5f6)",
+                color: "rgba(15,23,42,0.55)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <ChevronLeft size={13} strokeWidth={2.2} />
+            </button>
+            <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", textTransform: "capitalize" }}>
+              {formatVisitMonthLabel(visibleMonth)}
+            </div>
+            <button
+              type="button"
+              aria-label="Naechster Monat"
+              onClick={() => setVisibleMonth((current) => moveCalendarMonth(current, 1))}
+              style={{
+                width: 25,
+                height: 25,
+                borderRadius: 8,
+                border: "1px solid rgba(0,0,0,0.08)",
+                background: "linear-gradient(to bottom,#fff,#f5f5f6)",
+                color: "rgba(15,23,42,0.55)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <ChevronRight size={13} strokeWidth={2.2} />
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0,1fr))", gap: 3 }}>
+            {CALENDAR_WEEKDAYS.map((weekday) => (
+              <div key={weekday} style={{ textAlign: "center", fontSize: 9, fontWeight: 800, color: "rgba(100,116,139,0.58)", padding: "2px 0 4px" }}>
+                {weekday}
+              </div>
+            ))}
+            {calendarDays.map((day) => {
+              const active = day.key === value;
+              return (
+                <button
+                  key={day.key}
+                  className="visit-date-day"
+                  type="button"
+                  onClick={() => {
+                    onChange(day.key);
+                    setOpen(false);
+                  }}
+                  style={{
+                    height: 24,
+                    border: active ? "1px solid rgba(220,38,38,0.24)" : "1px solid transparent",
+                    borderRadius: active ? 8 : 7,
+                    background: active ? "linear-gradient(to bottom,rgba(254,242,242,0.96),rgba(255,255,255,0.92))" : "transparent",
+                    color: active ? "#B91C1C" : day.inMonth ? "#111827" : "rgba(100,116,139,0.30)",
+                    fontSize: 10,
+                    fontWeight: active ? 850 : 700,
+                    cursor: "pointer",
+                    boxShadow: active ? "inset 0 1px 0.6px rgba(255,255,255,0.92), 0 1px 4px rgba(220,38,38,0.08)" : "none",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  {day.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      , document.body)}
+    </div>
+  );
+}
 
 interface QuestionCardProps {
   question: SampleQuestion;
@@ -2652,7 +2918,9 @@ function MarktbesuchInner() {
   // Abschluss
   const [vonVal, setVonVal] = useState(startTime);
   const [bisVal, setBisVal] = useState("");
+  const [visitDateKey, setVisitDateKey] = useState(() => formatDateKey(new Date()));
   const [manualTimeEdited, setManualTimeEdited] = useState(false);
+  const [startTimeEdited, setStartTimeEdited] = useState(false);
   const [comment, setComment] = useState("");
   const [clockTarget, setClockTarget] = useState<"von" | "bis" | null>(null);
   const [visitStartLoading, setVisitStartLoading] = useState(false);
@@ -2804,7 +3072,10 @@ function MarktbesuchInner() {
 
     setVisitSessionId(payload.session.id);
     setVisitSessionStartedAt(payload.session.startedAt ?? null);
+    const sessionStartedDate = payload.session.startedAt ? new Date(payload.session.startedAt) : new Date();
+    setVisitDateKey(formatDateKey(Number.isFinite(sessionStartedDate.getTime()) ? sessionStartedDate : new Date()));
     setVonVal(hhmmFromIso(payload.session.startedAt ?? null));
+    setStartTimeEdited(false);
     if (payload.session.status === "draft" && !payload.session.submittedAt) {
       setTimerSeconds(secondsSince(payload.session.startedAt ?? null));
       setTimerRunning(true);
@@ -2856,17 +3127,23 @@ function MarktbesuchInner() {
   }, [setSessionIdInUrl]);
 
   useEffect(() => {
-    if (!hasVisitStartParams || phase !== "abschluss" || !manualTimeEdited || !visitSessionId || !visitSessionStartedAt || !isValidHm(vonVal)) return;
-    const baseDate = new Date(visitSessionStartedAt);
-    if (!Number.isFinite(baseDate.getTime())) return;
-    const startedAtIso = toIsoForLocalTime(baseDate, vonVal);
-    if (startedAtIso === visitSessionStartedAt) return;
+    if (!hasVisitStartParams || phase !== "abschluss" || !startTimeEdited || !visitSessionId || !visitSessionStartedAt || !isValidHm(vonVal)) return;
+    const startedAtIso = toIsoForDateKeyTime(visitDateKey, vonVal);
+    if (startedAtIso === visitSessionStartedAt) {
+      setStartTimeEdited(false);
+      return;
+    }
 
     const timeoutId = window.setTimeout(() => {
       setSubmitSessionError(null);
       void updateGmVisitSessionStart(visitSessionId, { startedAt: startedAtIso })
         .then((result) => {
           setVisitSessionStartedAt(result.session.startedAt);
+          const updatedStartedDate = new Date(result.session.startedAt);
+          if (Number.isFinite(updatedStartedDate.getTime())) {
+            setVisitDateKey(formatDateKey(updatedStartedDate));
+          }
+          setStartTimeEdited(false);
           setTimerSeconds(secondsSince(result.session.startedAt));
         })
         .catch((error) => {
@@ -2878,10 +3155,11 @@ function MarktbesuchInner() {
     return () => window.clearTimeout(timeoutId);
   }, [
     hasVisitStartParams,
-    manualTimeEdited,
     phase,
+    startTimeEdited,
     visitSessionId,
     visitSessionStartedAt,
+    visitDateKey,
     vonVal,
   ]);
 
@@ -3225,8 +3503,11 @@ function MarktbesuchInner() {
       setPhase(next);
       setPhaseVisible(true);
       if (next === "abschluss") {
+        const baseDate = visitSessionStartedAt ? new Date(visitSessionStartedAt) : new Date();
+        setVisitDateKey(formatDateKey(Number.isFinite(baseDate.getTime()) ? baseDate : new Date()));
         setBisVal(nowHHMM());
         setManualTimeEdited(false);
+        setStartTimeEdited(false);
         setTimerStopped(true);
       }
       if (next === "confirm") {
@@ -3277,20 +3558,25 @@ function MarktbesuchInner() {
   }, []);
 
   async function persistVisitStartBeforeLeaving(): Promise<boolean> {
-    if (!hasVisitStartParams || !manualTimeEdited) return true;
+    if (!hasVisitStartParams || !startTimeEdited) return true;
     if (!visitSessionId) return false;
     if (!visitSessionStartedAt || !isValidHm(vonVal)) {
       setVisitExitError("Startzeit konnte nicht gespeichert werden. Bitte gueltige Zeit im Format HH:MM eingeben.");
       return false;
     }
-    let startedAtIso = visitSessionStartedAt ?? new Date().toISOString();
-    const baseDate = new Date(visitSessionStartedAt);
-    if (Number.isFinite(baseDate.getTime())) {
-      startedAtIso = toIsoForLocalTime(baseDate, vonVal);
+    const startedAtIso = toIsoForDateKeyTime(visitDateKey, vonVal);
+    if (startedAtIso === visitSessionStartedAt) {
+      setStartTimeEdited(false);
+      return true;
     }
     try {
       const result = await updateGmVisitSessionStart(visitSessionId, { startedAt: startedAtIso });
       setVisitSessionStartedAt(result.session.startedAt);
+      const updatedStartedDate = new Date(result.session.startedAt);
+      if (Number.isFinite(updatedStartedDate.getTime())) {
+        setVisitDateKey(formatDateKey(updatedStartedDate));
+      }
+      setStartTimeEdited(false);
       setTimerSeconds(secondsSince(result.session.startedAt));
       return true;
     } catch (error) {
@@ -3429,17 +3715,17 @@ function MarktbesuchInner() {
       }
 
       if (manualTimeEdited) {
-        if (!isValidHm(vonVal) || !isValidHm(bisVal)) {
+        if ((startTimeEdited && !isValidHm(vonVal)) || !isValidHm(bisVal)) {
           setSubmitSessionError("Bitte gültige Zeiten im Format HH:MM eingeben.");
           return;
         }
-        const baseDate = visitSessionStartedAt ? new Date(visitSessionStartedAt) : new Date();
-        const startedAtIso = toIsoForLocalTime(baseDate, vonVal);
-        let submittedAtIso = toIsoForLocalTime(baseDate, bisVal);
+        const startedAtIso = startTimeEdited
+          ? toIsoForDateKeyTime(visitDateKey, vonVal)
+          : visitSessionStartedAt ?? toIsoForDateKeyTime(visitDateKey, vonVal);
+        const submittedAtIso = toIsoForDateKeyTime(visitDateKey, bisVal);
         if (new Date(submittedAtIso).getTime() <= new Date(startedAtIso).getTime()) {
-          const nextDay = new Date(baseDate);
-          nextDay.setDate(nextDay.getDate() + 1);
-          submittedAtIso = toIsoForLocalTime(nextDay, bisVal);
+          setSubmitSessionError("Endzeit muss nach Startzeit liegen.");
+          return;
         }
 
         await submitGmVisitSession(visitSessionId, {
@@ -5066,8 +5352,12 @@ function MarktbesuchInner() {
         <ClockPicker
           onSelect={(h, m) => {
             const val = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-            if (clockTarget === "von") setVonVal(val);
-            else setBisVal(val);
+            if (clockTarget === "von") {
+              setVonVal(val);
+              setStartTimeEdited(true);
+            } else {
+              setBisVal(val);
+            }
             setManualTimeEdited(true);
             setClockTarget(null);
           }}
@@ -5097,13 +5387,15 @@ function MarktbesuchInner() {
                     <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(0,0,0,0.25)", marginBottom: 3 }}>Gesamtzeit</div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "#DC2626", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em", lineHeight: 1 }}>{fmtTime(timerSeconds)}</div>
                   </div>
-                  {timerRunning && !timerStopped && (
-                    <button onClick={() => setTimerStopped(true)} style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)", display: "flex", alignItems: "center", gap: 5 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: 1.5, backgroundColor: "rgba(255,255,255,0.8)" }} />
-                      Stoppen
-                    </button>
-                  )}
-                  {timerStopped && <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.25)", padding: "3px 10px", borderRadius: 20, backgroundColor: "rgba(0,0,0,0.04)" }}>Gestoppt</span>}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {timerRunning && !timerStopped && (
+                      <button onClick={() => setTimerStopped(true)} style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)", display: "flex", alignItems: "center", gap: 5 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: 1.5, backgroundColor: "rgba(255,255,255,0.8)" }} />
+                        Stoppen
+                      </button>
+                    )}
+                    {timerStopped && <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.25)", padding: "3px 10px", borderRadius: 20, backgroundColor: "rgba(0,0,0,0.04)" }}>Gestoppt</span>}
+                  </div>
                 </div>
                 <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.05)", marginBottom: 12 }} />
                 {(["von", "bis"] as const).map((field) => {
@@ -5120,11 +5412,20 @@ function MarktbesuchInner() {
                           value={val}
                           onChange={(e) => {
                             setVal(formatTimeInput(e.target.value));
+                            if (field === "von") setStartTimeEdited(true);
                             setManualTimeEdited(true);
                           }}
                           placeholder="HH:MM"
                           maxLength={5}
                           style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#1a1a1a", background: "none", border: "none", outline: "none", fontVariantNumeric: "tabular-nums" }}
+                        />
+                        <VisitDatePicker
+                          value={visitDateKey}
+                          onChange={(next) => {
+                            setVisitDateKey(next);
+                            setStartTimeEdited(true);
+                            setManualTimeEdited(true);
+                          }}
                         />
                         <button onClick={() => setClockTarget(field)} style={{ width: 22, height: 22, borderRadius: 6, border: "none", backgroundColor: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <Clock size={11} strokeWidth={1.8} color="rgba(0,0,0,0.25)" />

@@ -67,14 +67,43 @@ function secondsSince(iso: string | null): number {
   return ms > 0 ? Math.floor(ms / 1000) : 0;
 }
 
-function toIsoFromLocalHm(hm: string): string | null {
+function toYmdInTimezone(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function toIsoFromWorkDateHm(workDate: string, hm: string, timeZone: string): string | null {
   const match = /^(\d{2}):(\d{2})$/.exec(hm.trim());
   if (!match) return null;
-  const now = new Date();
+  const [yearRaw, monthRaw, dayRaw] = workDate.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
   const hour = Number(match[1]);
   const minute = Number(match[2]);
-  const local = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
-  return local.toISOString();
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null;
+  }
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+  const firstOffset = getTimeZoneOffsetMs(utcGuess, timeZone);
+  let candidateEpoch = utcGuess.getTime() - firstOffset;
+  const secondOffset = getTimeZoneOffsetMs(new Date(candidateEpoch), timeZone);
+  if (secondOffset !== firstOffset) {
+    candidateEpoch = utcGuess.getTime() - secondOffset;
+  }
+  const candidate = new Date(candidateEpoch);
+  if (toYmdInTimezone(candidate, timeZone) !== workDate) return null;
+  return candidate.toISOString();
 }
 
 function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
@@ -117,6 +146,13 @@ function msUntilNextTimezoneMidnight(timeZone: string): number {
   const targetOffset = getTimeZoneOffsetMs(new Date(candidateUtcEpoch), timeZone);
   candidateUtcEpoch = nextWallMidnightEpoch - targetOffset;
   return Math.max(1000, candidateUtcEpoch - now.getTime());
+}
+
+function isStaleOpenDaySession(session: DaySession | null, timeZone: string): boolean {
+  if (!session || session.status !== "started" || !session.dayStartedAt) return false;
+  const sessionWorkDate = session.workDate || toYmdInTimezone(new Date(session.dayStartedAt), timeZone);
+  const today = toYmdInTimezone(new Date(), timeZone);
+  return sessionWorkDate < today;
 }
 
 // ── Mini clock picker (borrowed from ActivityLauncher pattern) ────────────────
@@ -327,6 +363,19 @@ export function TimeTracker(_: TimeTrackerProps) {
     }
   }, []);
 
+  const enterForgotEndMode = useCallback(() => {
+    setHasTriggeredForgotEnd(true);
+    setEndKmInput("");
+    setNewCarSlot("input");
+    setNewCarConfirmed(false);
+    setActiveKmField(null);
+    setForgotEndTime("");
+    setForgotEndClockOpen(false);
+    setRunning(false);
+    setPaused(false);
+    transitionTo("forgotEnd");
+  }, []);
+
   const applyLocalDaySessionSnapshot = useCallback((snapshot: LocalDaySessionSnapshot) => {
     const session = snapshot.session;
     setDaySession(session);
@@ -339,13 +388,20 @@ export function TimeTracker(_: TimeTrackerProps) {
       setPhase(session && !session.isEndKmCompleted ? "endKm" : "idle");
       return;
     }
+    if (
+      (session && isStaleOpenDaySession(session, trackerTimezone)) ||
+      (!session && snapshot.workDate < toYmdInTimezone(new Date(), snapshot.timezone || trackerTimezone))
+    ) {
+      enterForgotEndMode();
+      return;
+    }
     setRunning(true);
     if (session?.isStartKmCompleted) {
       setPhase("recording");
     } else {
       setPhase("startKm");
     }
-  }, []);
+  }, [enterForgotEndMode, trackerTimezone]);
 
   const reconcileLocalDayStart = useCallback(async (snapshot: LocalDaySessionSnapshot) => {
     try {
@@ -401,9 +457,13 @@ export function TimeTracker(_: TimeTrackerProps) {
       setConfirmedStartKm(session.startKm ?? null);
       setEndKmInput(session.endKm != null ? String(session.endKm) : "");
       if (session.status === "started") {
-        setRunning(true);
         setPaused(Boolean(payload.gate.pauseOpen));
         setSeconds(secondsSince(session.dayStartedAt));
+        if (isStaleOpenDaySession(session, trackerTimezone)) {
+          enterForgotEndMode();
+          return;
+        }
+        setRunning(true);
         if (!session.isStartKmCompleted) {
           setPhase("startKm");
         } else {
@@ -436,7 +496,7 @@ export function TimeTracker(_: TimeTrackerProps) {
       const message = error instanceof Error ? error.message : "Arbeitstag konnte nicht geladen werden.";
       setPersistError(message);
     }
-  }, [applyLocalDaySessionSnapshot, reconcileLocalDayStart]);
+  }, [applyLocalDaySessionSnapshot, enterForgotEndMode, reconcileLocalDayStart, trackerTimezone]);
 
   const hydrateTodaySubmissions = useCallback(async (): Promise<TodaySubmissionItem[]> => {
     try {
@@ -463,28 +523,16 @@ export function TimeTracker(_: TimeTrackerProps) {
     if (phase === "forgotEnd") setTimeout(() => endKmRef.current?.focus(),  220);
   }, [phase]);
 
-  // ── 9pm reminder trigger ──────────────────────────────────────────────────
+  // Stale open day trigger: after midnight, yesterday's open day must be closed first.
   useEffect(() => {
-    if (phase !== "recording" || hasTriggeredForgotEnd) return;
-    const check = () => {
-      const now = new Date();
-      if (now.getHours() >= 21) {
-        setHasTriggeredForgotEnd(true);
-        setEndKmInput("");
-        setNewCarSlot("input");
-        setNewCarConfirmed(false);
-        setActiveKmField(null);
-        setForgotEndTime("");
-        setForgotEndClockOpen(false);
-        setRunning(false);
-        setPaused(false);
-        transitionTo("forgotEnd");
-      }
-    };
-    check();
-    const id = setInterval(check, 30_000); // re-check every 30s
-    return () => clearInterval(id);
-  }, [phase, hasTriggeredForgotEnd]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isStaleOpenDaySession(daySession, trackerTimezone)) {
+      if (phase !== "forgotEnd") setHasTriggeredForgotEnd(false);
+      return;
+    }
+    if (phase !== "forgotEnd") {
+      enterForgotEndMode();
+    }
+  }, [daySession, enterForgotEndMode, phase, trackerTimezone]);
 
   // ── Summary cleanup ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -500,6 +548,7 @@ export function TimeTracker(_: TimeTrackerProps) {
       const now = new Date();
       const waitMs = msUntilNextTimezoneMidnight(trackerTimezone);
       timer = setTimeout(() => {
+        void hydrateFromBackend();
         void hydrateTodaySubmissions();
         scheduleMidnightRefresh();
       }, waitMs);
@@ -508,7 +557,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [hydrateTodaySubmissions, trackerTimezone]);
+  }, [hydrateFromBackend, hydrateTodaySubmissions, trackerTimezone]);
 
   useEffect(() => {
     const handleExternalTodayUpdate = () => {
@@ -762,8 +811,14 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistBusy(true);
     setPersistError(null);
     try {
-      const endAt = toIsoFromLocalHm(forgotEndTime);
-      const ended = await endDaySession({ endAt: endAt ?? undefined });
+      const endAt = daySession
+        ? toIsoFromWorkDateHm(daySession.workDate, forgotEndTime, daySession.timezone || trackerTimezone)
+        : null;
+      if (!endAt) {
+        setPersistError("Endzeit konnte nicht auf den Arbeitstag gesetzt werden.");
+        return;
+      }
+      const ended = await endDaySession({ endAt });
       persistLocalDaySessionFromBackend(ended.session);
       const endResult = await setDaySessionEndKm(num);
       persistLocalDaySessionFromBackend(endResult.session);
@@ -780,7 +835,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     } finally {
       setPersistBusy(false);
     }
-  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, confirmedStartKm, forgotEndTime, hydrateTodaySubmissions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, confirmedStartKm, forgotEndTime, hydrateTodaySubmissions, daySession, trackerTimezone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const forgotEndValid = endKmValid && !!forgotEndTime;
 
@@ -1026,7 +1081,7 @@ export function TimeTracker(_: TimeTrackerProps) {
                   {confirmedStartKm !== null && !newCarConfirmed && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 7, background: "rgba(0,0,0,0.03)", marginBottom: 10, width: "100%", maxWidth: 200, boxSizing: "border-box" }}>
                       <div style={{ width: 4, height: 4, borderRadius: "50%", background: "rgba(0,0,0,0.2)", flexShrink: 0 }} />
-                      <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", fontWeight: 500, flex: 1 }}>Start heute</span>
+                      <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", fontWeight: 500, flex: 1 }}>Start-KM</span>
                       <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.55)", fontVariantNumeric: "tabular-nums" }}>{confirmedStartKm.toLocaleString("de-AT")} km</span>
                     </div>
                   )}

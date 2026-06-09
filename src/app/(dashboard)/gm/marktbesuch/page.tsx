@@ -2968,7 +2968,8 @@ function MarktbesuchInner() {
     setTimerSeconds(0);
   }, []);
 
-  const hydrateFromSessionPayload = useCallback((payload: GmVisitSessionReadPayload) => {
+  const hydrateFromSessionPayload = useCallback((payload: GmVisitSessionReadPayload, options?: { runTimer?: boolean }) => {
+    const runTimer = options?.runTimer ?? true;
     const nextFragebogenAnswers: Record<string, string | string[]> = {};
     const nextKuehlerAnswers: Record<string, string | string[]> = {};
     const nextMhdAnswers: Record<string, string | string[]> = {};
@@ -3077,9 +3078,9 @@ function MarktbesuchInner() {
     setVonVal(hhmmFromIso(payload.session.startedAt ?? null));
     setStartTimeEdited(false);
     if (payload.session.status === "draft" && !payload.session.submittedAt) {
-      setTimerSeconds(secondsSince(payload.session.startedAt ?? null));
-      setTimerRunning(true);
-      setTimerStopped(false);
+      setTimerSeconds(runTimer ? secondsSince(payload.session.startedAt ?? null) : 0);
+      setTimerRunning(runTimer);
+      setTimerStopped(!runTimer);
       setPhase("active");
       setPhaseVisible(true);
     }
@@ -3687,6 +3688,10 @@ function MarktbesuchInner() {
   async function handleSubmitVisit() {
     setSubmitSessionError(null);
     if (!visitSessionId) {
+      if (hasVisitStartParams) {
+        setSubmitSessionError("Marktbesuch konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.");
+        return;
+      }
       transitionTo("confirm");
       return;
     }
@@ -4103,6 +4108,46 @@ function MarktbesuchInner() {
     }
   }
 
+  async function handleManualTimeSkip() {
+    if (visitStartBlocked) return;
+    if (!hasVisitStartParams) {
+      setTimerRunning(false);
+      setTimerStopped(true);
+      transitionTo("active");
+      return;
+    }
+
+    const clientStartedAt = new Date().toISOString();
+    const clientSessionToken =
+      (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).slice(0, 120);
+    setVisitStartError(null);
+
+    try {
+      setVisitStartLoading(true);
+      if (visitSessionId) {
+        const hydratedPayload = await fetchGmVisitSession(visitSessionId);
+        hydrateFromSessionPayload(hydratedPayload, { runTimer: false });
+        return;
+      }
+
+      const created = await createGmVisitSession({
+        marketId,
+        campaignIds,
+        clientSessionToken,
+        startedAt: clientStartedAt,
+      });
+      const hydratedPayload = await fetchGmVisitSession(created.session.id);
+      hydrateFromSessionPayload(hydratedPayload, { runTimer: false });
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : "Marktbesuch konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.";
+      setVisitStartError(message);
+    } finally {
+      setVisitStartLoading(false);
+    }
+  }
+
   const currentQ = visibleSAMPLE_QUESTIONS[currentQIndex];
   const currentAnswer = answers[currentQ?.id];
   const currentQReady = currentQ
@@ -4437,10 +4482,7 @@ function MarktbesuchInner() {
 
               {/* Skip */}
               <button
-                onClick={() => {
-                  if (visitStartBlocked) return;
-                  transitionTo("active");
-                }}
+                onClick={() => { void handleManualTimeSkip(); }}
                 style={{
                   marginTop: 10, width: "100%",
                   fontSize: 10,

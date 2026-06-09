@@ -18,6 +18,8 @@ import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 const R  = "#DC2626";
 const HHMM_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ROW_GRID_TEMPLATE = "minmax(260px, 1.35fr) repeat(4, minmax(112px, 1fr)) 52px 52px 18px";
+const ROW_GRID_COLUMN_GAP = 14;
 
 // ── Helpers ───────────────────────────────────────────────────
 function toMin(hhmm: string): number {
@@ -660,6 +662,15 @@ function StatTile({ label, value, color = "#1a1a1a" }: { label: string; value: s
   );
 }
 
+function RowMetricCell({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ minWidth: 0, textAlign: "left" as const }}>
+      <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>{value}</div>
+    </div>
+  );
+}
+
 // ── GM Day Row (daily view) ───────────────────────────────────
 function GMDayRow({
   session,
@@ -675,42 +686,39 @@ function GMDayRow({
   return (
     <div style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
       <div onClick={() => setExpanded(e => !e)}
-        style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 18px", cursor: "pointer", transition: "background 0.1s" }}
+        style={{ display: "grid", gridTemplateColumns: ROW_GRID_TEMPLATE, columnGap: ROW_GRID_COLUMN_GAP, alignItems: "center", padding: "11px 18px", cursor: "pointer", transition: "background 0.1s" }}
         onMouseEnter={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.018)"; }}
         onMouseLeave={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 180, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
           <div style={{ width: 30, height: 30, borderRadius: 8, background: av.bg, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: av.text, letterSpacing: "-0.02em" }}>{gmInitials(session.gmName)}</span>
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.015em", whiteSpace: "nowrap" as const }}>{session.gmName}</div>
             <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>{session.region}</div>
           </div>
         </div>
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-evenly" }}>
+        <>
           {[
             { label: "Arbeitstag", value: `${session.startTime}–${session.endTime}`, color: "#1a1a1a" },
             { label: "Reine AZ",   value: fmtDur(stats.reineArbeitszeit),            color: "#374151" },
             { label: "Pause",      value: fmtDur(stats.pauseMin),                    color: "#D97706" },
             { label: "KM",         value: stats.kmGefahren == null ? "—" : `${stats.kmGefahren.toLocaleString("de-AT")} km`, color: "#374151" },
           ].map(m => (
-            <div key={m.label} style={{ textAlign: "center" as const }}>
-              <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>{m.label}</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: m.color, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>{m.value}</div>
-            </div>
+            <RowMetricCell key={m.label} label={m.label} value={m.value} color={m.color} />
           ))}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <div style={{ textAlign: "right" as const, width: 44 }}>
+        </>
+        <>
+          <div style={{ textAlign: "right" as const }}>
             <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>Besuche</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: stats.marktbesuche > 0 ? R : "rgba(0,0,0,0.2)", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{stats.marktbesuche > 0 ? stats.marktbesuche : "—"}</div>
           </div>
-          <div style={{ textAlign: "right" as const, width: 44 }}>
+          <div style={{ textAlign: "right" as const }}>
             <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>Zusatz</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: stats.zusatz > 0 ? "#2563eb" : "rgba(0,0,0,0.2)", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{stats.zusatz > 0 ? stats.zusatz : "—"}</div>
           </div>
-          <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }} />
-        </div>
+          <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", justifySelf: "end" }} />
+        </>
       </div>
       <div style={{ maxHeight: expanded ? "1200px" : "0", overflow: "hidden", transition: "max-height 0.36s cubic-bezier(0.4,0,0.2,1)" }}>
         <div style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.22s ease 0.05s" }}>
@@ -792,12 +800,12 @@ function HistoryDayRow({ session, timeline, stats, onSegmentPatched }: {
       {/* Collapsed row — same column structure as daily GMDayRow */}
       <div
         onClick={() => setExpanded(e => !e)}
-        style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 18px", cursor: "pointer", transition: "background 0.1s" }}
+        style={{ display: "grid", gridTemplateColumns: ROW_GRID_TEMPLATE, columnGap: ROW_GRID_COLUMN_GAP, alignItems: "center", padding: "10px 18px", cursor: "pointer", transition: "background 0.1s" }}
         onMouseEnter={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.018)"; }}
         onMouseLeave={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
       >
         {/* Date identity — same width as daily identity block */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 180, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.015em", whiteSpace: "nowrap" as const }}>
             {weekday}, {date}
           </div>
@@ -809,33 +817,30 @@ function HistoryDayRow({ session, timeline, stats, onSegmentPatched }: {
         </div>
 
         {/* Same center metrics as daily collapsed row */}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-evenly" }}>
+        <>
           {[
             { label: "Arbeitstag", value: `${session.startTime}–${session.endTime}`, color: "#1a1a1a" },
             { label: "Reine AZ",   value: fmtDur(stats.reineArbeitszeit),            color: "#374151" },
             { label: "Pause",      value: fmtDur(stats.pauseMin),                    color: "#D97706" },
             { label: "KM",         value: stats.kmGefahren == null ? "—" : `${stats.kmGefahren.toLocaleString("de-AT")} km`, color: "#374151" },
           ].map(m => (
-            <div key={m.label} style={{ textAlign: "center" as const }}>
-              <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>{m.label}</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: m.color, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>{m.value}</div>
-            </div>
+            <RowMetricCell key={m.label} label={m.label} value={m.value} color={m.color} />
           ))}
-        </div>
+        </>
 
         {/* Same right counts as daily row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <div style={{ textAlign: "right" as const, width: 44 }}>
+        <>
+          <div style={{ textAlign: "right" as const }}>
             <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>Besuche</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: stats.marktbesuche > 0 ? R : "rgba(0,0,0,0.2)", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{stats.marktbesuche > 0 ? stats.marktbesuche : "—"}</div>
           </div>
-          <div style={{ textAlign: "right" as const, width: 44 }}>
+          <div style={{ textAlign: "right" as const }}>
             <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>Zusatz</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: stats.zusatz > 0 ? "#2563eb" : "rgba(0,0,0,0.2)", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{stats.zusatz > 0 ? stats.zusatz : "—"}</div>
           </div>
           <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)"
-            style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }} />
-        </div>
+            style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", justifySelf: "end" }} />
+        </>
       </div>
 
       {/* Expanded timeline */}

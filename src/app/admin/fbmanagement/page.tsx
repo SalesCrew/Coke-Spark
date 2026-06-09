@@ -12,7 +12,8 @@ import {
   assignCampaignMarketAssignments,
   assignCampaignMarkets,
   deleteCampaign,
-  fetchCampaignMarketVisitSummaries,
+  fetchCampaignMarketVisitDetail,
+  fetchCampaignMarketVisitStatuses,
   fetchCampaigns,
   fetchFragebogen,
   fetchMarkets,
@@ -24,7 +25,7 @@ import {
   removeCampaignMarket,
   switchCampaignFragebogen,
 } from "@/lib/api/backend";
-import type { CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
+import type { CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
 
 type FragebogenOption = {
   id: string;
@@ -45,6 +46,8 @@ const MARKET_LIST_INITIAL_LIMIT = 120;
 const MARKET_LIST_LOAD_STEP = 120;
 const ADD_PANEL_INITIAL_LIMIT = 80;
 const ADD_PANEL_LOAD_STEP = 80;
+const VISIT_STATUS_BATCH_SIZE = 50;
+const VISIT_STATUS_MAX_CONCURRENT_BATCHES = 2;
 const HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT = "Ich bin mir sicher, dass ich alle Daten zu dieser Kampagne Löschen will!";
 
 type CampaignContextMenuState = {
@@ -71,7 +74,8 @@ interface MarketCatalogItem {
   finished: boolean;
 }
 
-type CampaignVisitSummaryByMarket = Record<string, CampaignMarketVisitSummary>;
+type CampaignVisitStatusByMarket = Record<string, CampaignMarketVisitStatus>;
+type CampaignVisitDetailByKey = Record<string, CampaignMarketVisitSummary>;
 
 interface MarketListFilters {
   chain: string | null;
@@ -127,6 +131,32 @@ function applyMarketFilters(
   if (filters.city)   r = r.filter(m => m.city   === filters.city);
   if (filters.region) r = r.filter(m => m.region === filters.region);
   return r;
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function getVisitDetailKey(campaignId: string, marketId: string, sessionId: string | null | undefined): string {
+  return `${campaignId}:${marketId}:${sessionId ?? "latest"}`;
+}
+
+function getMarketDisplayName(input: {
+  name?: string | null;
+  address?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+}): string {
+  const name = input.name?.trim();
+  if (name) return name;
+  const address = input.address?.trim() ?? "";
+  const place = [input.postalCode?.trim(), input.city?.trim()].filter(Boolean).join(" ");
+  const fallback = [address, place].filter(Boolean).join(", ");
+  return fallback || "Unbenannter Markt";
 }
 
 // Keep a thin alias so MOCK_MARKET_META still resolves cleanly
@@ -3779,6 +3809,124 @@ function AnswerMatrix({ answer, config, color }: { answer: string[] | Record<str
 
 // ── Market Visit Detail ───────────────────────────────────────
 
+function MarketVisitDetailSkeleton({
+  market,
+  campaignColor,
+  loading,
+  error,
+  onRetry,
+  onClose,
+}: {
+  market: MarketCatalogItem;
+  campaignColor: string;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div style={{
+      position: "absolute", inset: 0, zIndex: 40,
+      background: "#fff", display: "flex", flexDirection: "column",
+      animation: "mvdSlideIn 0.28s cubic-bezier(0.4,0,0.2,1) forwards",
+    }}>
+      <style>{`
+        @keyframes mvdSlideIn { from { opacity:0; transform:translateX(32px) } to { opacity:1; transform:translateX(0) } }
+        @keyframes mvdSkeletonPulse { 0%, 100% { opacity: 0.48; } 50% { opacity: 0.86; } }
+        .mvd-skeleton {
+          position: relative;
+          overflow: hidden;
+          background: rgba(0,0,0,0.075);
+          animation: mvdSkeletonPulse 1.45s ease-in-out infinite;
+        }
+      `}</style>
+
+      <div style={{
+        flexShrink: 0, padding: "14px 20px", borderBottom: "1px solid rgba(0,0,0,0.06)",
+        display: "flex", alignItems: "center", gap: 12,
+        background: "#fff", position: "sticky", top: 0, zIndex: 2,
+      }}>
+        <button onClick={onClose} style={{
+          width: 28, height: 28, borderRadius: 8, border: "none", cursor: "pointer",
+          background: "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center",
+          color: "rgba(0,0,0,0.45)", flexShrink: 0,
+        }}>
+          <ChevronLeft size={15} strokeWidth={2.2} />
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: campaignColor }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{market.name}</span>
+          </div>
+          <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{market.address}</div>
+        </div>
+        <div className="mvd-skeleton" style={{ width: 56, height: 18, borderRadius: 7 }} />
+        <div className="mvd-skeleton" style={{ width: 64, height: 18, borderRadius: 7 }} />
+        <div className="mvd-skeleton" style={{ width: 44, height: 18, borderRadius: 7 }} />
+      </div>
+
+      <div style={{ flexShrink: 0, display: "flex", gap: 6, padding: "7px 16px", borderBottom: "1px solid rgba(0,0,0,0.05)", background: "#fff" }}>
+        {[82, 58, 74, 64].map((width, index) => (
+          <div key={index} className="mvd-skeleton" style={{ width, height: 24, borderRadius: 7 }} />
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 24px", background: "linear-gradient(180deg, rgba(0,0,0,0.012), #fff 120px)" }}>
+        {error ? (
+          <div style={{
+            borderRadius: 12,
+            border: "1px solid rgba(220,38,38,0.14)",
+            background: "rgba(220,38,38,0.04)",
+            padding: "16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c" }}>{error}</span>
+            <button
+              onClick={onRetry}
+              disabled={loading}
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "7px 12px",
+                background: "linear-gradient(to bottom, #111827, #020617)",
+                color: "#fff",
+                fontSize: 10,
+                fontWeight: 800,
+                cursor: loading ? "not-allowed" : "pointer",
+                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.24), inset 0 -1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(2,6,23,0.9), 0 4px 12px rgba(2,6,23,0.16)",
+                opacity: loading ? 0.75 : 1,
+              }}
+            >
+              Erneut laden
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {Array.from({ length: 7 }).map((_, index) => (
+              <div
+                key={index}
+                style={{
+                  borderRadius: 10,
+                  border: "1px solid rgba(0,0,0,0.05)",
+                  background: "#fff",
+                  padding: "12px 14px",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.025)",
+                }}
+              >
+                <div className="mvd-skeleton" style={{ width: `${68 - (index % 3) * 10}%`, height: 10, borderRadius: 99, marginBottom: 10 }} />
+                <div className="mvd-skeleton" style={{ width: `${38 + (index % 4) * 8}%`, height: 22, borderRadius: 7 }} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MarketVisitDetail({
   market,
   campaignColor,
@@ -4750,12 +4898,15 @@ function CampaignListItem({
     inactive: boolean;
     filled: number;
     total: number;
+    statusLoaded?: boolean;
+    statusLoading?: boolean;
   };
   selected: boolean;
   onClick: () => void;
   onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
-  const pct = campaign.total > 0 ? Math.round((campaign.filled / campaign.total) * 100) : 0;
+  const metricsLoading = Boolean(campaign.statusLoading && !campaign.statusLoaded);
+  const pct = !metricsLoading && campaign.total > 0 ? Math.round((campaign.filled / campaign.total) * 100) : 0;
   const dotColor = campaign.color;
 
   return (
@@ -4785,13 +4936,21 @@ function CampaignListItem({
           <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: dotColor, flexShrink: 0, opacity: campaign.inactive ? 0.3 : 1 }} />
           <span style={{ fontSize: 12, fontWeight: selected ? 700 : 500, color: selected ? "#1a1a1a" : "#374151", letterSpacing: "-0.01em" }}>{campaign.name}</span>
         </div>
-        <span style={{ fontSize: 11, fontWeight: 600, color: pct >= 80 ? "#16a34a" : pct > 0 ? "#d97706" : "rgba(0,0,0,0.25)" }}>{pct}%</span>
+        {metricsLoading ? (
+          <span className="fbm-inline-skeleton" style={{ width: 28, height: 12, borderRadius: 99, display: "inline-block" }} />
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 600, color: pct >= 80 ? "#16a34a" : pct > 0 ? "#d97706" : "rgba(0,0,0,0.25)" }}>{pct}%</span>
+        )}
       </div>
       <div style={{ paddingLeft: 13 }}>
         <div style={{ height: 3, borderRadius: 99, backgroundColor: "rgba(0,0,0,0.06)", overflow: "hidden" }}>
           <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, backgroundColor: pct >= 80 ? "#16a34a" : pct > 0 ? "#d97706" : "transparent" }} />
         </div>
-        <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 3, display: "block" }}>{campaign.filled.toLocaleString("de-AT")} / {campaign.total.toLocaleString("de-AT")}</span>
+        {metricsLoading ? (
+          <span className="fbm-inline-skeleton" style={{ width: 62, height: 10, borderRadius: 99, display: "block", marginTop: 5 }} />
+        ) : (
+          <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 3, display: "block" }}>{campaign.filled.toLocaleString("de-AT")} / {campaign.total.toLocaleString("de-AT")}</span>
+        )}
       </div>
     </div>
   );
@@ -4800,9 +4959,19 @@ function CampaignListItem({
 // ── Market row ────────────────────────────────────────────────
 
 const MarketRow = React.memo(function MarketRow({
-  market, mode = "idle", isRemoving = false, isEntering = false, onRemove, onClick, removeDisabled = false,
+  market,
+  visitStatus = null,
+  statusLoading = false,
+  mode = "idle",
+  isRemoving = false,
+  isEntering = false,
+  onRemove,
+  onClick,
+  removeDisabled = false,
 }: {
   market: MarketCatalogItem;
+  visitStatus?: CampaignMarketVisitStatus | null;
+  statusLoading?: boolean;
   mode?: "idle" | "remove" | "add";
   isRemoving?: boolean;
   isEntering?: boolean;
@@ -4810,7 +4979,34 @@ const MarketRow = React.memo(function MarketRow({
   onClick?: () => void;
   removeDisabled?: boolean;
 }) {
-  const clickable = market.finished && !!onClick && mode === "idle";
+  const targetVisitCount = Math.max(visitStatus?.targetVisitCount ?? 1, 1);
+  const submittedVisitCount = Math.max(visitStatus?.submittedVisitCount ?? 0, 0);
+  const hasSubmittedVisit = Boolean(visitStatus?.hasSubmittedVisit);
+  const complete = Boolean(visitStatus?.isComplete);
+  const partial = hasSubmittedVisit && !complete;
+  const clickable = hasSubmittedVisit && !!onClick && mode === "idle";
+  const dotColor = statusLoading ? "rgba(0,0,0,0.12)" : complete ? "#16a34a" : partial ? "#d97706" : "rgba(0,0,0,0.18)";
+  const badgeLabel = statusLoading
+    ? ""
+    : targetVisitCount > 1
+      ? complete
+        ? `Abgeschlossen ${submittedVisitCount}/${targetVisitCount}`
+        : partial
+          ? `Teilweise ${submittedVisitCount}/${targetVisitCount}`
+          : `Ausstehend 0/${targetVisitCount}`
+      : complete || hasSubmittedVisit
+        ? "Besucht"
+        : "Ausstehend";
+  const badgeColor = complete || (targetVisitCount === 1 && hasSubmittedVisit)
+    ? "#16a34a"
+    : partial
+      ? "#d97706"
+      : "rgba(0,0,0,0.35)";
+  const badgeBackground = complete || (targetVisitCount === 1 && hasSubmittedVisit)
+    ? "rgba(22,163,74,0.08)"
+    : partial
+      ? "rgba(217,119,6,0.1)"
+      : "rgba(0,0,0,0.04)";
   const anim = isRemoving ? "mrSlideOut 0.3s cubic-bezier(0.4,0,0.6,1) forwards"
              : isEntering  ? "mrSlideIn 0.3s cubic-bezier(0.2,0,0,1) both"
              : undefined;
@@ -4853,17 +5049,24 @@ const MarketRow = React.memo(function MarketRow({
         </button>
       )}
       {mode !== "remove" && (
-        <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, backgroundColor: market.finished ? "#16a34a" : "rgba(0,0,0,0.18)" }} />
+        <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, backgroundColor: dotColor }} />
       )}
       <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{market.name}</span>
       <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", fontWeight: 400 }}>{market.city}</span>
-      <span style={{
-        fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
-        backgroundColor: market.finished ? "rgba(22,163,74,0.08)" : "rgba(0,0,0,0.04)",
-        color: market.finished ? "#16a34a" : "rgba(0,0,0,0.35)",
-      }}>
-        {market.finished ? "Besucht" : "Ausstehend"}
-      </span>
+      {statusLoading ? (
+        <span
+          className="fbm-inline-skeleton"
+          style={{ width: 58, height: 17, borderRadius: 20, display: "inline-block" }}
+        />
+      ) : (
+        <span style={{
+          fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+          backgroundColor: badgeBackground,
+          color: badgeColor,
+        }}>
+          {badgeLabel}
+        </span>
+      )}
     </div>
   );
 }, (prev, next) => {
@@ -4872,6 +5075,11 @@ const MarketRow = React.memo(function MarketRow({
     prev.market.finished === next.market.finished &&
     prev.market.name === next.market.name &&
     prev.market.city === next.market.city &&
+    prev.visitStatus?.targetVisitCount === next.visitStatus?.targetVisitCount &&
+    prev.visitStatus?.submittedVisitCount === next.visitStatus?.submittedVisitCount &&
+    prev.visitStatus?.isComplete === next.visitStatus?.isComplete &&
+    prev.visitStatus?.hasSubmittedVisit === next.visitStatus?.hasSubmittedVisit &&
+    prev.statusLoading === next.statusLoading &&
     prev.mode === next.mode &&
     prev.isRemoving === next.isRemoving &&
     prev.isEntering === next.isEntering &&
@@ -5368,9 +5576,12 @@ export default function FbManagementPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [visitLoadError, setVisitLoadError] = useState<string | null>(null);
-  const [visitInitialHydrationDone, setVisitInitialHydrationDone] = useState(false);
-  const [visitSummariesByCampaignId, setVisitSummariesByCampaignId] = useState<Record<string, CampaignVisitSummaryByMarket>>({});
-  const [visitSummariesLoadingByCampaignId, setVisitSummariesLoadingByCampaignId] = useState<Record<string, boolean>>({});
+  const [visitStatusByCampaignId, setVisitStatusByCampaignId] = useState<Record<string, CampaignVisitStatusByMarket>>({});
+  const [visitStatusLoadingByCampaignId, setVisitStatusLoadingByCampaignId] = useState<Record<string, boolean>>({});
+  const [visitStatusErrorByCampaignId, setVisitStatusErrorByCampaignId] = useState<Record<string, string | null>>({});
+  const [visitDetailByKey, setVisitDetailByKey] = useState<CampaignVisitDetailByKey>({});
+  const [visitDetailLoadingByKey, setVisitDetailLoadingByKey] = useState<Record<string, boolean>>({});
+  const [visitDetailErrorByKey, setVisitDetailErrorByKey] = useState<Record<string, string | null>>({});
   const [switchingCampaignId, setSwitchingCampaignId] = useState<string | null>(null);
   const [campaignPendingOps, setCampaignPendingOps] = useState<Record<string, number>>({});
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -5385,7 +5596,8 @@ export default function FbManagementPage() {
   const [resolvingOverlap, setResolvingOverlap] = useState(false);
   const regionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const campaignContextMenuRef = useRef<HTMLDivElement | null>(null);
-  const visitSummaryInFlightRef = useRef<Record<string, Promise<void>>>({});
+  const visitStatusInFlightRef = useRef<Record<string, Promise<void>>>({});
+  const visitDetailInFlightRef = useRef<Record<string, Promise<void>>>({});
 
   // ── Market management state ────────────────────────────────────
   const [marketSearch, setMarketSearch] = useState("");
@@ -5403,7 +5615,6 @@ export default function FbManagementPage() {
     const loadData = async () => {
       setLoading(true);
       setLoadError(null);
-      setVisitInitialHydrationDone(false);
       try {
         const settled = await Promise.allSettled([
           fetchCampaigns(),
@@ -5456,7 +5667,7 @@ export default function FbManagementPage() {
           const chain = chainSource ? chainSource.split(/\s+/)[0] : "Unbekannt";
           return {
             id: market.id,
-            name: market.name,
+            name: getMarketDisplayName(market),
             chain,
             city: market.city,
             region: market.region,
@@ -5523,60 +5734,134 @@ export default function FbManagementPage() {
     }
   }, [campaignsData, selectedId]);
 
-  const refreshCampaignVisitSummaries = useCallback(async (
-    targetCampaignId: string,
+  const refreshCampaignVisitStatuses = useCallback(async (
+    targetCampaignIds: string[],
     options?: {
       suppressErrorBanner?: boolean;
-      timeoutMs?: number;
+      force?: boolean;
       maxAttempts?: number;
     },
   ) => {
-    if (!targetCampaignId) return;
-    const existingTask = visitSummaryInFlightRef.current[targetCampaignId];
-    if (existingTask) {
+    const campaignIds = Array.from(new Set(targetCampaignIds.filter(Boolean))).slice(0, VISIT_STATUS_BATCH_SIZE);
+    if (campaignIds.length === 0) return;
+    const batchKey = campaignIds.slice().sort((a, b) => a.localeCompare(b, "de")).join("|");
+    const existingTask = visitStatusInFlightRef.current[batchKey];
+    if (existingTask && !options?.force) {
       await existingTask;
       return;
     }
     if (!options?.suppressErrorBanner) {
       setVisitLoadError(null);
     }
-    setVisitSummariesLoadingByCampaignId((current) => ({ ...current, [targetCampaignId]: true }));
+    setVisitStatusLoadingByCampaignId((current) => {
+      const next = { ...current };
+      for (const id of campaignIds) next[id] = true;
+      return next;
+    });
     const task = (async () => {
       const maxAttempts = Math.max(1, options?.maxAttempts ?? 2);
       let lastError: unknown = null;
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         try {
-          const summaries = await fetchCampaignMarketVisitSummaries(targetCampaignId, {
-            timeoutMs: options?.timeoutMs ?? 90000,
+          const batches = await fetchCampaignMarketVisitStatuses(campaignIds);
+          const received = new Set<string>();
+          setVisitStatusByCampaignId((current) => {
+            const next = { ...current };
+            for (const batch of batches) {
+              received.add(batch.campaignId);
+              next[batch.campaignId] = Object.fromEntries(
+                batch.markets.map((status) => [status.marketId, status]),
+              ) as CampaignVisitStatusByMarket;
+            }
+            for (const id of campaignIds) {
+              if (!received.has(id) && !Object.prototype.hasOwnProperty.call(next, id)) {
+                next[id] = {};
+              }
+            }
+            return next;
           });
-          const byMarket = Object.fromEntries(
-            summaries.map((summary) => [summary.marketId, summary]),
-          ) as CampaignVisitSummaryByMarket;
-          setVisitSummariesByCampaignId((current) => ({ ...current, [targetCampaignId]: byMarket }));
+          setVisitStatusErrorByCampaignId((current) => {
+            const next = { ...current };
+            for (const id of campaignIds) next[id] = null;
+            return next;
+          });
           return;
         } catch (error) {
           lastError = error;
           if (attempt < maxAttempts - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+            await new Promise((resolve) => setTimeout(resolve, 220 * (attempt + 1)));
           }
         }
       }
+      const message = lastError instanceof Error ? lastError.message : "Besuchsstatus konnte nicht geladen werden.";
       if (!options?.suppressErrorBanner) {
-        setVisitLoadError(lastError instanceof Error ? lastError.message : "Besuchsstatus konnte nicht geladen werden.");
+        setVisitLoadError(message);
       }
-      setVisitSummariesByCampaignId((current) => {
-        if (Object.prototype.hasOwnProperty.call(current, targetCampaignId)) return current;
-        return { ...current, [targetCampaignId]: {} };
+      setVisitStatusErrorByCampaignId((current) => {
+        const next = { ...current };
+        for (const id of campaignIds) next[id] = message;
+        return next;
+      });
+      setVisitStatusByCampaignId((current) => {
+        const next = { ...current };
+        for (const id of campaignIds) {
+          if (!Object.prototype.hasOwnProperty.call(next, id)) next[id] = {};
+        }
+        return next;
       });
     })();
-    visitSummaryInFlightRef.current[targetCampaignId] = task;
+    visitStatusInFlightRef.current[batchKey] = task;
     try {
       await task;
     } finally {
-      delete visitSummaryInFlightRef.current[targetCampaignId];
-      setVisitSummariesLoadingByCampaignId((current) => ({ ...current, [targetCampaignId]: false }));
+      delete visitStatusInFlightRef.current[batchKey];
+      setVisitStatusLoadingByCampaignId((current) => {
+        const next = { ...current };
+        for (const id of campaignIds) next[id] = false;
+        return next;
+      });
     }
   }, []);
+
+  const refreshMarketVisitDetail = useCallback(async (
+    targetCampaignId: string,
+    targetMarketId: string,
+    sessionId?: string | null,
+    options?: { force?: boolean },
+  ) => {
+    if (!targetCampaignId || !targetMarketId) return;
+    const key = getVisitDetailKey(targetCampaignId, targetMarketId, sessionId);
+    if (!options?.force && visitDetailByKey[key]) return;
+    const existingTask = visitDetailInFlightRef.current[key];
+    if (existingTask && !options?.force) {
+      await existingTask;
+      return;
+    }
+    setVisitDetailLoadingByKey((current) => ({ ...current, [key]: true }));
+    setVisitDetailErrorByKey((current) => ({ ...current, [key]: null }));
+    const task = (async () => {
+      try {
+        const detail = await fetchCampaignMarketVisitDetail({
+          campaignId: targetCampaignId,
+          marketId: targetMarketId,
+          sessionId,
+        }, { timeoutMs: 45000 });
+        setVisitDetailByKey((current) => ({ ...current, [key]: detail }));
+      } catch (error) {
+        setVisitDetailErrorByKey((current) => ({
+          ...current,
+          [key]: error instanceof Error ? error.message : "Besuchsdetails konnten nicht geladen werden.",
+        }));
+      }
+    })();
+    visitDetailInFlightRef.current[key] = task;
+    try {
+      await task;
+    } finally {
+      delete visitDetailInFlightRef.current[key];
+      setVisitDetailLoadingByKey((current) => ({ ...current, [key]: false }));
+    }
+  }, [visitDetailByKey]);
 
   const formatPeriod = (campaign: Campaign) => {
     if (campaign.scheduleType === "always") return "Immer aktiv";
@@ -5591,33 +5876,38 @@ export default function FbManagementPage() {
   const assignedMarketsByCampaignId = useMemo(() => {
     const byCampaign = new Map<string, MarketCatalogItem[]>();
     for (const campaignEntry of campaignsData) {
-      const visitSummaryByMarket = visitSummariesByCampaignId[campaignEntry.id] ?? {};
+      const visitStatusByMarket = visitStatusByCampaignId[campaignEntry.id] ?? {};
       const assigned: MarketCatalogItem[] = [];
       for (const marketId of campaignEntry.marketIds) {
         const market = marketById.get(marketId);
         if (!market) continue;
-        const visitSummary = visitSummaryByMarket[marketId] ?? null;
+        const visitStatus = visitStatusByMarket[marketId] ?? null;
         assigned.push({
           ...market,
-          finished: visitSummary ? Boolean(visitSummary.hasSubmittedVisit) : market.finished,
+          finished: visitStatus ? visitStatus.isComplete : false,
         });
       }
       byCampaign.set(campaignEntry.id, assigned);
     }
     return byCampaign;
-  }, [campaignsData, marketById, visitSummariesByCampaignId]);
+  }, [campaignsData, marketById, visitStatusByCampaignId]);
 
   const campaignsView = useMemo(
     () =>
       campaignsData.map((campaignEntry) => {
+        const visitStatusByMarket = visitStatusByCampaignId[campaignEntry.id] ?? {};
+        const statusLoaded = Object.prototype.hasOwnProperty.call(visitStatusByCampaignId, campaignEntry.id);
+        const statusLoading = Boolean(visitStatusLoadingByCampaignId[campaignEntry.id]);
         const assignedMarketsForCampaign = assignedMarketsByCampaignId.get(campaignEntry.id) ?? [];
         const total = assignedMarketsForCampaign.length;
-        const filled = assignedMarketsForCampaign.filter((market) => market.finished).length;
+        const filled = statusLoaded
+          ? assignedMarketsForCampaign.filter((market) => visitStatusByMarket[market.id]?.isComplete).length
+          : 0;
         const byRegion = new Map<string, { total: number; filled: number }>();
         for (const market of assignedMarketsForCampaign) {
           const current = byRegion.get(market.region) ?? { total: 0, filled: 0 };
           current.total += 1;
-          if (market.finished) current.filled += 1;
+          if (statusLoaded && visitStatusByMarket[market.id]?.isComplete) current.filled += 1;
           byRegion.set(market.region, current);
         }
         const regions = Array.from(byRegion.entries())
@@ -5638,9 +5928,12 @@ export default function FbManagementPage() {
           todayNew: 0,
           thisWeek: 0,
           regions,
+          statusLoaded,
+          statusLoading,
+          statusError: visitStatusErrorByCampaignId[campaignEntry.id] ?? null,
         };
       }),
-    [assignedMarketsByCampaignId, campaignsData],
+    [assignedMarketsByCampaignId, campaignsData, visitStatusByCampaignId, visitStatusErrorByCampaignId, visitStatusLoadingByCampaignId],
   );
 
   const visibleCampaigns = useMemo(
@@ -5707,11 +6000,12 @@ export default function FbManagementPage() {
     if (campaign.section === "billa") return BILLA_PREVIEW_QUESTIONS;
     return PREVIEW_QUESTIONS;
   }, [campaign, fragebogenByScope, modulesByScope]);
-  const pct = campaign && campaign.total > 0 ? Math.round((campaign.filled / campaign.total) * 100) : 0;
+  const campaignStatusMetricsLoading = Boolean(campaign && campaign.statusLoading && !campaign.statusLoaded);
+  const pct = !campaignStatusMetricsLoading && campaign && campaign.total > 0 ? Math.round((campaign.filled / campaign.total) * 100) : 0;
   const campaignId = campaign?.id ?? null;
   const campaignMarketIds = campaign?.marketIds ?? [];
   const campaignCurrentFragebogenId = campaign?.currentFragebogenId ?? null;
-  const isVisitSummaryLoading = campaignId ? Boolean(visitSummariesLoadingByCampaignId[campaignId]) : false;
+  const isVisitStatusLoading = campaignId ? Boolean(visitStatusLoadingByCampaignId[campaignId]) : false;
 
   const allCampaignVisitSignature = useMemo(
     () =>
@@ -5723,41 +6017,44 @@ export default function FbManagementPage() {
   );
 
   useEffect(() => {
-    if (campaignsData.length === 0) return;
-    const pendingCampaigns = campaignsData.filter((entry) => (
-      !Object.prototype.hasOwnProperty.call(visitSummariesByCampaignId, entry.id)
-      && !visitSummariesLoadingByCampaignId[entry.id]
+    if (!campaignId) return;
+    if (Object.prototype.hasOwnProperty.call(visitStatusByCampaignId, campaignId)) return;
+    if (visitStatusLoadingByCampaignId[campaignId]) return;
+    void refreshCampaignVisitStatuses([campaignId], { suppressErrorBanner: true });
+  }, [campaignId, refreshCampaignVisitStatuses, visitStatusByCampaignId, visitStatusLoadingByCampaignId]);
+
+  useEffect(() => {
+    if (loading || campaignsData.length === 0) return;
+    const priorityIds = [
+      ...(campaignId ? [campaignId] : []),
+      ...visibleCampaigns.map((entry) => entry.id),
+      ...campaignsData.map((entry) => entry.id),
+    ];
+    const pendingIds = Array.from(new Set(priorityIds)).filter((id) => (
+      !Object.prototype.hasOwnProperty.call(visitStatusByCampaignId, id)
+      && !visitStatusLoadingByCampaignId[id]
     ));
-    if (pendingCampaigns.length === 0) return;
-    const queue = pendingCampaigns.map((entry) => entry.id);
-    const workerCount = Math.min(3, queue.length);
+    if (pendingIds.length === 0) return;
+    const queue = chunkArray(pendingIds, VISIT_STATUS_BATCH_SIZE);
+    const workerCount = Math.min(VISIT_STATUS_MAX_CONCURRENT_BATCHES, queue.length);
     const runWorker = async () => {
       while (queue.length > 0) {
-        const nextCampaignId = queue.shift();
-        if (!nextCampaignId) return;
-        await refreshCampaignVisitSummaries(nextCampaignId, { suppressErrorBanner: true, timeoutMs: 90000 });
+        const nextCampaignIds = queue.shift();
+        if (!nextCampaignIds) return;
+        await refreshCampaignVisitStatuses(nextCampaignIds, { suppressErrorBanner: true });
       }
     };
     void Promise.all(Array.from({ length: workerCount }, () => runWorker()));
   }, [
     allCampaignVisitSignature,
+    campaignId,
     campaignsData,
-    refreshCampaignVisitSummaries,
-    visitSummariesByCampaignId,
-    visitSummariesLoadingByCampaignId,
+    loading,
+    refreshCampaignVisitStatuses,
+    visibleCampaigns,
+    visitStatusByCampaignId,
+    visitStatusLoadingByCampaignId,
   ]);
-
-  useEffect(() => {
-    if (loading) return;
-    if (campaignsData.length === 0) {
-      setVisitInitialHydrationDone(true);
-      return;
-    }
-    const allLoaded = campaignsData.every((entry) => Object.prototype.hasOwnProperty.call(visitSummariesByCampaignId, entry.id));
-    if (allLoaded) {
-      setVisitInitialHydrationDone(true);
-    }
-  }, [campaignsData, loading, visitSummariesByCampaignId]);
 
   const assignedIds = campaignMarketIds;
   const isCampaignBusy = (campaignId: string) => (campaignPendingOps[campaignId] ?? 0) > 0;
@@ -5803,16 +6100,30 @@ export default function FbManagementPage() {
       }
       const deletedWasSelected = selectedId === targetCampaignId;
       setCampaignsData((current) => current.filter((entry) => entry.id !== targetCampaignId));
-      setVisitSummariesByCampaignId((current) => {
+      setVisitStatusByCampaignId((current) => {
         const next = { ...current };
         delete next[targetCampaignId];
         return next;
       });
-      setVisitSummariesLoadingByCampaignId((current) => {
+      setVisitStatusLoadingByCampaignId((current) => {
         const next = { ...current };
         delete next[targetCampaignId];
         return next;
       });
+      setVisitStatusErrorByCampaignId((current) => {
+        const next = { ...current };
+        delete next[targetCampaignId];
+        return next;
+      });
+      setVisitDetailByKey((current) => Object.fromEntries(
+        Object.entries(current).filter(([key]) => !key.startsWith(`${targetCampaignId}:`)),
+      ));
+      setVisitDetailLoadingByKey((current) => Object.fromEntries(
+        Object.entries(current).filter(([key]) => !key.startsWith(`${targetCampaignId}:`)),
+      ));
+      setVisitDetailErrorByKey((current) => Object.fromEntries(
+        Object.entries(current).filter(([key]) => !key.startsWith(`${targetCampaignId}:`)),
+      ));
       setSelectedId((current) => (current === targetCampaignId ? null : current));
       if (deletedWasSelected) {
         setSelectedMarket(null);
@@ -5869,10 +6180,30 @@ export default function FbManagementPage() {
     () => (campaignId ? assignedMarketsByCampaignId.get(campaignId) ?? [] : []),
     [assignedMarketsByCampaignId, campaignId],
   );
-  const campaignVisitSummaryByMarket = useMemo(
-    () => (campaignId ? visitSummariesByCampaignId[campaignId] ?? {} : {}),
-    [campaignId, visitSummariesByCampaignId],
+  const campaignVisitStatusByMarket = useMemo(
+    () => (campaignId ? visitStatusByCampaignId[campaignId] ?? {} : {}),
+    [campaignId, visitStatusByCampaignId],
   );
+  const selectedVisitStatus = selectedMarket ? campaignVisitStatusByMarket[selectedMarket] ?? null : null;
+  const selectedVisitDetailKey =
+    campaignId && selectedMarket && selectedVisitStatus?.hasSubmittedVisit
+      ? getVisitDetailKey(campaignId, selectedMarket, selectedVisitStatus.sessionId)
+      : null;
+  const selectedVisitDetail = selectedVisitDetailKey ? visitDetailByKey[selectedVisitDetailKey] ?? null : null;
+  const selectedVisitDetailLoading = selectedVisitDetailKey ? Boolean(visitDetailLoadingByKey[selectedVisitDetailKey]) : false;
+  const selectedVisitDetailError = selectedVisitDetailKey ? visitDetailErrorByKey[selectedVisitDetailKey] ?? null : null;
+
+  useEffect(() => {
+    if (!campaignId || !selectedMarket || !selectedVisitStatus?.hasSubmittedVisit) return;
+    void refreshMarketVisitDetail(campaignId, selectedMarket, selectedVisitStatus.sessionId);
+  }, [
+    campaignId,
+    refreshMarketVisitDetail,
+    selectedMarket,
+    selectedVisitStatus?.hasSubmittedVisit,
+    selectedVisitStatus?.sessionId,
+  ]);
+
   const assignedMarketIdSet = useMemo(() => new Set(assignedIds), [assignedIds]);
   const availableMarkets = useMemo(
     () => marketsData.filter((m) => !assignedMarketIdSet.has(m.id)),
@@ -5959,6 +6290,22 @@ export default function FbManagementPage() {
     setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
   }, [campaignId, marketEditMode, marketFilter, marketSearch, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
 
+  const invalidateCampaignVisitStatus = useCallback((targetCampaignId: string) => {
+    setVisitStatusByCampaignId((current) => {
+      const next = { ...current };
+      delete next[targetCampaignId];
+      return next;
+    });
+    setVisitStatusErrorByCampaignId((current) => {
+      const next = { ...current };
+      delete next[targetCampaignId];
+      return next;
+    });
+    setVisitDetailByKey((current) => Object.fromEntries(
+      Object.entries(current).filter(([key]) => !key.startsWith(`${targetCampaignId}:`)),
+    ));
+  }, []);
+
   const handleRemoveMarket = useCallback((id: string) => {
     if (!campaignId || isCampaignBusy(campaignId)) return;
     setMutationError(null);
@@ -5974,6 +6321,8 @@ export default function FbManagementPage() {
       void removeCampaignMarket(campaignId, id)
         .then((updated) => {
           setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+          invalidateCampaignVisitStatus(updated.id);
+          void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
         })
         .catch((error) => {
           setCampaignsData((current) =>
@@ -5989,7 +6338,7 @@ export default function FbManagementPage() {
         });
       setRemovingIds((p) => p.filter((rid) => rid !== id));
     }, 320);
-  }, [campaignId, campaignMarketIds, campaignPendingOps]);
+  }, [campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
   const handleAddMarket = useCallback((id: string) => {
     if (!campaignId || isCampaignBusy(campaignId)) return;
@@ -6006,6 +6355,8 @@ export default function FbManagementPage() {
     void assignCampaignMarkets(campaignId, [id])
       .then((updated) => {
         setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+        invalidateCampaignVisitStatus(updated.id);
+        void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
       })
       .catch((error) => {
         setCampaignsData((current) =>
@@ -6027,7 +6378,7 @@ export default function FbManagementPage() {
       });
     setEnteringIds((p) => [...p, id]);
     setTimeout(() => setEnteringIds((p) => p.filter((eid) => eid !== id)), 320);
-  }, [campaignId, campaignMarketIds, campaignPendingOps]);
+  }, [campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
   const handleUndoAddMarket = useCallback((id: string) => {
     if (!campaignId || isCampaignBusy(campaignId)) return;
@@ -6042,6 +6393,8 @@ export default function FbManagementPage() {
     void removeCampaignMarket(campaignId, id)
       .then((updated) => {
         setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+        invalidateCampaignVisitStatus(updated.id);
+        void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
       })
       .catch((error) => {
         setCampaignsData((current) =>
@@ -6056,7 +6409,7 @@ export default function FbManagementPage() {
         });
       });
     setEnteringIds((p) => p.filter((eid) => eid !== id));
-  }, [campaignId, campaignMarketIds, campaignPendingOps]);
+  }, [campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
   const handleSwitchFragebogen = useCallback(
     async (nextId: string) => {
@@ -6080,7 +6433,7 @@ export default function FbManagementPage() {
     [campaignCurrentFragebogenId, campaignId, campaignPendingOps, switchingCampaignId],
   );
 
-  if (loading || !visitInitialHydrationDone) {
+  if (loading) {
     return (
       <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
         <style>{`
@@ -6413,6 +6766,8 @@ export default function FbManagementPage() {
                       })),
                     );
                     setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+                    invalidateCampaignVisitStatus(updated.id);
+                    void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
                     setOverlapConflicts(null);
                     setOverlapConflictMarketId(null);
                   } catch (error) {
@@ -6543,15 +6898,25 @@ export default function FbManagementPage() {
           {/* Progress */}
           <div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 10 }}>
-              <span style={{ fontSize: 32, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.04em", lineHeight: 1 }}>
-                {campaign.filled.toLocaleString("de-AT")}
-              </span>
-              <span style={{ fontSize: 13, color: "rgba(0,0,0,0.35)", fontWeight: 400, letterSpacing: "-0.01em" }}>
-                / {campaign.total.toLocaleString("de-AT")} Märkte
-              </span>
-              <span style={{ marginLeft: "auto", fontSize: 20, fontWeight: 700, color: pct >= 80 ? "#16a34a" : pct > 0 ? "#d97706" : "rgba(0,0,0,0.2)", letterSpacing: "-0.02em" }}>
-                {pct}%
-              </span>
+              {campaignStatusMetricsLoading ? (
+                <>
+                  <span className="fbm-inline-skeleton" style={{ width: 76, height: 32, borderRadius: 8, display: "inline-block" }} />
+                  <span className="fbm-inline-skeleton" style={{ width: 88, height: 14, borderRadius: 99, display: "inline-block" }} />
+                  <span className="fbm-inline-skeleton" style={{ marginLeft: "auto", width: 48, height: 22, borderRadius: 8, display: "inline-block" }} />
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 32, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.04em", lineHeight: 1 }}>
+                    {campaign.filled.toLocaleString("de-AT")}
+                  </span>
+                  <span style={{ fontSize: 13, color: "rgba(0,0,0,0.35)", fontWeight: 400, letterSpacing: "-0.01em" }}>
+                    / {campaign.total.toLocaleString("de-AT")} Märkte
+                  </span>
+                  <span style={{ marginLeft: "auto", fontSize: 20, fontWeight: 700, color: pct >= 80 ? "#16a34a" : pct > 0 ? "#d97706" : "rgba(0,0,0,0.2)", letterSpacing: "-0.02em" }}>
+                    {pct}%
+                  </span>
+                </>
+              )}
             </div>
             <div style={{ height: 6, borderRadius: 99, backgroundColor: "rgba(0,0,0,0.05)", overflow: "hidden" }}>
               <div style={{
@@ -6620,18 +6985,26 @@ export default function FbManagementPage() {
                       Keine GM-Zuordnung für diese Region verfügbar.
                     </div>
                   )
-              : campaign.regions.map((r) => (
-                  <RegionBar
-                    key={r.name}
-                    name={r.name}
-                    pct={r.pct}
-                    onClick={() => {
-                      if (regionTimerRef.current) clearTimeout(regionTimerRef.current);
-                      setSelectedRegion(r.name);
-                      regionTimerRef.current = setTimeout(() => setSelectedRegion(null), 10000);
-                    }}
-                  />
-                ))
+              : campaignStatusMetricsLoading
+                ? Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
+                      <span className="fbm-inline-skeleton" style={{ width: 130, height: 11, borderRadius: 99, flexShrink: 0 }} />
+                      <span className="fbm-inline-skeleton" style={{ flex: 1, height: 5, borderRadius: 99 }} />
+                      <span className="fbm-inline-skeleton" style={{ width: 34, height: 11, borderRadius: 99, flexShrink: 0 }} />
+                    </div>
+                  ))
+                : campaign.regions.map((r) => (
+                    <RegionBar
+                      key={r.name}
+                      name={r.name}
+                      pct={r.pct}
+                      onClick={() => {
+                        if (regionTimerRef.current) clearTimeout(regionTimerRef.current);
+                        setSelectedRegion(r.name);
+                        regionTimerRef.current = setTimeout(() => setSelectedRegion(null), 10000);
+                      }}
+                    />
+                  ))
             }
           </div>
             </div>{/* end white inner */}
@@ -6712,7 +7085,7 @@ export default function FbManagementPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>Zugewiesene Märkte</span>
             <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{assignedMarkets.length} Märkte gesamt</span>
-            {isVisitSummaryLoading && (
+            {isVisitStatusLoading && (
               <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.42)" }}>Besuchsstatus lädt...</span>
             )}
           </div>
@@ -6724,7 +7097,11 @@ export default function FbManagementPage() {
                   <button key={f} onClick={() => setMarketFilter(f)}
                     style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" as const }}
                   >
-                    {f === "all" ? `Alle (${assignedMarkets.length})` : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
+                    {f === "all"
+                      ? `Alle (${assignedMarkets.length})`
+                      : campaignStatusMetricsLoading
+                        ? f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
+                        : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
                   </button>
                 ))}
               </div>
@@ -6763,6 +7140,13 @@ export default function FbManagementPage() {
         <style>{`
           @keyframes mrSlideOut { from { transform:translateX(0); opacity:1; max-height:60px } to { transform:translateX(110%); opacity:0; max-height:0; padding-top:0; padding-bottom:0; border-width:0 } }
           @keyframes mrSlideIn  { from { transform:translateX(40px); opacity:0 } to { transform:translateX(0); opacity:1 } }
+          @keyframes fbmInlineSkeletonPulse { 0%, 100% { opacity: 0.46; } 50% { opacity: 0.84; } }
+          .fbm-inline-skeleton {
+            position: relative;
+            overflow: hidden;
+            background: rgba(0,0,0,0.075);
+            animation: fbmInlineSkeletonPulse 1.4s ease-in-out infinite;
+          }
         `}</style>
 
         {/* Header row 2: search + filter chips */}
@@ -6804,30 +7188,49 @@ export default function FbManagementPage() {
               </span>
             </div>
           )}
-          {visibleFilteredMarkets.map((m) => (
-            <MarketRow
-              key={m.id}
-              market={m}
-              mode={marketEditMode}
-              isRemoving={removingIds.includes(m.id)}
-              isEntering={enteringIds.includes(m.id)}
-              onRemove={() => handleRemoveMarket(m.id)}
-              removeDisabled={campaignBusy}
-              onClick={m.finished && marketEditMode === "idle" ? () => setSelectedMarket(m.id) : undefined}
-            />
-          ))}
+          {visibleFilteredMarkets.map((m) => {
+            const visitStatus = campaignVisitStatusByMarket[m.id] ?? null;
+            const rowStatusLoading = Boolean(campaign && !campaign.statusLoaded && (campaign.statusLoading || isVisitStatusLoading));
+            return (
+              <MarketRow
+                key={m.id}
+                market={m}
+                visitStatus={visitStatus}
+                statusLoading={rowStatusLoading}
+                mode={marketEditMode}
+                isRemoving={removingIds.includes(m.id)}
+                isEntering={enteringIds.includes(m.id)}
+                onRemove={() => handleRemoveMarket(m.id)}
+                removeDisabled={campaignBusy}
+                onClick={visitStatus?.hasSubmittedVisit && marketEditMode === "idle" ? () => setSelectedMarket(m.id) : undefined}
+              />
+            );
+          })}
           {selectedMarket && (() => {
             const m = marketsData.find((x) => x.id === selectedMarket);
             if (!m) return null;
-            return (
+            const visitStatus = campaignVisitStatusByMarket[m.id] ?? null;
+            if (!campaignId || !visitStatus?.hasSubmittedVisit) return null;
+            const retryDetail = () => {
+              void refreshMarketVisitDetail(campaignId, m.id, visitStatus.sessionId, { force: true });
+            };
+            return selectedVisitDetail ? (
               <MarketVisitDetail
                 market={m}
                 campaignColor={campaign.color}
-                visitSummary={campaignVisitSummaryByMarket[m.id] ?? null}
+                visitSummary={selectedVisitDetail}
                 onVisitUpdated={async () => {
-                  if (!campaign?.id) return;
-                  await refreshCampaignVisitSummaries(campaign.id);
+                  await refreshMarketVisitDetail(campaignId, m.id, visitStatus.sessionId, { force: true });
                 }}
+                onClose={() => setSelectedMarket(null)}
+              />
+            ) : (
+              <MarketVisitDetailSkeleton
+                market={m}
+                campaignColor={campaign.color}
+                loading={selectedVisitDetailLoading}
+                error={selectedVisitDetailError}
+                onRetry={retryDetail}
                 onClose={() => setSelectedMarket(null)}
               />
             );

@@ -1598,6 +1598,23 @@ export type GmVisitSessionReadPayload = {
 };
 
 export type CampaignMarketVisitSummary = BackendCampaignMarketVisitSummary;
+export type CampaignMarketVisitStatus = {
+  marketId: string;
+  targetVisitCount: number;
+  submittedVisitCount: number;
+  isComplete: boolean;
+  hasSubmittedVisit: boolean;
+  sessionId: string | null;
+  startedAt: string | null;
+  submittedAt: string | null;
+  durationMinutes: number | null;
+  gmUserId: string | null;
+  gmName: string | null;
+};
+export type CampaignMarketVisitStatusBatch = {
+  campaignId: string;
+  markets: CampaignMarketVisitStatus[];
+};
 export type CampaignVisitAnswerPatchResult = {
   answerId: string;
   answerStatus: "unanswered" | "answered" | "invalid" | "hidden_by_rule" | "skipped";
@@ -2679,6 +2696,16 @@ export async function fetchCampaigns(): Promise<Campaign[]> {
   return (data.campaigns ?? []).map(normalizeCampaign);
 }
 
+export async function fetchCampaignMarketVisitStatuses(campaignIds: string[]): Promise<CampaignMarketVisitStatusBatch[]> {
+  const uniqueCampaignIds = Array.from(new Set(campaignIds.map((entry) => entry.trim()).filter(Boolean)));
+  if (uniqueCampaignIds.length === 0) return [];
+  const params = new URLSearchParams({ campaignIds: uniqueCampaignIds.join(",") });
+  const data = (await authedFetch(`/admin/campaigns/market-visit-status?${params.toString()}`)) as {
+    campaigns?: CampaignMarketVisitStatusBatch[];
+  };
+  return data.campaigns ?? [];
+}
+
 export async function fetchCampaignMarketVisitSummaries(
   campaignId: string,
   options?: { timeoutMs?: number },
@@ -2691,6 +2718,26 @@ export async function fetchCampaignMarketVisitSummaries(
     markets?: BackendCampaignMarketVisitSummary[];
   };
   return data.markets ?? [];
+}
+
+export async function fetchCampaignMarketVisitDetail(
+  input: { campaignId: string; marketId: string; sessionId?: string | null },
+  options?: { timeoutMs?: number },
+): Promise<CampaignMarketVisitSummary> {
+  const params = new URLSearchParams();
+  if (input.sessionId) params.set("sessionId", input.sessionId);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const data = (await authedFetch(
+    `/admin/campaigns/${encodeURIComponent(input.campaignId)}/markets/${encodeURIComponent(input.marketId)}/visit-detail${query}`,
+    {},
+    options?.timeoutMs ?? 30000,
+  )) as {
+    market?: BackendCampaignMarketVisitSummary;
+  };
+  if (!data.market) {
+    throw new BackendApiError("Besuchsdetails konnten nicht geladen werden.", 500, "visit_detail_missing", data);
+  }
+  return data.market;
 }
 
 export async function patchCampaignVisitAnswer(input: {

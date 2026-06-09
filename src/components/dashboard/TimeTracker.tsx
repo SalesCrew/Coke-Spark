@@ -14,8 +14,10 @@ import {
   startDayPause,
   startDaySession,
   submitDaySession,
+  type AdminZeiterfassungTimelineSegment,
   type DaySession,
   type TodaySubmissionItem,
+  type TodaySubmissionsPayload,
 } from "@/lib/api/backend";
 import {
   persistLocalDaySessionFromBackend,
@@ -285,6 +287,8 @@ export function TimeTracker(_: TimeTrackerProps) {
   const [seconds, setSeconds] = useState(0);
   const [daySession, setDaySession] = useState<DaySession | null>(null);
   const [todayItems, setTodayItems] = useState<TodaySubmissionItem[]>([]);
+  const [todayTimeline, setTodayTimeline] = useState<AdminZeiterfassungTimelineSegment[]>([]);
+  const [todayStats, setTodayStats] = useState<TodaySubmissionsPayload["stats"]>(null);
   const [persistBusy, setPersistBusy] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
   const [openEndKmOnly, setOpenEndKmOnly] = useState(false);
@@ -499,16 +503,22 @@ export function TimeTracker(_: TimeTrackerProps) {
     }
   }, [applyLocalDaySessionSnapshot, enterForgotEndMode, reconcileLocalDayStart, trackerTimezone]);
 
-  const hydrateTodaySubmissions = useCallback(async (): Promise<TodaySubmissionItem[]> => {
+  const hydrateTodaySubmissions = useCallback(async (): Promise<TodaySubmissionsPayload> => {
     try {
       const data = await fetchTodaySubmissions();
       const items = data.items ?? [];
+      const timeline = data.timeline ?? [];
       setTodayItems(items);
-      return items;
+      setTodayTimeline(timeline);
+      setTodayStats(data.stats ?? null);
+      return { ...data, items, timeline };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Einträge konnten nicht geladen werden.";
       setPersistError(message);
-      return [];
+      setTodayItems([]);
+      setTodayTimeline([]);
+      setTodayStats(null);
+      return { items: [], timeline: [], stats: null, session: null };
     }
   }, []);
 
@@ -592,11 +602,12 @@ export function TimeTracker(_: TimeTrackerProps) {
   }
 
   // ── Shared confirm-end logic (used by both endKm and forgotEnd) ───────────
-  function commitEndKm(endKm: number, itemsOverride?: TodaySubmissionItem[]) {
+  function commitEndKm(endKm: number, submissionsOverride?: TodaySubmissionsPayload) {
     const startKm = confirmedStartKm ?? 0;
-    const sourceItems = itemsOverride ?? todayItems;
-    const marketCount = sourceItems.filter((item) => item.kind === "markt").length;
-    const zusatzCount = sourceItems.filter((item) => item.kind === "zusatz").length;
+    const sourceItems = submissionsOverride?.items ?? todayItems;
+    const sourceStats = submissionsOverride?.stats ?? todayStats;
+    const marketCount = sourceStats?.marktbesuche ?? sourceItems.filter((item) => item.kind === "markt").length;
+    const zusatzCount = sourceStats?.zusatz ?? sourceItems.filter((item) => item.kind === "zusatz").length;
     const snapshot: DaySummarySnapshot = {
       startKm, endKm, deltaKm: endKm - startKm,
       marketCount,
@@ -907,13 +918,44 @@ export function TimeTracker(_: TimeTrackerProps) {
     transition: "opacity 0.2s ease, transform 0.2s ease",
     display: "flex", flexDirection: "column", flex: 1, minHeight: 0,
   };
-  const feedItems = todayItems;
+  const feedItems = todayTimeline.length > 0 ? todayTimeline : todayItems;
+
+  function isTimelineFeedItem(item: AdminZeiterfassungTimelineSegment | TodaySubmissionItem): item is AdminZeiterfassungTimelineSegment {
+    return "start" in item && "end" in item;
+  }
 
   function kindLabel(kind: TodaySubmissionItem["kind"]): string {
     if (kind === "day") return "Tag";
     if (kind === "markt") return "Marktbesuch";
     if (kind === "pause") return "Pause";
     return "Zusatz";
+  }
+
+  function timelineKindLabel(kind: AdminZeiterfassungTimelineSegment["kind"]): string {
+    if (kind === "anfahrt") return "Anfahrt";
+    if (kind === "fahrtzeit") return "Fahrtzeit";
+    if (kind === "marktbesuch") return "Marktbesuch";
+    if (kind === "zusatzzeit") return "Zusatz";
+    if (kind === "heimfahrt") return "Heimfahrt";
+    return "Pause";
+  }
+
+  function feedKey(item: AdminZeiterfassungTimelineSegment | TodaySubmissionItem): string {
+    return isTimelineFeedItem(item)
+      ? `${item.kind}-${item.id}-${item.start}-${item.end}`
+      : `${item.kind}-${item.id}-${item.submittedAt}`;
+  }
+
+  function feedKindLabel(item: AdminZeiterfassungTimelineSegment | TodaySubmissionItem): string {
+    return isTimelineFeedItem(item) ? timelineKindLabel(item.kind) : kindLabel(item.kind);
+  }
+
+  function feedTitle(item: AdminZeiterfassungTimelineSegment | TodaySubmissionItem): string {
+    return isTimelineFeedItem(item) ? item.title : item.label;
+  }
+
+  function feedTimeText(item: AdminZeiterfassungTimelineSegment | TodaySubmissionItem): string {
+    return isTimelineFeedItem(item) ? `${item.start} - ${item.end}` : item.timeText;
   }
 
   // ── Shared new-car slot (reused in both endKm and forgotEnd) ──────────────
@@ -1260,13 +1302,13 @@ export function TimeTracker(_: TimeTrackerProps) {
             <div className="mt-3" style={{ minHeight: 93, maxHeight: 93, overflowY: "auto", paddingRight: 2 }}>
               <div className="space-y-1.5">
                 {feedItems.length > 0 ? feedItems.map((item) => (
-                  <div key={`${item.kind}-${item.id}-${item.submittedAt}`} className="flex items-center justify-between" style={{ backgroundColor: "rgba(0,0,0,0.03)", borderRadius: 7, padding: "7px 10px" }}>
+                  <div key={feedKey(item)} className="flex items-center justify-between" style={{ backgroundColor: "rgba(0,0,0,0.03)", borderRadius: 7, padding: "7px 10px" }}>
                     <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
                       <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#DC2626", opacity: 0.8 }} />
-                      <span style={{ width: 60, fontSize: 9, color: "rgba(0,0,0,0.42)", fontWeight: 700, letterSpacing: "0.01em", textTransform: "uppercase", flexShrink: 0 }}>{kindLabel(item.kind)}</span>
-                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+                      <span style={{ width: 60, fontSize: 9, color: "rgba(0,0,0,0.42)", fontWeight: 700, letterSpacing: "0.01em", textTransform: "uppercase", flexShrink: 0 }}>{feedKindLabel(item)}</span>
+                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{feedTitle(item)}</span>
                     </div>
-                    <span style={{ fontSize: 10, color: "#ef4444", fontWeight: 600, letterSpacing: "0.02em", marginLeft: 8 }}>{item.timeText}</span>
+                    <span style={{ fontSize: 10, color: "#ef4444", fontWeight: 600, letterSpacing: "0.02em", marginLeft: 8 }}>{feedTimeText(item)}</span>
                   </div>
                 )) : (
                   <div

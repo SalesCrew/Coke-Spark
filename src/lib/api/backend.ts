@@ -1757,6 +1757,21 @@ export type AdminZeiterfassungSession = {
   hasCompleteKm: boolean;
 };
 
+export type TodaySubmissionsPayload = {
+  items: TodaySubmissionItem[];
+  timeline?: AdminZeiterfassungTimelineSegment[];
+  stats?: AdminZeiterfassungSession["stats"] | null;
+  session?: {
+    id: string;
+    date: string;
+    status: "started" | "ended" | "submitted";
+    startTime: string;
+    endTime: string;
+    startKm: number | null;
+    endKm: number | null;
+  } | null;
+};
+
 export type AdminZeiterfassungAggregateRow = {
   gmId: string;
   gmName: string;
@@ -2988,8 +3003,8 @@ export async function fetchCurrentDaySession(): Promise<DaySessionCurrentPayload
   return (await authedFetch("/day-session/current")) as DaySessionCurrentPayload;
 }
 
-export async function fetchTodaySubmissions(): Promise<{ items: TodaySubmissionItem[] }> {
-  return (await authedFetch("/day-session/today-submissions")) as { items: TodaySubmissionItem[] };
+export async function fetchTodaySubmissions(): Promise<TodaySubmissionsPayload> {
+  return (await authedFetch("/day-session/today-submissions")) as TodaySubmissionsPayload;
 }
 
 export async function fetchAdminZeiterfassungDays(input?: {

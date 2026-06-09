@@ -486,11 +486,11 @@ export function PlaceholderCardNine() {
   const hasActiveFilters = activeFilterCount > 0;
   const filterScale = hasActiveFilters ? clamp((1 - standardFilterCount * 0.13 - (filters.marketId ? 0.08 : 0)) * dateWindowScale, dateRangeActive ? 0.08 : 0.32, 1) : 1;
   const stcBias = filters.stc === "gold" ? 4 : filters.stc === "silver" ? 1 : filters.stc === "bronze" ? -3 : 0;
-  const standartShare = clamp(63 + activeFilterCount * 1.8 + stcBias - (dateRangeActive ? 1 : 0), 42, 88);
-  const flexShare = 100 - standartShare;
+  const standardShare = clamp(63 + activeFilterCount * 1.8 + stcBias - (dateRangeActive ? 1 : 0), 42, 88);
+  const flexShare = 100 - standardShare;
   const totalVisits = Math.max(hasActiveFilters ? 8 : 0, Math.round(138 * filterScale));
-  const standartVisits = Math.round(totalVisits * (standartShare / 100));
-  const flexVisits = Math.max(0, totalVisits - standartVisits);
+  const standardVisits = Math.round(totalVisits * (standardShare / 100));
+  const flexVisits = Math.max(0, totalVisits - standardVisits);
   const activityMetricsByPeriod = {
     year: {
       redSurveyCount: 54,
@@ -518,7 +518,7 @@ export function PlaceholderCardNine() {
   const activityDotPatternId = "placeholder-nine-activity-dot-pattern";
   const gaugeStart = 180;
   const gaugeEnd = 360;
-  const splitAngle = gaugeStart + (gaugeEnd - gaugeStart) * (standartShare / 100);
+  const splitAngle = gaugeStart + (gaugeEnd - gaugeStart) * (standardShare / 100);
   const segmentGap = 4;
   const leftEnd = Math.max(gaugeStart, splitAngle - segmentGap / 2);
   const rightStart = Math.min(gaugeEnd, splitAngle + segmentGap / 2);
@@ -674,11 +674,11 @@ export function PlaceholderCardNine() {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: "#ef4444", display: "inline-block" }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>Standart Visit</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>Standard Visit</span>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{standartShare.toFixed(1).replace(".", ",")}%</div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 2 }}>{standartVisits} Fälle</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{standardShare.toFixed(1).replace(".", ",")}%</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 2 }}>{standardVisits} Fälle</div>
             </div>
           </div>
 

@@ -65,6 +65,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isFlex = pathname.startsWith("/admin/flexbesuche");
   const isBilla = pathname.startsWith("/admin/billa");
   const isFbManagement = pathname.startsWith("/admin/fbmanagement");
+  const isFotoarchiv = pathname.startsWith("/admin/fotoarchiv");
   const isFbNeu = pathname === "/admin/fbmanagement/neu";
   const isFbExtend = pathname.startsWith("/admin/fbmanagement/erweitern/");
   const isPraemien = pathname.startsWith("/admin/praemien");
@@ -564,7 +565,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : "Standardbesuch";
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : "Standardbesuch";
   return (
     <RedMonthProvider>
     <BillaCtx.Provider value={billaCtxValue}>
@@ -676,7 +677,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Neue Kampagne
                   </button>
                 </Link>
-              ) : isPraemien ? null : isGmDashboard ? null : isZeiterfassung ? (
+              ) : isFotoarchiv ? null : isPraemien ? null : isGmDashboard ? null : isZeiterfassung ? (
                 <button
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.85"; }}

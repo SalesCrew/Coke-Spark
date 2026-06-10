@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse, LogOut, Gauge } from "lucide-react";
+import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse, LogOut, Gauge, Images } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AdminManagerPanel } from "@/components/admin/AdminManagerPanel";
@@ -32,6 +32,7 @@ const NAV_GROUPS = [
       { label: "Kühlerinventur", icon: Refrigerator, href: "/admin/kuehlerinventur", color: { bg: "linear-gradient(to bottom, #F59E0B, #D97706)", ring: "#B45309", shadow: "rgba(245,158,11,0.25)" } },
       { label: "MHD", icon: FlaskConical, href: "/admin/mhd", color: { bg: "linear-gradient(to bottom, #8b5cf6, #7C3AED)", ring: "#6d28d9", shadow: "rgba(124,58,237,0.25)" } },
       { label: "FB Management", icon: LayoutGrid, href: "/admin/fbmanagement", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
+      { label: "Fotoarchiv", icon: Images, href: "/admin/fotoarchiv", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
     ],
   },
   {

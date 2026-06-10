@@ -1615,6 +1615,89 @@ export type CampaignMarketVisitStatusBatch = {
   campaignId: string;
   markets: CampaignMarketVisitStatus[];
 };
+export type AdminPhotoCampaignType = "standard" | "flex" | "billa" | "kuehler" | "mhd";
+export type AdminPhotoArchiveFilters = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  campaignId?: string;
+  campaignType?: AdminPhotoCampaignType;
+  dateFrom?: string;
+  dateTo?: string;
+  week?: string;
+  marketId?: string;
+  region?: string;
+  city?: string;
+  postalCode?: string;
+  chain?: string;
+  gmUserId?: string;
+  tagId?: string;
+  tagLabel?: string;
+  questionId?: string;
+  moduleId?: string;
+};
+export type AdminPhotoArchiveItem = {
+  id: string;
+  visitAnswerId: string;
+  visitSessionId: string;
+  storageBucket: string;
+  storagePath: string;
+  signedUrl: string | null;
+  signedUrlExpiresAt: string;
+  mimeType: string | null;
+  byteSize: number | null;
+  widthPx: number | null;
+  heightPx: number | null;
+  sha256: string | null;
+  uploadedAt: string | null;
+  tags: Array<{ id: string; photoTagId: string | null; label: string }>;
+  question: {
+    id: string;
+    visitQuestionId: string;
+    text: string;
+    moduleId: string | null;
+    moduleName: string;
+    sectionName: string;
+  };
+  campaign: {
+    id: string;
+    name: string;
+    type: AdminPhotoCampaignType;
+    startDate: string | null;
+    endDate: string | null;
+  };
+  market: {
+    id: string;
+    name: string;
+    address: string;
+    postalCode: string;
+    city: string;
+    region: string;
+    chain: string;
+  };
+  gm: { id: string; name: string };
+  visit: {
+    startedAt: string | null;
+    submittedAt: string | null;
+    durationMinutes: number | null;
+  };
+  comment: string;
+};
+export type AdminPhotoArchiveFacets = {
+  campaigns: Array<{ id: string; name: string; type: AdminPhotoCampaignType }>;
+  gms: Array<{ id: string; name: string }>;
+  tags: Array<{ id: string | null; label: string }>;
+  regions: string[];
+  chains: string[];
+};
+export type AdminPhotoArchiveResponse = {
+  photos: AdminPhotoArchiveItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: { visitedMarkets: number; campaigns: number };
+  facets: AdminPhotoArchiveFacets;
+};
 export type CampaignVisitAnswerPatchResult = {
   answerId: string;
   answerStatus: "unanswered" | "answered" | "invalid" | "hidden_by_rule" | "skipped";
@@ -2709,6 +2792,28 @@ export async function duplicateFragebogenBackend(
 export async function fetchCampaigns(): Promise<Campaign[]> {
   const data = (await authedFetch("/admin/campaigns")) as { campaigns?: BackendCampaign[] };
   return (data.campaigns ?? []).map(normalizeCampaign);
+}
+
+export async function fetchAdminPhotos(input: AdminPhotoArchiveFilters = {}): Promise<AdminPhotoArchiveResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(input)) {
+    if (value == null) continue;
+    const serialized = String(value).trim();
+    if (!serialized) continue;
+    params.set(key, serialized);
+  }
+  const query = params.toString();
+  return (await authedFetch(`/admin/photos${query ? `?${query}` : ""}`, {}, 30000)) as AdminPhotoArchiveResponse;
+}
+
+export async function fetchAdminPhotoDetail(photoId: string): Promise<AdminPhotoArchiveItem> {
+  const data = (await authedFetch(`/admin/photos/${encodeURIComponent(photoId)}`, {}, 30000)) as {
+    photo?: AdminPhotoArchiveItem;
+  };
+  if (!data.photo) {
+    throw new BackendApiError("Foto konnte nicht geladen werden.", 500, "photo_detail_missing", data);
+  }
+  return data.photo;
 }
 
 export async function fetchCampaignMarketVisitStatuses(campaignIds: string[]): Promise<CampaignMarketVisitStatusBatch[]> {

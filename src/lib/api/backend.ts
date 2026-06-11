@@ -1696,7 +1696,14 @@ export type AdminPhotoArchiveResponse = {
   page: number;
   pageSize: number;
   stats: { visitedMarkets: number; campaigns: number };
-  facets: AdminPhotoArchiveFacets;
+  facets?: AdminPhotoArchiveFacets;
+};
+export type AdminPhotoSignedUrlVariant = "preview" | "original";
+export type AdminPhotoSignedUrl = {
+  photoId: string;
+  variant: AdminPhotoSignedUrlVariant;
+  signedUrl: string | null;
+  expiresAt: string;
 };
 export type CampaignVisitAnswerPatchResult = {
   answerId: string;
@@ -2804,6 +2811,28 @@ export async function fetchAdminPhotos(input: AdminPhotoArchiveFilters = {}): Pr
   }
   const query = params.toString();
   return (await authedFetch(`/admin/photos${query ? `?${query}` : ""}`, {}, 30000)) as AdminPhotoArchiveResponse;
+}
+
+export async function fetchAdminPhotoFacets(): Promise<AdminPhotoArchiveFacets> {
+  const data = (await authedFetch("/admin/photos/facets", {}, 30000)) as {
+    facets?: AdminPhotoArchiveFacets;
+  };
+  return data.facets ?? { campaigns: [], gms: [], tags: [], regions: [], chains: [] };
+}
+
+export async function fetchAdminPhotoSignedUrls(
+  photoIds: string[],
+  variant: AdminPhotoSignedUrlVariant,
+): Promise<AdminPhotoSignedUrl[]> {
+  const uniquePhotoIds = Array.from(new Set(photoIds.map((entry) => entry.trim()).filter(Boolean))).slice(0, 40);
+  if (uniquePhotoIds.length === 0) return [];
+  const data = (await authedFetch("/admin/photos/signed-urls", {
+    method: "POST",
+    body: JSON.stringify({ photoIds: uniquePhotoIds, variant }),
+  }, 30000)) as {
+    urls?: AdminPhotoSignedUrl[];
+  };
+  return data.urls ?? [];
 }
 
 export async function fetchAdminPhotoDetail(photoId: string): Promise<AdminPhotoArchiveItem> {

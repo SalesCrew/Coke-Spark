@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Calendar,
@@ -19,12 +19,14 @@ import {
   X,
 } from "lucide-react";
 import {
-  fetchAdminPhotoDetail,
+  fetchAdminPhotoFacets,
   fetchAdminPhotos,
+  fetchAdminPhotoSignedUrls,
   fetchRedMonthCalendar,
   type AdminPhotoArchiveFacets,
   type AdminPhotoArchiveFilters,
   type AdminPhotoArchiveItem,
+  type AdminPhotoSignedUrl,
   type AdminPhotoCampaignType,
 } from "@/lib/api/backend";
 import type { RedMonthPeriod } from "@/types/red-month";
@@ -44,6 +46,7 @@ const TYPE_META: Record<AdminPhotoCampaignType, { label: string; color: string; 
 
 type ViewMode = "grid" | "list";
 type Filters = AdminPhotoArchiveFilters & { redMonthId?: string };
+type PhotoSignedUrlState = Pick<AdminPhotoSignedUrl, "signedUrl" | "expiresAt">;
 
 const EMPTY_FACETS: AdminPhotoArchiveFacets = {
   campaigns: [],
@@ -125,12 +128,10 @@ function marketDisplayName(photo: AdminPhotoArchiveItem): string {
   return [photo.market.address, `${photo.market.postalCode} ${photo.market.city}`.trim()].filter(Boolean).join(", ");
 }
 
-function fallbackPublicStorageUrl(photo: AdminPhotoArchiveItem): string {
-  if (photo.signedUrl) return photo.signedUrl;
-  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
-  if (!base) return "";
-  const path = photo.storagePath.replace(/^\/+/, "");
-  return `${base}/storage/v1/object/public/${photo.storageBucket}/${path}`;
+function isSignedUrlFresh(entry: PhotoSignedUrlState | undefined): boolean {
+  if (!entry) return false;
+  const expiresAtMs = new Date(entry.expiresAt).getTime();
+  return Number.isFinite(expiresAtMs) && expiresAtMs - Date.now() > 60_000;
 }
 
 function ymd(date: Date): string {
@@ -449,16 +450,118 @@ function PhotoSkeleton() {
   );
 }
 
-function PhotoTile({ photo, onOpen, viewMode }: { photo: AdminPhotoArchiveItem; onOpen: () => void; viewMode: ViewMode }) {
+function PhotoImage({
+  photoId,
+  src,
+  onVisible,
+  onError,
+  imageStyle,
+  iconSize = 24,
+}: {
+  photoId: string;
+  src: string;
+  onVisible: (photoId: string) => void;
+  onError: () => void;
+  imageStyle: React.CSSProperties;
+  iconSize?: number;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || visible) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      onVisible(photoId);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setVisible(true);
+        onVisible(photoId);
+        observer.disconnect();
+      },
+      { rootMargin: "420px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onVisible, photoId, visible]);
+
+  return (
+    <div ref={ref} style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={onError}
+          style={imageStyle}
+        />
+      ) : (
+        <div className="photoArchiveSkeleton" style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <ImageOff size={iconSize} color="rgba(0,0,0,0.22)" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PhotoTile({
+  photo,
+  onOpen,
+  viewMode,
+  previewUrl,
+  originalUrl,
+  onPreviewVisible,
+  onPreviewError,
+}: {
+  photo: AdminPhotoArchiveItem;
+  onOpen: () => void;
+  viewMode: ViewMode;
+  previewUrl?: PhotoSignedUrlState;
+  originalUrl?: PhotoSignedUrlState;
+  onPreviewVisible: (photoId: string) => void;
+  onPreviewError: (photoId: string) => void;
+}) {
   const [failed, setFailed] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
   const meta = TYPE_META[photo.campaign.type];
-  const imageSrc = fallbackPublicStorageUrl(photo);
+  const previewSrc = !previewFailed ? (previewUrl?.signedUrl ?? "") : "";
+  const originalSrc = originalUrl?.signedUrl ?? "";
+  const imageSrc = previewSrc || originalSrc;
+  const imageSource = previewSrc ? "preview" : originalSrc ? "original" : "none";
+
+  useEffect(() => {
+    setFailed(false);
+    setPreviewFailed(false);
+  }, [photo.id]);
+
+  const handleImageError = () => {
+    if (imageSource === "preview") {
+      setPreviewFailed(true);
+      onPreviewError(photo.id);
+      return;
+    }
+    setFailed(true);
+  };
 
   if (viewMode === "list") {
     return (
       <button type="button" onClick={onOpen} style={{ width: "100%", minHeight: 78, display: "grid", gridTemplateColumns: "92px minmax(0,1fr) 180px 120px", gap: 12, alignItems: "center", border: "none", borderBottom: "1px solid rgba(0,0,0,0.05)", background: "#fff", padding: "10px 14px", cursor: "pointer", textAlign: "left" }}>
         <div style={{ width: 92, height: 58, borderRadius: 9, overflow: "hidden", background: "#f2f2f3", border: "1px solid rgba(0,0,0,0.06)" }}>
-          {!failed && imageSrc ? <img src={imageSrc} alt="" loading="lazy" onError={() => setFailed(true)} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <ImageOff size={18} color="rgba(0,0,0,0.28)" style={{ margin: 20 }} />}
+          {!failed ? (
+            <PhotoImage
+              photoId={photo.id}
+              src={imageSrc}
+              onVisible={onPreviewVisible}
+              onError={handleImageError}
+              iconSize={18}
+              imageStyle={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+          ) : <ImageOff size={18} color="rgba(0,0,0,0.28)" style={{ margin: 20 }} />}
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{marketDisplayName(photo)}</div>
@@ -480,8 +583,15 @@ function PhotoTile({ photo, onOpen, viewMode }: { photo: AdminPhotoArchiveItem; 
   return (
     <button type="button" onClick={onOpen} style={{ border: SOFT_BORDER, background: "#fff", boxShadow: PANEL_SHADOW, borderRadius: 12, overflow: "hidden", padding: 0, cursor: "pointer", textAlign: "left", minWidth: 0 }}>
       <div style={{ position: "relative", aspectRatio: "4/3", background: "#f1f2f4", overflow: "hidden" }}>
-        {!failed && imageSrc ? (
-          <img src={imageSrc} alt="" loading="lazy" onError={() => setFailed(true)} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transition: "transform 0.18s ease" }} />
+        {!failed ? (
+          <PhotoImage
+            photoId={photo.id}
+            src={imageSrc}
+            onVisible={onPreviewVisible}
+            onError={handleImageError}
+            iconSize={30}
+            imageStyle={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transition: "transform 0.18s ease" }}
+          />
         ) : (
           <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(0,0,0,0.25)" }}>
             <ImageOff size={30} strokeWidth={1.5} />
@@ -526,12 +636,33 @@ const tagStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.06)",
 };
 
-function DetailDrawer({ photo, loading, onClose }: { photo: AdminPhotoArchiveItem | null; loading: boolean; onClose: () => void }) {
+function DetailDrawer({
+  photo,
+  loading,
+  previewUrl,
+  originalUrl,
+  onOriginalNeeded,
+  onClose,
+}: {
+  photo: AdminPhotoArchiveItem | null;
+  loading: boolean;
+  previewUrl?: PhotoSignedUrlState;
+  originalUrl?: PhotoSignedUrlState;
+  onOriginalNeeded: (photoId: string) => void;
+  onClose: () => void;
+}) {
   const [copied, setCopied] = useState(false);
-  if (!photo && !loading) return null;
-  const imageSrc = photo ? fallbackPublicStorageUrl(photo) : "";
+  const previewSrc = previewUrl?.signedUrl ?? "";
+  const originalSrc = originalUrl?.signedUrl ?? "";
+  const imageSrc = originalSrc || previewSrc;
   const meta = photo ? TYPE_META[photo.campaign.type] : TYPE_META.standard;
   const address = photo ? `${photo.market.address}, ${photo.market.postalCode} ${photo.market.city}` : "";
+
+  useEffect(() => {
+    if (photo && !originalSrc) onOriginalNeeded(photo.id);
+  }, [onOriginalNeeded, originalSrc, photo]);
+
+  if (!photo && !loading) return null;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1800, background: "rgba(15,23,42,0.20)", backdropFilter: "blur(8px)", display: "flex", justifyContent: "flex-end" }} onClick={onClose}>
@@ -552,13 +683,20 @@ function DetailDrawer({ photo, loading, onClose }: { photo: AdminPhotoArchiveIte
           </div>
         ) : (
           <>
-            <div style={{ borderRadius: 16, overflow: "hidden", background: "#f1f2f4", border: SOFT_BORDER, minHeight: 280 }}>
-              {imageSrc ? <img src={imageSrc} alt="" style={{ width: "100%", maxHeight: 480, objectFit: "contain", display: "block", background: "#f6f6f7" }} /> : <div style={{ height: 320, display: "flex", alignItems: "center", justifyContent: "center" }}><ImageOff size={38} color="rgba(0,0,0,0.25)" /></div>}
+            <div style={{ borderRadius: 16, overflow: "hidden", background: "#f1f2f4", border: SOFT_BORDER, minHeight: 280, position: "relative" }}>
+              {imageSrc ? (
+                <img
+                  src={imageSrc}
+                  alt=""
+                  decoding="async"
+                  style={{ width: "100%", maxHeight: 480, objectFit: "contain", display: "block", background: "#f6f6f7", filter: originalSrc ? "none" : "saturate(0.94)", opacity: originalSrc ? 1 : 0.88 }}
+                />
+              ) : <div className="photoArchiveSkeleton" style={{ height: 320, display: "flex", alignItems: "center", justifyContent: "center" }}><ImageOff size={38} color="rgba(0,0,0,0.25)" /></div>}
             </div>
 
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <a href={imageSrc || undefined} download style={{ textDecoration: "none" }}>
-                <button type="button" disabled={!imageSrc} style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 850 }}>
+              <a href={originalSrc || undefined} download style={{ textDecoration: "none" }}>
+                <button type="button" disabled={!originalSrc} style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 850, opacity: originalSrc ? 1 : 0.55 }}>
                   <Download size={13} /> Download
                 </button>
               </a>
@@ -648,6 +786,22 @@ export default function FotoarchivPage() {
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<AdminPhotoArchiveItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [previewUrls, setPreviewUrls] = useState<Record<string, PhotoSignedUrlState>>({});
+  const [originalUrls, setOriginalUrls] = useState<Record<string, PhotoSignedUrlState>>({});
+  const previewUrlsRef = useRef<Record<string, PhotoSignedUrlState>>({});
+  const originalUrlsRef = useRef<Record<string, PhotoSignedUrlState>>({});
+  const pendingPreviewIdsRef = useRef<Set<string>>(new Set());
+  const requestedPreviewIdsRef = useRef<Set<string>>(new Set());
+  const requestedOriginalIdsRef = useRef<Set<string>>(new Set());
+  const previewQueueTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    previewUrlsRef.current = previewUrls;
+  }, [previewUrls]);
+
+  useEffect(() => {
+    originalUrlsRef.current = originalUrls;
+  }, [originalUrls]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -661,6 +815,84 @@ export default function FotoarchivPage() {
     const from = `${now.getFullYear() - 1}-01-01`;
     const to = `${now.getFullYear() + 1}-12-31`;
     void fetchRedMonthCalendar({ from, to }).then(setRedMonths).catch(() => setRedMonths([]));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAdminPhotoFacets()
+      .then((nextFacets) => {
+        if (!cancelled) setFacets(nextFacets);
+      })
+      .catch(() => {
+        if (!cancelled) setFacets(EMPTY_FACETS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const requestOriginalUrls = useCallback((photoIds: string[]) => {
+    const ids = Array.from(new Set(photoIds))
+      .filter((photoId) => photoId && !isSignedUrlFresh(originalUrlsRef.current[photoId]) && !requestedOriginalIdsRef.current.has(photoId))
+      .slice(0, 40);
+    if (ids.length === 0) return;
+    ids.forEach((photoId) => requestedOriginalIdsRef.current.add(photoId));
+    fetchAdminPhotoSignedUrls(ids, "original")
+      .then((urls) => {
+        setOriginalUrls((prev) => {
+          const next = { ...prev };
+          for (const url of urls) {
+            next[url.photoId] = { signedUrl: url.signedUrl, expiresAt: url.expiresAt };
+          }
+          return next;
+        });
+      })
+      .catch(() => {})
+      .finally(() => {
+        ids.forEach((photoId) => requestedOriginalIdsRef.current.delete(photoId));
+      });
+  }, []);
+
+  const flushPreviewQueue = useCallback(() => {
+    previewQueueTimerRef.current = null;
+    const ids = Array.from(pendingPreviewIdsRef.current).slice(0, 20);
+    ids.forEach((photoId) => pendingPreviewIdsRef.current.delete(photoId));
+    if (ids.length === 0) return;
+    fetchAdminPhotoSignedUrls(ids, "preview")
+      .then((urls) => {
+        const fallbackOriginalIds: string[] = [];
+        setPreviewUrls((prev) => {
+          const next = { ...prev };
+          for (const url of urls) {
+            next[url.photoId] = { signedUrl: url.signedUrl, expiresAt: url.expiresAt };
+            if (!url.signedUrl) fallbackOriginalIds.push(url.photoId);
+          }
+          return next;
+        });
+        if (fallbackOriginalIds.length > 0) requestOriginalUrls(fallbackOriginalIds);
+      })
+      .catch(() => requestOriginalUrls(ids))
+      .finally(() => {
+        ids.forEach((photoId) => requestedPreviewIdsRef.current.delete(photoId));
+        if (pendingPreviewIdsRef.current.size > 0 && !previewQueueTimerRef.current) {
+          previewQueueTimerRef.current = window.setTimeout(flushPreviewQueue, 80);
+        }
+      });
+  }, [requestOriginalUrls]);
+
+  const requestPreviewUrl = useCallback((photoId: string) => {
+    if (!photoId || isSignedUrlFresh(previewUrlsRef.current[photoId]) || requestedPreviewIdsRef.current.has(photoId)) return;
+    requestedPreviewIdsRef.current.add(photoId);
+    pendingPreviewIdsRef.current.add(photoId);
+    if (!previewQueueTimerRef.current) {
+      previewQueueTimerRef.current = window.setTimeout(flushPreviewQueue, 80);
+    }
+  }, [flushPreviewQueue]);
+
+  useEffect(() => {
+    return () => {
+      if (previewQueueTimerRef.current) window.clearTimeout(previewQueueTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -680,7 +912,7 @@ export default function FotoarchivPage() {
       .then((data) => {
         if (cancelled) return;
         setPhotos((prev) => page > 1 ? [...prev, ...data.photos] : data.photos);
-        setFacets(data.facets ?? EMPTY_FACETS);
+        if (data.facets) setFacets(data.facets);
         setTotal(data.total);
         setStats(data.stats ?? { visitedMarkets: 0, campaigns: 0 });
       })
@@ -707,22 +939,9 @@ export default function FotoarchivPage() {
     }
     const cached = photos.find((photo) => photo.id === selectedPhotoId) ?? null;
     setSelectedPhoto(cached);
-    setDetailLoading(true);
-    let cancelled = false;
-    fetchAdminPhotoDetail(selectedPhotoId)
-      .then((photo) => {
-        if (!cancelled) setSelectedPhoto(photo);
-      })
-      .catch(() => {
-        if (!cancelled) setSelectedPhoto(cached);
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [photos, selectedPhotoId]);
+    setDetailLoading(false);
+    requestOriginalUrls([selectedPhotoId]);
+  }, [photos, requestOriginalUrls, selectedPhotoId]);
 
   const hasMore = photos.length < total;
   const filterCount = activeFilterCount(filters);
@@ -872,10 +1091,32 @@ export default function FotoarchivPage() {
           </div>
         ) : viewMode === "grid" ? (
           <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
-            {photos.map((photo) => <PhotoTile key={photo.id} photo={photo} viewMode={viewMode} onOpen={() => setSelectedPhotoId(photo.id)} />)}
+            {photos.map((photo) => (
+              <PhotoTile
+                key={photo.id}
+                photo={photo}
+                viewMode={viewMode}
+                previewUrl={previewUrls[photo.id]}
+                originalUrl={originalUrls[photo.id]}
+                onPreviewVisible={requestPreviewUrl}
+                onPreviewError={(photoId) => requestOriginalUrls([photoId])}
+                onOpen={() => setSelectedPhotoId(photo.id)}
+              />
+            ))}
           </div>
         ) : (
-          <div>{photos.map((photo) => <PhotoTile key={photo.id} photo={photo} viewMode={viewMode} onOpen={() => setSelectedPhotoId(photo.id)} />)}</div>
+          <div>{photos.map((photo) => (
+            <PhotoTile
+              key={photo.id}
+              photo={photo}
+              viewMode={viewMode}
+              previewUrl={previewUrls[photo.id]}
+              originalUrl={originalUrls[photo.id]}
+              onPreviewVisible={requestPreviewUrl}
+              onPreviewError={(photoId) => requestOriginalUrls([photoId])}
+              onOpen={() => setSelectedPhotoId(photo.id)}
+            />
+          ))}</div>
         )}
 
         {hasMore && (
@@ -896,7 +1137,14 @@ export default function FotoarchivPage() {
         onApply={applyFilters}
         onReset={() => applyFilters({ page: 1, pageSize: 30 })}
       />
-      <DetailDrawer photo={selectedPhoto} loading={detailLoading} onClose={() => setSelectedPhotoId(null)} />
+      <DetailDrawer
+        photo={selectedPhoto}
+        loading={detailLoading}
+        previewUrl={selectedPhoto ? previewUrls[selectedPhoto.id] : undefined}
+        originalUrl={selectedPhoto ? originalUrls[selectedPhoto.id] : undefined}
+        onOriginalNeeded={(photoId) => requestOriginalUrls([photoId])}
+        onClose={() => setSelectedPhotoId(null)}
+      />
     </main>
   );
 }

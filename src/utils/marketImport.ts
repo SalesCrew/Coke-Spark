@@ -116,7 +116,7 @@ export type MarketImportFieldKey =
   | "kuehlerSerialNumber"
   | "kuehlerModel";
 
-export type ImportDatasetType = "universum" | "kuehler";
+export type ImportDatasetType = "universum" | "kuehler" | "update";
 
 export const UNIVERSUM_FIELD_SPECS: FieldSpec[] = [
   { key: "standardMarketNumber", label: "Standardmarkt Nr",    required: false, isIdentity: true  },
@@ -150,10 +150,32 @@ export const KUEHLER_FIELD_SPECS: FieldSpec[] = [
   { key: "employee",                  label: "Mitarbeiter",           required: false, isIdentity: false },
 ];
 
+export const UPDATE_FIELD_SPECS: FieldSpec[] = [
+  { key: "flexNumber",            label: "Flex-Nummer",         required: true,  isIdentity: true  },
+  { key: "standardMarketNumber",  label: "Standardmarkt Nr",    required: false, isIdentity: false },
+  { key: "cokeMasterNumber",      label: "Stammnr. von Coke",   required: false, isIdentity: false },
+  { key: "name",                  label: "Name",                required: false, isIdentity: false },
+  { key: "dbName",                label: "Name f. DB",          required: false, isIdentity: false },
+  { key: "address",               label: "Adresse",             required: false, isIdentity: false },
+  { key: "postalCode",            label: "Postleitzahl",        required: false, isIdentity: false },
+  { key: "city",                  label: "Ort",                 required: false, isIdentity: false },
+  { key: "region",                label: "Region",              required: false, isIdentity: false },
+  { key: "emEh",                  label: "EM/EH",               required: false, isIdentity: false },
+  { key: "employee",              label: "Mitarbeiter",         required: false, isIdentity: false },
+  { key: "currentGmName",         label: "GM",                  required: false, isIdentity: false },
+  { key: "universeMarket",        label: "Universums-Markt",    required: false, isIdentity: false },
+  { key: "visitFrequencyPerYear", label: "Besuchsrhythmus",     required: false, isIdentity: false },
+  { key: "infoFlag",              label: "Info",                required: false, isIdentity: false },
+  { key: "infoNote",              label: "Info-Notiz",          required: false, isIdentity: false },
+  { key: "isActive",              label: "Status aktiv",        required: false, isIdentity: false },
+];
+
 export const FIELD_SPECS: FieldSpec[] = UNIVERSUM_FIELD_SPECS;
 
 export function getFieldSpecsForImportType(importType: ImportDatasetType): FieldSpec[] {
-  return importType === "kuehler" ? KUEHLER_FIELD_SPECS : UNIVERSUM_FIELD_SPECS;
+  if (importType === "kuehler") return KUEHLER_FIELD_SPECS;
+  if (importType === "update") return UPDATE_FIELD_SPECS;
+  return UNIVERSUM_FIELD_SPECS;
 }
 
 // key → column letter  (empty string = not mapped)
@@ -216,9 +238,20 @@ export function validateMapping(mapping: ColumnMapping, fieldSpecs: FieldSpec[] 
 
 // ── Row normalization ──────────────────────────────────────────
 
+function parseImportBoolean(value: string): boolean | null {
+  const token = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\u00a0\s]+/g, "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (["ja", "j", "true", "wahr", "1", "yes", "y", "x"].includes(token)) return true;
+  if (["nein", "n", "false", "falsch", "0", "no"].includes(token)) return false;
+  return null;
+}
+
 function normBool(v: string): boolean {
-  const s = v.trim().toLowerCase();
-  return s === "ja" || s === "true" || s === "1" || s === "yes";
+  return parseImportBoolean(v) ?? false;
 }
 
 function normNum(v: string): number {
@@ -241,8 +274,10 @@ export function mapRowToDraft(
     const idx = excelColToIndex(col);
     const raw = row[idx]?.trim() ?? "";
     if (!raw) continue;
-    if (spec.key === "universeMarket" || spec.key === "infoFlag") {
-      (draft as Record<string, unknown>)[spec.key] = normBool(raw);
+    if (spec.key === "universeMarket" || spec.key === "infoFlag" || spec.key === "isActive") {
+      const parsed = parseImportBoolean(raw);
+      if (parsed == null) continue;
+      (draft as Record<string, unknown>)[spec.key] = parsed;
     } else if (spec.key === "kuehlerAnzahlKsAmStandort") {
       (draft as Record<string, unknown>)[spec.key] = normNum(raw);
     } else if (spec.key === "visitFrequencyPerYear") {
@@ -264,6 +299,7 @@ export interface ImportSummary {
   created: number;
   updated: number;
   skipped: number;
+  unchanged?: number;
   kuehlerUnitsCreated?: number;
   kuehlerUnitsUpdated?: number;
   kuehlerUnitsSkipped?: number;

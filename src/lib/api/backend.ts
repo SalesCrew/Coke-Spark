@@ -11,7 +11,7 @@ import type {
   UpdateCampaignInput,
 } from "@/types/campaign";
 import type { PraemienGmBonusSummary, PraemienQuarter, PraemienSourceRef } from "@/types/praemien";
-import type { ColumnMapping, ImportSummary } from "@/utils/marketImport";
+import type { ColumnMapping, ImportDatasetType, ImportSummary } from "@/utils/marketImport";
 import type { IppQuestionAuditRow } from "@/types/ipp";
 import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod } from "@/types/red-month";
@@ -1368,7 +1368,7 @@ export async function updateAdminLager(input: UpdateLagerInput): Promise<LagerRe
 }
 
 type ImportMarketsInput = {
-  importType: "universum" | "kuehler";
+  importType: ImportDatasetType;
   fileName: string;
   sheetName: string;
   rows: string[][];

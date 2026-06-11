@@ -290,6 +290,17 @@ function VirtualMarketList({
 
 type ImportStep = "type" | "upload" | "review" | "summary";
 
+function getImportDatasetLabel(importType: ImportDatasetType | null | undefined): string {
+  if (importType === "kuehler") return "Kühlermärkte";
+  if (importType === "update") return "Bestehende Märkte";
+  return "Universumsmärkte";
+}
+
+function getImportDatasetActionLabel(importType: ImportDatasetType | null | undefined): string {
+  if (importType === "update") return "Bestehende Märkte aktualisieren";
+  return `${getImportDatasetLabel(importType)} importieren`;
+}
+
 function ImportModal({
   onImport,
   onSaveFixedRow,
@@ -410,15 +421,15 @@ function ImportModal({
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>
               {step === "type"    && "Datensatz auswählen"}
-              {step === "upload"  && `${selectedImportType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"} importieren`}
+              {step === "upload"  && getImportDatasetActionLabel(selectedImportType)}
               {step === "review"  && "Spalten zuweisen"}
               {step === "summary" && "Import abgeschlossen"}
             </div>
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500, marginTop: 1 }}>
-              {step === "type"    && "Universumsmärkte oder Kühlermärkte wählen"}
+              {step === "type"    && "Importart für neue oder bestehende Märkte wählen"}
               {step === "upload"  && "Excel-Datei ziehen oder auswählen"}
-              {step === "review"  && `${selectedImportType === "kuehler" ? "Kühlermärkte" : "Universumsmärkte"} · ${fileName} · ${wb?.sheetName ?? ""} · ${(wb?.rows.length ?? 1) - 1} Datenzeilen`}
-              {step === "summary" && `${selectedImportType === "kuehler" ? "Kühler-Einheiten" : "Universumsmärkte"} · ${fileName} · ${wb?.sheetName ?? ""}`}
+              {step === "review"  && `${getImportDatasetLabel(selectedImportType)} · ${fileName} · ${wb?.sheetName ?? ""} · ${(wb?.rows.length ?? 1) - 1} Datenzeilen`}
+              {step === "summary" && `${getImportDatasetLabel(selectedImportType)} · ${fileName} · ${wb?.sheetName ?? ""}`}
             </div>
           </div>
           {/* Step indicator dots */}
@@ -489,6 +500,31 @@ function ImportModal({
                   <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Kühlermärkte</span>
                     <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Stammnr-Matching mit Kühler-Feldern</span>
+                  </span>
+                  <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
+                </button>
+                <button
+                  onClick={() => { setSelectedImportType("update"); setStep("upload"); }}
+                  style={{
+                    padding: "14px 14px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    background: "linear-gradient(to bottom,#fff,#f8f8f8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <span style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(8,145,178,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <RotateCcw size={13} strokeWidth={2} color="#0891b2" />
+                    </span>
+                    <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, minWidth: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Bestehende Märkte aktualisieren</span>
+                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Matching nur per Flex-Nr. Nur gemappte Felder werden geändert.</span>
+                    </span>
                   </span>
                   <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
                 </button>
@@ -603,7 +639,9 @@ function ImportModal({
 
                 {/* Helper note */}
                 <div style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", marginTop: 8 }}>
-                  Spaltenangabe als Excel-Buchstaben · <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>A = 1. Spalte · Z = 26. · AA = 27.</span>
+                  {selectedImportType === "update"
+                    ? "Update-Modus: Flex-Nummer findet den Markt. Nur gemappte optionale Felder mit Werten werden aktualisiert."
+                    : "Spaltenangabe als Excel-Buchstaben"} · <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>A = 1. Spalte · Z = 26. · AA = 27.</span>
                 </div>
               </div>
 
@@ -726,6 +764,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
     [summary.importType],
   );
   const isKuehlerImport = summary.importType === "kuehler";
+  const isUpdateImport = summary.importType === "update";
 
   const toggleRow = (i: number) => setExpandedRows(prev => {
     const next = new Set(prev);
@@ -739,6 +778,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
 
   const handleSaveRow = async (rowIdx: number, r: typeof localSkipped[0]) => {
     if (savingRows.has(rowIdx) || savedRows.has(rowIdx)) return;
+    if (isUpdateImport) return;
     setSavingRows((prev) => new Set(prev).add(rowIdx));
     try {
       const rowFills = fills[rowIdx] ?? {};
@@ -776,6 +816,13 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
         { label: "Einheiten erstellt", value: summary.kuehlerUnitsCreated ?? 0, color: "#16a34a", bg: "rgba(22,163,74,0.06)", border: "rgba(22,163,74,0.16)" },
         { label: "Einheiten aktualisiert", value: summary.kuehlerUnitsUpdated ?? 0, color: "#0891b2", bg: "rgba(8,145,178,0.06)", border: "rgba(8,145,178,0.16)" },
         { label: "Einheiten übersprungen", value: summary.kuehlerUnitsSkipped ?? 0, color: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "#d97706" : "rgba(0,0,0,0.35)", bg: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "rgba(217,119,6,0.06)" : "#fff", border: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "rgba(217,119,6,0.2)" : "rgba(0,0,0,0.08)" },
+      ]
+    : isUpdateImport
+    ? [
+        { label: "Gesamt", value: summary.totalParsedRows, color: "rgba(0,0,0,0.5)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
+        { label: "Aktualisiert", value: summary.updated, color: "#0891b2", bg: "rgba(8,145,178,0.06)", border: "rgba(8,145,178,0.16)" },
+        { label: "Nicht geändert", value: summary.unchanged ?? 0, color: "rgba(0,0,0,0.35)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
+        { label: "Übersprungen", value: localSkipped.length, color: localSkipped.length > 0 ? "#d97706" : "rgba(0,0,0,0.35)", bg: localSkipped.length > 0 ? "rgba(217,119,6,0.06)" : "#fff", border: localSkipped.length > 0 ? "rgba(217,119,6,0.2)" : "rgba(0,0,0,0.08)" },
       ]
     : [
         { label: "Gesamt", value: summary.totalParsedRows, color: "rgba(0,0,0,0.5)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
@@ -816,7 +863,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
             <span style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a" }}>{summary.fileName}</span>
           </div>
           <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Blatt: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.sheetName}</strong></span>
-          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Datensatz: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.importType === "kuehler" ? "Kühler-Einheiten" : "Universumsmärkte"}</strong></span>
+          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Datensatz: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{getImportDatasetLabel(summary.importType)}</strong></span>
           <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Zeilen: <strong style={{ color: "rgba(0,0,0,0.55)" }}>{summary.totalParsedRows}</strong></span>
           {matchKeys.length > 0 && (
             <div style={{ marginLeft: "auto", display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -891,7 +938,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
                         <div style={{ padding: "0 16px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
 
                           {/* Editable missing fields */}
-                          {missingKeys.length > 0 && (
+                          {missingKeys.length > 0 && !isUpdateImport && (
                             <div>
                               <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#d97706", marginBottom: 7 }}>Fehlend — bitte ergänzen</div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px 16px" }}>
@@ -940,7 +987,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
                           )}
 
                           {/* Save button */}
-                          {missingKeys.length > 0 && (
+                          {missingKeys.length > 0 && !isUpdateImport && (
                             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
                               <button
                                 onClick={() => { void handleSaveRow(i, r); }}
@@ -1948,8 +1995,8 @@ export default function MaerktePage() {
       if (filters.employee && m.employee !== filters.employee) return false;
       if (filters.currentGmName && m.currentGmName !== filters.currentGmName) return false;
       if (filters.universeMarket) {
-        if (filters.universeMarket === "Ja" && !m.universeMarket) return false;
-        if (filters.universeMarket === "Nein" && m.universeMarket) return false;
+        if (filters.universeMarket === "Ja" && m.universeMarket !== true) return false;
+        if (filters.universeMarket === "Nein" && m.universeMarket !== false) return false;
       }
       if (filters.kuehlerMarket) {
         if (filters.kuehlerMarket === "Ja" && m.marketType === "universum") return false;
@@ -2151,7 +2198,7 @@ export default function MaerktePage() {
                   <FilterBtn label="EM/EH" filterKey="emEh" opts={["EM", "EH"]} />
                   <FilterBtn label="Mitarbeiter" filterKey="employee" opts={opts.employee} />
                   <FilterBtn label="GM" filterKey="currentGmName" opts={opts.gmName} />
-                  <FilterBtn label="Universum" filterKey="universeMarket" opts={["Ja", "Nein"]} />
+                  <FilterBtn label="Universums-markt" filterKey="universeMarket" opts={["Ja", "Nein"]} />
                   <FilterBtn label="Kühler" filterKey="kuehlerMarket" opts={["Ja", "Nein"]} />
                   <FilterBtn label="Info" filterKey="infoFlag" opts={["Ja", "Nein"]} />
                   <FilterBtn label="RED Monat" inactiveLabel="Nicht aktiv" filterKey="redMonatVisited" opts={["Alle", "Besucht", "Nicht besucht"]} nullLabel="Nicht aktiv" />

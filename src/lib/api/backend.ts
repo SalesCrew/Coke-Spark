@@ -1430,6 +1430,54 @@ export type GmStartMarket = {
   }>;
 };
 
+export type GmMarketDetailSection = "standard" | "flex" | "kuehler" | "mhd" | "billa";
+
+export type GmMarketDetailActiveCampaign = {
+  campaignId: string;
+  campaignName: string;
+  section: GmMarketDetailSection;
+  targetVisitCount: number;
+  submittedVisitCount: number;
+  isComplete: boolean;
+  isStartable: boolean;
+};
+
+export type GmMarketDetailDraft = {
+  sessionId: string;
+  startedAt: string;
+  campaignIds: string[];
+  campaignNames: string[];
+};
+
+export type GmMarketPastVisitSection = {
+  section: GmMarketDetailSection;
+  campaignId: string;
+  campaignName: string;
+  fragebogenName: string;
+  answeredQuestionCount: number;
+  photoCount: number;
+  commentCount: number;
+};
+
+export type GmMarketPastVisit = {
+  sessionId: string;
+  startedAt: string;
+  submittedAt: string;
+  durationMinutes: number | null;
+  sections: GmMarketPastVisitSection[];
+};
+
+export type GmMarketDetailPayload = {
+  period: {
+    startDate: string;
+    endDate: string;
+  };
+  market: MarketRecord;
+  activeCampaigns: GmMarketDetailActiveCampaign[];
+  drafts: GmMarketDetailDraft[];
+  pastVisits: GmMarketPastVisit[];
+};
+
 export type GmKuehlerMhdProgressMarket = {
   marketId: string;
   campaignId: string;
@@ -1466,6 +1514,17 @@ export async function fetchGmAssignedStartMarkets(): Promise<GmStartMarket[]> {
     market: mapBackendMarketToMarketRecord(market),
     activeNowCampaigns: market.activeNowCampaigns ?? [],
   }));
+}
+
+export async function fetchGmMarketDetail(marketId: string): Promise<GmMarketDetailPayload> {
+  const data = (await authedFetch(`/markets/gm/${encodeURIComponent(marketId)}/detail`, { cache: "no-store" })) as Omit<
+    GmMarketDetailPayload,
+    "market"
+  > & { market: BackendMarket };
+  return {
+    ...data,
+    market: mapBackendMarketToMarketRecord(data.market),
+  };
 }
 
 export async function fetchGmFlexStartMarkets(): Promise<GmStartMarket[]> {

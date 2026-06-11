@@ -43,6 +43,7 @@ import {
   Camera,
   Calendar,
   NotebookPen,
+  Search,
   Tag,
 } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
@@ -167,6 +168,14 @@ function photoArtifactLabel(path: string): string {
   const clean = path.split("?")[0]?.split("#")[0] ?? path;
   const segments = clean.split("/").filter(Boolean);
   return segments[segments.length - 1] ?? path;
+}
+
+function normalizeTagSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("de-AT")
+    .trim();
 }
 
 function isoToDisplayDate(value: string): string {
@@ -1723,6 +1732,7 @@ function QuestionCard({
   const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
   const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
   const [photoSourcePickerOpen, setPhotoSourcePickerOpen] = React.useState(false);
+  const [tagSearch, setTagSearch] = React.useState("");
 
   React.useEffect(() => {
     const nextSlider = Number(answer);
@@ -1739,6 +1749,7 @@ function QuestionCard({
 
   React.useEffect(() => {
     setPhotoSourcePickerOpen(false);
+    setTagSearch("");
   }, [question.id]);
 
   return (
@@ -2203,6 +2214,13 @@ function QuestionCard({
         });
 
         const selectedTagIds = photoState.selectedTagIds;
+        const tagSearchQuery = tagSearch.trim();
+        const normalizedTagSearch = normalizeTagSearchText(tagSearchQuery);
+        const visibleTags = normalizedTagSearch.length === 0
+          ? resolvedTags
+          : resolvedTags.filter((tag) =>
+              selectedTagIds.includes(tag.id) || normalizeTagSearchText(tag.label).includes(normalizedTagSearch),
+            );
 
         const handleSelectedPhotoFiles = (files: File[]) => {
           if (files.length === 0) return;
@@ -2382,17 +2400,81 @@ function QuestionCard({
             {/* Tag selection — only shown when admin configured tags for this question */}
             {tagsEnabled && resolvedTags.length > 0 && (
               <div style={{ marginTop: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                  <Tag size={10} strokeWidth={2} color="rgba(0,0,0,0.35)" />
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.35)" }}>
-                    Tags
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <Tag size={10} strokeWidth={2} color="rgba(0,0,0,0.35)" />
+                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.35)" }}>
+                      Tags
+                    </span>
+                    {question.required && selectedTagIds.length === 0 && (
+                      <span style={{ fontSize: 9, color: "rgba(220,38,38,0.7)", fontWeight: 600, marginLeft: 2 }}>— mind. 1 auswählen</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 600, flexShrink: 0 }}>
+                    {selectedTagIds.length}/{resolvedTags.length}
                   </span>
-                  {question.required && selectedTagIds.length === 0 && (
-                    <span style={{ fontSize: 9, color: "rgba(220,38,38,0.7)", fontWeight: 600, marginLeft: 2 }}>— mind. 1 auswählen</span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    marginBottom: 10,
+                    padding: "8px 10px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    background: "rgba(255,255,255,0.72)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.75), 0 1px 3px rgba(0,0,0,0.035)",
+                    backdropFilter: "blur(6px)",
+                    WebkitBackdropFilter: "blur(6px)",
+                  }}
+                >
+                  <Search size={12} strokeWidth={2} color="rgba(0,0,0,0.28)" />
+                  <input
+                    type="text"
+                    value={tagSearch}
+                    onChange={(event) => setTagSearch(event.target.value)}
+                    placeholder="Tag suchen..."
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      border: "none",
+                      outline: "none",
+                      background: "transparent",
+                      color: "#1a1a1a",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      fontFamily: "inherit",
+                    }}
+                  />
+                  {tagSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTagSearch("")}
+                      aria-label="Tag-Suche leeren"
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 999,
+                        border: "none",
+                        background: "rgba(0,0,0,0.05)",
+                        color: "rgba(0,0,0,0.38)",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 14,
+                        fontWeight: 700,
+                        lineHeight: 1,
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      ×
+                    </button>
                   )}
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                  {resolvedTags.map((tag) => {
+                  {visibleTags.map((tag) => {
                     const isDeleted = !!tag.deletedAt;
                     const isSelected = selectedTagIds.includes(tag.id);
                     return (
@@ -2434,6 +2516,11 @@ function QuestionCard({
                     );
                   })}
                 </div>
+                {visibleTags.length === 0 && (
+                  <div style={{ padding: "10px 2px 0", fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)" }}>
+                    Kein Tag gefunden.
+                  </div>
+                )}
               </div>
             )}
           </div>

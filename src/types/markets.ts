@@ -66,6 +66,7 @@ export interface MarketFilters {
   city: string | null;
   postalCode: string | null;
   emEh: string | null;
+  dbName: string[];
   employee: string | null;
   universeMarket: "Ja" | "Nein" | null;
   kuehlerMarket: "Ja" | "Nein" | null;

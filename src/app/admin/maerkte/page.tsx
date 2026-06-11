@@ -93,6 +93,18 @@ function buildMarketSearchBlob(market: MarketRecord): string {
   return normalizeSearchText(tokens.join(" "));
 }
 
+function isMarketFilterValueActive(value: MarketFilters[keyof MarketFilters]): boolean {
+  return Array.isArray(value) ? value.length > 0 : Boolean(value);
+}
+
+function formatMarketFilterValue(value: MarketFilters[keyof MarketFilters]): string {
+  if (Array.isArray(value)) {
+    if (value.length <= 2) return value.join(", ");
+    return `${value.length} Handelsketten`;
+  }
+  return value ?? "";
+}
+
 const SECTION_META: Record<SectionType, { label: string; color: string; bg: string }> = {
   standard: { label: "Standard",  color: "#DC2626", bg: "rgba(220,38,38,0.07)"   },
   flex:     { label: "Flex",      color: "#65a30d", bg: "rgba(132,204,22,0.07)"  },
@@ -133,7 +145,7 @@ const FrequencyCircle = React.memo(function FrequencyCircle({ visited, frequency
 // ── Market row (memoized for virtual list) ─────────────────────
 
 const MARKET_ROW_H = 54; // px — must match the actual rendered row height
-const MARKET_LIST_GRID = "minmax(240px,1.55fr) 34px minmax(140px,0.9fr) minmax(70px,0.45fr) 54px minmax(110px,0.75fr) 56px minmax(110px,0.75fr) 38px 40px";
+const MARKET_LIST_GRID = "minmax(240px,1.55fr) minmax(82px,0.5fr) 34px minmax(140px,0.9fr) minmax(70px,0.45fr) 54px minmax(110px,0.75fr) 56px minmax(110px,0.75fr) 38px 40px";
 const MARKET_LIST_GAP = "0 10px";
 
 const MarketRow = React.memo(function MarketRow({
@@ -151,7 +163,8 @@ const MarketRow = React.memo(function MarketRow({
   onSelect: (id: string | null) => void;
   onOpenContextMenu?: (event: React.MouseEvent<HTMLDivElement>, marketId: string) => void;
 }) {
-  const ci = chainInitials(market.name);
+  const chainLabel = market.dbName.trim() || market.name.split(" ")[0].slice(0, 4);
+  const ci = chainInitials(chainLabel);
   const rowBaseBackground = market.isActive ? "transparent" : "rgba(220,38,38,0.02)";
   return (
     <div
@@ -174,13 +187,15 @@ const MarketRow = React.memo(function MarketRow({
       {/* Markt */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
         <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: ci.bg, color: ci.text, letterSpacing: "0.02em", flexShrink: 0, textTransform: "uppercase" }}>
-          {market.name.split(" ")[0].slice(0, 4)}
+          {chainLabel}
         </span>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: active ? R : "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{market.name}</div>
           <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>{market.dbName}</div>
         </div>
       </div>
+      {/* Stammnr */}
+      <div style={{ minWidth: 0, fontSize: 11, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" }}>{market.cokeMasterNumber || market.kuehlerStammnr || ""}</div>
       {/* Info dot */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
         {market.infoFlag && <span style={{ width: 6, height: 6, borderRadius: "50%", background: R, flexShrink: 0 }} title="Info vorhanden" />}
@@ -1089,6 +1104,67 @@ function FilterDropdown({ options, value, onChange, onClose, anchorRef, nullLabe
 
 // ── Info section for detail drawer ────────────────────────────
 
+function MultiFilterDropdown({ options, value, onChange, onClose, anchorRef, nullLabel = "Alle" }: {
+  options: string[];
+  value: string[];
+  onChange: (v: string[]) => void;
+  onClose: () => void;
+  anchorRef: React.RefObject<HTMLButtonElement | null>;
+  nullLabel?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    function updatePos() {
+      if (!anchorRef.current) return;
+      const r = anchorRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left });
+    }
+    updatePos();
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [anchorRef]);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node) &&
+          anchorRef.current && !anchorRef.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [onClose, anchorRef]);
+
+  if (!pos || typeof document === "undefined") return null;
+  return createPortal(
+    <div ref={ref} className="map-scroll" style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999, background: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 6px 20px rgba(0,0,0,0.10)", padding: 4, minWidth: 190, maxHeight: 480, overflowY: "auto" }}>
+      <button onClick={() => onChange([])}
+        style={{ width: "100%", textAlign: "left", padding: "6px 10px", fontSize: 11, borderRadius: 5, border: "none", cursor: "pointer", background: value.length === 0 ? "rgba(220,38,38,0.06)" : "transparent", color: value.length === 0 ? R : "#374151", fontWeight: value.length === 0 ? 600 : 400, fontFamily: "inherit" }}
+        onMouseEnter={e => { if (value.length > 0) e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
+        onMouseLeave={e => { if (value.length > 0) e.currentTarget.style.background = "transparent"; }}>
+        {nullLabel}
+      </button>
+      {options.map(opt => {
+        const selected = value.includes(opt);
+        return (
+          <button key={opt} onClick={() => onChange(selected ? value.filter(v => v !== opt) : [...value, opt])}
+            style={{ width: "100%", textAlign: "left", padding: "6px 10px", fontSize: 11, borderRadius: 5, border: "none", cursor: "pointer", background: selected ? "rgba(220,38,38,0.06)" : "transparent", color: selected ? R : "#374151", fontWeight: selected ? 600 : 400, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+            onMouseEnter={e => { if (!selected) e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
+            onMouseLeave={e => { if (!selected) e.currentTarget.style.background = "transparent"; }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{opt}</span>
+            {selected && <Check size={11} strokeWidth={2.5} color={R} />}
+          </button>
+        );
+      })}
+    </div>,
+    document.body
+  );
+}
+
 function InfoSection({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -1708,7 +1784,7 @@ export default function MaerktePage() {
     return () => clearTimeout(t);
   }, [search]);
   const [filters, setFilters] = useState<MarketFilters>({
-    region: null, city: null, postalCode: null, emEh: null, employee: null,
+    region: null, city: null, postalCode: null, emEh: null, dbName: [], employee: null,
     universeMarket: null, kuehlerMarket: null, infoFlag: null, currentGmName: null,
     redMonatVisited: null, frequencyBucket: null,
   });
@@ -1947,6 +2023,7 @@ export default function MaerktePage() {
     city:     [...new Set(markets.map(m => m.city))].sort(),
     postalCode:[...new Set(markets.map(m => m.postalCode))].sort(),
     emEh:     [...new Set(markets.map(m => m.emEh))].sort(),
+    dbName:   [...new Set(markets.map(m => m.dbName).filter(Boolean))].sort(),
     employee: [...new Set(markets.map(m => m.employee))].sort(),
     gmName:   [...new Set(markets.map(m => m.currentGmName))].sort(),
   }), [markets]);
@@ -1992,6 +2069,7 @@ export default function MaerktePage() {
       if (filters.city && m.city !== filters.city) return false;
       if (filters.postalCode && m.postalCode !== filters.postalCode) return false;
       if (filters.emEh && m.emEh !== filters.emEh) return false;
+      if (filters.dbName.length > 0 && !filters.dbName.includes(m.dbName)) return false;
       if (filters.employee && m.employee !== filters.employee) return false;
       if (filters.currentGmName && m.currentGmName !== filters.currentGmName) return false;
       if (filters.universeMarket) {
@@ -2026,7 +2104,7 @@ export default function MaerktePage() {
     return [...activeMarkets, ...inactiveMarkets];
   }, [markets, debouncedSearch, filters, marketSearchBlobById, visitedInRedMonatSet]);
 
-  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const activeFilterCount = Object.values(filters).filter(isMarketFilterValueActive).length;
   const selectedMarket = useMemo(() => markets.find(m => m.id === selectedId) ?? null, [markets, selectedId]);
   const contextMenuMarket = useMemo(
     () => markets.find((market) => market.id === marketContextMenu?.marketId) ?? null,
@@ -2055,6 +2133,25 @@ export default function MaerktePage() {
         {openFilter === filterKey && (
           <FilterDropdown options={options} value={val} anchorRef={btnRef} nullLabel={nullLabel}
             onChange={v => setFilters(prev => ({ ...prev, [filterKey]: v }))}
+            onClose={() => setOpenFilter(null)} />
+        )}
+      </>
+    );
+  }
+
+  function HandelskettenFilterBtn({ options }: { options: string[] }) {
+    const active = filters.dbName.length > 0;
+    const btnRef = useRef<HTMLButtonElement>(null);
+    return (
+      <>
+        <button ref={btnRef} onClick={() => setOpenFilter(openFilter === "dbName" ? null : "dbName")}
+          style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, fontSize: 10, fontWeight: 500, border: active ? "1px solid rgba(220,38,38,0.25)" : "1px solid rgba(0,0,0,0.08)", background: active ? "rgba(220,38,38,0.04)" : "#fff", color: active ? R : "rgba(0,0,0,0.55)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.12s", whiteSpace: "nowrap" }}>
+          {active ? `Handelskette (${filters.dbName.length})` : "Handelskette"}
+          <ChevronDown size={10} strokeWidth={2} style={{ transform: openFilter === "dbName" ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
+        </button>
+        {openFilter === "dbName" && (
+          <MultiFilterDropdown options={options} value={filters.dbName} anchorRef={btnRef}
+            onChange={v => setFilters(prev => ({ ...prev, dbName: v }))}
             onClose={() => setOpenFilter(null)} />
         )}
       </>
@@ -2091,7 +2188,7 @@ export default function MaerktePage() {
             </span>
             {hasFilters && (
               <button
-                onClick={() => { setSearch(""); setFilters({ region: null, city: null, postalCode: null, emEh: null, employee: null, universeMarket: null, kuehlerMarket: null, infoFlag: null, currentGmName: null, redMonatVisited: null, frequencyBucket: null }); }}
+                onClick={() => { setSearch(""); setFilters({ region: null, city: null, postalCode: null, emEh: null, dbName: [], employee: null, universeMarket: null, kuehlerMarket: null, infoFlag: null, currentGmName: null, redMonatVisited: null, frequencyBucket: null }); }}
                 style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, border: "1px solid rgba(0,0,0,0.1)", background: "rgba(0,0,0,0.035)", cursor: "pointer", color: "rgba(0,0,0,0.4)", fontSize: 9, fontWeight: 600, fontFamily: "inherit", transition: "all 0.12s" }}
                 onMouseEnter={e => { e.currentTarget.style.background = "rgba(220,38,38,0.06)"; e.currentTarget.style.color = R; e.currentTarget.style.borderColor = "rgba(220,38,38,0.2)"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "rgba(0,0,0,0.035)"; e.currentTarget.style.color = "rgba(0,0,0,0.4)"; e.currentTarget.style.borderColor = "rgba(0,0,0,0.1)"; }}
@@ -2196,6 +2293,7 @@ export default function MaerktePage() {
                   <FilterBtn label="Ort" filterKey="city" opts={opts.city} />
                   <FilterBtn label="PLZ" filterKey="postalCode" opts={opts.postalCode} />
                   <FilterBtn label="EM/EH" filterKey="emEh" opts={["EM", "EH"]} />
+                  <HandelskettenFilterBtn options={opts.dbName} />
                   <FilterBtn label="Mitarbeiter" filterKey="employee" opts={opts.employee} />
                   <FilterBtn label="GM" filterKey="currentGmName" opts={opts.gmName} />
                   <FilterBtn label="Universums-markt" filterKey="universeMarket" opts={["Ja", "Nein"]} />
@@ -2211,10 +2309,10 @@ export default function MaerktePage() {
               {activeFilterCount > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", fontWeight: 500, flexShrink: 0 }}>{filtered.length} / {markets.length} Märkte</span>
-                  {(Object.entries(filters) as [keyof MarketFilters, string | null][]).filter(([, v]) => v).map(([k, v]) => (
-                    <button key={k} onClick={() => setFilters(prev => ({ ...prev, [k]: null }))}
+                  {(Object.entries(filters) as [keyof MarketFilters, MarketFilters[keyof MarketFilters]][]).filter(([, v]) => isMarketFilterValueActive(v)).map(([k, v]) => (
+                    <button key={k} onClick={() => setFilters(prev => ({ ...prev, [k]: k === "dbName" ? [] : null }))}
                       style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 5, fontSize: 9, fontWeight: 600, background: "rgba(220,38,38,0.07)", color: R, border: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                      {v}<X size={7} strokeWidth={2.5} />
+                      {formatMarketFilterValue(v)}<X size={7} strokeWidth={2.5} />
                     </button>
                   ))}
                 </div>
@@ -2223,7 +2321,7 @@ export default function MaerktePage() {
 
             {/* Column header */}
             <div style={{ display: "grid", gridTemplateColumns: MARKET_LIST_GRID, gap: MARKET_LIST_GAP, padding: "7px 18px", background: "rgba(0,0,0,0.018)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-              {["Markt", "Info", "Adresse", "Region", "PLZ", "Ort", "EM/EH", "Verplant an", "IPP", "Freq."].map((h, i) => (
+              {["Markt", "Stammnr", "Info", "Adresse", "Region", "PLZ", "Ort", "EM/EH", "Verplant an", "IPP", "Freq."].map((h, i) => (
                 <span key={i} style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h}</span>
               ))}
             </div>

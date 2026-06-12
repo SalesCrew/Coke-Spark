@@ -2197,10 +2197,7 @@ function QuestionCard({
         const photoState = decodePhotoAnswer(answer);
         const photos = photoState.photos;
         const previewPhotos = photos.filter(isPreviewablePhotoSrc);
-        const fallbackArtifacts = (photoCommittedMeta.length > 0
-          ? photoCommittedMeta.map((meta) => meta.storagePath)
-          : photos
-        ).filter((value) => !isPreviewablePhotoSrc(value));
+        const fallbackArtifacts = photos.filter((value) => !isPreviewablePhotoSrc(value));
         const fallbackLabels = Array.from(new Set(fallbackArtifacts.map(photoArtifactLabel)));
         const tagsEnabled = Boolean(cfg?.tagsEnabled) && Array.isArray(cfg?.tagIds) && (cfg.tagIds as string[]).length > 0;
         const configuredTagIds: string[] = tagsEnabled ? (cfg.tagIds as string[]) : [];
@@ -3134,7 +3131,7 @@ function MarktbesuchInner() {
               ),
             ),
           );
-          const photos = (answer.photos ?? []).map((photo) => photo.storagePath);
+          const photos = (answer.photos ?? []).map((photo) => photo.signedUrl || photo.storagePath);
           uiValue = encodePhotoAnswer({ photos, selectedTagIds });
           nextPhotoMetaByQuestionId[question.id] = (answer.photos ?? []).map((photo) => ({
             storageBucket: photo.storageBucket,
@@ -3329,6 +3326,9 @@ function MarktbesuchInner() {
     void run();
     return () => {
       active = false;
+      if (bootstrapRunKeyRef.current === runKey) {
+        bootstrapRunKeyRef.current = null;
+      }
     };
   }, [
     campaignIdsParam,

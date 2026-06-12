@@ -240,6 +240,8 @@ type BackendCampaignMarketVisitSummary = {
           id: string;
           storageBucket: string;
           storagePath: string;
+          signedUrl?: string | null;
+          signedUrlExpiresAt?: string | null;
           mimeType: string | null;
           byteSize: number | null;
           widthPx: number | null;
@@ -1639,6 +1641,8 @@ export type GmVisitSessionReadPayload = {
           id: string;
           storageBucket: string;
           storagePath: string;
+          signedUrl?: string | null;
+          signedUrlExpiresAt?: string | null;
           mimeType: string | null;
           byteSize: number | null;
           widthPx: number | null;

@@ -50,6 +50,7 @@ interface Market {
   id: string;
   chain: string;
   address: string;
+  stammnr: string;
   activeNowCampaigns: Array<{
     campaignId: string;
     campaignName: string;
@@ -84,6 +85,7 @@ function mapRecordToLauncherMarket(record: MarketRecord): Market {
     id: record.id,
     chain: deriveChainLabel(record),
     address: `${record.address}, ${record.postalCode} ${record.city}`.trim(),
+    stammnr: record.cokeMasterNumber?.trim() || record.kuehlerStammnr?.trim() || "",
     activeNowCampaigns: [],
   };
 }
@@ -1576,9 +1578,17 @@ export function ActivityLauncher() {
                 >
                   {m.chain}
                 </span>
-                <span className="text-[10px] font-medium text-gray-600 truncate">
+                <span className="min-w-0 flex-1 text-[10px] font-medium text-gray-600 truncate">
                   {m.address}
                 </span>
+                {m.stammnr && (
+                  <span
+                    className="shrink-0 text-[9px] font-semibold text-gray-400"
+                    style={{ fontVariantNumeric: "tabular-nums" }}
+                  >
+                    {m.stammnr}
+                  </span>
+                )}
               </div>
             );
           })}

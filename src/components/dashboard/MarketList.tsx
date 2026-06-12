@@ -90,6 +90,10 @@ function formatAddress(record: MarketRecord): string {
   return [record.address, [record.postalCode, record.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
 }
 
+function formatStammnr(record: MarketRecord): string {
+  return record.cokeMasterNumber?.trim() || record.kuehlerStammnr?.trim() || "";
+}
+
 function toMarketListEntry(record: MarketRecord, activeNowCampaigns: MarketCampaignSummary[] = []): Market {
   return {
     id: record.id,
@@ -840,99 +844,110 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
           minHeight: 0,
         }}
       >
-        {!isLoading && !loadError && filtered.map((m, i) => (
-          <div
-            key={m.id}
-            className="flex items-center justify-between gap-2"
-            onClick={() => openDetail(m)}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 7,
-              borderBottom: i < filtered.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
-              transition: "background-color 0.12s ease",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.02)")}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-          >
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span
-                className="shrink-0 text-[9px] font-semibold uppercase"
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 5,
-                  backgroundColor: chainColors(m.chain).bg,
-                  color: chainColors(m.chain).text,
-                  letterSpacing: "0.02em",
-                  maxWidth: 78,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {m.chain}
-              </span>
-
-              <div className="min-w-0 flex-1">
-                {revealedId === m.id && m.nextSM ? (
-                  <span className="block text-[10px] font-medium truncate" style={{ color: "#DC2626" }} title={`Naechster SM: ${m.nextSM}`}>
-                    Naechster SM: {m.nextSM}
-                  </span>
-                ) : (
-                  <span className="block text-[10px] font-medium text-gray-600 truncate" title={m.name}>
-                    {m.name}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="shrink-0 flex items-center gap-2">
-              {m.nextSM && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleReveal(m.id);
-                  }}
-                  className="shrink-0 flex items-center justify-center"
+        {!isLoading && !loadError && filtered.map((m, i) => {
+          const stammnr = formatStammnr(m.record);
+          return (
+            <div
+              key={m.id}
+              className="flex items-center justify-between gap-2"
+              onClick={() => openDetail(m)}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 7,
+                borderBottom: i < filtered.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
+                transition: "background-color 0.12s ease",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.02)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span
+                  className="shrink-0 text-[9px] font-semibold uppercase"
                   style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: "50%",
-                    backgroundColor: revealedId === m.id ? "rgba(34,197,94,0.15)" : "rgba(220,38,38,0.08)",
-                    border: "none",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease",
+                    padding: "2px 8px",
+                    borderRadius: 5,
+                    backgroundColor: chainColors(m.chain).bg,
+                    color: chainColors(m.chain).text,
+                    letterSpacing: "0.02em",
+                    maxWidth: 78,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  {revealedId === m.id ? (
-                    <span style={{ fontSize: 8, fontWeight: 700, color: "#16a34a" }}>{countdown}</span>
-                  ) : (
-                    <UserCheck size={9} strokeWidth={2} color="#DC2626" />
-                  )}
-                </button>
-              )}
-              <div className="relative flex items-center justify-center" style={{ width: 32, height: 32 }}>
-                <svg viewBox="0 0 36 36" width={32} height={32} style={{ position: "absolute", transform: "rotate(-90deg)" }}>
-                  <circle cx={18} cy={18} r={15} fill="none" stroke="rgba(0,0,0,0.05)" strokeWidth={2.5} />
-                  <circle
-                    cx={18}
-                    cy={18}
-                    r={15}
-                    fill="none"
-                    stroke={m.visitedThisMonth ? "#16a34a" : "#DC2626"}
-                    strokeWidth={2.5}
-                    strokeLinecap="round"
-                    strokeDasharray={`${(m.visited / m.frequency) * 94.25} 94.25`}
-                  />
-                </svg>
-                <span className="text-[8px] font-semibold text-gray-700 tabular-nums" style={{ position: "relative", zIndex: 1 }}>
-                  {m.visited}/{m.frequency}
+                  {m.chain}
                 </span>
+
+                <div className="min-w-0 flex-1">
+                  {revealedId === m.id && m.nextSM ? (
+                    <span className="block text-[10px] font-medium truncate" style={{ color: "#DC2626" }} title={`Naechster SM: ${m.nextSM}`}>
+                      Naechster SM: {m.nextSM}
+                    </span>
+                  ) : (
+                    <span className="block text-[10px] font-medium text-gray-600 truncate" title={m.name}>
+                      {m.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="shrink-0 flex items-center gap-2">
+                {m.nextSM && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleReveal(m.id);
+                    }}
+                    className="shrink-0 flex items-center justify-center"
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      backgroundColor: revealedId === m.id ? "rgba(34,197,94,0.15)" : "rgba(220,38,38,0.08)",
+                      border: "none",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {revealedId === m.id ? (
+                      <span style={{ fontSize: 8, fontWeight: 700, color: "#16a34a" }}>{countdown}</span>
+                    ) : (
+                      <UserCheck size={9} strokeWidth={2} color="#DC2626" />
+                    )}
+                  </button>
+                )}
+                {stammnr && (
+                  <span
+                    className="shrink-0 text-[9px] font-semibold text-gray-400 tabular-nums"
+                    title={`Stammnr: ${stammnr}`}
+                  >
+                    {stammnr}
+                  </span>
+                )}
+                <div className="relative flex items-center justify-center" style={{ width: 32, height: 32 }}>
+                  <svg viewBox="0 0 36 36" width={32} height={32} style={{ position: "absolute", transform: "rotate(-90deg)" }}>
+                    <circle cx={18} cy={18} r={15} fill="none" stroke="rgba(0,0,0,0.05)" strokeWidth={2.5} />
+                    <circle
+                      cx={18}
+                      cy={18}
+                      r={15}
+                      fill="none"
+                      stroke={m.visitedThisMonth ? "#16a34a" : "#DC2626"}
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                      strokeDasharray={`${(m.visited / m.frequency) * 94.25} 94.25`}
+                    />
+                  </svg>
+                  <span className="text-[8px] font-semibold text-gray-700 tabular-nums" style={{ position: "relative", zIndex: 1 }}>
+                    {m.visited}/{m.frequency}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {isLoading && (
           <div className="text-center py-8">

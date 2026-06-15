@@ -1287,7 +1287,7 @@ export default function CampaignExtendPage() {
     let alive = true;
     setLoading(true);
     setLoadError(null);
-    Promise.all([fetchCampaigns(), fetchMarkets(), fetchGmUsers()])
+    Promise.all([fetchCampaigns(), fetchMarkets({ forceFresh: true }), fetchGmUsers()])
       .then(([campaignRows, marketRows, gmRows]) => {
         if (!alive) return;
         setCampaigns(campaignRows);

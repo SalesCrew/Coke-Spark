@@ -1428,26 +1428,33 @@ export type NormalizeMarketRegionsResult = {
   allowedRegions: string[];
 };
 
-export async function fetchMarkets(): Promise<MarketRecord[]> {
+export async function fetchMarkets(options?: { forceFresh?: boolean }): Promise<MarketRecord[]> {
+  const forceFresh = Boolean(options?.forceFresh);
   const now = Date.now();
-  if (marketsDirectoryCache && marketsDirectoryCache.expiresAt > now) {
+  if (!forceFresh && marketsDirectoryCache && marketsDirectoryCache.expiresAt > now) {
     return marketsDirectoryCache.data;
   }
-  if (marketsDirectoryInFlight) {
+  if (!forceFresh && marketsDirectoryInFlight) {
     return marketsDirectoryInFlight;
   }
 
-  marketsDirectoryInFlight = (async () => {
+  const request = (async () => {
     try {
-      const data = (await authedFetch("/markets", {}, 60000)) as { markets?: BackendMarket[] };
+      const data = (await authedFetch("/markets", forceFresh ? { cache: "no-store" } : {}, 60000)) as { markets?: BackendMarket[] };
       const markets = (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market));
       marketsDirectoryCache = { data: markets, expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS };
       return markets;
     } catch (error) {
-      if (marketsDirectoryCache) return marketsDirectoryCache.data;
+      if (!forceFresh && marketsDirectoryCache) return marketsDirectoryCache.data;
       throw error;
     }
-  })().finally(() => {
+  })();
+
+  if (forceFresh) {
+    return request;
+  }
+
+  marketsDirectoryInFlight = request.finally(() => {
     marketsDirectoryInFlight = null;
   });
 

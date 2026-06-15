@@ -1833,7 +1833,7 @@ export default function NeuKampagnePage() {
   useEffect(() => {
     const loadMarkets = async () => {
       try {
-        const rows = await fetchMarkets();
+        const rows = await fetchMarkets({ forceFresh: true });
         setAllMarkets(
           rows.map((row) => ({
             id: row.id,

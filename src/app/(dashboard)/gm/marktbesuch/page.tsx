@@ -129,9 +129,13 @@ function mapVisitQuestionToSample(
 // Photo answer model
 // ─────────────────────────────────────────────────────────────────────────────
 
+type PhotoTagMode = "all" | "perPhoto";
+
 interface PhotoAnswerState {
   photos: string[];
   selectedTagIds: string[];
+  tagMode?: PhotoTagMode;
+  photoTagIdsByPhotoKey?: Record<string, string[]>;
 }
 
 interface UploadedPhotoMeta {
@@ -155,9 +159,83 @@ function decodePhotoAnswer(raw: string | string[] | undefined): PhotoAnswerState
   if (Array.isArray(raw)) return { photos: raw, selectedTagIds: [] };
   try {
     const parsed = JSON.parse(raw as string) as Partial<PhotoAnswerState>;
-    if (parsed && Array.isArray(parsed.photos)) return { photos: parsed.photos, selectedTagIds: parsed.selectedTagIds ?? [] };
+    if (parsed && Array.isArray(parsed.photos)) {
+      const tagMode = parsed.tagMode === "perPhoto" ? "perPhoto" : "all";
+      const photoTagIdsByPhotoKey =
+        parsed.photoTagIdsByPhotoKey && typeof parsed.photoTagIdsByPhotoKey === "object"
+          ? Object.fromEntries(
+              Object.entries(parsed.photoTagIdsByPhotoKey)
+                .filter(([key, value]) => key.length > 0 && Array.isArray(value))
+                .map(([key, value]) => [key, normalizePhotoTagIds(value as string[])]),
+            )
+          : {};
+      return {
+        photos: parsed.photos.filter((entry): entry is string => typeof entry === "string"),
+        selectedTagIds: normalizePhotoTagIds(parsed.selectedTagIds ?? []),
+        tagMode,
+        photoTagIdsByPhotoKey,
+      };
+    }
   } catch { /* noop */ }
   return { photos: [raw as string], selectedTagIds: [] };
+}
+
+function normalizePhotoTagIds(values: unknown[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+}
+
+function samePhotoTagSet(left: string[], right: string[]): boolean {
+  const normalizedLeft = normalizePhotoTagIds(left).sort();
+  const normalizedRight = normalizePhotoTagIds(right).sort();
+  return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
+
+function unionPhotoTagIds(groups: string[][]): string[] {
+  return normalizePhotoTagIds(groups.flat());
+}
+
+function resolvePhotoUiKey(photos: string[], index: number): string {
+  return photos[index] || `photo-${index}`;
+}
+
+function resolvePhotoTagMode(state: PhotoAnswerState): PhotoTagMode {
+  return state.tagMode === "perPhoto" ? "perPhoto" : "all";
+}
+
+function photoTagsForUiKey(state: PhotoAnswerState, photoKey: string): string[] {
+  if (resolvePhotoTagMode(state) !== "perPhoto") return normalizePhotoTagIds(state.selectedTagIds);
+  return normalizePhotoTagIds(state.photoTagIdsByPhotoKey?.[photoKey] ?? []);
+}
+
+function photoTagsForCommit(
+  state: PhotoAnswerState,
+  meta: UploadedPhotoMeta,
+  index: number,
+  photoKeys: string[],
+): string[] {
+  if (resolvePhotoTagMode(state) !== "perPhoto") return normalizePhotoTagIds(state.selectedTagIds);
+  const byKey = state.photoTagIdsByPhotoKey ?? {};
+  const candidates = [meta.storagePath, photoKeys[index], resolvePhotoUiKey(state.photos, index)].filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+  for (const key of candidates) {
+    const tags = byKey[key];
+    if (Array.isArray(tags)) return normalizePhotoTagIds(tags);
+  }
+  return [];
+}
+
+function photoAnswerHasRequiredTags(state: PhotoAnswerState): boolean {
+  if (state.photos.length === 0) return false;
+  if (resolvePhotoTagMode(state) !== "perPhoto") return normalizePhotoTagIds(state.selectedTagIds).length > 0;
+  return state.photos.every((_, index) => photoTagsForUiKey(state, resolvePhotoUiKey(state.photos, index)).length > 0);
 }
 
 function isPreviewablePhotoSrc(value: string): boolean {
@@ -278,9 +356,9 @@ function isQuestionComplete(q: SampleQuestion, rawAnswer: string | string[] | un
       const state = decodePhotoAnswer(rawAnswer);
       return state.photos.length > 0;
     }
-    // Tag requirement — need photo(s) AND at least one selected tag
+    // Tag requirement: all-mode needs shared tags, per-photo mode needs tags on every photo.
     const state = decodePhotoAnswer(rawAnswer);
-    return state.photos.length > 0 && state.selectedTagIds.length > 0;
+    return photoAnswerHasRequiredTags(state);
   }
   if (q.type === "yesnomulti") {
     const parsed = parseYesNoMultiAnswer(rawAnswer);
@@ -316,7 +394,7 @@ function isTaggedPhotoReady(q: SampleQuestion, rawAnswer: string | string[] | un
   if (!q.required) return true;
   if (!q.config?.tagsEnabled || !q.config?.tagIds?.length) return true; // no tags configured
   const state = decodePhotoAnswer(rawAnswer);
-  return state.photos.length > 0 && state.selectedTagIds.length > 0;
+  return photoAnswerHasRequiredTags(state);
 }
 
 function normalizeAnswerForPersistence(
@@ -1125,7 +1203,8 @@ interface QuestionCardProps {
   onPhotoSync?: (payload: {
     questionId: string;
     files: File[];
-    selectedTagIds: string[];
+    photoState: PhotoAnswerState;
+    photoKeys: string[];
   }) => Promise<void>;
   photoCommittedMeta?: UploadedPhotoMeta[];
   photoSyncBusy?: boolean;
@@ -1733,6 +1812,7 @@ function QuestionCard({
   const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
   const [photoSourcePickerOpen, setPhotoSourcePickerOpen] = React.useState(false);
   const [tagSearch, setTagSearch] = React.useState("");
+  const [activePhotoIndex, setActivePhotoIndex] = React.useState(0);
 
   React.useEffect(() => {
     const nextSlider = Number(answer);
@@ -1750,7 +1830,14 @@ function QuestionCard({
   React.useEffect(() => {
     setPhotoSourcePickerOpen(false);
     setTagSearch("");
+    setActivePhotoIndex(0);
   }, [question.id]);
+
+  React.useEffect(() => {
+    const photoState = question.type === "photo" ? decodePhotoAnswer(answer) : null;
+    if (!photoState) return;
+    setActivePhotoIndex((prev) => Math.max(0, Math.min(prev, Math.max(photoState.photos.length - 1, 0))));
+  }, [answer, question.id, question.type]);
 
   return (
     <div
@@ -2210,7 +2297,15 @@ function QuestionCard({
           return configTagMeta ?? { id, label: id, deletedAt: null };
         });
 
-        const selectedTagIds = photoState.selectedTagIds;
+        const tagMode = resolvePhotoTagMode(photoState);
+        const photoKeys = photos.map((src, index) => resolvePhotoUiKey(photos, index) || photoCommittedMeta[index]?.storagePath || src || `photo-${index}`);
+        const activePhotoKey = photoKeys[activePhotoIndex] ?? photoKeys[0] ?? "photo-0";
+        const selectedTagIds = tagMode === "perPhoto"
+          ? photoTagsForUiKey(photoState, activePhotoKey)
+          : normalizePhotoTagIds(photoState.selectedTagIds);
+        const perPhotoMissingCount = tagMode === "perPhoto"
+          ? photos.filter((_, index) => photoTagsForUiKey(photoState, photoKeys[index] ?? resolvePhotoUiKey(photos, index)).length === 0).length
+          : 0;
         const tagSearchQuery = tagSearch.trim();
         const normalizedTagSearch = normalizeTagSearchText(tagSearchQuery);
         const visibleTags = normalizedTagSearch.length === 0
@@ -2222,30 +2317,100 @@ function QuestionCard({
         const handleSelectedPhotoFiles = (files: File[]) => {
           if (files.length === 0) return;
           const objectUrls = files.map((file) => URL.createObjectURL(file));
-          handlePhotos([...photos, ...objectUrls]);
+          const nextPhotos = [...photos, ...objectUrls];
+          const nextKeys = nextPhotos.map((src, index) => src || photoCommittedMeta[index]?.storagePath || `photo-${index}`);
+          const nextMap =
+            tagMode === "perPhoto"
+              ? {
+                  ...(photoState.photoTagIdsByPhotoKey ?? {}),
+                  ...Object.fromEntries(objectUrls.map((url) => [url, []])),
+                }
+              : photoState.photoTagIdsByPhotoKey;
+          const nextState: PhotoAnswerState = {
+            ...photoState,
+            photos: nextPhotos,
+            tagMode,
+            selectedTagIds: normalizePhotoTagIds(photoState.selectedTagIds),
+            ...(nextMap ? { photoTagIdsByPhotoKey: nextMap } : {}),
+          };
+          handlePhotoAnswerState(nextState);
+          setActivePhotoIndex(Math.max(0, nextPhotos.length - objectUrls.length));
           if (onPhotoSync) {
             void onPhotoSync({
               questionId: question.id,
               files,
-              selectedTagIds,
+              photoState: nextState,
+              photoKeys: nextKeys,
             });
           }
         };
 
-        const handlePhotos = (urls: string[]) => {
-          const next: PhotoAnswerState = { ...photoState, photos: urls };
+        const handlePhotoAnswerState = (next: PhotoAnswerState) => {
           onAnswer(encodePhotoAnswer(next));
         };
+        const handleTagModeChange = async (nextMode: PhotoTagMode) => {
+          if (nextMode === tagMode) return;
+          let nextState: PhotoAnswerState;
+          if (nextMode === "perPhoto") {
+            const nextMap = { ...(photoState.photoTagIdsByPhotoKey ?? {}) };
+            photoKeys.forEach((key) => {
+              nextMap[key] = normalizePhotoTagIds(photoState.selectedTagIds);
+            });
+            nextState = {
+              ...photoState,
+              tagMode: "perPhoto",
+              selectedTagIds: normalizePhotoTagIds(photoState.selectedTagIds),
+              photoTagIdsByPhotoKey: nextMap,
+            };
+          } else {
+            const nextSelected = unionPhotoTagIds(photoKeys.map((key) => photoTagsForUiKey(photoState, key)));
+            nextState = {
+              ...photoState,
+              tagMode: "all",
+              selectedTagIds: nextSelected,
+              photoTagIdsByPhotoKey: photoState.photoTagIdsByPhotoKey ?? {},
+            };
+          }
+          handlePhotoAnswerState(nextState);
+          if (onPhotoSync && nextState.photos.length > 0) {
+            await onPhotoSync({
+              questionId: question.id,
+              files: [],
+              photoState: nextState,
+              photoKeys,
+            });
+          }
+        };
         const toggleTag = async (id: string) => {
-          const next = selectedTagIds.includes(id)
+          const nextSelected = selectedTagIds.includes(id)
             ? selectedTagIds.filter((t) => t !== id)
             : [...selectedTagIds, id];
-          onAnswer(encodePhotoAnswer({ ...photoState, selectedTagIds: next }));
+          const nextState: PhotoAnswerState =
+            tagMode === "perPhoto"
+              ? {
+                  ...photoState,
+                  tagMode: "perPhoto",
+                  selectedTagIds: unionPhotoTagIds([
+                    ...photoKeys.filter((key) => key !== activePhotoKey).map((key) => photoTagsForUiKey(photoState, key)),
+                    nextSelected,
+                  ]),
+                  photoTagIdsByPhotoKey: {
+                    ...(photoState.photoTagIdsByPhotoKey ?? {}),
+                    [activePhotoKey]: normalizePhotoTagIds(nextSelected),
+                  },
+                }
+              : {
+                  ...photoState,
+                  tagMode: "all",
+                  selectedTagIds: normalizePhotoTagIds(nextSelected),
+                };
+          onAnswer(encodePhotoAnswer(nextState));
           if (onPhotoSync && photoState.photos.length > 0) {
             await onPhotoSync({
               questionId: question.id,
               files: [],
-              selectedTagIds: next,
+              photoState: nextState,
+              photoKeys,
             });
           }
         };
@@ -2397,18 +2562,129 @@ function QuestionCard({
             {/* Tag selection — only shown when admin configured tags for this question */}
             {tagsEnabled && resolvedTags.length > 0 && (
               <div style={{ marginTop: 14 }}>
+                {photos.length > 1 && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        padding: 3,
+                        borderRadius: 999,
+                        border: "1px solid rgba(0,0,0,0.08)",
+                        background: "rgba(255,255,255,0.72)",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.85), 0 1px 4px rgba(0,0,0,0.04)",
+                        backdropFilter: "blur(6px)",
+                        WebkitBackdropFilter: "blur(6px)",
+                      }}
+                    >
+                      {([
+                        ["all", "Alle Fotos"],
+                        ["perPhoto", "Einzeln"],
+                      ] as const).map(([mode, label]) => {
+                        const active = tagMode === mode;
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => {
+                              void handleTagModeChange(mode);
+                            }}
+                            style={{
+                              height: 25,
+                              padding: "0 10px",
+                              borderRadius: 999,
+                              border: "none",
+                              background: active ? "#fff" : "transparent",
+                              color: active ? "#111827" : "rgba(0,0,0,0.45)",
+                              fontSize: 10,
+                              fontWeight: 800,
+                              fontFamily: "inherit",
+                              cursor: "pointer",
+                              boxShadow: active ? "0 1px 4px rgba(0,0,0,0.09), inset 0 1px 0 rgba(255,255,255,0.9)" : "none",
+                              transition: "all 0.15s ease",
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <span style={{ fontSize: 9, color: "rgba(0,0,0,0.32)", fontWeight: 700 }}>
+                      {tagMode === "perPhoto" ? "Tags pro Foto" : "Tags für alle"}
+                    </span>
+                  </div>
+                )}
+                {tagMode === "perPhoto" && photos.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(74px, 1fr))", gap: 8, marginBottom: 12 }}>
+                    {photos.map((src, index) => {
+                      const photoKey = photoKeys[index] ?? resolvePhotoUiKey(photos, index);
+                      const tagCount = photoTagsForUiKey(photoState, photoKey).length;
+                      const active = index === activePhotoIndex;
+                      const previewable = isPreviewablePhotoSrc(src);
+                      return (
+                        <button
+                          key={`${photoKey}-${index}`}
+                          type="button"
+                          onClick={() => setActivePhotoIndex(index)}
+                          style={{
+                            border: active ? "1.5px solid rgba(220,38,38,0.45)" : "1px solid rgba(0,0,0,0.08)",
+                            borderRadius: 12,
+                            padding: 5,
+                            background: active ? "rgba(220,38,38,0.045)" : "rgba(255,255,255,0.68)",
+                            boxShadow: active
+                              ? "0 4px 12px rgba(220,38,38,0.10), inset 0 1px 0 rgba(255,255,255,0.9)"
+                              : "0 1px 5px rgba(0,0,0,0.045)",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            textAlign: "left",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: 48,
+                              borderRadius: 9,
+                              overflow: "hidden",
+                              background: "linear-gradient(135deg, rgba(0,0,0,0.04), rgba(0,0,0,0.015))",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {previewable ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={src} alt={`Foto ${index + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            ) : (
+                              <Camera size={16} strokeWidth={1.8} color="rgba(0,0,0,0.28)" />
+                            )}
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginTop: 6 }}>
+                            <span style={{ fontSize: 9, fontWeight: 800, color: active ? "#DC2626" : "rgba(0,0,0,0.48)" }}>
+                              Foto {index + 1}
+                            </span>
+                            <span style={{ fontSize: 8, fontWeight: 800, color: tagCount > 0 ? "rgba(22,101,52,0.9)" : "rgba(220,38,38,0.78)" }}>
+                              {tagCount}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                     <Tag size={10} strokeWidth={2} color="rgba(0,0,0,0.35)" />
                     <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.35)" }}>
                       Tags
                     </span>
-                    {question.required && selectedTagIds.length === 0 && (
+                    {question.required && tagMode !== "perPhoto" && selectedTagIds.length === 0 && (
                       <span style={{ fontSize: 9, color: "rgba(220,38,38,0.7)", fontWeight: 600, marginLeft: 2 }}>— mind. 1 auswählen</span>
+                    )}
+                    {question.required && tagMode === "perPhoto" && perPhotoMissingCount > 0 && (
+                      <span style={{ fontSize: 9, color: "rgba(220,38,38,0.7)", fontWeight: 600, marginLeft: 2 }}>— {perPhotoMissingCount} Foto ohne Tag</span>
                     )}
                   </div>
                   <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 600, flexShrink: 0 }}>
-                    {selectedTagIds.length}/{resolvedTags.length}
+                    {tagMode === "perPhoto" && photos.length > 0 ? `Foto ${activePhotoIndex + 1}/${photos.length} · ` : ""}{selectedTagIds.length}/{resolvedTags.length}
                   </span>
                 </div>
                 <div
@@ -3122,17 +3398,30 @@ function MarktbesuchInner() {
             uiValue = JSON.stringify(mapped);
           }
         } else if (question.type === "photo") {
-          const selectedTagIds = Array.from(
-            new Set(
-              (answer.photos ?? []).flatMap((photo) =>
-                (photo.tags ?? [])
-                  .map((tag) => tag.photoTagId)
-                  .filter((tagId): tagId is string => typeof tagId === "string" && tagId.length > 0),
-              ),
+          const photos = (answer.photos ?? []).map((photo) => photo.signedUrl || photo.storagePath);
+          const tagGroups = (answer.photos ?? []).map((photo) =>
+            normalizePhotoTagIds(
+              (photo.tags ?? [])
+                .map((tag) => tag.photoTagId)
+                .filter((tagId): tagId is string => typeof tagId === "string" && tagId.length > 0),
             ),
           );
-          const photos = (answer.photos ?? []).map((photo) => photo.signedUrl || photo.storagePath);
-          uiValue = encodePhotoAnswer({ photos, selectedTagIds });
+          const selectedTagIds = unionPhotoTagIds(tagGroups);
+          const firstTagGroup = tagGroups[0] ?? [];
+          const tagsAreShared = tagGroups.length <= 1 || tagGroups.every((group) => samePhotoTagSet(group, firstTagGroup));
+          const photoTagIdsByPhotoKey: Record<string, string[]> = {};
+          (answer.photos ?? []).forEach((photo, index) => {
+            const tagIds = tagGroups[index] ?? [];
+            const uiPhoto = photos[index];
+            if (photo.storagePath) photoTagIdsByPhotoKey[photo.storagePath] = tagIds;
+            if (uiPhoto) photoTagIdsByPhotoKey[uiPhoto] = tagIds;
+          });
+          uiValue = encodePhotoAnswer({
+            photos,
+            selectedTagIds: tagsAreShared ? firstTagGroup : selectedTagIds,
+            tagMode: tagsAreShared ? "all" : "perPhoto",
+            photoTagIdsByPhotoKey,
+          });
           nextPhotoMetaByQuestionId[question.id] = (answer.photos ?? []).map((photo) => ({
             storageBucket: photo.storageBucket,
             storagePath: photo.storagePath,
@@ -3421,7 +3710,7 @@ function MarktbesuchInner() {
   }, [allRenderedQuestions, answerByQuestionId, chainHiddenQuestionIds]);
 
   const handlePhotoSync = useCallback(
-    async (payload: { questionId: string; files: File[]; selectedTagIds: string[] }) => {
+    async (payload: { questionId: string; files: File[]; photoState: PhotoAnswerState; photoKeys: string[] }) => {
       if (!visitSessionId) return;
       setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: true }));
       setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: null }));
@@ -3469,9 +3758,9 @@ function MarktbesuchInner() {
         await commitGmVisitPhotos({
           sessionId: visitSessionId,
           visitAnswerId: answerId,
-          photos: mergedMeta.map((meta) => ({
+          photos: mergedMeta.map((meta, index) => ({
             ...meta,
-            photoTagIds: payload.selectedTagIds,
+            photoTagIds: photoTagsForCommit(payload.photoState, meta, index, payload.photoKeys),
           })),
         });
         setPhotoMetaByQuestionId((prev) => ({ ...prev, [payload.questionId]: mergedMeta }));
@@ -4020,7 +4309,7 @@ function MarktbesuchInner() {
         missingIds.push(question.id);
         continue;
       }
-      if (tagsEnabled && photoState.selectedTagIds.length === 0) {
+      if (tagsEnabled && !photoAnswerHasRequiredTags(photoState)) {
         missingIds.push(question.id);
         continue;
       }
@@ -4064,9 +4353,14 @@ function MarktbesuchInner() {
       await commitGmVisitPhotos({
         sessionId: visitSessionId,
         visitAnswerId: answerId,
-        photos: meta.map((entry) => ({
+        photos: meta.map((entry, index) => ({
           ...entry,
-          photoTagIds: photoState.selectedTagIds,
+          photoTagIds: photoTagsForCommit(
+            photoState,
+            entry,
+            index,
+            photoState.photos.map((photo, photoIndex) => resolvePhotoUiKey(photoState.photos, photoIndex)),
+          ),
         })),
       });
     }

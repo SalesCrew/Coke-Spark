@@ -141,6 +141,10 @@ function buildGmOverrideKey(value: string | undefined | null) {
   return "missing";
 }
 
+function buildRowGmOverrideKey(rowId: string, value: string | undefined | null) {
+  return `${buildGmOverrideKey(value)}::row:${rowId}`;
+}
+
 function buildGmOverrideLabel(value: string | undefined | null) {
   const trimmed = String(value ?? "").trim();
   return trimmed || "Leerer Mitarbeiter-Wert";
@@ -1336,23 +1340,22 @@ function StepMaerkte({
     () => (gmIssues ?? []).filter((issue) => issue.kind === "missing" || issue.kind === "unmatched" || issue.kind === "ambiguous" || issue.kind === "conflict"),
     [gmIssues],
   );
-  const unresolvedGmIssueGroups = useMemo(() => {
-    const byKey = new Map<string, { key: string; label: string; kind: GmMatchIssueKind; count: number }>();
-    for (const issue of unresolvedGmIssues) {
-      const existing = byKey.get(issue.gmOverrideKey);
-      if (existing) {
-        existing.count += 1;
-        continue;
-      }
-      byKey.set(issue.gmOverrideKey, {
-        key: issue.gmOverrideKey,
-        label: issue.gmOverrideLabel,
-        kind: issue.kind,
-        count: 1,
-      });
+  const marketByIssueKey = useMemo(() => {
+    const map = new Map<string, NeuMarketCandidate>();
+    for (const market of markets) {
+      map.set(market.id, market);
     }
-    return Array.from(byKey.values()).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "de"));
-  }, [unresolvedGmIssues]);
+    return map;
+  }, [markets]);
+  const sortedUnresolvedGmIssues = useMemo(
+    () =>
+      [...unresolvedGmIssues].sort((left, right) => {
+        const leftMarket = marketByIssueKey.get(left.marketId) ?? marketByIssueKey.get(left.rowId);
+        const rightMarket = marketByIssueKey.get(right.marketId) ?? marketByIssueKey.get(right.rowId);
+        return (leftMarket?.name ?? left.gmOverrideLabel).localeCompare(rightMarket?.name ?? right.gmOverrideLabel, "de");
+      }),
+    [marketByIssueKey, unresolvedGmIssues],
+  );
 
   const regionCounts = useMemo(() => {
     const counts: Record<string, number> = isKuehlerCampaign
@@ -1542,36 +1545,39 @@ function StepMaerkte({
             </div>
           </div>
 
-          {unresolvedGmIssueGroups.length > 0 && gmUsers && onSetGmOverrideForKey && (
+          {sortedUnresolvedGmIssues.length > 0 && gmUsers && onSetGmOverrideForKey && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <span style={{ fontSize: 10, fontWeight: 700, color: "#92400e", letterSpacing: "0.08em", textTransform: "uppercase" }}>GM-Zuordnung prüfen</span>
               <div style={{ borderRadius: 11, border: "1px solid rgba(180,83,9,0.22)", background: "rgba(180,83,9,0.07)", overflow: "hidden" }}>
-                {unresolvedGmIssueGroups.slice(0, 20).map((group, idx) => {
+                {sortedUnresolvedGmIssues.slice(0, 40).map((issue, idx) => {
+                  const matchedMarket = marketByIssueKey.get(issue.marketId) ?? marketByIssueKey.get(issue.rowId);
                   return (
                     <div
-                      key={`${group.key}-${idx}`}
+                      key={`${issue.gmOverrideKey}-${issue.marketId}-${idx}`}
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "1.2fr 1.5fr",
-                        gap: 10,
+                        gridTemplateColumns: "1.4fr 1fr",
+                        gap: 12,
                         alignItems: "center",
-                        padding: "10px 14px",
-                        borderBottom: idx < Math.min(unresolvedGmIssueGroups.length, 20) - 1 ? "1px solid rgba(180,83,9,0.16)" : "none",
+                        padding: "11px 14px",
+                        borderBottom: idx < Math.min(sortedUnresolvedGmIssues.length, 40) - 1 ? "1px solid rgba(180,83,9,0.16)" : "none",
                         background: "rgba(255,255,255,0.72)",
                       }}
                     >
                       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#7c2d12" }}>{group.label}</span>
-                        <span style={{ fontSize: 10, color: "rgba(124,45,18,0.9)" }}>
-                          Betroffene Zeilen: {group.count}
+                        <span style={{ fontSize: 11, fontWeight: 800, color: "#1a1a1a", letterSpacing: "-0.01em" }}>
+                          {matchedMarket?.name || "Gematchter Markt"}
+                        </span>
+                        <span style={{ fontSize: 10, color: "rgba(0,0,0,0.52)", fontWeight: 500 }}>
+                          {[matchedMarket?.address, [matchedMarket?.postalCode, matchedMarket?.city].filter(Boolean).join(" ")].filter(Boolean).join(" - ") || "Marktdaten aus dem DB-Match"}
                         </span>
                         <span style={{ fontSize: 9, color: "rgba(124,45,18,0.85)", fontWeight: 600 }}>
-                          {group.kind === "missing" ? "Kein GM im Importwert" : group.kind === "unmatched" ? "Kein GM gefunden" : group.kind === "ambiguous" ? "Mehrdeutiger GM" : "Konflikt bei GM-Zuordnung"}
+                          {issue.gmOverrideLabel} - {issue.kind === "missing" ? "Kein GM im Importwert" : issue.kind === "unmatched" ? "Kein GM gefunden" : issue.kind === "ambiguous" ? "Mehrdeutiger GM" : "Konflikt bei GM-Zuordnung"}
                         </span>
                       </div>
                       <WhiteSelect
-                        value={gmOverridesByKey?.[group.key] ?? ""}
-                        onChange={(next) => onSetGmOverrideForKey(group.key, next)}
+                        value={gmOverridesByKey?.[issue.gmOverrideKey] ?? ""}
+                        onChange={(next) => onSetGmOverrideForKey(issue.gmOverrideKey, next)}
                         options={gmUsers.map((gm) => ({
                           value: gm.id,
                           label: `${gm.firstName} ${gm.lastName} · ${gm.email}`,
@@ -1581,9 +1587,9 @@ function StepMaerkte({
                     </div>
                   );
                 })}
-                {unresolvedGmIssueGroups.length > 20 && (
+                {sortedUnresolvedGmIssues.length > 40 && (
                   <div style={{ padding: "8px 12px", fontSize: 10, color: "#92400e", fontWeight: 600, borderTop: "1px solid rgba(180,83,9,0.16)" }}>
-                    +{unresolvedGmIssueGroups.length - 20} weitere Importwerte in Schritt 4
+                    +{sortedUnresolvedGmIssues.length - 40} weitere Importzeilen in Schritt 4
                   </div>
                 )}
               </div>
@@ -2048,9 +2054,10 @@ export default function NeuKampagnePage() {
       const rowId = result.row.id;
       const marketId = result.marketId as string;
       const gmName = result.row.gm ?? "";
-      const gmOverrideKey = buildGmOverrideKey(gmName);
+      const baseGmOverrideKey = buildGmOverrideKey(gmName);
+      const gmOverrideKey = buildRowGmOverrideKey(rowId, gmName);
       const gmOverrideLabel = buildGmOverrideLabel(gmName);
-      const overrideGmId = gmOverridesByKey[gmOverrideKey];
+      const overrideGmId = gmOverridesByKey[gmOverrideKey] ?? gmOverridesByKey[baseGmOverrideKey];
 
       let resolvedGmId: string | null = null;
       let candidates: GMRecord[] = [];

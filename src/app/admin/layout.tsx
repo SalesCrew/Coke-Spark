@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Plus, Download } from "lucide-react";
 import { AdminSidenav } from "@/components/ui/AdminSidenav";
@@ -18,7 +18,7 @@ import { ModuleProvider, useModules } from "@/context/ModuleContext";
 import { FragebogenProvider, useFragebogen } from "@/context/FragebogenContext";
 import { RedMonthProvider } from "@/context/RedMonthContext";
 import type { Module, Fragebogen, Question } from "@/types/fragebogen";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   createFragebogen,
   createModule,
@@ -39,6 +39,8 @@ import {
 } from "@/app/admin/adminContexts";
 import { RedMonthHeaderControl } from "@/components/admin/RedMonthHeaderControl";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
+import { AdminAccessProvider, useAdminAccess } from "@/context/AdminAccessContext";
+import { getAdminPageKeyForPath, type AdminPageKey } from "@/components/ui/adminNavigation";
 
 // ── Purple accent colours (used by MHD) ───────────────────────
 
@@ -54,11 +56,62 @@ function collectUniqueQuestionsFromModules(inputModules: Module[]): Question[] {
   return Array.from(byId.values());
 }
 
+function AdminAccessGate({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const access = useAdminAccess();
+
+  useEffect(() => {
+    if (!access.isKunde) return;
+    if (!access.firstReadableHref) return;
+    if (pathname === "/admin") {
+      router.replace(access.firstReadableHref);
+      return;
+    }
+    if (access.currentPageKey && !access.canRead(access.currentPageKey)) {
+      router.replace(access.firstReadableHref);
+    }
+  }, [access, pathname, router]);
+
+  if (access.isKunde && !access.firstReadableHref) {
+    return (
+      <div style={{ display: "flex", minHeight: "100vh", backgroundColor: "#f5f5f7" }}>
+        <AdminSidenav />
+        <main style={{ flex: 1, display: "grid", placeItems: "center", padding: 28 }}>
+          <div
+            style={{
+              width: "min(420px, 100%)",
+              borderRadius: 18,
+              border: "1px solid rgba(15,23,42,0.08)",
+              background: "#ffffff",
+              padding: 24,
+              textAlign: "center",
+              boxShadow: "0 16px 36px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.9)",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.42)" }}>
+              Kundenzugang
+            </div>
+            <h1 style={{ margin: "8px 0 6px", fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
+              Kein Zugriff freigeschaltet
+            </h1>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.55, color: "rgba(15,23,42,0.58)" }}>
+              Für diesen Kundenaccount wurde noch keine Admin-Seite freigegeben.
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { addModule, updateModule, deleteModule, setEditHandler: setModuleEditHandler, modules } = useModules();
   const { addFragebogen, updateFragebogen, deleteFragebogen, setEditHandler: setFbEditHandler, fragebogenList } = useFragebogen();
   const pathname = usePathname();
-  const { session, status } = useAuthGuard("admin");
+  const { session, status } = useAuthGuard(["admin", "kunde"]);
   const authChecked = status === "authorized";
   const isKuehler = pathname.startsWith("/admin/kuehlerinventur");
   const isMhd = pathname.startsWith("/admin/mhd");
@@ -79,6 +132,21 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [availableMarketChains, setAvailableMarketChains] = useState<string[]>([]);
   const importTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentPageKey = getAdminPageKeyForPath(pathname);
+  const isKunde = session?.user.role === "kunde";
+  const sessionPermissions = useMemo(() => session?.user.permissions ?? {}, [session?.user.permissions]);
+  const canAccessCurrentPage = (action: "read" | "write" | "update") => {
+    if (!isKunde) return true;
+    if (!currentPageKey) return action === "read";
+    return (sessionPermissions[currentPageKey as AdminPageKey] ?? []).includes(action);
+  };
+  const canWriteCurrentPage = canAccessCurrentPage("write");
+  const canUpdateCurrentPage = canAccessCurrentPage("update");
+  const shouldPreloadFragebogenCatalog =
+    !isKunde ||
+    (["fragebogen", "flexbesuche", "billa", "kuehlerinventur", "mhd", "fbmanagement"] as AdminPageKey[]).some((pageKey) =>
+      (sessionPermissions[pageKey] ?? []).includes("read"),
+    );
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -500,7 +568,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (!authChecked) return;
+    if (!authChecked || !shouldPreloadFragebogenCatalog) return;
     if (fragebogenLoadedRef.current) return;
     fragebogenLoadedRef.current = true;
     let cancelled = false;
@@ -548,7 +616,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [addFragebogen, addModule, authChecked, fragebogenList.length, modules.length, session?.user.id]);
+  }, [addFragebogen, addModule, authChecked, fragebogenList.length, modules.length, session?.user.id, shouldPreloadFragebogenCatalog]);
 
   if (!authChecked) {
     return (
@@ -567,6 +635,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
   const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : "Standardbesuch";
   return (
+    <AdminAccessProvider session={session} pathname={pathname}>
+    <AdminAccessGate>
     <RedMonthProvider>
     <BillaCtx.Provider value={billaCtxValue}>
     <FlexCtx.Provider value={flexCtxValue}>
@@ -592,7 +662,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
             {/* Action buttons */}
             <div style={{ display: "flex", gap: 10 }}>
-              {isMhd ? (
+              {isMhd && canWriteCurrentPage ? (
                 <>
                   <button
                     onClick={() => { setMhdEditingModule(null); setMhdModuleEditorOpen(true); }}
@@ -609,7 +679,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Fragebogen erstellen
                   </button>
                 </>
-              ) : isKuehler ? (
+              ) : isKuehler && canWriteCurrentPage ? (
                 <>
                   <button
                     onClick={() => { setKuehlerEditingModule(null); setKuehlerModuleEditorOpen(true); }}
@@ -626,7 +696,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Fragebogen erstellen
                   </button>
                 </>
-              ) : isFlex ? (
+              ) : isFlex && canWriteCurrentPage ? (
                 <>
                   <button
                     onClick={() => { setFlexEditingModule(null); setFlexModuleEditorOpen(true); }}
@@ -643,7 +713,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Fragebogen erstellen
                   </button>
                 </>
-              ) : isBilla ? (
+              ) : isBilla && canWriteCurrentPage ? (
                 <>
                   <button
                     onClick={() => { setBillaEditingModule(null); setBillaModuleEditorOpen(true); }}
@@ -668,7 +738,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     ← Zurück
                   </button>
                 </Link>
-              ) : isFbManagement ? (
+              ) : isFbManagement && canWriteCurrentPage ? (
                 <Link href="/admin/fbmanagement/neu" style={{ textDecoration: "none" }}>
                   <button
                     style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
@@ -688,15 +758,15 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                 </button>
               ) : isIppBerechnung ? null : isLager ? null : isMaerkte ? (
                 <>
-                  <button
+                  {canUpdateCurrentPage ? <button
                     onClick={() => window.dispatchEvent(new CustomEvent("maerkte:normalizeRegions"))}
                     style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.62)", background: "linear-gradient(to bottom, #ffffff, #f5f5f5)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)" }}
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.82"; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
                   >
                     Regionen normalisieren
-                  </button>
-                  <button
+                  </button> : null}
+                  {canWriteCurrentPage ? <button
                     onClick={() => window.dispatchEvent(new CustomEvent("maerkte:openImport"))}
                     style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
@@ -704,9 +774,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   >
                     <Plus size={12} strokeWidth={2} />
                     Importieren
-                  </button>
+                  </button> : null}
                 </>
-              ) : isGebietsmanager ? (
+              ) : isGebietsmanager && canWriteCurrentPage ? (
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent("gebietsmanager:openCreate"))}
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
@@ -716,7 +786,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Plus size={12} strokeWidth={2} />
                   GM erstellen
                 </button>
-              ) : (
+              ) : canWriteCurrentPage ? (
                 <>
                   <button
                     onClick={() => { setEditingModule(null); setModuleEditorOpen(true); }}
@@ -733,7 +803,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Fragebogen erstellen
                   </button>
                 </>
-              )}
+              ) : null}
             </div>
           </header>
 
@@ -838,6 +908,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     </FlexCtx.Provider>
     </BillaCtx.Provider>
     </RedMonthProvider>
+    </AdminAccessGate>
+    </AdminAccessProvider>
   );
 }
 

@@ -1,55 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardList, Refrigerator, FlaskConical, Zap, ShoppingBag, LayoutGrid, Gift, MapPin, UserCheck, Clock, TrendingUp, Warehouse, LogOut, Gauge, Images } from "lucide-react";
+import { LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AdminManagerPanel } from "@/components/admin/AdminManagerPanel";
 import { AdminProfilePopover } from "@/components/admin/AdminProfilePopover";
+import { CustomerAccessPanel } from "@/components/admin/CustomerAccessPanel";
+import { ADMIN_NAV_GROUPS } from "@/components/ui/adminNavigation";
 import { Plasma } from "@/components/ui/Plasma";
+import { useAdminAccess } from "@/context/AdminAccessContext";
 import { logoutCurrentUser, readAuthSession, subscribeAuthSession } from "@/lib/api/backend";
-
-const NAV_GROUPS = [
-  {
-    label: "Analyse",
-    items: [
-      { label: "GM Dashboard", icon: Gauge, href: "/admin/gm-dashboard", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "IPP Berechnung", icon: TrendingUp,      href: "/admin/ipp-berechnung", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
-    ],
-  },
-  {
-    label: "Prämien",
-    items: [
-      { label: "Prämien", icon: Gift, href: "/admin/praemien", color: { bg: "linear-gradient(to bottom, #DC2626, #b91c1c)", ring: "#a91b1b", shadow: "rgba(180,20,20,0.14)" } },
-    ],
-  },
-  {
-    label: "Fragebögen",
-    items: [
-      { label: "Standardbesuch", icon: ClipboardList, href: "/admin/fragebogen", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "Flexbesuche", icon: Zap, href: "/admin/flexbesuche", color: { bg: "linear-gradient(to bottom, #84CC16, #65a30d)", ring: "#4d7c0f", shadow: "rgba(132,204,22,0.25)" } },
-      { label: "Billa", icon: ShoppingBag, href: "/admin/billa", color: { bg: "linear-gradient(to bottom, #0891B2, #0e7490)", ring: "#155e75", shadow: "rgba(8,145,178,0.25)" } },
-      { label: "Kühlerinventur", icon: Refrigerator, href: "/admin/kuehlerinventur", color: { bg: "linear-gradient(to bottom, #F59E0B, #D97706)", ring: "#B45309", shadow: "rgba(245,158,11,0.25)" } },
-      { label: "MHD", icon: FlaskConical, href: "/admin/mhd", color: { bg: "linear-gradient(to bottom, #8b5cf6, #7C3AED)", ring: "#6d28d9", shadow: "rgba(124,58,237,0.25)" } },
-      { label: "FB Management", icon: LayoutGrid, href: "/admin/fbmanagement", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "Fotoarchiv", icon: Images, href: "/admin/fotoarchiv", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-    ],
-  },
-  {
-    label: "Management",
-    items: [
-      { label: "Zeiterfassung", icon: Clock, href: "/admin/zeiterfassung", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "Märkte", icon: MapPin, href: "/admin/maerkte", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "Lager", icon: Warehouse, href: "/admin/lager", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-      { label: "Gebietsmanager", icon: UserCheck, href: "/admin/gebietsmanager", color: { bg: "linear-gradient(to bottom, #DC2626, #e84040)", ring: "#c42020", shadow: "rgba(180,20,20,0.14)" } },
-    ],
-  },
-];
 
 const COLLAPSED_W = 56;
 const EXPANDED_W = 200;
 
-type SidebarOverlayState = "closed" | "profile" | "password" | "manager";
+type SidebarOverlayState = "closed" | "profile" | "password" | "manager" | "customerAccess";
 
 export function AdminSidenav() {
   const [hovered, setHovered] = useState(false);
@@ -59,6 +25,7 @@ export function AdminSidenav() {
   const pathname = usePathname();
   const router = useRouter();
   const profileButtonRef = useRef<HTMLButtonElement | null>(null);
+  const adminAccess = useAdminAccess();
 
   useEffect(() => {
     const syncAuthUser = () => {
@@ -80,12 +47,17 @@ export function AdminSidenav() {
   useEffect(() => {
     if (overlayState === "closed") return;
     refreshAnchorRect();
-    const onWindowChange = () => refreshAnchorRect();
-    window.addEventListener("resize", onWindowChange);
-    window.addEventListener("scroll", onWindowChange, true);
+    const onResize = () => refreshAnchorRect();
+    const onWindowScroll = (event: Event) => {
+      if (event.target === document || event.target === window || event.target === document.scrollingElement) {
+        refreshAnchorRect();
+      }
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onWindowScroll, true);
     return () => {
-      window.removeEventListener("resize", onWindowChange);
-      window.removeEventListener("scroll", onWindowChange, true);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onWindowScroll, true);
     };
   }, [overlayState, hovered, refreshAnchorRect]);
 
@@ -123,6 +95,15 @@ export function AdminSidenav() {
     : pathname.startsWith("/admin/billa")
     ? "#0891B2"
     : "#DC2626";
+
+  const visibleNavGroups = useMemo(
+    () =>
+      ADMIN_NAV_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => adminAccess.canRead(item.pageKey)),
+      })).filter((group) => group.items.length > 0),
+    [adminAccess],
+  );
 
   return (
     <>
@@ -234,8 +215,8 @@ export function AdminSidenav() {
         </button>
 
         <div style={{ flex: 1, padding: "4px 8px" }}>
-          {NAV_GROUPS.map((group, gi) => (
-            <div key={gi} style={{ marginBottom: gi < NAV_GROUPS.length - 1 ? 8 : 0 }}>
+          {visibleNavGroups.map((group, gi) => (
+            <div key={group.label} style={{ marginBottom: gi < visibleNavGroups.length - 1 ? 8 : 0 }}>
               {group.label && (
                 <div
                   style={{
@@ -327,7 +308,7 @@ export function AdminSidenav() {
                   </Link>
                 );
               })}
-              {gi < NAV_GROUPS.length - 1 && (
+              {gi < visibleNavGroups.length - 1 && (
                 <div
                   style={{
                     height: 1,
@@ -404,13 +385,19 @@ export function AdminSidenav() {
         userEmail={authUser?.email ?? ""}
         onClose={() => setOverlayState("closed")}
         onModeChange={(next) => setOverlayState(next)}
-        onOpenManager={() => setOverlayState("manager")}
+        onOpenManager={adminAccess.isAdmin ? () => setOverlayState("manager") : undefined}
+        onOpenCustomerAccess={adminAccess.isAdmin ? () => setOverlayState("customerAccess") : undefined}
         onLogout={handleLogout}
       />
       <AdminManagerPanel
         open={overlayState === "manager"}
         anchorRect={anchorRect}
         currentUserId={authUser?.id ?? null}
+        onClose={() => setOverlayState("closed")}
+      />
+      <CustomerAccessPanel
+        open={overlayState === "customerAccess"}
+        anchorRect={anchorRect}
         onClose={() => setOverlayState("closed")}
       />
     </>

@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, KeyRound, Loader2, LogOut, Users } from "lucide-react";
+import { ArrowLeft, Building2, KeyRound, Loader2, LogOut, Users } from "lucide-react";
 import { BackendApiError, updateOwnAdminPassword } from "@/lib/api/backend";
 
 type PopoverMode = "profile" | "password";
@@ -15,7 +15,8 @@ type AdminProfilePopoverProps = {
   userEmail: string;
   onClose: () => void;
   onModeChange: (next: PopoverMode) => void;
-  onOpenManager: () => void;
+  onOpenManager?: () => void;
+  onOpenCustomerAccess?: () => void;
   onLogout: () => void;
 };
 
@@ -29,6 +30,7 @@ export function AdminProfilePopover({
   onClose,
   onModeChange,
   onOpenManager,
+  onOpenCustomerAccess,
   onLogout,
 }: AdminProfilePopoverProps) {
   const [newPassword, setNewPassword] = useState("");
@@ -143,7 +145,7 @@ export function AdminProfilePopover({
           style={{
             marginTop: 10,
             overflow: "hidden",
-            height: mode === "profile" ? 134 : 212,
+            height: mode === "profile" ? (onOpenManager || onOpenCustomerAccess ? 176 : 84) : 212,
             transition: "height 240ms cubic-bezier(0.2, 0.8, 0.2, 1)",
           }}
         >
@@ -200,7 +202,7 @@ export function AdminProfilePopover({
                 <LogOut size={13} />
                 Logout
               </button>
-              <button
+              {onOpenManager ? <button
                 type="button"
                 onClick={onOpenManager}
                 style={{
@@ -221,7 +223,29 @@ export function AdminProfilePopover({
               >
                 <Users size={13} />
                 Mitarbeiter verwalten
-              </button>
+              </button> : null}
+              {onOpenCustomerAccess ? <button
+                type="button"
+                onClick={onOpenCustomerAccess}
+                style={{
+                  height: 34,
+                  borderRadius: 10,
+                  border: "1px solid rgba(15,23,42,0.1)",
+                  background: "linear-gradient(180deg, #ffffff, rgba(248,250,252,0.96))",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#0f172a",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 7,
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.06)",
+                }}
+              >
+                <Building2 size={13} />
+                Kundenzugang verwalten
+              </button> : null}
             </div>
 
             <div style={{ width: "50%", padding: "0 14px 14px" }}>

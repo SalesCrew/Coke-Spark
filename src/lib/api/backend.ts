@@ -25,9 +25,10 @@ import {
   saveActiveAuthSession,
   subscribeToAuthSessionChanges,
   type AuthSessionPayload,
+  type KundePagePermissions,
 } from "@/lib/auth/sessionRegistry";
 
-export type LoginRole = "gm" | "sm" | "admin" | "coke";
+export type LoginRole = "gm" | "sm" | "admin" | "kunde";
 export type { AuthSessionPayload };
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000").replace(/\/$/, "");
@@ -48,7 +49,7 @@ export class BackendApiError extends Error {
 
 type BackendUser = {
   id: string;
-  role: "admin" | "gm" | "sm";
+  role: "admin" | "gm" | "sm" | "kunde";
   email: string;
   firstName: string;
   lastName: string;
@@ -63,6 +64,7 @@ type BackendUser = {
   updatedAt?: string;
   isActive?: boolean;
   deletedAt?: string | null;
+  permissions?: KundePagePermissions | null;
 };
 
 type BackendMarket = {
@@ -325,8 +327,8 @@ function purgeAuthScopedClientState(options?: { emit?: boolean }): void {
   }
 }
 
-export function resolveRoleHomePath(role: "admin" | "gm" | "sm"): string {
-  if (role === "admin") return "/admin";
+export function resolveRoleHomePath(role: "admin" | "gm" | "sm" | "kunde"): string {
+  if (role === "admin" || role === "kunde") return "/admin";
   if (role === "gm") return "/gm";
   return "/sm";
 }
@@ -399,6 +401,14 @@ export async function loginWithBackend(input: {
   return data as AuthSessionPayload;
 }
 
+export async function fetchCurrentAuthUser(): Promise<AuthSessionPayload["user"]> {
+  const data = (await authedFetch("/auth/me", { cache: "no-store" })) as {
+    user?: AuthSessionPayload["user"];
+  };
+  if (!data.user) throw new Error("Aktueller Benutzer konnte nicht geladen werden.");
+  return data.user;
+}
+
 function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): GMRecord {
   const ippValue = Number(user.ipp ?? 0);
   const ippSampleCountValue = Number(user.ippSampleCount ?? 0);
@@ -437,6 +447,34 @@ export type CreateAdminUserInput = {
   email: string;
 };
 
+export type CustomerPermissionAction = "read" | "write" | "update";
+export type CustomerPagePermissions = Record<string, CustomerPermissionAction[]>;
+
+export type CustomerAccessUserRecord = {
+  id: string;
+  role: "kunde";
+  email: string;
+  firstName: string;
+  lastName: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  permissions: CustomerPagePermissions;
+};
+
+export type CreateCustomerAccessUserInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  isActive: boolean;
+  permissions: CustomerPagePermissions;
+};
+
+export type UpdateCustomerAccessUserInput = CreateCustomerAccessUserInput & {
+  id: string;
+};
+
 function mapBackendUserToAdminRecord(user: BackendUser): AdminUserRecord {
   return {
     id: user.id,
@@ -448,6 +486,35 @@ function mapBackendUserToAdminRecord(user: BackendUser): AdminUserRecord {
     createdAt: user.createdAt ?? new Date().toISOString(),
     updatedAt: user.updatedAt ?? user.createdAt ?? new Date().toISOString(),
     deletedAt: user.deletedAt ?? null,
+  };
+}
+
+function normalizeCustomerPermissions(input: unknown): CustomerPagePermissions {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return Object.entries(input as Record<string, unknown>).reduce<CustomerPagePermissions>((acc, [pageKey, rawActions]) => {
+    if (!Array.isArray(rawActions)) return acc;
+    const actions = rawActions.filter((entry): entry is CustomerPermissionAction =>
+      entry === "read" || entry === "write" || entry === "update",
+    );
+    if (actions.length > 0) {
+      acc[pageKey] = Array.from(new Set(actions));
+    }
+    return acc;
+  }, {});
+}
+
+function mapBackendUserToCustomerAccessRecord(user: BackendUser): CustomerAccessUserRecord {
+  return {
+    id: user.id,
+    role: "kunde",
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    isActive: Boolean(user.isActive ?? true),
+    createdAt: user.createdAt ?? new Date().toISOString(),
+    updatedAt: user.updatedAt ?? user.createdAt ?? new Date().toISOString(),
+    deletedAt: user.deletedAt ?? null,
+    permissions: normalizeCustomerPermissions(user.permissions),
   };
 }
 
@@ -598,13 +665,37 @@ function buildClientActionName(path: string, method: string): string {
 function isAuthFailureStatus(status: number, code: string | null): boolean {
   if (status === 401) return true;
   if (status !== 403) return false;
-  if (!code) return true;
-  return code.startsWith("auth_") || code === "forbidden";
+  if (!code) return false;
+  return code.startsWith("auth_") || code === "account_inactive" || code === "forbidden";
 }
 
 function handleAuthExpired(reason: string): void {
   clearAuthSession({ emit: false });
   emitAuthSessionChanged(reason);
+}
+
+function resolveAdminPageKeyForPath(pathname: string): string | null {
+  if (pathname.startsWith("/admin/gm-dashboard")) return "gm_dashboard";
+  if (pathname.startsWith("/admin/ipp-berechnung")) return "ipp_berechnung";
+  if (pathname.startsWith("/admin/praemien")) return "praemien";
+  if (pathname.startsWith("/admin/flexbesuche")) return "flexbesuche";
+  if (pathname.startsWith("/admin/billa")) return "billa";
+  if (pathname.startsWith("/admin/kuehlerinventur")) return "kuehlerinventur";
+  if (pathname.startsWith("/admin/mhd")) return "mhd";
+  if (pathname.startsWith("/admin/fbmanagement")) return "fbmanagement";
+  if (pathname.startsWith("/admin/fotoarchiv")) return "fotoarchiv";
+  if (pathname.startsWith("/admin/zeiterfassung")) return "zeiterfassung";
+  if (pathname.startsWith("/admin/maerkte")) return "maerkte";
+  if (pathname.startsWith("/admin/lager")) return "lager";
+  if (pathname.startsWith("/admin/gebietsmanager")) return "gebietsmanager";
+  if (pathname.startsWith("/admin/fragebogen")) return "fragebogen";
+  return null;
+}
+
+function getKundePageKeyHeader(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const pageKey = resolveAdminPageKeyForPath(window.location.pathname);
+  return pageKey ? { "x-coke-spark-page-key": pageKey } : {};
 }
 
 async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 30000) {
@@ -627,6 +718,7 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
+        ...getKundePageKeyHeader(),
         ...(init.headers ?? {}),
       },
     });
@@ -1325,6 +1417,46 @@ export async function updateOwnAdminPassword(userId: string, newPassword: string
     method: "PATCH",
     body: JSON.stringify({ newPassword }),
   });
+}
+
+export async function fetchCustomerAccessUsers(): Promise<CustomerAccessUserRecord[]> {
+  const data = (await authedFetch("/admin/kunden-users", { cache: "no-store" })) as { users?: BackendUser[] };
+  return (data.users ?? [])
+    .filter((user) => user.role === "kunde")
+    .map((user) => mapBackendUserToCustomerAccessRecord(user));
+}
+
+export async function createCustomerAccessUser(
+  payload: CreateCustomerAccessUserInput,
+): Promise<{ user: CustomerAccessUserRecord; oneTimePassword: string | null }> {
+  const data = (await authedFetch("/admin/kunden-users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })) as { user: BackendUser; oneTimePassword?: string };
+  return {
+    user: mapBackendUserToCustomerAccessRecord(data.user),
+    oneTimePassword: data.oneTimePassword ?? null,
+  };
+}
+
+export async function updateCustomerAccessUser(payload: UpdateCustomerAccessUserInput): Promise<CustomerAccessUserRecord> {
+  const data = (await authedFetch(`/admin/kunden-users/${payload.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      email: payload.email,
+      isActive: payload.isActive,
+      permissions: payload.permissions,
+    }),
+  })) as { user: BackendUser };
+  return mapBackendUserToCustomerAccessRecord(data.user);
+}
+
+export async function deactivateCustomerAccessUser(userId: string): Promise<{ ok: boolean }> {
+  return (await authedFetch(`/admin/kunden-users/${userId}/deactivate`, {
+    method: "PATCH",
+  })) as { ok: boolean };
 }
 
 export async function createGmUser(

@@ -1,7 +1,9 @@
 "use client";
 
-export type AuthUserRole = "admin" | "gm" | "sm";
+export type AuthUserRole = "admin" | "gm" | "sm" | "kunde";
 export type AuthStorageTarget = "local" | "session";
+export type KundePermissionAction = "read" | "write" | "update";
+export type KundePagePermissions = Record<string, KundePermissionAction[]>;
 
 export type AuthSessionPayload = {
   user: {
@@ -10,6 +12,7 @@ export type AuthSessionPayload = {
     email: string;
     firstName: string;
     lastName: string;
+    permissions?: KundePagePermissions | null;
   };
   session: {
     accessToken: string;
@@ -64,7 +67,22 @@ function parseJson<T>(raw: string | null): T | null {
 }
 
 function isValidAuthRole(value: unknown): value is AuthUserRole {
-  return value === "admin" || value === "gm" || value === "sm";
+  return value === "admin" || value === "gm" || value === "sm" || value === "kunde";
+}
+
+function normalizeKundePermissions(value: unknown): KundePagePermissions | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const normalized: KundePagePermissions = {};
+  for (const [pageKey, rawActions] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(rawActions)) continue;
+    const actions = rawActions.filter((entry): entry is KundePermissionAction =>
+      entry === "read" || entry === "write" || entry === "update",
+    );
+    if (actions.length > 0) {
+      normalized[pageKey] = Array.from(new Set(actions));
+    }
+  }
+  return normalized;
 }
 
 function isValidAuthSessionPayload(value: unknown): value is AuthSessionPayload {
@@ -97,6 +115,7 @@ function sanitizePayload(payload: AuthSessionPayload): AuthSessionPayload {
       email: payload.user.email.trim(),
       firstName: payload.user.firstName.trim(),
       lastName: payload.user.lastName.trim(),
+      permissions: normalizeKundePermissions(payload.user.permissions),
     },
     session: {
       accessToken: payload.session.accessToken.trim(),

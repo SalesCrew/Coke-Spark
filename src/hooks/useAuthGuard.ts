@@ -9,10 +9,10 @@ import {
   type AuthSessionPayload,
 } from "@/lib/api/backend";
 
-type GuardRole = "admin" | "gm" | "sm";
+type GuardRole = "admin" | "gm" | "sm" | "kunde";
 type GuardStatus = "checking" | "authorized" | "redirecting";
 
-export function useAuthGuard(requiredRole: GuardRole | null): {
+export function useAuthGuard(requiredRole: GuardRole | GuardRole[] | null): {
   session: AuthSessionPayload | null;
   status: GuardStatus;
 } {
@@ -20,6 +20,9 @@ export function useAuthGuard(requiredRole: GuardRole | null): {
   const [session, setSession] = useState<AuthSessionPayload | null>(null);
   const [status, setStatus] = useState<GuardStatus>("checking");
   const redirectRef = useRef<string | null>(null);
+  const requiredRoleKey = Array.isArray(requiredRole)
+    ? requiredRole.join("|")
+    : requiredRole ?? "";
 
   const revalidate = useCallback(() => {
     const current = readAuthSession();
@@ -33,7 +36,8 @@ export function useAuthGuard(requiredRole: GuardRole | null): {
       return;
     }
 
-    if (requiredRole && current.user.role !== requiredRole) {
+    const allowedRoles = requiredRoleKey ? (requiredRoleKey.split("|") as GuardRole[]) : null;
+    if (allowedRoles && !allowedRoles.includes(current.user.role)) {
       const target = resolveRoleHomePath(current.user.role);
       setStatus("redirecting");
       if (redirectRef.current !== target) {
@@ -45,7 +49,7 @@ export function useAuthGuard(requiredRole: GuardRole | null): {
 
     redirectRef.current = null;
     setStatus("authorized");
-  }, [requiredRole, router]);
+  }, [requiredRoleKey, router]);
 
   useEffect(() => {
     revalidate();

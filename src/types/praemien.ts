@@ -47,6 +47,14 @@ export interface PraemienQualitySubmission {
   updatedAt: string;
 }
 
+export interface PraemienFlexSubmission {
+  gmId: string;
+  gmName: string;
+  totalPoints: number; // 0-100, filled later by admin like quality
+  note?: string;
+  updatedAt: string;
+}
+
 export interface PraemienQuarter {
   id: string;
   name: string;
@@ -59,6 +67,7 @@ export interface PraemienQuarter {
   pillars: PraemienPillar[];
   thresholds: PraemienThreshold[];
   qualitySubmissions: PraemienQualitySubmission[];
+  flexSubmissions: PraemienFlexSubmission[];
   createdAt: string;
   updatedAt?: string;
   timezone?: string;
@@ -71,6 +80,8 @@ export interface PraemienGmGoalProgress {
   points: number;
   maxPoints: number;
   percent: number;
+  isManual?: boolean;
+  isPending?: boolean;
 }
 
 export interface PraemienGmBonusSummary {

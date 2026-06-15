@@ -11,6 +11,8 @@ interface Goal {
   color: string;
   points?: number;
   maxPoints?: number;
+  isManual?: boolean;
+  isPending?: boolean;
 }
 
 // ── Point maxima per pillar (from admin Prämien seed data) ─────────────────
@@ -99,6 +101,8 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
   const [showPts, setShowPts] = useState(true); // points mode by default
   const hasActiveWave = summary?.hasActiveWave ?? true;
   const isEmpty = !hasActiveWave || goals.length === 0;
+  const activeGoals = goals.filter((goal) => !goal.isPending);
+  const pendingGoalNames = goals.filter((goal) => goal.isPending).map((goal) => goal.name);
   const pointThresholds: PointThresholdNode[] = (summary?.thresholds?.length ?? 0) > 0
     ? summary!.thresholds
         .map((entry) => ({
@@ -109,20 +113,20 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
         }))
         .sort((left, right) => left.minPts - right.minPts)
     : PT_THRESHOLDS;
-  const totalMaxPoints = summary?.totalMaxPoints && summary.totalMaxPoints > 0
-    ? Math.round(summary.totalMaxPoints * 10) / 10
+  const totalMaxPoints = summary
+    ? Math.round(Math.max(0, summary.totalMaxPoints) * 10) / 10
     : TOTAL_MAX_PTS;
-  const equalCategoryMaxPoints = goals.length > 0
-    ? totalMaxPoints / goals.length
+  const equalCategoryMaxPoints = activeGoals.length > 0
+    ? totalMaxPoints / activeGoals.length
     : 0;
 
   // ── Derived values ─────────────────────────────────────────────────────
-  const avg = goals.length
-    ? Math.round(goals.reduce((s, g) => s + g.percent, 0) / goals.length)
+  const avg = activeGoals.length
+    ? Math.round(activeGoals.reduce((s, g) => s + g.percent, 0) / activeGoals.length)
     : 0;
 
   // Total current pts across all categories
-  const totalPts = summary?.totalPoints ?? goals.reduce((sum, g) => {
+  const totalPts = summary?.totalPoints ?? activeGoals.reduce((sum, g) => {
     const max = CATEGORY_MAX_PTS[g.name] ?? 10;
     return sum + (g.percent / 100) * max;
   }, 0);
@@ -311,6 +315,11 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
               />
             ))}
           </div>
+          {pendingGoalNames.length > 0 && (
+            <div style={{ marginTop: 10, borderRadius: 10, background: "rgba(217,119,6,0.06)", border: "1px solid rgba(217,119,6,0.16)", padding: "9px 11px", fontSize: 10, fontWeight: 600, lineHeight: 1.45, color: "#92400e" }}>
+              {pendingGoalNames.join(" und ")} {pendingGoalNames.length === 1 ? "wird" : "werden"} spÃ¤ter ergÃ¤nzt und bis dahin nicht in deinen Fortschritt eingerechnet.
+            </div>
+          )}
         </div>
 
         {/* Improvement hint */}
@@ -489,10 +498,15 @@ function CategoryRow({
   showPts: boolean;
   equalCategoryMaxPoints: number;
 }) {
-  const color  = categoryColor(goal.percent);
-  const maxPts = equalCategoryMaxPoints > 0 ? equalCategoryMaxPoints : (goal.maxPoints ?? CATEGORY_MAX_PTS[goal.name] ?? 10);
+  const pending = Boolean(goal.isPending);
+  const color  = pending ? "rgba(0,0,0,0.28)" : categoryColor(goal.percent);
+  const maxPts = goal.maxPoints && goal.maxPoints > 0
+    ? goal.maxPoints
+    : equalCategoryMaxPoints > 0
+      ? equalCategoryMaxPoints
+      : (CATEGORY_MAX_PTS[goal.name] ?? 10);
   const curPts = goal.points ?? (Math.round((goal.percent / 100) * maxPts * 10) / 10);
-  const barPct = showPts ? Math.max(0, Math.min(100, (curPts / maxPts) * 100)) : goal.percent;
+  const barPct = pending ? 0 : showPts ? Math.max(0, Math.min(100, maxPts > 0 ? (curPts / maxPts) * 100 : 0)) : goal.percent;
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -500,10 +514,10 @@ function CategoryRow({
         {goal.name}
       </div>
       <div style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: "rgba(0,0,0,0.06)", overflow: "hidden" }}>
-        <div style={{ width: `${barPct}%`, height: "100%", borderRadius: 3, background: `linear-gradient(90deg, ${color}99, ${color})`, transition: "width 0.5s cubic-bezier(0.4,0,0.2,1)" }} />
+        <div style={{ width: `${barPct}%`, height: "100%", borderRadius: 3, background: pending ? "rgba(0,0,0,0.18)" : `linear-gradient(90deg, ${color}99, ${color})`, transition: "width 0.5s cubic-bezier(0.4,0,0.2,1)" }} />
       </div>
       <div style={{ width: 52, textAlign: "right", fontSize: 12, fontWeight: 700, color, flexShrink: 0, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
-        {showPts ? `${curPts.toLocaleString("de-AT")} P` : `${goal.percent}%`}
+        {pending ? "Offen" : showPts ? `${curPts.toLocaleString("de-AT")} P` : `${goal.percent}%`}
       </div>
     </div>
   );

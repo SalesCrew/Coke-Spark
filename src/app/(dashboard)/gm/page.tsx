@@ -179,6 +179,8 @@ export default function GMDashboard() {
     color: goal.color,
     points: goal.points,
     maxPoints: goal.maxPoints,
+    isManual: goal.isManual,
+    isPending: goal.isPending,
   })) ?? [];
   const personalBonusPercent = bonusSummary && bonusSummary.totalMaxPoints > 0
     ? Math.max(0, Math.min(100, Math.round((bonusSummary.totalPoints / bonusSummary.totalMaxPoints) * 100)))
@@ -193,6 +195,9 @@ export default function GMDashboard() {
     { label: "MHD", value: `${mhdPercent}%`, percent: mhdPercent, color: "#DC2626" },
   ];
   const cumulativeBonus = Math.round((gmKpiSummary?.bonusCumulativeEur ?? 0) * 100) / 100;
+  const displayedBonus = bonusSummary?.hasActiveWave
+    ? Math.round((bonusSummary.currentRewardEur ?? 0) * 100) / 100
+    : cumulativeBonus;
   const averageIpp = Math.round((gmKpiSummary?.ippAllTimeAvg ?? 0) * 10) / 10;
   const authSession = readAuthSession();
   const gmDisplayName = [authSession?.user.firstName?.trim(), authSession?.user.lastName?.trim()]
@@ -453,7 +458,7 @@ export default function GMDashboard() {
         className="mx-auto px-6 pt-6 lg:px-10 lg:pt-8"
         style={{ maxWidth: 960, position: "relative", zIndex: 1 }}
       >
-        <GMStatusCard name={gmDisplayName || ""} bars={statusBars} ipp={averageIpp} praemie={cumulativeBonus} />
+        <GMStatusCard name={gmDisplayName || ""} bars={statusBars} ipp={averageIpp} praemie={displayedBonus} />
 
         <div className="mt-5 flex gap-5 items-stretch">
           <div className="flex-1">

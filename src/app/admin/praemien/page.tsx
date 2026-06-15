@@ -17,6 +17,7 @@ import {
   fetchAdminPraemienWave,
   fetchAdminPraemienWaves,
   patchAdminPraemienWave,
+  replaceAdminPraemienFlexScores,
   replaceAdminPraemienPillars,
   replaceAdminPraemienQualityScores,
   replaceAdminPraemienSources,
@@ -24,7 +25,7 @@ import {
 } from "@/lib/api/backend";
 import type {
   PraemienQuarter, PraemienPillar, PraemienThreshold, PraemienSourceRef, SectionType,
-  PraemienQualitySubmission, PraemienQualityCriteria,
+  PraemienFlexSubmission, PraemienQualitySubmission, PraemienQualityCriteria,
 } from "@/types/praemien";
 
 // ── Constants ─────────────────────────────────────────────────
@@ -32,15 +33,16 @@ import type {
 const R = "#DC2626";
 const RD = "#b91c1c";
 const WAVE_AUTOSAVE_DEBOUNCE_MS = 700;
-type AutosaveSection = "metadata" | "thresholds" | "pillars" | "sources" | "quality";
+type AutosaveSection = "metadata" | "thresholds" | "pillars" | "sources" | "quality" | "flex";
 type AutosaveSectionState = "clean" | "dirty" | "saving" | "blocked" | "conflict";
-const AUTOSAVE_SECTION_ORDER: AutosaveSection[] = ["metadata", "thresholds", "pillars", "sources", "quality"];
+const AUTOSAVE_SECTION_ORDER: AutosaveSection[] = ["metadata", "thresholds", "pillars", "sources", "quality", "flex"];
 const AUTOSAVE_SECTION_LABELS: Record<AutosaveSection, string> = {
   metadata: "Metadaten",
   thresholds: "Schwellen",
   pillars: "Säulen",
   sources: "Quellen",
   quality: "Qualität",
+  flex: "Flex",
 };
 const INITIAL_SECTION_STATES: Record<AutosaveSection, AutosaveSectionState> = {
   metadata: "clean",
@@ -48,6 +50,7 @@ const INITIAL_SECTION_STATES: Record<AutosaveSection, AutosaveSectionState> = {
   pillars: "clean",
   sources: "clean",
   quality: "clean",
+  flex: "clean",
 };
 
 const SECTION_META: Record<SectionType, { label: string; color: string; bg: string; Icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = {
@@ -80,6 +83,27 @@ function buildDefaultPillars(): PraemienPillar[] {
 function isDistributionPillar(pillars: PraemienPillar[], pillarId: string): boolean {
   const p = pillars.find(x => x.id === pillarId);
   return p?.name === "Distributionsziel";
+}
+
+function normalizePillarName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+}
+
+function isFlexPillar(pillar: Pick<PraemienPillar, "name">): boolean {
+  return normalizePillarName(pillar.name).includes("flexziel");
+}
+
+function isQualityPillar(pillar: Pick<PraemienPillar, "name">): boolean {
+  const normalized = normalizePillarName(pillar.name);
+  return normalized.includes("qualitatsziele") || normalized.includes("qualitaetsziele") || normalized.includes("qualitat");
+}
+
+function isManualPillar(pillar: Pick<PraemienPillar, "name">): boolean {
+  return isFlexPillar(pillar) || isQualityPillar(pillar);
 }
 
 function buildDefaultThresholds(totalPoints = 0): PraemienThreshold[] {
@@ -136,7 +160,11 @@ function fmtDate(iso: string): string {
 }
 
 function toUiQuarter(serverWave: PraemienQuarter): PraemienQuarter {
-  return { ...serverWave };
+  return {
+    ...serverWave,
+    qualitySubmissions: serverWave.qualitySubmissions ?? [],
+    flexSubmissions: serverWave.flexSubmissions ?? [],
+  };
 }
 
 function toCreatePayload(input: {
@@ -171,7 +199,7 @@ function toCreatePayload(input: {
       description: entry.description,
       color: entry.color,
       orderIndex: index,
-      isManual: entry.name === "Qualitätsziele",
+      isManual: isManualPillar(entry),
     })),
   };
 }
@@ -222,7 +250,7 @@ function toPillarsPayload(quarter: PraemienQuarter): { pillars: Array<{ id?: str
       description: entry.description,
       color: entry.color,
       orderIndex: index,
-      isManual: entry.name === "Qualitätsziele",
+      isManual: isManualPillar(entry),
     })),
   };
 }
@@ -231,7 +259,7 @@ function toSourcesPayload(quarter: PraemienQuarter, serverPillarByName?: Map<str
   return {
     expectedUpdatedAt: quarter.updatedAt,
     sources: quarter.pillars.flatMap((pillar) =>
-      pillar.sourceRefs.map((source) => ({
+      isManualPillar(pillar) ? [] : pillar.sourceRefs.map((source) => ({
         id: isUuid(source.id) ? source.id : undefined,
         pillarId: serverPillarByName?.get(pillar.name) ?? pillar.id,
         sectionType: source.sectionType,
@@ -261,6 +289,19 @@ function toQualityPayload(quarter: PraemienQuarter): { qualityScores: Array<{ gm
         zeiterfassung: entry.scores.zeiterfassung,
         reporting: entry.scores.reporting,
         accuracy: entry.scores.accuracy,
+        note: entry.note ?? null,
+      })),
+  };
+}
+
+function toFlexPayload(quarter: PraemienQuarter): { flexScores: Array<{ gmUserId: string; totalPoints: number; note: string | null }>; expectedUpdatedAt?: string } {
+  return {
+    expectedUpdatedAt: quarter.updatedAt,
+    flexScores: (quarter.flexSubmissions ?? [])
+      .filter((entry) => isUuid(entry.gmId))
+      .map((entry) => ({
+        gmUserId: entry.gmId,
+        totalPoints: entry.totalPoints,
         note: entry.note ?? null,
       })),
   };
@@ -311,6 +352,14 @@ function stableQualitySignature(entries: PraemienQualitySubmission[]): string {
   })));
 }
 
+function stableFlexSignature(entries: PraemienFlexSubmission[]): string {
+  return JSON.stringify(entries.map((entry) => ({
+    gmId: entry.gmId,
+    totalPoints: entry.totalPoints,
+    note: entry.note ?? null,
+  })));
+}
+
 function detectDirtySections(previous: PraemienQuarter, next: PraemienQuarter): AutosaveSection[] {
   const dirty = new Set<AutosaveSection>();
   if (
@@ -337,6 +386,9 @@ function detectDirtySections(previous: PraemienQuarter, next: PraemienQuarter): 
   if (stableQualitySignature(previous.qualitySubmissions ?? []) !== stableQualitySignature(next.qualitySubmissions ?? [])) {
     dirty.add("quality");
   }
+  if (stableFlexSignature(previous.flexSubmissions ?? []) !== stableFlexSignature(next.flexSubmissions ?? [])) {
+    dirty.add("flex");
+  }
   return Array.from(dirty);
 }
 
@@ -345,12 +397,14 @@ type ThresholdsSnapshot = ReturnType<typeof toThresholdsPayload>["thresholds"];
 type PillarsSnapshot = ReturnType<typeof toPillarsPayload>["pillars"];
 type SourcesSnapshot = Array<{ pillarName: string; sourceRefs: PraemienSourceRef[] }>;
 type QualitySnapshot = ReturnType<typeof toQualityPayload>["qualityScores"];
+type FlexSnapshot = ReturnType<typeof toFlexPayload>["flexScores"];
 type SectionPayloadSnapshot = {
   metadata: MetadataSnapshot;
   thresholds: ThresholdsSnapshot;
   pillars: PillarsSnapshot;
   sources: SourcesSnapshot;
   quality: QualitySnapshot;
+  flex: FlexSnapshot;
 };
 type AnySectionSnapshot = SectionPayloadSnapshot[AutosaveSection];
 
@@ -372,6 +426,9 @@ function snapshotSectionPayload(quarter: PraemienQuarter, section: AutosaveSecti
       pillarName: pillar.name,
       sourceRefs: pillar.sourceRefs.map((entry) => ({ ...entry })),
     }));
+  }
+  if (section === "flex") {
+    return toFlexPayload(quarter).flexScores.map((entry) => ({ ...entry }));
   }
   return toQualityPayload(quarter).qualityScores.map((entry) => ({ ...entry }));
 }
@@ -439,6 +496,23 @@ function applySectionPayloadSnapshot(
       })),
     };
   }
+  if (section === "flex") {
+    const flexScores = snapshot as FlexSnapshot;
+    const flexByGmId = new Map((server.flexSubmissions ?? []).map((entry) => [entry.gmId, entry]));
+    return {
+      ...server,
+      flexSubmissions: flexScores.map((entry) => {
+        const existing = flexByGmId.get(entry.gmUserId);
+        return {
+          gmId: entry.gmUserId,
+          gmName: existing?.gmName ?? "",
+          totalPoints: entry.totalPoints,
+          note: entry.note ?? undefined,
+          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+        };
+      }),
+    };
+  }
   const qualityScores = snapshot as QualitySnapshot;
   const qualityByGmId = new Map((server.qualitySubmissions ?? []).map((entry) => [entry.gmId, entry]));
   return {
@@ -471,6 +545,7 @@ function formatSectionError(error: unknown): string {
     source_boni_mismatch: "Boni-Wert ist veraltet. Bitte Quelle neu auswählen.",
     distribution_rule_invalid_target: "Frequenzregel ist nur in Distributionsziel erlaubt.",
     quality_invalid_gm: "Mindestens ein GM ist nicht mehr gültig.",
+    flex_invalid_gm: "Mindestens ein GM ist nicht mehr gültig.",
     invalid_payload: "Eingegebene Daten sind ungültig.",
   };
   return `${code}: ${codeMap[code] ?? error.message}`;
@@ -511,6 +586,17 @@ function qualityIsComplete(quarter: PraemienQuarter, gms: GmRosterEntry[]): bool
   return gms.every(gm => subs.some(s => s.gmId === gm.id));
 }
 
+function flexAvgForQuarter(quarter: PraemienQuarter): number {
+  const subs = quarter.flexSubmissions ?? [];
+  if (subs.length === 0) return 0;
+  return Math.round(subs.reduce((n, s) => n + s.totalPoints, 0) / subs.length);
+}
+
+function flexIsComplete(quarter: PraemienQuarter, gms: GmRosterEntry[]): boolean {
+  const subs = quarter.flexSubmissions ?? [];
+  return gms.every(gm => subs.some(s => s.gmId === gm.id));
+}
+
 // ── Seeded GM pillar progress ─────────────────────────────────
 // Replace with real data later; shape is stable so the UI doesn't need to change.
 
@@ -537,6 +623,7 @@ const MOCK_GM_PROGRESS: Record<string, GmSeedRow> = {
 };
 
 const PILLAR_COLORS_LIST = [R, "#2563eb", "#16a34a", "#D97706"] as const;
+const FLEX_MAX = 100;
 const QUALITY_MAX = 100;
 
 interface GmProgressRow {
@@ -544,7 +631,7 @@ interface GmProgressRow {
   gmName: string;
   pillar0: number; // Schütten / Displays
   pillar1: number; // Distributionsziel
-  pillar2: number; // Flexziel
+  pillar2: number | null; // Flexziel
   pillar3: number | null; // Qualitätsziele — null = not yet entered
   pillar0Max: number;
   pillar1Max: number;
@@ -554,8 +641,9 @@ interface GmProgressRow {
   progressPercent: number;
   currentRewardEur: number;
   currentRewardLabel: string;
+  isFlexDone: boolean;
   isQualityDone: boolean;
-  isFinished: boolean; // true only when quality is also done
+  isFinished: boolean; // true only when flex and quality are also done
 }
 
 function buildGmProgressRows(
@@ -572,13 +660,14 @@ function buildGmProgressRows(
   return gms.map(gm => {
     const seed = MOCK_GM_PROGRESS[gm.id] ?? { schuettenPoints: 0, distributionPoints: 0, flexPoints: 0, schuettenMax: 13, distributionMax: 10, flexMax: 6 };
     const qualitySub = (quarter.qualitySubmissions ?? []).find(s => s.gmId === gm.id);
+    const flexSub = (quarter.flexSubmissions ?? []).find(s => s.gmId === gm.id);
     const p0 = seed.schuettenPoints;
     const p1 = seed.distributionPoints;
-    const p2 = seed.flexPoints;
+    const p2 = flexSub ? flexSub.totalPoints : null;
     const p3 = qualitySub ? qualitySub.totalPoints : null;
 
-    const currentPoints     = p0 + p1 + p2 + (p3 ?? 0);
-    const currentMaxPoints  = seed.schuettenMax + seed.distributionMax + seed.flexMax + (p3 !== null ? QUALITY_MAX : 0);
+    const currentPoints     = p0 + p1 + (p2 ?? 0) + (p3 ?? 0);
+    const currentMaxPoints  = seed.schuettenMax + seed.distributionMax + (p2 !== null ? FLEX_MAX : 0) + (p3 !== null ? QUALITY_MAX : 0);
     const progressPercent   = currentMaxPoints > 0 ? Math.round((currentPoints / currentMaxPoints) * 100) : 0;
     const tier              = findTier(currentPoints);
     return {
@@ -587,12 +676,13 @@ function buildGmProgressRows(
       pillar0: p0, pillar1: p1, pillar2: p2, pillar3: p3,
       pillar0Max: seed.schuettenMax,
       pillar1Max: seed.distributionMax,
-      pillar2Max: seed.flexMax,
+      pillar2Max: FLEX_MAX,
       currentPoints, currentMaxPoints, progressPercent,
       currentRewardEur:   tier?.rewardEur ?? 0,
       currentRewardLabel: tier?.label ?? "—",
+      isFlexDone: p2 !== null,
       isQualityDone: p3 !== null,
-      isFinished:    p3 !== null,
+      isFinished:    p2 !== null && p3 !== null,
     };
   });
 }
@@ -617,14 +707,17 @@ function buildGmProgressSummary(
   // Pillar averages (index 0-3)
   const p0avg = rows.reduce((n, r) => n + r.pillar0, 0) / rows.length;
   const p1avg = rows.reduce((n, r) => n + r.pillar1, 0) / rows.length;
-  const p2avg = rows.reduce((n, r) => n + r.pillar2, 0) / rows.length;
-  // Quality: average only from rows that have it
+  const flexRows = rows.filter(r => r.pillar2 !== null);
+  const p2avg = flexRows.length > 0
+    ? flexRows.reduce((n, r) => n + (r.pillar2 as number), 0) / flexRows.length
+    : null;
+  // Manual pillars: average only from rows that have it
   const qualityRows = rows.filter(r => r.pillar3 !== null);
   const p3avg = qualityRows.length > 0
     ? qualityRows.reduce((n, r) => n + (r.pillar3 as number), 0) / qualityRows.length
     : null;
 
-  const totalAvgPts = p0avg + p1avg + p2avg + (p3avg ?? 0);
+  const totalAvgPts = p0avg + p1avg + (p2avg ?? 0) + (p3avg ?? 0);
   const share = (v: number) => totalAvgPts > 0 ? Math.round((v / totalAvgPts) * 100) : 0;
 
   return {
@@ -633,11 +726,12 @@ function buildGmProgressSummary(
     openCount: totalRows - finishedCount,
     avgProgressPercent,
     avgRewardEur,
+    flexFilledCount: flexRows.length,
     qualityFilledCount: qualityRows.length,
     pillarAverages: [
       { points: p0avg, share: share(p0avg) },
       { points: p1avg, share: share(p1avg) },
-      { points: p2avg, share: share(p2avg) },
+      { points: p2avg ?? 0, share: share(p2avg ?? 0), missingCount: totalRows - flexRows.length },
       { points: p3avg ?? 0, share: share(p3avg ?? 0), missingCount: totalRows - qualityRows.length },
     ],
   };
@@ -1115,15 +1209,16 @@ function GMProgressOverviewPanel({
       <div style={{ display: "flex", gap: 0, borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: 8 }}>
         {summary.pillarAverages.map((p, i) => {
           const pc = PILLAR_COLORS_OVERVIEW[i];
+          const isFlex = i === 2;
           const isQual = i === 3;
-          const missing = isQual ? (p as { missingCount?: number }).missingCount : 0;
+          const missing = isFlex || isQual ? (p as { missingCount?: number }).missingCount : 0;
           const isLast = i === 3;
           return (
             <div key={i} style={{ flex: 1, display: "flex", alignItems: "center", gap: 5, paddingRight: isLast ? 0 : 8, borderRight: isLast ? "none" : "1px solid rgba(0,0,0,0.05)", marginRight: isLast ? 0 : 8 }}>
               <div style={{ width: 4, height: 4, borderRadius: "50%", background: pc, flexShrink: 0 }} />
               <span style={{ fontSize: 8, fontWeight: 500, color: "rgba(0,0,0,0.4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{PILLAR_LABELS_SHORT[i]}</span>
-              {isQual && missing ? (
-                <span style={{ fontSize: 8, fontWeight: 700, color: "#D97706", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{summary.qualityFilledCount}/{summary.totalRows}</span>
+              {missing ? (
+                <span style={{ fontSize: 8, fontWeight: 700, color: "#D97706", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{isFlex ? summary.flexFilledCount : summary.qualityFilledCount}/{summary.totalRows}</span>
               ) : (
                 <span style={{ fontSize: 8, fontWeight: 700, color: pc, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{p.share}%</span>
               )}
@@ -1247,8 +1342,10 @@ function OverviewStrip({
   totalPoints: number;
   issues: number;
 }) {
-  const linkedSources = quarter.pillars.reduce((n, p) => n + p.sourceRefs.length, 0);
-  const sectionTypes = new Set(quarter.pillars.flatMap(p => p.sourceRefs.map(s => s.sectionType)));
+  const linkedSources = quarter.pillars.reduce((n, p) => n + (isManualPillar(p) ? 0 : p.sourceRefs.length), 0);
+  const sectionTypes = new Set(quarter.pillars.flatMap(p => isManualPillar(p) ? [] : p.sourceRefs.map(s => s.sectionType)));
+  const flexDone = (quarter.flexSubmissions ?? []).length;
+  const flexComplete = flexIsComplete(quarter, gms);
   const qualityDone = (quarter.qualitySubmissions ?? []).length;
   const qualityComplete = qualityIsComplete(quarter, gms);
 
@@ -1257,6 +1354,7 @@ function OverviewStrip({
     { label: "Sektionen",      value: `${sectionTypes.size} / 5`,                       color: "#1a1a1a" },
     { label: "Quellen",        value: `${linkedSources} / ${totalSources}`,              color: linkedSources > 0 ? "#16a34a" : "rgba(0,0,0,0.4)" },
     { label: "Max. Punkte",    value: `${totalPoints} P`,                                color: totalPoints > 0 ? R : "rgba(0,0,0,0.4)" },
+    { label: "Flexziel",       value: `${flexDone} / ${gms.length}`,                      color: flexComplete ? "#16a34a" : flexDone > 0 ? "#D97706" : "rgba(0,0,0,0.4)" },
     { label: "Qualitätsziele", value: `${qualityDone} / ${gms.length}`,                   color: qualityComplete ? "#16a34a" : qualityDone > 0 ? "#D97706" : "rgba(0,0,0,0.4)" },
     { label: "Probleme",       value: issues === 0 ? "Keine" : `${issues}`,              color: issues === 0 ? "#16a34a" : "#D97706" },
   ];
@@ -1946,6 +2044,330 @@ function QualityGoalsModal({
 
 // ── Quality pillar card (manual, no boni sources) ─────────────
 
+function FlexGoalsModal({
+  quarter, gms, onSave, onClose,
+}: {
+  quarter: PraemienQuarter;
+  gms: GmRosterEntry[];
+  onSave: (submissions: PraemienFlexSubmission[]) => void;
+  onClose: () => void;
+}) {
+  const subs = quarter.flexSubmissions ?? [];
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "open" | "done">("all");
+  const [selectedGmId, setSelectedGmId] = useState<string>(gms[0]?.id ?? "");
+  const [draftPoints, setDraftPoints] = useState(0);
+  const [draftNote, setDraftNote] = useState("");
+  const [localSubs, setLocalSubs] = useState<PraemienFlexSubmission[]>(subs);
+  const [unsaved, setUnsaved] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    if (gms.length === 0) return;
+    if (!gms.some((entry) => entry.id === selectedGmId)) {
+      setSelectedGmId(gms[0]?.id ?? "");
+    }
+  }, [gms, selectedGmId]);
+
+  useEffect(() => {
+    const existing = localSubs.find(s => s.gmId === selectedGmId);
+    if (existing) {
+      setDraftPoints(existing.totalPoints);
+      setDraftNote(existing.note ?? "");
+    } else {
+      setDraftPoints(0);
+      setDraftNote("");
+    }
+    setUnsaved(false);
+  }, [selectedGmId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSaveGm = () => {
+    if (!selectedGmId) return;
+    const newSub: PraemienFlexSubmission = {
+      gmId: selectedGmId,
+      gmName: gms.find(g => g.id === selectedGmId)?.name ?? selectedGmId,
+      totalPoints: draftPoints,
+      note: draftNote || undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    const next = [...localSubs.filter(s => s.gmId !== selectedGmId), newSub];
+    setLocalSubs(next);
+    setUnsaved(false);
+    const nextOpen = gms.find(g => !next.some(s => s.gmId === g.id) && g.id !== selectedGmId);
+    if (nextOpen) setSelectedGmId(nextOpen.id);
+  };
+
+  const handleReset = () => {
+    setDraftPoints(0);
+    setDraftNote("");
+    setUnsaved(true);
+  };
+
+  const handleClose = () => {
+    onSave(localSubs);
+    onClose();
+  };
+
+  const filteredGms = gms.filter(gm => {
+    const q = search.toLowerCase().trim();
+    if (q && !gm.name.toLowerCase().includes(q)) return false;
+    const done = localSubs.some(s => s.gmId === gm.id);
+    if (filter === "done" && !done) return false;
+    if (filter === "open" && done) return false;
+    return true;
+  });
+
+  const doneCount = localSubs.length;
+  const scoreColor = draftPoints >= 80 ? "#16a34a" : draftPoints >= 50 ? "#D97706" : "#DC2626";
+  const selectedGm = gms.find(g => g.id === selectedGmId);
+  const selectedSub = localSubs.find(s => s.gmId === selectedGmId);
+
+  if (!mounted || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      onClick={handleClose}
+      style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.22)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 760, height: "min(520px, 88vh)", background: "#fff", borderRadius: 18, boxShadow: "0 24px 60px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", overflow: "hidden", animation: "qgModalIn 0.22s cubic-bezier(0.4,0,0.2,1) both" }}
+      >
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: "rgba(22,163,74,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Zap size={15} strokeWidth={1.8} color="#16a34a" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>Flexziel erfassen</div>
+            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>{quarter.name} · {doneCount} / {gms.length} GMs bewertet</div>
+          </div>
+          <button
+            onClick={handleClose}
+            style={{ width: 28, height: 28, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.45)", transition: "background 0.12s ease", flexShrink: 0 }}
+          >
+            <X size={13} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+          <div style={{ width: 240, borderRight: "1px solid rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+            <div style={{ padding: "10px 12px", borderBottom: "1px solid rgba(0,0,0,0.05)", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 9px", height: 30, borderRadius: 7, background: "rgba(0,0,0,0.04)", border: "1px solid transparent", transition: "border 0.15s" }}>
+                <Search size={11} strokeWidth={2} color="rgba(0,0,0,0.3)" />
+                <input type="text" placeholder="GM suchen..." value={search} onChange={e => setSearch(e.target.value)}
+                  style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, color: "#1a1a1a" }} />
+              </div>
+            </div>
+            <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(0,0,0,0.05)", flexShrink: 0 }}>
+              <div style={{ display: "flex", gap: 3, background: "rgba(0,0,0,0.03)", borderRadius: 7, padding: 3 }}>
+                {(["all", "open", "done"] as const).map(f => (
+                  <button key={f} onClick={() => setFilter(f)}
+                    style={{ flex: 1, padding: "3px 0", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 9, fontWeight: 600, background: filter === f ? "#fff" : "transparent", color: filter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: filter === f ? "0 1px 3px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s ease" }}>
+                    {f === "all" ? "Alle" : f === "open" ? "Offen" : "Bewertet"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="qg-scroll" style={{ flex: 1, overflowY: "auto" }}>
+              {filteredGms.map(gm => {
+                const sub = localSubs.find(s => s.gmId === gm.id);
+                const active = gm.id === selectedGmId;
+                return (
+                  <div key={gm.id} onClick={() => setSelectedGmId(gm.id)}
+                    style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.04)", cursor: "pointer", background: active ? "rgba(22,163,74,0.06)" : "transparent", borderLeft: `3px solid ${active ? "#16a34a" : "transparent"}`, transition: "all 0.12s ease" }}
+                  >
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, background: sub ? "rgba(22,163,74,0.1)" : "rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: sub ? "#15803d" : "rgba(0,0,0,0.35)" }}>
+                      {gm.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: active ? "#16a34a" : "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{gm.name}</div>
+                      {sub
+                        ? <div style={{ fontSize: 9, fontWeight: 600, color: "#16a34a" }}>{sub.totalPoints} / 100 P</div>
+                        : <div style={{ fontSize: 9, color: "rgba(0,0,0,0.3)" }}>Nicht bewertet</div>
+                      }
+                    </div>
+                    {sub && <CheckCircle2 size={12} strokeWidth={2} color="#16a34a" style={{ flexShrink: 0 }} />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="qg-scroll" style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+            <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid rgba(0,0,0,0.06)", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(22,163,74,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#16a34a", flexShrink: 0 }}>
+                  {selectedGm?.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>{selectedGm?.name}</div>
+                  {selectedSub
+                    ? <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>Zuletzt bearbeitet: {new Date(selectedSub.updatedAt).toLocaleDateString("de-AT")}</div>
+                    : <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)" }}>Noch nicht bewertet</div>
+                  }
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "-0.04em", color: scoreColor, fontVariantNumeric: "tabular-nums", transition: "color 0.2s ease" }}>{draftPoints}</div>
+                  <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)" }}>/ 100 Punkte</div>
+                </div>
+              </div>
+              {unsaved && (
+                <div style={{ marginTop: 8, fontSize: 9, fontWeight: 600, color: "#D97706", display: "flex", alignItems: "center", gap: 5 }}>
+                  <AlertTriangle size={10} strokeWidth={2} />
+                  Nicht gespeichert
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "16px 20px 8px", display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+              <QualityScoreSlider
+                label="Flexziel"
+                hint="Wird nachgeliefert und erst dann in die Prämie eingerechnet"
+                value={draftPoints}
+                onChange={v => { setDraftPoints(v); setUnsaved(true); }}
+              />
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.28)", marginBottom: 5 }}>Notiz (optional)</div>
+                <textarea
+                  value={draftNote}
+                  onChange={e => { setDraftNote(e.target.value); setUnsaved(true); }}
+                  placeholder="Anmerkungen zum Flexziel..."
+                  rows={3}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.1)", outline: "none", fontSize: 11, color: "#1a1a1a", fontFamily: "inherit", resize: "none", lineHeight: 1.5, background: "rgba(0,0,0,0.018)", boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+
+            <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(0,0,0,0.06)", display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+              <GhostBtn onClick={handleReset}>
+                <BarChart3 size={11} strokeWidth={2} />
+                Zurücksetzen
+              </GhostBtn>
+              <div style={{ flex: 1 }} />
+              <PrimaryBtn onClick={handleSaveGm}>
+                <Check size={12} strokeWidth={2.5} />
+                Speichern
+              </PrimaryBtn>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function FlexPillarCard({
+  pillar, quarter, gms, flexPersistenceReady, onUpdateQuarter,
+}: {
+  pillar: PraemienPillar;
+  quarter: PraemienQuarter;
+  gms: GmRosterEntry[];
+  flexPersistenceReady: boolean;
+  onUpdateQuarter: (q: PraemienQuarter) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const PC = "#16a34a";
+  const subs = quarter.flexSubmissions ?? [];
+  const doneCount = subs.length;
+  const avgPts = flexAvgForQuarter(quarter);
+  const complete = flexIsComplete(quarter, gms);
+
+  return (
+    <div style={{ backgroundColor: "#fff", borderRadius: 12, border: `1px solid rgba(0,0,0,0.07)`, boxShadow: "0 1px 6px rgba(0,0,0,0.04)", overflow: "hidden" }}>
+      <div
+        onClick={() => setExpanded(o => !o)}
+        style={{ display: "flex", alignItems: "center", padding: "13px 16px", cursor: "pointer", gap: 12, userSelect: "none", transition: "background 0.12s ease" }}
+      >
+        <div style={{ width: 4, height: 36, borderRadius: 2, background: PC, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em", marginBottom: 3 }}>{pillar.name}</div>
+          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+            <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.38)", letterSpacing: "0.02em" }}>Manuell · später erfassen</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: PC, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{avgPts}</div>
+            <div style={{ fontSize: 8, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.3)" }}>Ø Punkte</div>
+          </div>
+          <QualityCompletionPill done={complete} />
+          <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)" }}>{doneCount} / {gms.length} GMs</span>
+          <ChevronDown size={13} strokeWidth={2} color="rgba(0,0,0,0.3)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }} />
+        </div>
+      </div>
+
+      <div style={{ maxHeight: expanded ? 520 : 0, overflow: "hidden", transition: "max-height 0.28s cubic-bezier(0.4,0,0.2,1)" }}>
+        <div style={{ padding: "0 16px 14px" }}>
+          <div style={{ padding: "12px 14px", borderRadius: 10, background: complete ? "rgba(22,163,74,0.05)" : "rgba(217,119,6,0.04)", border: `1px solid ${complete ? "rgba(22,163,74,0.2)" : "rgba(217,119,6,0.14)"}`, display: "flex", alignItems: "center", gap: 14, marginBottom: 10, transition: "all 0.3s ease" }}>
+            <Zap size={18} strokeWidth={1.5} color={complete ? "#16a34a" : "#D97706"} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a", marginBottom: 2 }}>
+                {complete ? "Flexziel vollständig erfasst" : "Flexziel noch nicht fertig"}
+              </div>
+              <div style={{ fontSize: 9, color: "rgba(0,0,0,0.4)", fontWeight: 500 }}>
+                {flexPersistenceReady
+                  ? `${doneCount} von ${gms.length} GMs bewertet · Ø ${avgPts} / 100 Punkte`
+                  : "GM-Daten werden geladen. Flexziel ist vorübergehend schreibgeschützt."}
+              </div>
+            </div>
+            <button
+              onClick={e => { e.stopPropagation(); if (flexPersistenceReady) setModalOpen(true); }}
+              disabled={!flexPersistenceReady}
+              style={{
+                display: "flex", alignItems: "center", gap: 5, padding: "7px 14px",
+                fontSize: 10, fontWeight: 700, borderRadius: 7, border: "none", cursor: flexPersistenceReady ? "pointer" : "not-allowed",
+                background: `linear-gradient(to bottom, ${R}, ${RD})`,
+                color: "#fff", letterSpacing: "-0.01em",
+                boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 5px rgba(180,20,20,0.12)`,
+                flexShrink: 0, transition: "opacity 0.15s ease", opacity: flexPersistenceReady ? 1 : 0.5,
+              }}
+            >
+              <Pencil size={10} strokeWidth={2.5} />
+              {doneCount > 0 ? "Bearbeiten" : "Flexziel erfassen"}
+            </button>
+          </div>
+
+          {subs.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {subs.map(sub => {
+                const scoreColor = sub.totalPoints >= 80 ? "#16a34a" : sub.totalPoints >= 50 ? "#D97706" : R;
+                return (
+                  <div key={sub.gmId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.045)" }}>
+                    <div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(22,163,74,0.09)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#16a34a", flexShrink: 0 }}>
+                      {sub.gmName.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                    </div>
+                    <span style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{sub.gmName}</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: scoreColor, minWidth: 34, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{sub.totalPoints}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {subs.length === 0 && (
+            <div style={{ padding: "12px", textAlign: "center", borderRadius: 9, background: "rgba(0,0,0,0.02)", border: "1px dashed rgba(0,0,0,0.1)" }}>
+              <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Noch keine Flexbewertungen — öffne das Formular oben.</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {modalOpen && (
+        <FlexGoalsModal
+          quarter={quarter}
+          gms={gms}
+          onSave={submissions => {
+            onUpdateQuarter({ ...quarter, flexSubmissions: submissions });
+          }}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
 function QualityPillarCard({
   pillar, pillarIndex, quarter, gms, qualityPersistenceReady, onUpdateQuarter,
 }: {
@@ -2285,8 +2707,10 @@ function PillarSelect({
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
+  const assignablePillars = pillars.filter((pillar) => !isManualPillar(pillar));
+
   // Identify the Distributionsziel pillar
-  const distPillar = pillars.find(p => p.name === "Distributionsziel") ?? null;
+  const distPillar = assignablePillars.find(p => p.name === "Distributionsziel") ?? null;
   const isCurrentlyDist = !!distPillar && value === distPillar.id;
 
   // Auto-expand distribution row when reopening if already assigned there
@@ -2326,7 +2750,7 @@ function PillarSelect({
     };
   }, [open]);
 
-  const current = pillars.find(p => p.id === value) ?? null;
+  const current = assignablePillars.find(p => p.id === value) ?? null;
 
   const toggleOpen = () => {
     if (btnRef.current) {
@@ -2387,7 +2811,7 @@ function PillarSelect({
             {!current && <Check size={10} strokeWidth={3} color="rgba(0,0,0,0.4)" />}
           </button>
 
-          {pillars.map(p => {
+          {assignablePillars.map(p => {
             const sel = p.id === value;
             const isDist = p.name === "Distributionsziel";
             const expanded = isDist && distExpanded;
@@ -2971,15 +3395,23 @@ function GMProgressModal({
                   </div>
                 </div>
 
-                {/* Quality blocking message */}
-                {!selected.isQualityDone && (
-                  <div style={{ padding: "10px 13px", borderRadius: 9, background: "rgba(217,119,6,0.04)", border: "1px solid rgba(217,119,6,0.18)", display: "flex", gap: 9, alignItems: "flex-start" }}>
-                    <AlertTriangle size={13} strokeWidth={2} color="#D97706" style={{ flexShrink: 0, marginTop: 1 }} />
-                    <div style={{ fontSize: 10, color: "#92400e", lineHeight: 1.5, fontWeight: 500 }}>
-                      Prämie noch nicht final — Qualitätsziele wurden für diesen GM noch nicht erfasst. Die aktuelle Prämie ist vorläufig.
+                {/* Manual blocking message */}
+                {(() => {
+                  const missingManualGoals = [
+                    !selected.isFlexDone ? "Flexziel" : null,
+                    !selected.isQualityDone ? "Qualitätsziele" : null,
+                  ].filter((entry): entry is string => Boolean(entry));
+                  if (missingManualGoals.length === 0) return null;
+                  const verb = missingManualGoals.length === 1 ? "wurde" : "wurden";
+                  return (
+                    <div style={{ padding: "10px 13px", borderRadius: 9, background: "rgba(217,119,6,0.04)", border: "1px solid rgba(217,119,6,0.18)", display: "flex", gap: 9, alignItems: "flex-start" }}>
+                      <AlertTriangle size={13} strokeWidth={2} color="#D97706" style={{ flexShrink: 0, marginTop: 1 }} />
+                      <div style={{ fontSize: 10, color: "#92400e", lineHeight: 1.5, fontWeight: 500 }}>
+                        Prämie noch nicht final — {missingManualGoals.join(" und ")} {verb} für diesen GM noch nicht erfasst. Die aktuelle Prämie ist vorläufig.
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -3405,7 +3837,7 @@ function computeIssues(quarter: PraemienQuarter, sources: BonusSource[], gms: Gm
     if (sorted[i].minPoints <= sorted[i - 1].minPoints) issues.push({ severity: "error", message: `Schwellwerte überschneiden sich: "${sorted[i - 1].label}" & "${sorted[i].label}".` });
   }
   for (const p of quarter.pillars) {
-    if (p.name === "Qualitätsziele") continue; // manual pillar — no boni sources expected
+    if (isManualPillar(p)) continue; // manual pillar - no boni sources expected
     if (p.sourceRefs.length === 0) issues.push({ severity: "warning", message: `Säule "${p.name}" hat keine Quellen.` });
   }
   const usedKeys = new Set<string>();
@@ -3417,8 +3849,12 @@ function computeIssues(quarter: PraemienQuarter, sources: BonusSource[], gms: Gm
     }
   }
   if (dupes.size > 0) issues.push({ severity: "error", message: `${dupes.size} Quelle(n) mehrfach zugewiesen.` });
-  const totalAssigned = quarter.pillars.reduce((n, p) => n + p.sourceRefs.length, 0);
+  const totalAssigned = quarter.pillars.reduce((n, p) => n + (isManualPillar(p) ? 0 : p.sourceRefs.length), 0);
   if (sources.length > 0 && totalAssigned === 0) issues.push({ severity: "info", message: "Noch keine Quellen zugewiesen." });
+  if (!flexIsComplete(quarter, gms)) {
+    const doneCount = (quarter.flexSubmissions ?? []).length;
+    issues.push({ severity: "warning", message: `Flexziel: ${doneCount} / ${gms.length} GMs bewertet.` });
+  }
   // Quality goals completion
   if (!qualityIsComplete(quarter, gms)) {
     const doneCount = (quarter.qualitySubmissions ?? []).length;
@@ -3473,7 +3909,7 @@ function GMPreviewCard({ quarter }: { quarter: PraemienQuarter | null }) {
   if (!quarter) return null;
 
   const MOCK_GM_PCT = [87, 73, 91, 65]; // simulated GM progress per pillar
-  const totalMaxPts = quarter.pillars.reduce((n, p) => n + p.sourceRefs.reduce((s, r) => s + r.boniValue, 0), 0);
+  const totalMaxPts = quarter.pillars.reduce((n, p) => n + (isManualPillar(p) ? 0 : p.sourceRefs.reduce((s, r) => s + r.boniValue, 0)), 0);
   const sorted = [...quarter.thresholds].sort((a, b) => a.minPoints - b.minPoints);
   const vollerBonus = sorted.find(t => t.label === "Voller Bonus");
   const vollerPts = vollerBonus?.minPoints ?? totalMaxPts;
@@ -3733,6 +4169,7 @@ export default function PraemienPage() {
   const activeQuarter = quarters.find(q => q.id === activeQuarterId) ?? null;
   const gmRoster = gmUsers.length > 0 ? gmUsers : ALL_GMS;
   const qualityPersistenceReady = gmUsers.length > 0;
+  const flexPersistenceReady = gmUsers.length > 0;
 
   useEffect(() => {
     clearTransientAutosaveState();
@@ -3820,6 +4257,9 @@ export default function PraemienPage() {
       if (section === "sources") {
         const serverPillarByName = new Map(quarter.pillars.map((entry) => [entry.name, entry.id]));
         return await replaceAdminPraemienSources(quarter.id, toSourcesPayload(quarter, serverPillarByName));
+      }
+      if (section === "flex") {
+        return await replaceAdminPraemienFlexScores(quarter.id, toFlexPayload(quarter));
       }
       return await replaceAdminPraemienQualityScores(quarter.id, toQualityPayload(quarter));
     } catch (error) {
@@ -4169,7 +4609,7 @@ export default function PraemienPage() {
               quarter={activeQuarter}
               gms={gmRoster}
               totalSources={bonusSources.length}
-              totalPoints={Math.round(activeQuarter.pillars.reduce((n, p) => n + p.sourceRefs.reduce((s, r) => s + r.boniValue, 0), 0) * 10) / 10}
+              totalPoints={Math.round(activeQuarter.pillars.reduce((n, p) => n + (isManualPillar(p) ? 0 : p.sourceRefs.reduce((s, r) => s + r.boniValue, 0)), 0) * 10) / 10}
               issues={issues.length}
             />
 
@@ -4190,7 +4630,16 @@ export default function PraemienPage() {
               {/* White inner card */}
               <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
                 {activeQuarter.pillars.map((p, i) => (
-                  i === 3 ? (
+                  isFlexPillar(p) ? (
+                    <FlexPillarCard
+                      key={p.id}
+                      pillar={p}
+                      quarter={activeQuarter}
+                      gms={gmRoster}
+                      flexPersistenceReady={flexPersistenceReady}
+                      onUpdateQuarter={updateQuarter}
+                    />
+                  ) : isQualityPillar(p) ? (
                     <QualityPillarCard
                       key={p.id}
                       pillar={p}
@@ -4223,6 +4672,9 @@ export default function PraemienPage() {
               <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>
                 {sectionErrors.pillars ? `Säulen: ${sectionErrors.pillars}` : `Quellen: ${sectionErrors.sources}`}
               </div>
+            )}
+            {sectionErrors.flex && (
+              <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>Flex: {sectionErrors.flex}</div>
             )}
 
             <BonusSourceExplorer

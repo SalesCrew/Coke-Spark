@@ -773,6 +773,14 @@ type BackendPraemienQualitySubmission = {
   updatedAt: string;
 };
 
+type BackendPraemienFlexSubmission = {
+  gmId: string;
+  gmName: string;
+  totalPoints: number;
+  note?: string;
+  updatedAt: string;
+};
+
 type BackendPraemienWave = {
   id: string;
   name: string;
@@ -786,6 +794,7 @@ type BackendPraemienWave = {
   thresholds: BackendPraemienThreshold[];
   pillars: BackendPraemienPillar[];
   qualitySubmissions: BackendPraemienQualitySubmission[];
+  flexSubmissions: BackendPraemienFlexSubmission[];
   createdAt: string;
   updatedAt: string;
 };
@@ -876,6 +885,13 @@ type PraemienQualityWrite = {
   note?: string | null;
 };
 
+type PraemienFlexWrite = {
+  id?: string;
+  gmUserId: string;
+  totalPoints: number;
+  note?: string | null;
+};
+
 function buildPraemienSourceCatalogKey(input: {
   sectionType: PraemienSourceRef["sectionType"];
   fragebogenId: string | null;
@@ -946,6 +962,13 @@ function mapPraemienWaveToQuarter(wave: BackendPraemienWave): PraemienQuarter {
         reporting: Number(entry.scores?.reporting ?? 0),
         accuracy: Number(entry.scores?.accuracy ?? 0),
       },
+      totalPoints: Number(entry.totalPoints ?? 0),
+      note: entry.note ?? undefined,
+      updatedAt: entry.updatedAt,
+    })),
+    flexSubmissions: (wave.flexSubmissions ?? []).map((entry) => ({
+      gmId: entry.gmId,
+      gmName: entry.gmName ?? "",
       totalPoints: Number(entry.totalPoints ?? 0),
       note: entry.note ?? undefined,
       updatedAt: entry.updatedAt,
@@ -1056,6 +1079,17 @@ export async function replaceAdminPraemienQualityScores(
   return mapPraemienWaveToQuarter(data.wave);
 }
 
+export async function replaceAdminPraemienFlexScores(
+  waveId: string,
+  input: { flexScores: PraemienFlexWrite[]; expectedUpdatedAt?: string },
+): Promise<PraemienQuarter> {
+  const data = (await authedFetch(`/admin/praemien/waves/${waveId}/flex-scores`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  })) as { wave: BackendPraemienWave };
+  return mapPraemienWaveToQuarter(data.wave);
+}
+
 export async function fetchAdminPraemienSources(): Promise<Array<BackendPraemienSourceCatalogRow & { scoringKey: string }>> {
   const data = (await authedFetch("/admin/praemien/sources")) as { sources?: BackendPraemienSourceCatalogRow[] };
   return (data.sources ?? []).map((row) => ({
@@ -1093,6 +1127,8 @@ export async function fetchGmBonusSummary(): Promise<PraemienGmBonusSummary> {
           points: Number(goal.points ?? 0),
           maxPoints: Number(goal.maxPoints ?? 0),
           percent: Number(goal.percent ?? 0),
+          isManual: Boolean(goal.isManual),
+          isPending: Boolean(goal.isPending),
         }))
       : [],
     thresholds: Array.isArray(data.thresholds)

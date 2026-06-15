@@ -4,6 +4,8 @@ interface Goal {
   name: string;
   percent: number;
   color?: string;
+  isManual?: boolean;
+  isPending?: boolean;
 }
 
 interface BonusCirclesProps {
@@ -22,7 +24,9 @@ const defaultGoals: Goal[] = [
 ];
 
 function calcBonus(goals: Goal[]): number {
-  const avg = goals.reduce((s, g) => s + g.percent, 0) / goals.length;
+  const activeGoals = goals.filter((goal) => !goal.isPending);
+  if (activeGoals.length === 0) return 0;
+  const avg = activeGoals.reduce((s, g) => s + g.percent, 0) / activeGoals.length;
   if (avg >= 95) return 1100;
   if (avg >= 80) return 880;
   if (avg >= 70) return 550;
@@ -107,7 +111,8 @@ export function BonusCircles({
 
         {/* Circles + labels */}
         {goals.map((goal, i) => {
-          const color = ringColor(goal.percent);
+          const pending = Boolean(goal.isPending);
+          const color = pending ? "rgba(0,0,0,0.22)" : ringColor(goal.percent);
           return (
             <div key={i} className="flex items-center">
               {i > 0 && <div style={{ width: 20 }} />}
@@ -118,7 +123,7 @@ export function BonusCircles({
                     width: CIRCLE_SIZE,
                     height: CIRCLE_SIZE,
                     border: `${STROKE_WIDTH}px solid ${color}`,
-                    backgroundColor: "#ffffff",
+                    backgroundColor: pending ? "rgba(0,0,0,0.025)" : "#ffffff",
                     position: "relative",
                     zIndex: 1,
                   }}
@@ -127,7 +132,7 @@ export function BonusCircles({
                     className="text-[11px] font-bold tabular-nums"
                     style={{ color }}
                   >
-                    {goal.percent}%
+                    {pending ? "Offen" : `${goal.percent}%`}
                   </span>
                 </div>
                 <span

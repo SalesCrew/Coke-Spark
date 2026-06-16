@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Car } from "lucide-react";
+import { Car, Check, PencilLine } from "lucide-react";
 import {
   deferDaySessionEndKm,
   deferDaySessionStartKm,
@@ -9,12 +9,15 @@ import {
   endDaySession,
   fetchTodaySubmissions,
   fetchCurrentDaySession,
+  patchDaySessionReviewEdits,
+  readAuthSession,
   setDaySessionEndKm,
   setDaySessionStartKm,
   startDayPause,
   startDaySession,
   submitDaySession,
   type AdminZeiterfassungTimelineSegment,
+  type DaySessionReviewEdit,
   type DaySession,
   type TodaySubmissionItem,
   type TodaySubmissionsPayload,
@@ -38,6 +41,13 @@ interface DaySummarySnapshot {
   zusatzCount:    number;
   trackedSeconds: number;
 }
+
+type TimeTrackerPhase = "idle" | "startKm" | "recording" | "endKm" | "dayReview" | "daySummary" | "forgotEnd";
+type ReviewEditableKind = DaySessionReviewEdit["kind"];
+type ReviewDraft = {
+  startTime: string;
+  endTime: string;
+};
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
 const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
@@ -106,6 +116,40 @@ function toIsoFromWorkDateHm(workDate: string, hm: string, timeZone: string): st
   const candidate = new Date(candidateEpoch);
   if (toYmdInTimezone(candidate, timeZone) !== workDate) return null;
   return candidate.toISOString();
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isValidHm(value: string): boolean {
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value.trim());
+}
+
+function toMinutes(value: string): number {
+  const [hourRaw, minuteRaw] = value.split(":");
+  return Number(hourRaw) * 60 + Number(minuteRaw);
+}
+
+function reviewEditableKind(kind: AdminZeiterfassungTimelineSegment["kind"]): ReviewEditableKind | null {
+  if (kind === "anfahrt") return "day_start";
+  if (kind === "heimfahrt") return "day_end";
+  if (kind === "marktbesuch" || kind === "pause" || kind === "zusatzzeit") return kind;
+  return null;
+}
+
+function reviewSegmentEditId(segment: AdminZeiterfassungTimelineSegment): string {
+  if (segment.kind === "anfahrt") return segment.id.replace(/^anfahrt-/, "");
+  if (segment.kind === "heimfahrt") return segment.id.replace(/^heimfahrt-/, "");
+  return segment.id;
+}
+
+function isEditableReviewSegment(segment: AdminZeiterfassungTimelineSegment): boolean {
+  return Boolean(reviewEditableKind(segment.kind) && isUuid(reviewSegmentEditId(segment)));
+}
+
+function reviewSegmentKey(segment: AdminZeiterfassungTimelineSegment): string {
+  return `${segment.kind}:${segment.id}`;
 }
 
 function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
@@ -282,6 +326,12 @@ function TimeField({ value, onOpenClock }: { value: string; onOpenClock: () => v
 
 export function TimeTracker(_: TimeTrackerProps) {
   const trackerTimezone = "Europe/Vienna";
+  const authSession = readAuthSession();
+  const gmDisplayName =
+    [authSession?.user.firstName?.trim(), authSession?.user.lastName?.trim()].filter(Boolean).join(" ") ||
+    authSession?.user.email ||
+    "GM";
+  const gmFirstName = authSession?.user.firstName?.trim() || gmDisplayName;
   const [running, setRunning] = useState(false);
   const [paused, setPaused]   = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -317,9 +367,15 @@ export function TimeTracker(_: TimeTrackerProps) {
   // newCarSlot / newCarConfirmed / endKmInput are reused in forgotEnd too
 
   // ── Phase ────────────────────────────────────────────────────────────────
-  const [phase, setPhase] = useState<"idle" | "startKm" | "recording" | "endKm" | "daySummary" | "forgotEnd">("idle");
+  const [phase, setPhase] = useState<TimeTrackerPhase>("idle");
   const [phaseVisible, setPhaseVisible] = useState(true);
   const canStartButton = !persistBusy && daySession?.status !== "submitted";
+
+  const [reviewSegments, setReviewSegments] = useState<AdminZeiterfassungTimelineSegment[]>([]);
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft>>({});
+  const [reviewEditingKey, setReviewEditingKey] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewSaving, setReviewSaving] = useState(false);
 
   const startKmRef = useRef<HTMLInputElement>(null);
   const endKmRef   = useRef<HTMLInputElement>(null);
@@ -483,7 +539,7 @@ export function TimeTracker(_: TimeTrackerProps) {
         if (!session.isEndKmCompleted) {
           setPhase("endKm");
         } else {
-          setPhase("idle");
+          setPhase("dayReview");
         }
         return;
       }
@@ -526,6 +582,11 @@ export function TimeTracker(_: TimeTrackerProps) {
     void hydrateFromBackend();
     void hydrateTodaySubmissions();
   }, [hydrateFromBackend, hydrateTodaySubmissions]);
+
+  useEffect(() => {
+    if (phase !== "dayReview" || reviewSegments.length > 0) return;
+    resetReviewStateFromTimeline(todayTimeline);
+  }, [phase, reviewSegments.length, todayTimeline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-focus KM fields ─────────────────────────────────────────────────
   useEffect(() => {
@@ -598,6 +659,11 @@ export function TimeTracker(_: TimeTrackerProps) {
     setForgotEndTime("");
     setForgotEndClockOpen(false);
     setHasTriggeredForgotEnd(false);
+    setReviewSegments([]);
+    setReviewDrafts({});
+    setReviewEditingKey(null);
+    setReviewError(null);
+    setReviewSaving(false);
     transitionTo("idle");
   }
 
@@ -629,6 +695,151 @@ export function TimeTracker(_: TimeTrackerProps) {
   }
 
   // ── Start KM ─────────────────────────────────────────────────────────────
+  function resetReviewStateFromTimeline(timeline: AdminZeiterfassungTimelineSegment[]) {
+    const drafts: Record<string, ReviewDraft> = {};
+    for (const segment of timeline) {
+      if (!isEditableReviewSegment(segment)) continue;
+      drafts[reviewSegmentKey(segment)] = {
+        startTime: segment.start,
+        endTime: segment.end,
+      };
+    }
+    setReviewSegments(timeline);
+    setReviewDrafts(drafts);
+    setReviewEditingKey(null);
+    setReviewError(null);
+  }
+
+  function openDayReview(submissions: TodaySubmissionsPayload) {
+    resetReviewStateFromTimeline(submissions.timeline ?? []);
+    transitionTo("dayReview");
+  }
+
+  function formatHmDraft(raw: string): string {
+    const digits = raw.replace(/\D/g, "").slice(0, 4);
+    if (digits.length <= 2) return digits;
+    return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+  }
+
+  function updateReviewDraft(key: string, patch: Partial<ReviewDraft>) {
+    setReviewDrafts((current) => ({
+      ...current,
+      [key]: {
+        startTime: current[key]?.startTime ?? "",
+        endTime: current[key]?.endTime ?? "",
+        ...patch,
+      },
+    }));
+  }
+
+  async function handleDayReviewSubmit() {
+    if (reviewSaving || persistBusy || !daySession?.id) return;
+    setReviewSaving(true);
+    setPersistBusy(true);
+    setReviewError(null);
+    try {
+      const edits: DaySessionReviewEdit[] = [];
+      const hasHeimfahrtSegment = reviewSegments.some((segment) => segment.kind === "heimfahrt");
+      for (const segment of reviewSegments) {
+        const kind = reviewEditableKind(segment.kind);
+        if (!kind || !isEditableReviewSegment(segment)) continue;
+        const key = reviewSegmentKey(segment);
+        const draft = reviewDrafts[key] ?? { startTime: segment.start, endTime: segment.end };
+        const segmentId = reviewSegmentEditId(segment);
+
+        if (kind === "day_start") {
+          const canAlsoEditDayEnd = segment.kind === "anfahrt" && !hasHeimfahrtSegment && reviewSegments.length === 1;
+          if (!isValidHm(draft.startTime) || (canAlsoEditDayEnd && !isValidHm(draft.endTime))) {
+            setReviewError("Bitte gültige Uhrzeiten im Format HH:MM eingeben.");
+            return;
+          }
+          if (canAlsoEditDayEnd && toMinutes(draft.endTime) <= toMinutes(draft.startTime)) {
+            setReviewError("Tagesende muss nach Tagesstart liegen.");
+            return;
+          }
+          if (!canAlsoEditDayEnd && toMinutes(segment.end) < toMinutes(draft.startTime)) {
+            setReviewError("Tagesstart darf nicht nach dem ersten Eintrag liegen.");
+            return;
+          }
+          if (draft.startTime !== segment.start) {
+            edits.push({
+              kind: "day_start",
+              segmentId,
+              startTime: draft.startTime,
+              endTime: segment.end,
+            });
+          }
+          if (canAlsoEditDayEnd && draft.endTime !== segment.end) {
+            edits.push({
+              kind: "day_end",
+              segmentId,
+              startTime: draft.startTime,
+              endTime: draft.endTime,
+            });
+          }
+          continue;
+        }
+
+        if (kind === "day_end") {
+          if (!isValidHm(draft.endTime)) {
+            setReviewError("Bitte gültige Uhrzeiten im Format HH:MM eingeben.");
+            return;
+          }
+          if (toMinutes(draft.endTime) < toMinutes(segment.start)) {
+            setReviewError("Tagesende darf nicht vor dem letzten Eintrag liegen.");
+            return;
+          }
+          if (draft.endTime !== segment.end) {
+            edits.push({
+              kind: "day_end",
+              segmentId,
+              startTime: segment.start,
+              endTime: draft.endTime,
+            });
+          }
+          continue;
+        }
+
+        if (!isValidHm(draft.startTime) || !isValidHm(draft.endTime)) {
+          setReviewError("Bitte gültige Uhrzeiten im Format HH:MM eingeben.");
+          return;
+        }
+        if (toMinutes(draft.endTime) <= toMinutes(draft.startTime)) {
+          setReviewError("Endzeit muss nach Startzeit liegen.");
+          return;
+        }
+        if (draft.startTime === segment.start && draft.endTime === segment.end) continue;
+        edits.push({
+          kind,
+          segmentId,
+          startTime: draft.startTime,
+          endTime: draft.endTime,
+        });
+      }
+
+      if (edits.length > 0) {
+        await patchDaySessionReviewEdits({ sessionId: daySession.id, edits });
+      }
+      const submitResult = await submitDaySession();
+      persistLocalDaySessionFromBackend(submitResult.session);
+      setDaySession(submitResult.session);
+      notifyDaySessionUpdated();
+      const freshItems = await hydrateTodaySubmissions();
+      const parsedEndKm = parseInt(endKmInput, 10);
+      const finalEndKm = submitResult.session.endKm ?? (Number.isFinite(parsedEndKm) ? parsedEndKm : 0);
+      setReviewSegments([]);
+      setReviewDrafts({});
+      setReviewEditingKey(null);
+      commitEndKm(finalEndKm, freshItems);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Tag konnte nicht abgeschlossen werden.";
+      setReviewError(message || "Tag konnte nicht abgeschlossen werden.");
+    } finally {
+      setReviewSaving(false);
+      setPersistBusy(false);
+    }
+  }
+
   const handleStartPressed = useCallback(async () => {
     if (persistBusy) return;
     const clientStartedAt = new Date().toISOString();
@@ -785,12 +996,9 @@ export function TimeTracker(_: TimeTrackerProps) {
         transitionTo("recording");
         return;
       }
-      const submitResult = await submitDaySession();
-      persistLocalDaySessionFromBackend(submitResult.session);
-      setDaySession(submitResult.session);
       notifyDaySessionUpdated();
       const freshItems = await hydrateTodaySubmissions();
-      commitEndKm(num, freshItems);
+      openDayReview(freshItems);
     } catch (error) {
       const message = error instanceof Error ? error.message : "End-KM konnte nicht gespeichert werden.";
       setPersistError(message);
@@ -860,12 +1068,9 @@ export function TimeTracker(_: TimeTrackerProps) {
       const endResult = await setDaySessionEndKm(num);
       persistLocalDaySessionFromBackend(endResult.session);
       setDaySession(endResult.session);
-      const submitResult = await submitDaySession();
-      persistLocalDaySessionFromBackend(submitResult.session);
-      setDaySession(submitResult.session);
       notifyDaySessionUpdated();
       const freshItems = await hydrateTodaySubmissions();
-      commitEndKm(num, freshItems);
+      openDayReview(freshItems);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Nachträgliches Tagesende konnte nicht gespeichert werden.";
       setPersistError(message);
@@ -958,6 +1163,15 @@ export function TimeTracker(_: TimeTrackerProps) {
     return isTimelineFeedItem(item) ? `${item.start} - ${item.end}` : item.timeText;
   }
 
+  const reviewEditableCount = reviewSegments.filter(isEditableReviewSegment).length;
+  const reviewHasHeimfahrtSegment = reviewSegments.some((segment) => segment.kind === "heimfahrt");
+  const reviewDirtyCount = reviewSegments.reduce((count, segment) => {
+    if (!isEditableReviewSegment(segment)) return count;
+    const draft = reviewDrafts[reviewSegmentKey(segment)];
+    if (!draft) return count;
+    return count + (draft.startTime !== segment.start || draft.endTime !== segment.end ? 1 : 0);
+  }, 0);
+
   // ── Shared new-car slot (reused in both endKm and forgotEnd) ──────────────
   function NewCarSlotContent() {
     return (
@@ -1036,6 +1250,242 @@ export function TimeTracker(_: TimeTrackerProps) {
       )}
 
       {/* ── TimeTracker card ───────────────────────────────── */}
+      {phase === "dayReview" && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9998,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+            background: "rgba(15,23,42,0.18)",
+            backdropFilter: "blur(7px)",
+            WebkitBackdropFilter: "blur(7px)",
+          }}
+        >
+          <div
+            style={{
+              width: "min(520px, 100%)",
+              maxHeight: "min(720px, calc(100vh - 36px))",
+              background: "#ffffff",
+              borderRadius: 20,
+              border: "1px solid rgba(255,255,255,0.76)",
+              boxShadow: "0 28px 80px rgba(15,23,42,0.18), 0 5px 18px rgba(15,23,42,0.08)",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+              fontFamily: "var(--font-inter), Inter, system-ui, sans-serif",
+              animation: "gmDayReviewIn 0.2s cubic-bezier(0.4,0,0.2,1) both",
+            }}
+          >
+            <style>{`
+              @keyframes gmDayReviewIn {
+                from { opacity: 0; transform: scale(0.97) translateY(8px); }
+                to { opacity: 1; transform: scale(1) translateY(0); }
+              }
+            `}</style>
+
+            <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid rgba(15,23,42,0.06)" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>
+                    Tagesabschluss
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 750, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.92)", lineHeight: 1.1 }}>
+                    Zeiten prüfen
+                  </div>
+                  <div style={{ marginTop: 5, maxWidth: 360, fontSize: 11, lineHeight: 1.45, color: "rgba(15,23,42,0.45)", fontWeight: 500 }}>
+                    Kontrolliere deine Einträge. Marktbesuche, Pausen und Zusatzzeiten können hier korrigiert werden.
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <span style={{ height: 24, display: "inline-flex", alignItems: "center", padding: "0 8px", borderRadius: 999, background: "rgba(15,23,42,0.05)", fontSize: 9, fontWeight: 700, color: "rgba(15,23,42,0.48)" }}>
+                    {reviewSegments.length} Zeilen
+                  </span>
+                  <span style={{ height: 24, display: "inline-flex", alignItems: "center", padding: "0 8px", borderRadius: 999, background: reviewDirtyCount > 0 ? "rgba(220,38,38,0.08)" : "rgba(5,150,105,0.08)", fontSize: 9, fontWeight: 750, color: reviewDirtyCount > 0 ? "#DC2626" : "#059669" }}>
+                    {reviewDirtyCount > 0 ? `${reviewDirtyCount} geändert` : "unverändert"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ padding: "14px 18px", overflowY: "auto", background: "linear-gradient(180deg, rgba(15,23,42,0.018), rgba(15,23,42,0.006))" }}>
+              {reviewSegments.length === 0 ? (
+                <div style={{ minHeight: 160, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 14, background: "#fff", border: "1px solid rgba(15,23,42,0.05)" }}>
+                  <span style={{ fontSize: 11, color: "rgba(15,23,42,0.42)", fontWeight: 700 }}>Zeiten werden geladen...</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {reviewSegments.map((segment) => {
+                    const key = reviewSegmentKey(segment);
+                    const editable = isEditableReviewSegment(segment);
+                    const editableKind = reviewEditableKind(segment.kind);
+                    const editing = reviewEditingKey === key;
+                    const draft = reviewDrafts[key] ?? { startTime: segment.start, endTime: segment.end };
+                    const dirty = editable && (draft.startTime !== segment.start || draft.endTime !== segment.end);
+                    const canEditSoloDayBounds = segment.kind === "anfahrt" && !reviewHasHeimfahrtSegment && reviewSegments.length === 1;
+                    const showStartInput = editableKind !== "day_end";
+                    const showEndInput = editableKind !== "day_start" || canEditSoloDayBounds;
+                    const accent =
+                      segment.kind === "marktbesuch"
+                        ? "#DC2626"
+                        : segment.kind === "pause"
+                          ? "#D97706"
+                          : segment.kind === "zusatzzeit"
+                            ? "#4b5563"
+                            : "rgba(0,0,0,0.35)";
+                    return (
+                      <div
+                        key={`${key}-${segment.start}-${segment.end}`}
+                        style={{
+                          background: "#fff",
+                          borderRadius: 14,
+                          border: dirty ? "1px solid rgba(220,38,38,0.18)" : "1px solid rgba(15,23,42,0.055)",
+                          boxShadow: dirty ? "0 8px 22px rgba(220,38,38,0.08)" : "0 1px 5px rgba(15,23,42,0.035)",
+                          padding: "11px 12px",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                          <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 9 }}>
+                            <div style={{ width: 7, height: 7, borderRadius: 999, background: accent, flexShrink: 0, opacity: segment.kind === "fahrtzeit" ? 0.35 : 1, boxShadow: segment.kind === "marktbesuch" ? "0 0 0 3px rgba(220,38,38,0.07)" : "none" }} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 8, fontWeight: 750, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)", marginBottom: 2 }}>
+                                {timelineKindLabel(segment.kind)}
+                              </div>
+                              <div style={{ fontSize: 12, fontWeight: 750, color: "rgba(15,23,42,0.92)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {segment.title}
+                              </div>
+                              {segment.subtitle && (
+                                <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.38)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {segment.subtitle}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                            {!editing && (
+                              <div style={{ textAlign: "right" }}>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums" }}>
+                                  {dirty ? `${draft.startTime} - ${draft.endTime}` : `${segment.start} - ${segment.end}`}
+                                </div>
+                                <div style={{ marginTop: 1, fontSize: 9, fontWeight: 650, color: dirty ? "#DC2626" : "rgba(15,23,42,0.32)" }}>
+                                  {dirty ? "geändert" : `${segment.durationMin} Min`}
+                                </div>
+                              </div>
+                            )}
+                            {editable ? (
+                              <button
+                                onClick={() => setReviewEditingKey(editing ? null : key)}
+                                disabled={reviewSaving}
+                                aria-label={editing ? "Bearbeitung beenden" : "Zeit bearbeiten"}
+                                title={editing ? "Fertig" : "Bearbeiten"}
+                                style={{
+                                  width: 26,
+                                  height: 26,
+                                  padding: 0,
+                                  borderRadius: 7,
+                                  border: "none",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  background: editing ? "rgba(5,150,105,0.09)" : "linear-gradient(to bottom, #ffffff, #f4f4f5)",
+                                  boxShadow: editing
+                                    ? "inset 0 0 0 1px rgba(5,150,105,0.18)"
+                                    : "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(15,23,42,0.08), 0 1px 4px rgba(15,23,42,0.05)",
+                                  color: editing ? "#059669" : "rgba(0,0,0,0.54)",
+                                  cursor: reviewSaving ? "not-allowed" : "pointer",
+                                  fontSize: 9,
+                                  fontWeight: 750,
+                                  fontFamily: "inherit",
+                                }}
+                              >
+                                {editing ? <Check size={13} strokeWidth={2.4} /> : <PencilLine size={13} strokeWidth={2.1} />}
+                              </button>
+                            ) : (
+                              <span style={{ height: 24, display: "inline-flex", alignItems: "center", padding: "0 8px", borderRadius: 999, background: "rgba(15,23,42,0.04)", fontSize: 8, fontWeight: 750, color: "rgba(15,23,42,0.34)" }}>
+                                Berechnet
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {editing && (
+                          <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: showStartInput && showEndInput ? "1fr 1fr" : "1fr", gap: 8 }}>
+                            {showStartInput && (
+                              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                <span style={{ fontSize: 8, fontWeight: 750, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(15,23,42,0.34)" }}>
+                                  {editableKind === "day_start" ? "Tagesstart" : "Start"}
+                                </span>
+                                <input
+                                  value={draft.startTime}
+                                  onChange={(event) => updateReviewDraft(key, { startTime: formatHmDraft(event.target.value) })}
+                                  maxLength={5}
+                                  inputMode="numeric"
+                                  style={{ width: "100%", border: "1px solid rgba(15,23,42,0.06)", outline: "none", borderRadius: 9, background: "rgba(15,23,42,0.035)", padding: "9px 10px", fontSize: 13, fontWeight: 800, color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums", boxSizing: "border-box", fontFamily: "inherit" }}
+                                />
+                              </label>
+                            )}
+                            {showEndInput && (
+                              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                <span style={{ fontSize: 8, fontWeight: 750, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(15,23,42,0.34)" }}>
+                                  {editableKind === "day_end" || canEditSoloDayBounds ? "Tagesende" : "Ende"}
+                                </span>
+                                <input
+                                  value={draft.endTime}
+                                  onChange={(event) => updateReviewDraft(key, { endTime: formatHmDraft(event.target.value) })}
+                                  maxLength={5}
+                                  inputMode="numeric"
+                                  style={{ width: "100%", border: "1px solid rgba(15,23,42,0.06)", outline: "none", borderRadius: 9, background: "rgba(15,23,42,0.035)", padding: "9px 10px", fontSize: 13, fontWeight: 800, color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums", boxSizing: "border-box", fontFamily: "inherit" }}
+                                />
+                              </label>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "12px 18px 18px", borderTop: "1px solid rgba(15,23,42,0.06)", background: "#fff" }}>
+              {reviewError && (
+                <div style={{ marginBottom: 10, borderRadius: 12, padding: "9px 11px", background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", color: "#b91c1c", fontSize: 10, fontWeight: 750, lineHeight: 1.45 }}>
+                  {reviewError}
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ fontSize: 9, color: "rgba(15,23,42,0.36)", fontWeight: 700 }}>
+                  {reviewEditableCount} bearbeitbar - {reviewSegments.length - reviewEditableCount} berechnet
+                </div>
+                <button
+                  onClick={() => { void handleDayReviewSubmit(); }}
+                  disabled={reviewSaving || reviewSegments.length === 0}
+                  style={{
+                    minWidth: 138,
+                    height: 32,
+                    borderRadius: 7,
+                    border: "none",
+                    color: "#fff",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: "0.01em",
+                    background: reviewSaving || reviewSegments.length === 0 ? "rgba(15,23,42,0.10)" : "linear-gradient(to bottom, #DC2626, #e84040)",
+                    boxShadow: reviewSaving || reviewSegments.length === 0 ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
+                    cursor: reviewSaving || reviewSegments.length === 0 ? "not-allowed" : "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {reviewSaving ? "Speichert..." : "Tag abschließen"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ backgroundColor: "#ffffff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", padding: "20px", height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         {/* ── Start KM ─────────────────────────────────────────── */}
@@ -1233,10 +1683,17 @@ export function TimeTracker(_: TimeTrackerProps) {
         {phase === "daySummary" && daySummarySnapshot && (
           <div style={contentStyle}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "center" }}>
-              <div style={{ width: "100%", background: "rgba(5,150,105,0.07)", border: "1px solid rgba(5,150,105,0.22)", borderRadius: 14, overflow: "hidden" }}>
-                <div style={{ margin: "8px 8px 8px", background: "radial-gradient(ellipse 160% 90% at 50% -10%, rgba(5,150,105,0.18) 0%, rgba(255,255,255,1) 65%)", borderRadius: 10, border: "1px solid rgba(5,150,105,0.14)", boxShadow: "0 1px 6px rgba(5,150,105,0.07)", padding: "16px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: "#059669", letterSpacing: "-0.02em", marginBottom: 2 }}>Tag gespeichert</span>
-                  <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginBottom: 14, letterSpacing: "0.01em" }}>Deine Zeiterfassung wurde erfasst.</span>
+              <div style={{ width: "100%", background: "linear-gradient(145deg, rgba(5,150,105,0.12), rgba(16,185,129,0.06))", border: "1px solid rgba(5,150,105,0.22)", borderRadius: 14, overflow: "hidden", boxShadow: "0 10px 26px rgba(5,150,105,0.08)" }}>
+                <div style={{ margin: 8, background: "radial-gradient(ellipse 145% 110% at 50% -12%, rgba(16,185,129,0.24) 0%, rgba(255,255,255,0.98) 58%, rgba(240,253,244,0.92) 100%)", borderRadius: 11, border: "1px solid rgba(5,150,105,0.14)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72), 0 1px 6px rgba(5,150,105,0.07)", padding: "18px 16px 16px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+                  <span style={{ padding: "4px 9px", borderRadius: 999, background: "rgba(5,150,105,0.10)", color: "#059669", fontSize: 8, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+                    Tag gespeichert
+                  </span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: "rgba(15,23,42,0.92)", letterSpacing: "-0.025em", marginBottom: 4, lineHeight: 1.2 }}>
+                    Danke für deinen tollen Einsatz heute.
+                  </span>
+                  <span style={{ fontSize: 11, color: "rgba(15,23,42,0.48)", marginBottom: 14, lineHeight: 1.45, fontWeight: 600 }}>
+                    Schönen Abend noch, {gmFirstName}.
+                  </span>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, width: "100%", maxWidth: 200 }}>
                     <StatCell label="Gefahren" value={daySummarySnapshot.deltaKm.toLocaleString("de-AT")} unit="km" accent />
                     <StatCell label="Dauer"    value={fmtDuration(daySummarySnapshot.trackedSeconds)} />

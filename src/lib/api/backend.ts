@@ -2104,6 +2104,13 @@ export type TodaySubmissionsPayload = {
   } | null;
 };
 
+export type DaySessionReviewEdit = {
+  kind: "day_start" | "day_end" | "marktbesuch" | "pause" | "zusatzzeit";
+  segmentId: string;
+  startTime: string;
+  endTime: string;
+};
+
 export type AdminZeiterfassungAggregateRow = {
   gmId: string;
   gmName: string;
@@ -3529,6 +3536,16 @@ export async function submitDaySession(input?: { comment?: string }): Promise<{ 
     method: "POST",
     body: JSON.stringify({ comment: input?.comment }),
   })) as { session: DaySession };
+}
+
+export async function patchDaySessionReviewEdits(input: {
+  sessionId: string;
+  edits: DaySessionReviewEdit[];
+}): Promise<{ ok: true }> {
+  return (await authedFetch("/day-session/review-edits", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { ok: true };
 }
 
 export async function cancelDaySession(): Promise<{ session: DaySession }> {

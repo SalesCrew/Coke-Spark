@@ -14,7 +14,7 @@ import type { PraemienGmBonusSummary, PraemienQuarter, PraemienSourceRef } from 
 import type { ColumnMapping, ImportDatasetType, ImportSummary } from "@/utils/marketImport";
 import type { IppQuestionAuditRow } from "@/types/ipp";
 import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/lager";
-import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod } from "@/types/red-month";
+import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod, RedMonthYear } from "@/types/red-month";
 import { emitClientTelemetry } from "@/lib/clientTelemetry";
 import {
   LEGACY_AUTH_STORAGE_KEY,
@@ -170,20 +170,42 @@ type BackendCampaign = {
 
 type BackendRedMonthPeriod = {
   id: string;
+  redPeriodId?: string | null;
+  redMonthYearId?: string | null;
   label: string;
   periodIndexFromAnchor: number;
+  periodIndex?: number;
   start: string;
   end: string;
+  lookupEnd?: string;
   year: number;
+  status?: "draft" | "active" | "locked";
   isCurrent: boolean;
   daysUntilEnd: number;
 };
 
 type BackendRedMonthConfig = {
+  redMonthYearId?: string | null;
+  redYear?: number | null;
   anchorStart: string;
   cycleWeeks: number[];
+  periodCount?: number;
   timezone: string;
+  status?: "draft" | "active" | "locked";
   updatedAt: string | null;
+};
+
+type BackendRedMonthYear = {
+  id: string;
+  redMonthYearId?: string;
+  redYear: number;
+  anchorStart: string;
+  cycleWeeks: number[];
+  periodCount: number;
+  timezone: string;
+  status: "draft" | "active" | "locked";
+  createdAt: string;
+  updatedAt: string;
 };
 
 type BackendCampaignMarketVisitSummary = {
@@ -627,11 +649,16 @@ function normalizeLagerGmUserIds(input: { gmUserIds?: string[]; gmUserId?: strin
 function mapBackendRedMonthPeriod(period: BackendRedMonthPeriod): RedMonthPeriod {
   return {
     id: period.id,
+    redPeriodId: period.redPeriodId ?? period.id ?? null,
+    redMonthYearId: period.redMonthYearId ?? null,
     label: period.label,
     periodIndexFromAnchor: Number(period.periodIndexFromAnchor ?? 0),
+    periodIndex: Number(period.periodIndex ?? Number(period.periodIndexFromAnchor ?? 0) + 1),
     start: period.start,
     end: period.end,
+    lookupEnd: period.lookupEnd ?? period.end,
     year: Number(period.year ?? 0),
+    status: period.status ?? "active",
     isCurrent: Boolean(period.isCurrent),
     daysUntilEnd: Number(period.daysUntilEnd ?? 0),
   };
@@ -639,10 +666,29 @@ function mapBackendRedMonthPeriod(period: BackendRedMonthPeriod): RedMonthPeriod
 
 function mapBackendRedMonthConfig(config: BackendRedMonthConfig): RedMonthConfig {
   return {
+    redMonthYearId: config.redMonthYearId ?? null,
+    redYear: typeof config.redYear === "number" ? config.redYear : null,
     anchorStart: config.anchorStart,
     cycleWeeks: Array.isArray(config.cycleWeeks) ? config.cycleWeeks.map((entry) => Number(entry)).filter((entry) => Number.isFinite(entry) && entry > 0) : [],
+    periodCount: Number(config.periodCount ?? 13),
     timezone: config.timezone,
+    status: config.status ?? "active",
     updatedAt: config.updatedAt ?? null,
+  };
+}
+
+function mapBackendRedMonthYear(year: BackendRedMonthYear): RedMonthYear {
+  return {
+    id: year.id,
+    redMonthYearId: year.redMonthYearId ?? year.id,
+    redYear: Number(year.redYear ?? 0),
+    anchorStart: year.anchorStart,
+    cycleWeeks: Array.isArray(year.cycleWeeks) ? year.cycleWeeks.map((entry) => Number(entry)).filter((entry) => Number.isFinite(entry) && entry > 0) : [],
+    periodCount: Number(year.periodCount ?? 13),
+    timezone: year.timezone,
+    status: year.status,
+    createdAt: year.createdAt,
+    updatedAt: year.updatedAt,
   };
 }
 
@@ -3290,6 +3336,84 @@ export async function fetchRedMonthCalendar(input?: { from?: string; to?: string
     periods?: BackendRedMonthPeriod[];
   };
   return (data.periods ?? []).map(mapBackendRedMonthPeriod);
+}
+
+export async function fetchRedMonthYears(): Promise<{ years: RedMonthYear[]; current: RedMonthPeriod | null }> {
+  const data = (await authedFetch("/admin/red-month/years")) as {
+    years?: BackendRedMonthYear[];
+    current?: BackendRedMonthPeriod;
+  };
+  return {
+    years: (data.years ?? []).map(mapBackendRedMonthYear),
+    current: data.current ? mapBackendRedMonthPeriod(data.current) : null,
+  };
+}
+
+export async function previewRedMonthYear(input: {
+  redYear: number;
+  anchorStart: string;
+  cycleWeeks: number[];
+  periodCount: number;
+  timezone?: string;
+}): Promise<{ periods: RedMonthPeriod[] }> {
+  const data = (await authedFetch("/admin/red-month/years/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as {
+    periods?: BackendRedMonthPeriod[];
+  };
+  return {
+    periods: (data.periods ?? []).map(mapBackendRedMonthPeriod),
+  };
+}
+
+export async function createRedMonthYear(input: {
+  redYear: number;
+  anchorStart: string;
+  cycleWeeks: number[];
+  periodCount: number;
+  timezone?: string;
+  status?: "draft" | "active" | "locked";
+}): Promise<{ year: RedMonthYear; periods: RedMonthPeriod[] }> {
+  const data = (await authedFetch("/admin/red-month/years", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as {
+    year: BackendRedMonthYear;
+    periods?: BackendRedMonthPeriod[];
+  };
+  return {
+    year: mapBackendRedMonthYear(data.year),
+    periods: (data.periods ?? []).map(mapBackendRedMonthPeriod),
+  };
+}
+
+export async function updateRedMonthYear(id: string, input: {
+  anchorStart: string;
+  cycleWeeks: number[];
+  periodCount: number;
+  timezone?: string;
+}): Promise<{ year: RedMonthYear; periods: RedMonthPeriod[] }> {
+  const data = (await authedFetch(`/admin/red-month/years/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as {
+    year: BackendRedMonthYear;
+    periods?: BackendRedMonthPeriod[];
+  };
+  return {
+    year: mapBackendRedMonthYear(data.year),
+    periods: (data.periods ?? []).map(mapBackendRedMonthPeriod),
+  };
+}
+
+export async function activateRedMonthYear(id: string): Promise<RedMonthYear> {
+  const data = (await authedFetch(`/admin/red-month/years/${id}/activate`, {
+    method: "POST",
+  })) as {
+    year: BackendRedMonthYear;
+  };
+  return mapBackendRedMonthYear(data.year);
 }
 
 export async function updateRedMonthConfig(input: {

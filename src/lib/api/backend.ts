@@ -3482,6 +3482,13 @@ export async function endDayPause(): Promise<{ pause: DayPause }> {
   })) as { pause: DayPause };
 }
 
+export async function createManualDayPause(input: { startAt: string; endAt: string }): Promise<{ pause: DayPause }> {
+  return (await authedFetch("/day-session/pause/manual", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as { pause: DayPause };
+}
+
 export async function setDaySessionStartKm(km: number): Promise<{ session: DaySession }> {
   return (await authedFetch("/day-session/start-km", {
     method: "PATCH",

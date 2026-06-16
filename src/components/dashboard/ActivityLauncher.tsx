@@ -13,10 +13,12 @@ import {
   Warehouse,
   Route,
   BedDouble,
+  Coffee,
   Clock,
   ChevronLeft,
   Check,
   Search,
+  type LucideIcon,
 } from "lucide-react";
 import {
   fetchActiveGmVisitSession,
@@ -29,6 +31,7 @@ import {
   fetchGmFlexStartMarkets,
   startDayPause,
   endDayPause,
+  createManualDayPause,
   startTimeTrackingDraft,
   endTimeTrackingDraft,
   commentTimeTrackingDraft,
@@ -48,6 +51,14 @@ const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
 const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const CARD_MENU_SPACE = 80;
 const MIN_CARD_HEIGHT = 260;
+
+type ZusatzActivityKey = TimeTrackingActivityType | "pause";
+type ZusatzActivity = {
+  key: ZusatzActivityKey;
+  label: string;
+  icon: LucideIcon;
+  manualOnly?: boolean;
+};
 
 interface Market {
   id: string;
@@ -93,13 +104,14 @@ function mapRecordToLauncherMarket(record: MarketRecord): Market {
   };
 }
 
-const activities = [
+const activities: readonly ZusatzActivity[] = [
   { key: "sonderaufgabe", label: "Sonderaufgabe", icon: Star },
   { key: "arztbesuch", label: "Arztbesuch", icon: HeartPulse },
   { key: "werkstatt", label: "Werkstatt/Autoreinigung", icon: Wrench },
   { key: "homeoffice", label: "Homeoffice", icon: Home },
   { key: "schulung", label: "Schulung", icon: GraduationCap },
   { key: "lager", label: "Lager", icon: Warehouse },
+  { key: "pause", label: "Pause", icon: Coffee, manualOnly: true },
   { key: "heimfahrt", label: "Heimfahrt", icon: Route },
   { key: "hotel", label: "Hotelübernachtung", icon: BedDouble },
 ] as const;
@@ -342,12 +354,12 @@ function ClockPicker({ onSelect, onCancel }: ClockPickerProps) {
 // ── Accordion Row ─────────────────────────────────────────────
 
 interface AccordionRowProps {
-  activity: (typeof activities)[number];
+  activity: ZusatzActivity;
   isOpen: boolean;
   onToggle: () => void;
   isLast: boolean;
   onRequestClock: (target: "von" | "bis", onSelect: (h: number, m: number) => void) => void;
-  onManualSave: (input: { activityType: TimeTrackingActivityType; fromHm: string; toHm: string }) => Promise<void>;
+  onManualSave: (input: { activityType: ZusatzActivityKey; fromHm: string; toHm: string }) => Promise<void>;
   dayStarted: boolean;
   initialDraft?: TimeTrackingEntry | null;
   onRunningLockChange?: (activityKey: TimeTrackingActivityType, locked: boolean) => void;
@@ -365,7 +377,8 @@ function AccordionRow({
   onRunningLockChange,
 }: AccordionRowProps) {
   const Icon = activity.icon;
-  const [mode, setMode] = useState<"live" | "manual">("live");
+  const isManualOnly = activity.manualOnly === true;
+  const [mode, setMode] = useState<"live" | "manual">(isManualOnly ? "manual" : "live");
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -401,6 +414,7 @@ function AccordionRow({
 
   useEffect(() => {
     if (!isOpen) {
+      if (isManualOnly) setMode("manual");
       setRunning(false);
       setPaused(false);
       setSeconds(0);
@@ -415,9 +429,10 @@ function AccordionRow({
       setManualError(null);
       setManualSaved(false);
     }
-  }, [isOpen]);
+  }, [isManualOnly, isOpen]);
 
   useEffect(() => {
+    if (isManualOnly) return;
     if (!initialDraft || initialDraft.status !== "draft") return;
     setMode("live");
     setActiveDraftId(initialDraft.id);
@@ -440,12 +455,12 @@ function AccordionRow({
     setAwaitingLiveDecision(false);
     setLiveComment(initialDraft.comment ?? "");
     setLiveCommentDraft(initialDraft.comment ?? "");
-  }, [initialDraft]);
+  }, [initialDraft, isManualOnly]);
 
   useEffect(() => {
-    if (!onRunningLockChange) return;
+    if (!onRunningLockChange || isManualOnly || activity.key === "pause") return;
     onRunningLockChange(activity.key, running);
-  }, [activity.key, onRunningLockChange, running]);
+  }, [activity.key, isManualOnly, onRunningLockChange, running]);
 
   function formatTimeInput(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 4);
@@ -491,6 +506,7 @@ function AccordionRow({
   }
 
   async function handleLiveStart() {
+    if (isManualOnly || activity.key === "pause") return;
     if (isPersistingLive || running || awaitingLiveDecision) return;
     if (!dayStarted) {
       setLiveError("Bitte zuerst den Arbeitstag starten.");
@@ -648,7 +664,7 @@ function AccordionRow({
         <div ref={contentRef} style={{ padding: "6px 0 10px" }}>
           {/* Mode toggle */}
           <div className="flex gap-1.5" style={{ marginBottom: 10 }}>
-            {(["live", "manual"] as const).map((m) => (
+            {(isManualOnly ? (["manual"] as const) : (["live", "manual"] as const)).map((m) => (
               <button
                 key={m}
                 onClick={(e) => { e.stopPropagation(); setMode(m); }}
@@ -1196,7 +1212,7 @@ export function ActivityLauncher() {
   }, []);
 
   const handleManualSave = useCallback(async (input: {
-    activityType: TimeTrackingActivityType;
+    activityType: ZusatzActivityKey;
     fromHm: string;
     toHm: string;
   }) => {
@@ -1210,6 +1226,10 @@ export function ActivityLauncher() {
       const nextDay = new Date(now);
       nextDay.setDate(nextDay.getDate() + 1);
       endIso = toIsoForLocalTime(nextDay, input.toHm);
+    }
+    if (input.activityType === "pause") {
+      await createManualDayPause({ startAt: startIso, endAt: endIso });
+      return;
     }
     const token = `${input.activityType}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const started = await startTimeTrackingDraft({
@@ -1440,14 +1460,18 @@ export function ActivityLauncher() {
                 onRequestClock={handleRequestClock}
                 onManualSave={handleManualSave}
                 dayStarted={dayStarted}
-                initialDraft={activeDraftsByActivity[a.key] ?? null}
-                onRunningLockChange={(activityKey, locked) => {
-                  setLockedRunningActivity((prev) => {
-                    if (locked) return activityKey;
-                    if (prev === activityKey) return null;
-                    return prev;
-                  });
-                }}
+                initialDraft={a.key === "pause" ? null : activeDraftsByActivity[a.key] ?? null}
+                onRunningLockChange={
+                  a.key === "pause"
+                    ? undefined
+                    : (activityKey, locked) => {
+                        setLockedRunningActivity((prev) => {
+                          if (locked) return activityKey;
+                          if (prev === activityKey) return null;
+                          return prev;
+                        });
+                      }
+                }
               />
             ))}
           </div>

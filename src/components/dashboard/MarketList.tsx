@@ -17,6 +17,7 @@ import {
 import {
   fetchActiveGmVisitSession,
   fetchCurrentDaySession,
+  fetchLatestActiveGmVisitSession,
   fetchGmAssignedStartMarkets,
   fetchGmMarketDetail,
   fetchGmVisitSession,
@@ -27,9 +28,11 @@ import {
   type GmMarketDetailPayload,
   type GmMarketPastVisit,
   type GmStartMarket,
+  type GmVisitSessionPayload,
 } from "@/lib/api/backend";
 import { useRedMonth } from "@/context/RedMonthContext";
 import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
+import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import type { MarketRecord } from "@/types/markets";
 
 type MarketCampaignSummary = GmStartMarket["activeNowCampaigns"][number];
@@ -579,6 +582,8 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
   const [dayGateLoading, setDayGateLoading] = useState(true);
   const [isLaunching, setIsLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [blockedActiveVisit, setBlockedActiveVisit] = useState<GmVisitSessionPayload | null>(null);
+  const [blockedActiveOpening, setBlockedActiveOpening] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const daysLeft = current?.daysUntilEnd ?? 0;
@@ -712,6 +717,31 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
     );
   }, []);
 
+  const blockedActiveCampaignNames = useMemo(
+    () => Array.from(new Set((blockedActiveVisit?.sections ?? []).map((section) => section.campaignName).filter(Boolean))),
+    [blockedActiveVisit],
+  );
+
+  const openBlockedActiveVisit = useCallback(async () => {
+    if (!blockedActiveVisit || blockedActiveOpening) return;
+    setBlockedActiveOpening(true);
+    try {
+      const payload = await fetchGmVisitSession(blockedActiveVisit.session.id);
+      setGmVisitPreloadCache(payload);
+      const campaignIds = Array.from(new Set(payload.sections.map((section) => section.campaignId).filter(Boolean)));
+      const address = [
+        payload.market.address,
+        [payload.market.postalCode, payload.market.city].filter(Boolean).join(" "),
+      ].filter(Boolean).join(", ");
+      router.push(
+        `/gm/marktbesuch?chain=${encodeURIComponent(payload.market.name)}&address=${encodeURIComponent(address)}&marketId=${encodeURIComponent(payload.market.id)}&campaignIds=${encodeURIComponent(campaignIds.join(","))}&sessionId=${encodeURIComponent(payload.session.id)}`,
+      );
+    } catch {
+      setBlockedActiveOpening(false);
+      setLaunchError("Aktiver Fragebogen konnte nicht geoeffnet werden. Bitte erneut versuchen.");
+    }
+  }, [blockedActiveOpening, blockedActiveVisit, router]);
+
   const launchVisit = useCallback(
     async (market: Market, campaignIds: string[], sessionId?: string) => {
       if (!dayStarted) {
@@ -725,6 +755,7 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
 
       setIsLaunching(true);
       setLaunchError(null);
+      setBlockedActiveVisit(null);
       try {
         let sessionParam = "";
         if (sessionId) {
@@ -741,6 +772,12 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
             setGmVisitPreloadCache(payload);
             sessionParam = `&sessionId=${encodeURIComponent(activeVisit.session.id)}`;
           } else {
+            const latestActiveVisit = await fetchLatestActiveGmVisitSession();
+            if (latestActiveVisit.session?.id) {
+              setIsLaunching(false);
+              setBlockedActiveVisit(latestActiveVisit as GmVisitSessionPayload);
+              return;
+            }
             const payload = await fetchGmVisitStartPayload(market.id, campaignIds);
             setGmVisitStartPreloadCache({
               marketId: market.id,
@@ -1008,6 +1045,19 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
           onClose={closeDetail}
         />
       )}
+      <ActiveFragebogenBlockModal
+        open={Boolean(blockedActiveVisit)}
+        opening={blockedActiveOpening}
+        marketName={blockedActiveVisit?.market.name}
+        campaignNames={blockedActiveCampaignNames}
+        onClose={() => {
+          if (blockedActiveOpening) return;
+          setBlockedActiveVisit(null);
+        }}
+        onOpenActive={() => {
+          void openBlockedActiveVisit();
+        }}
+      />
     </div>
   );
 }

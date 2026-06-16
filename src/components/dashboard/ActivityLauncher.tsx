@@ -22,6 +22,7 @@ import {
   fetchActiveGmVisitSession,
   fetchCurrentDaySession,
   fetchActiveTimeTrackingDrafts,
+  fetchLatestActiveGmVisitSession,
   fetchGmVisitSession,
   fetchGmVisitStartPayload,
   fetchGmAssignedStartMarkets,
@@ -35,10 +36,12 @@ import {
   cancelTimeTrackingEntry,
   setGmVisitPreloadCache,
   setGmVisitStartPreloadCache,
+  type GmVisitSessionPayload,
   type TimeTrackingActivityType,
   type TimeTrackingEntry,
 } from "@/lib/api/backend";
 import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
+import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import type { MarketRecord } from "@/types/markets";
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
@@ -1061,6 +1064,8 @@ export function ActivityLauncher() {
   const [isLaunching, setIsLaunching] = useState(false);
   const [launchProgress, setLaunchProgress] = useState(0);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [blockedActiveVisit, setBlockedActiveVisit] = useState<GmVisitSessionPayload | null>(null);
+  const [blockedActiveOpening, setBlockedActiveOpening] = useState(false);
   const [cardMaxH, setCardMaxH] = useState<number | undefined>(undefined);
   const [clockHandler, setClockHandler] = useState<((h: number, m: number) => void) | null>(null);
   const [marketSearch, setMarketSearch] = useState("");
@@ -1240,6 +1245,31 @@ export function ActivityLauncher() {
     [marketListMode, selectedMarket],
   );
 
+  const blockedActiveCampaignNames = useMemo(
+    () => Array.from(new Set((blockedActiveVisit?.sections ?? []).map((section) => section.campaignName).filter(Boolean))),
+    [blockedActiveVisit],
+  );
+
+  const openBlockedActiveVisit = useCallback(async () => {
+    if (!blockedActiveVisit || blockedActiveOpening) return;
+    setBlockedActiveOpening(true);
+    try {
+      const payload = await fetchGmVisitSession(blockedActiveVisit.session.id);
+      setGmVisitPreloadCache(payload);
+      const campaignIds = Array.from(new Set(payload.sections.map((section) => section.campaignId).filter(Boolean)));
+      const address = [
+        payload.market.address,
+        [payload.market.postalCode, payload.market.city].filter(Boolean).join(" "),
+      ].filter(Boolean).join(", ");
+      router.push(
+        `/gm/marktbesuch?chain=${encodeURIComponent(payload.market.name)}&address=${encodeURIComponent(address)}&marketId=${encodeURIComponent(payload.market.id)}&campaignIds=${encodeURIComponent(campaignIds.join(","))}&sessionId=${encodeURIComponent(payload.session.id)}`,
+      );
+    } catch {
+      setBlockedActiveOpening(false);
+      setLaunchError("Aktiver Fragebogen konnte nicht geoeffnet werden. Bitte erneut versuchen.");
+    }
+  }, [blockedActiveOpening, blockedActiveVisit, router]);
+
   const handleConfirmSections = useCallback(() => {
     if (!selectedMarket || selectedSectionIds.length === 0 || isLaunching) return;
     const requestSeq = ++launchRequestSeqRef.current;
@@ -1247,6 +1277,7 @@ export function ActivityLauncher() {
     if (launchTimeoutRef.current) clearTimeout(launchTimeoutRef.current);
     setIsLaunching(true);
     setLaunchError(null);
+    setBlockedActiveVisit(null);
     setLaunchProgress(8);
 
     launchIntervalRef.current = setInterval(() => {
@@ -1266,6 +1297,18 @@ export function ActivityLauncher() {
           if (isStale()) return;
           setGmVisitPreloadCache(payload);
         } else {
+          const latestActiveVisit = await fetchLatestActiveGmVisitSession();
+          if (isStale()) return;
+          if (latestActiveVisit.session?.id) {
+            if (launchIntervalRef.current) {
+              clearInterval(launchIntervalRef.current);
+              launchIntervalRef.current = null;
+            }
+            setIsLaunching(false);
+            setLaunchProgress(0);
+            setBlockedActiveVisit(latestActiveVisit as GmVisitSessionPayload);
+            return;
+          }
           const payload = await fetchGmVisitStartPayload(selectedMarket.id, selectedSectionIds);
           if (isStale()) return;
           setGmVisitStartPreloadCache({
@@ -1872,6 +1915,19 @@ export function ActivityLauncher() {
           </div>
         </div>
       )}
+      <ActiveFragebogenBlockModal
+        open={Boolean(blockedActiveVisit)}
+        opening={blockedActiveOpening}
+        marketName={blockedActiveVisit?.market.name}
+        campaignNames={blockedActiveCampaignNames}
+        onClose={() => {
+          if (blockedActiveOpening) return;
+          setBlockedActiveVisit(null);
+        }}
+        onOpenActive={() => {
+          void openBlockedActiveVisit();
+        }}
+      />
     </div>
   );
 }

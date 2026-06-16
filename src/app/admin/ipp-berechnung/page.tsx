@@ -134,6 +134,33 @@ function buildYtdSummary(series: Map<string, IppMarketSeries>): IppAverageSummar
     totalMarkets: markets.length,
   };
 }
+
+function mapIppListRowToAuditRecord(row: AdminIppListRow): IppMarketAuditRecord {
+  return {
+    ...row,
+    questionRows: [],
+    sourceSubmissionCount: row.sourceSubmissionCount,
+    contributingQuestionCount: row.contributingQuestionCount,
+  };
+}
+
+function sortAuditRecords(records: IppMarketAuditRecord[]): IppMarketAuditRecord[] {
+  return [...records].sort((left, right) => {
+    if (left.redPeriodStart !== right.redPeriodStart) return right.redPeriodStart.localeCompare(left.redPeriodStart);
+    return left.marketName.localeCompare(right.marketName, "de");
+  });
+}
+
+function buildFilterOptionsFromRecords(records: IppMarketAuditRecord[]) {
+  const unique = (values: string[]) =>
+    Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)));
+  return {
+    regions: unique(records.map((record) => record.region)).sort((a, b) => a.localeCompare(b, "de")),
+    gms: unique(records.map((record) => record.gmName)).sort((a, b) => a.localeCompare(b, "de")),
+    chains: unique(records.map((record) => record.chain)).sort((a, b) => a.localeCompare(b, "de")),
+    redMonats: unique(records.map((record) => record.redMonatLabel)),
+  };
+}
 // ── Small UI helpers ──────────────────────────────────────────
 function SectionPill({ type }: { type: SectionType }) {
   const m = SECTION_META[type];
@@ -150,6 +177,33 @@ function StatTile({ label, value, color = "#1a1a1a", sub }: { label: string; val
       <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", whiteSpace: "nowrap" as const }}>{label}</span>
       <span style={{ fontSize: 17, fontWeight: 800, color, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{value}</span>
       {sub && <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", fontVariantNumeric: "tabular-nums" }}>{sub}</span>}
+    </div>
+  );
+}
+
+function IppInspectorDetailSkeleton() {
+  const shimmer: React.CSSProperties = {
+    backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.035) 25%, rgba(0,0,0,0.075) 37%, rgba(0,0,0,0.035) 63%)",
+    backgroundSize: "400% 100%",
+    animation: "ippSkeletonShimmer 1.25s ease-in-out infinite",
+    borderRadius: 8,
+  };
+  return (
+    <div style={{ paddingTop: 12, paddingBottom: 16 }}>
+      <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 8 }}>
+        Detailberechnung wird geladen
+      </div>
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div key={index} style={{ display: "grid", gridTemplateColumns: "52px 1fr 54px", gap: 12, padding: "9px 0", borderBottom: "1px solid rgba(0,0,0,0.035)", alignItems: "start" }}>
+          <div style={{ ...shimmer, width: 38, height: 14 }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ ...shimmer, height: 11, width: `${70 + (index % 3) * 8}%` }} />
+            <div style={{ ...shimmer, height: 9, width: "42%" }} />
+            <div style={{ ...shimmer, height: 12, width: "28%", borderRadius: 4 }} />
+          </div>
+          <div style={{ ...shimmer, height: 16, width: 44, justifySelf: "end" }} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -413,12 +467,14 @@ function MarketInspector({
   averageIppYtd,
   inspectorMonthLabel,
   onMonthChange,
+  isDetailLoading,
 }: {
   record: IppMarketAuditRecord | null;
   marketSeries: IppMarketSeries | null;
   averageIppYtd: number;
   inspectorMonthLabel: string | null;
   onMonthChange: (label: string) => void;
+  isDetailLoading?: boolean;
 }) {
   const [ignoredOpen, setIgnoredOpen] = useState(false);
 
@@ -439,6 +495,8 @@ function MarketInspector({
   const counted   = record.questionRows.filter(r => r.counted && r.appliedIppValue > 0);
   const ignored   = record.questionRows.filter(r => !r.counted || r.appliedIppValue === 0);
   const deduped   = record.questionRows.filter(r => r.deduped).length;
+  const hasQuestionRows = record.questionRows.length > 0;
+  const countedDisplayCount = hasQuestionRows ? counted.length : record.contributingQuestionCount ?? 0;
   const ci        = chainInitials(record.chain);
   const sections = collectSections(record);
   const frageOgen = collectFragebogenNames(record);
@@ -519,7 +577,9 @@ function MarketInspector({
           )}
           {sections.map(s => <SectionPill key={s} type={s} />)}
           <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)" }}>
-            {frageOgen.length} {frageOgen.length === 1 ? "Fragebogen" : "Fragebögen"} · {record.questionRows.length} IPP-relevante Fragen
+            {isDetailLoading && !hasQuestionRows
+              ? "Detailberechnung wird geladen..."
+              : `${frageOgen.length} ${frageOgen.length === 1 ? "Fragebogen" : "Fragebögen"} · ${record.questionRows.length} IPP-relevante Fragen`}
           </span>
         </div>
       </div>
@@ -529,7 +589,7 @@ function MarketInspector({
         <div style={{ display: "flex", gap: 6, background: "rgba(0,0,0,0.022)", border: "1px solid rgba(0,0,0,0.055)", borderRadius: 9, padding: 5 }}>
           <StatTile label="Dieser Monat" value={fmtIpp(record.marketIpp)} color={record.includedInAverage ? GREEN : "rgba(0,0,0,0.35)"} sub={activeMonth} />
           <StatTile label="YTD Ø" value={fmtIpp(averageIppYtd)} color={averageIppYtd > 0 ? GREEN : "rgba(0,0,0,0.3)"} sub={marketSeries ? `${marketSeries.includedMonthCount} Monate` : "—"} />
-          <StatTile label="Gezählt" value={String(counted.length)} color="#1a1a1a" sub={`${fmtIpp(counted.reduce((s, r) => s + r.appliedIppValue, 0))} Punkte`} />
+          <StatTile label="Gezählt" value={String(countedDisplayCount)} color="#1a1a1a" sub={hasQuestionRows ? `${fmtIpp(counted.reduce((s, r) => s + r.appliedIppValue, 0))} Punkte` : "lädt Details"} />
           <StatTile label="Kein IPP / 0" value={String(ignored.length)} color="rgba(0,0,0,0.38)" />
           <StatTile label="Dedupl." value={String(deduped)} color={deduped > 0 ? "#D97706" : "rgba(0,0,0,0.35)"} sub={deduped > 0 ? "zusammengeführt" : "keine"} />
           <StatTile label="Sektionen" value={String(sections.length)} color="#374151" />
@@ -538,6 +598,7 @@ function MarketInspector({
 
       {/* Question audit list */}
       <div className="map-scroll" style={{ flex: 1, overflowY: "auto", padding: "0 20px" }}>
+        {isDetailLoading && !hasQuestionRows && <IppInspectorDetailSkeleton />}
 
         {/* Counted contributions */}
         {counted.length > 0 && (
@@ -652,6 +713,7 @@ export default function IppBerechnungPage() {
   const [filterMonat,  setFilterMonat]  = useState<string | null>(null);
   const [allAuditRecords, setAllAuditRecords] = useState<IppMarketAuditRecord[]>([]);
   const [detailCache, setDetailCache] = useState<Map<string, IppMarketAuditRecord>>(new Map());
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<{
     regions: string[];
     gms: string[];
@@ -668,15 +730,7 @@ export default function IppBerechnungPage() {
     fetchAdminIppRows()
       .then((payload) => {
         if (!mounted) return;
-        setFilterOptions(payload.filters);
-        setAllAuditRecords(
-          payload.rows.map((row: AdminIppListRow) => ({
-            ...row,
-            questionRows: [],
-            sourceSubmissionCount: row.sourceSubmissionCount,
-            contributingQuestionCount: row.contributingQuestionCount,
-          })),
-        );
+        setAllAuditRecords(sortAuditRecords(payload.rows.map(mapIppListRowToAuditRecord)));
       })
       .catch((error: unknown) => {
         if (!mounted) return;
@@ -691,6 +745,10 @@ export default function IppBerechnungPage() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    setFilterOptions(buildFilterOptionsFromRecords(allAuditRecords));
+  }, [allAuditRecords]);
 
   const hasFilters = !!(search || filterRegion || filterGm || filterChain || filterMonat);
 
@@ -746,17 +804,22 @@ export default function IppBerechnungPage() {
   const ensureDetailLoaded = useCallback(async (record: IppMarketAuditRecord) => {
     const cached = detailCache.get(record.id);
     if (cached && cached.questionRows.length > 0) return;
-    const detail = await fetchAdminIppDetail(record.marketId, record.redPeriodStart);
-    const hydrated: IppMarketAuditRecord = {
-      ...detail,
-      questionRows: detail.questionRows,
-      sourceSubmissionCount: detail.sourceSubmissionCount,
-      contributingQuestionCount: detail.contributingQuestionCount,
-    };
-    setDetailCache((prev) => new Map(prev).set(record.id, hydrated));
-    setAllAuditRecords((prev) =>
-      prev.map((row) => (row.id === record.id ? { ...row, ...hydrated } : row)),
-    );
+    setDetailLoadingId(record.id);
+    try {
+      const detail = await fetchAdminIppDetail(record.marketId, record.redPeriodStart);
+      const hydrated: IppMarketAuditRecord = {
+        ...detail,
+        questionRows: detail.questionRows,
+        sourceSubmissionCount: detail.sourceSubmissionCount,
+        contributingQuestionCount: detail.contributingQuestionCount,
+      };
+      setDetailCache((prev) => new Map(prev).set(record.id, hydrated));
+      setAllAuditRecords((prev) =>
+        prev.map((row) => (row.id === record.id ? { ...row, ...hydrated } : row)),
+      );
+    } finally {
+      setDetailLoadingId((current) => (current === record.id ? null : current));
+    }
   }, [detailCache]);
 
   useEffect(() => {
@@ -780,6 +843,10 @@ export default function IppBerechnungPage() {
         .ipp-main { animation: ippFadeIn 0.25s ease both; }
         @keyframes inspFade { from { opacity:0 } to { opacity:1 } }
         .ipp-insp { animation: inspFade 0.18s ease both; }
+        @keyframes ippSkeletonShimmer {
+          0% { background-position: 100% 0; }
+          100% { background-position: 0 0; }
+        }
       `}</style>
 
       {loadError && (
@@ -958,6 +1025,7 @@ export default function IppBerechnungPage() {
                 averageIppYtd={selectedMarketSeries?.averageIppYtd ?? 0}
                 inspectorMonthLabel={inspectorMonthLabel ?? selectedRecord?.redMonatLabel ?? null}
                 onMonthChange={(label) => setInspectorMonthLabel(label)}
+                isDetailLoading={Boolean(inspectorRecordRaw && detailLoadingId === inspectorRecordRaw.id)}
               />
             </div>
           </div>

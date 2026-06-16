@@ -109,12 +109,25 @@ function RegionBadge({ region }: { region: string }) {
 }
 
 // ── GM Card ───────────────────────────────────────────────────
-function GMCard({ gm, isNew, onClick, active }: { gm: GMRecord; isNew?: boolean; onClick: () => void; active?: boolean }) {
+function GMCard({
+  gm,
+  isNew,
+  onClick,
+  onContextMenu,
+  active,
+}: {
+  gm: GMRecord;
+  isNew?: boolean;
+  onClick: () => void;
+  onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  active?: boolean;
+}) {
   const av = avatarColor(gm);
   const hasIppData = (gm.ippSampleCount ?? 0) > 0;
   return (
     <div
       onClick={onClick}
+      onContextMenu={onContextMenu}
       style={{
         background: active ? "rgba(220,38,38,0.03)" : "rgba(0,0,0,0.025)",
         border: active ? `1px solid rgba(220,38,38,0.25)` : "1px solid rgba(0,0,0,0.07)",
@@ -138,7 +151,22 @@ function GMCard({ gm, isNew, onClick, active }: { gm: GMRecord; isNew?: boolean;
             <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>Gebietsmanager</div>
           </div>
         </div>
-        <RegionBadge region={gm.region} />
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
+          {gm.isBillaGm && (
+            <span
+              title="Billa-Flexfilter aktiv"
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: 999,
+                background: "#2563eb",
+                boxShadow: "0 0 0 3px rgba(37,99,235,0.10)",
+                flexShrink: 0,
+              }}
+            />
+          )}
+          <RegionBadge region={gm.region} />
+        </div>
       </div>
       <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
         <div style={{ padding: "16px 16px 12px", textAlign: "center", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
@@ -800,7 +828,10 @@ export default function GebietsmanagerPage() {
   const [newId, setNewId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ gmId: string; x: number; y: number } | null>(null);
+  const [billaToggleBusyId, setBillaToggleBusyId] = useState<string | null>(null);
   const selectedGm = gms.find(g => g.id === selectedId) ?? null;
+  const contextMenuGm = contextMenu ? gms.find((gm) => gm.id === contextMenu.gmId) ?? null : null;
 
   useEffect(() => {
     setLoading(true);
@@ -842,6 +873,20 @@ export default function GebietsmanagerPage() {
     return () => window.removeEventListener("gebietsmanager:openCreate", handler);
   }, []);
 
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [contextMenu]);
+
   const handleCreate = useCallback(async (form: FormState) => {
     const created = await createGmUser({
       firstName: form.firstName,
@@ -870,6 +915,22 @@ export default function GebietsmanagerPage() {
       setBackendError(msg);
     }
   }, []);
+
+  const handleToggleBillaGm = useCallback(async (gm: GMRecord) => {
+    if (billaToggleBusyId) return;
+    setBillaToggleBusyId(gm.id);
+    setContextMenu(null);
+    try {
+      const saved = await updateGmUser({ ...gm, isBillaGm: !gm.isBillaGm });
+      setGms((prev) => prev.map((entry) => (entry.id === saved.id ? { ...saved, password: entry.password } : entry)));
+      setBackendError(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Billa-Filter konnte nicht gespeichert werden.";
+      setBackendError(msg);
+    } finally {
+      setBillaToggleBusyId(null);
+    }
+  }, [billaToggleBusyId]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -909,6 +970,11 @@ export default function GebietsmanagerPage() {
                     key={gm.id} gm={gm} isNew={gm.id === newId}
                     active={gm.id === selectedId}
                     onClick={() => setSelectedId(selectedId === gm.id ? null : gm.id)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setContextMenu({ gmId: gm.id, x: event.clientX, y: event.clientY });
+                    }}
                   />
                 ))}
               </div>
@@ -919,6 +985,62 @@ export default function GebietsmanagerPage() {
 
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
       {selectedGm && <GMDetailDrawer gm={selectedGm} onClose={() => setSelectedId(null)} onSave={handleSave} visits={visits} />}
+      {contextMenu && contextMenuGm && createPortal(
+        <div
+          onClick={(event) => event.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: Math.min(contextMenu.x, Math.max(12, window.innerWidth - 210)),
+            top: Math.min(contextMenu.y, Math.max(12, window.innerHeight - 64)),
+            zIndex: 9999,
+            width: 198,
+            borderRadius: 11,
+            background: "#fff",
+            border: "1px solid rgba(0,0,0,0.06)",
+            boxShadow: "0 12px 34px rgba(15,23,42,0.14), 0 2px 8px rgba(0,0,0,0.06)",
+            padding: 5,
+            fontFamily: "inherit",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => { void handleToggleBillaGm(contextMenuGm); }}
+            disabled={billaToggleBusyId === contextMenuGm.id}
+            style={{
+              width: "100%",
+              height: 34,
+              border: "none",
+              borderRadius: 8,
+              background: "transparent",
+              color: "#111827",
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              padding: "0 9px",
+              cursor: billaToggleBusyId === contextMenuGm.id ? "wait" : "pointer",
+              fontFamily: "inherit",
+              fontSize: 11,
+              fontWeight: 700,
+              textAlign: "left",
+            }}
+            onMouseEnter={(event) => { event.currentTarget.style.background = "rgba(37,99,235,0.06)"; }}
+            onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: "#2563eb",
+                boxShadow: "0 0 0 3px rgba(37,99,235,0.10)",
+                flexShrink: 0,
+              }}
+            />
+            {contextMenuGm.isBillaGm ? "Billa-Filter entfernen" : "Billa-Filter setzen"}
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

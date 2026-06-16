@@ -10,6 +10,7 @@ export interface GMRecord {
   region: string;
   ipp: number;
   ippSampleCount?: number;
+  isBillaGm?: boolean;
   createdAt: string;
   password?: string;
 }

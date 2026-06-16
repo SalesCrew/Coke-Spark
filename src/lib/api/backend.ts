@@ -58,6 +58,7 @@ type BackendUser = {
   city?: string | null;
   postalCode?: string | null;
   region?: string | null;
+  isBillaGm?: boolean | null;
   ipp?: number | null;
   ippSampleCount?: number | null;
   createdAt?: string;
@@ -422,6 +423,7 @@ function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): 
     city: user.city ?? "",
     postalCode: user.postalCode ?? "",
     region: user.region ?? "",
+    isBillaGm: Boolean(user.isBillaGm ?? false),
     ipp: Number.isFinite(ippValue) ? ippValue : 0,
     ippSampleCount: Number.isFinite(ippSampleCountValue) && ippSampleCountValue > 0 ? Math.trunc(ippSampleCountValue) : 0,
     createdAt: user.createdAt ?? new Date().toISOString(),
@@ -1474,6 +1476,7 @@ export async function createGmUser(
       city: payload.city,
       postalCode: payload.postalCode,
       region: payload.region,
+      isBillaGm: Boolean(payload.isBillaGm ?? false),
       ipp: payload.ipp,
     }),
   })) as { user: BackendUser; oneTimePassword?: string };
@@ -1494,6 +1497,7 @@ export async function updateGmUser(payload: GMRecord): Promise<GMRecord> {
       city: payload.city,
       postalCode: payload.postalCode,
       region: payload.region,
+      isBillaGm: Boolean(payload.isBillaGm ?? false),
       ipp: payload.ipp,
     }),
   })) as { user: BackendUser };

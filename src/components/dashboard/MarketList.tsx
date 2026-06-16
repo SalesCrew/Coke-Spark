@@ -881,13 +881,27 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
 
                 <div className="min-w-0 flex-1">
                   {revealedId === m.id && m.nextSM ? (
-                    <span className="block text-[10px] font-medium truncate" style={{ color: "#DC2626" }} title={`Naechster SM: ${m.nextSM}`}>
-                      Naechster SM: {m.nextSM}
-                    </span>
+                    <>
+                      <span className="block text-[10px] font-medium truncate" style={{ color: "#DC2626" }} title={`Naechster SM: ${m.nextSM}`}>
+                        Naechster SM: {m.nextSM}
+                      </span>
+                      {m.address && (
+                        <span className="block text-[9px] font-medium truncate" style={{ color: "rgba(15,23,42,0.34)", marginTop: 1 }} title={m.address}>
+                          {m.address}
+                        </span>
+                      )}
+                    </>
                   ) : (
-                    <span className="block text-[10px] font-medium text-gray-600 truncate" title={m.name}>
-                      {m.name}
-                    </span>
+                    <>
+                      <span className="block text-[10px] font-medium text-gray-600 truncate" title={m.name}>
+                        {m.name}
+                      </span>
+                      {m.address && (
+                        <span className="block text-[9px] font-medium truncate" style={{ color: "rgba(15,23,42,0.34)", marginTop: 1 }} title={m.address}>
+                          {m.address}
+                        </span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

@@ -5483,7 +5483,7 @@ const MarketRow = React.memo(function MarketRow({
     <div
       onClick={clickable ? onClick : undefined}
       style={{
-        display: "flex", alignItems: "center", padding: "9px 14px",
+        display: "flex", alignItems: "center", padding: "10px 14px",
         borderBottom: "1px solid rgba(0,0,0,0.04)", gap: 10,
         cursor: clickable ? "pointer" : "default",
         transition: "background 0.12s ease",
@@ -5521,33 +5521,38 @@ const MarketRow = React.memo(function MarketRow({
         <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, backgroundColor: dotColor }} />
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ fontSize: 12, fontWeight: 650, color: "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {market.name}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, marginTop: 1 }}>
-          <span style={{ flex: 1, minWidth: 0, fontSize: 10, color: "rgba(0,0,0,0.4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ display: "flex", alignItems: "center", minWidth: 0, marginTop: 4 }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 520, color: "rgba(0,0,0,0.46)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {market.address}
           </span>
-          {market.stammnr && (
-            <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.46)", padding: "1px 6px", borderRadius: 999, background: "rgba(0,0,0,0.04)" }}>
-              St-Nr. {market.stammnr}
-            </span>
-          )}
         </div>
       </div>
-      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", fontWeight: 400 }}>{market.city}</span>
+      <span style={{ width: 112, flexShrink: 0, textAlign: "right", fontSize: 10, color: "rgba(0,0,0,0.42)", fontWeight: 600, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+        {market.stammnr || "-"}
+      </span>
+      <span style={{ width: 150, flexShrink: 0, textAlign: "right", fontSize: 10, color: "rgba(0,0,0,0.35)", fontWeight: 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {market.city}
+      </span>
       {statusLoading ? (
-        <span
-          className="fbm-inline-skeleton"
-          style={{ width: 58, height: 17, borderRadius: 20, display: "inline-block" }}
-        />
+        <span style={{ width: 86, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+          <span
+            className="fbm-inline-skeleton"
+            style={{ width: 58, height: 17, borderRadius: 20, display: "inline-block" }}
+          />
+        </span>
       ) : (
-        <span style={{
-          fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
-          backgroundColor: badgeBackground,
-          color: badgeColor,
-        }}>
-          {badgeLabel}
+        <span style={{ width: 86, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+          <span style={{
+            fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+            backgroundColor: badgeBackground,
+            color: badgeColor,
+            whiteSpace: "nowrap",
+          }}>
+            {badgeLabel}
+          </span>
         </span>
       )}
     </div>

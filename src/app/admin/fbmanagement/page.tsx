@@ -3,10 +3,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle, ListPlus } from "lucide-react";
+import { ArrowRightLeft, Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle, ListPlus } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
 import type { Campaign, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { ConditionalRule, Fragebogen, Module, Question } from "@/types/fragebogen";
+import type { GMRecord } from "@/types/gebietsmanager";
 import {
   BackendApiError,
   assignCampaignMarketAssignments,
@@ -16,12 +17,14 @@ import {
   fetchCampaignMarketVisitStatuses,
   fetchCampaigns,
   fetchFragebogen,
+  fetchGmUsers,
   fetchMarkets,
   fetchModules,
   getCampaignOverlapConflicts,
   hardDeleteCampaign,
   migrateCampaignMarkets,
   patchCampaignVisitAnswer,
+  reassignCampaignGms,
   removeCampaignMarket,
   switchCampaignFragebogen,
 } from "@/lib/api/backend";
@@ -60,6 +63,18 @@ type CampaignContextMenuState = {
 type CampaignDeleteDialogState = {
   campaignId: string;
   mode: "soft" | "hard";
+};
+
+type CampaignReassignDialogState = {
+  campaignId: string;
+};
+
+type CampaignGmReassignGroup = {
+  gmUserId: string;
+  gmName: string;
+  marketCount: number;
+  visitTargetCount: number;
+  completedCount: number;
 };
 
 // ── Static UI helpers ─────────────────────────────────────────
@@ -158,6 +173,51 @@ function getMarketDisplayName(input: {
   const place = [input.postalCode?.trim(), input.city?.trim()].filter(Boolean).join(" ");
   const fallback = [address, place].filter(Boolean).join(", ");
   return fallback || "Unbenannter Markt";
+}
+
+function getGmDisplayName(gm: Pick<GMRecord, "firstName" | "lastName" | "email">): string {
+  const name = `${gm.firstName ?? ""} ${gm.lastName ?? ""}`.trim();
+  return name || gm.email;
+}
+
+function getCampaignGmReassignGroups(campaign: Campaign | null, gmUsers: GMRecord[]): CampaignGmReassignGroup[] {
+  if (!campaign) return [];
+  const gmNameById = new Map(gmUsers.map((gm) => [gm.id, getGmDisplayName(gm)]));
+  const groups = new Map<
+    string,
+    {
+      gmUserId: string;
+      gmName: string;
+      marketIds: Set<string>;
+      visitTargetCount: number;
+      completedCount: number;
+    }
+  >();
+
+  for (const assignment of campaign.assignments ?? []) {
+    if (!assignment.gmUserId) continue;
+    const current = groups.get(assignment.gmUserId) ?? {
+      gmUserId: assignment.gmUserId,
+      gmName: gmNameById.get(assignment.gmUserId) ?? assignment.gmName ?? "Unbekannter GM",
+      marketIds: new Set<string>(),
+      visitTargetCount: 0,
+      completedCount: 0,
+    };
+    current.marketIds.add(assignment.marketId);
+    current.visitTargetCount += Math.max(1, Number(assignment.visitTargetCount ?? 1));
+    current.completedCount += Math.max(0, Number(assignment.currentVisitsCount ?? 0));
+    groups.set(assignment.gmUserId, current);
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      gmUserId: group.gmUserId,
+      gmName: group.gmName,
+      marketCount: group.marketIds.size,
+      visitTargetCount: group.visitTargetCount,
+      completedCount: group.completedCount,
+    }))
+    .sort((a, b) => a.gmName.localeCompare(b.gmName, "de"));
 }
 
 // Keep a thin alias so MOCK_MARKET_META still resolves cleanly
@@ -4846,6 +4906,412 @@ function MarketVisitDetail({
 
 // ── Region progress bar ───────────────────────────────────────
 
+function CampaignReassignModal({
+  campaign,
+  groups,
+  gmUsers,
+  values,
+  loadingGms,
+  gmUsersError,
+  submitting,
+  changedCount,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  campaign: Campaign;
+  groups: CampaignGmReassignGroup[];
+  gmUsers: GMRecord[];
+  values: Record<string, string>;
+  loadingGms: boolean;
+  gmUsersError: string | null;
+  submitting: boolean;
+  changedCount: number;
+  onChange: (sourceGmUserId: string, targetGmUserId: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const [openSourceId, setOpenSourceId] = useState<string | null>(null);
+  const totalMarkets = groups.reduce((sum, group) => sum + group.marketCount, 0);
+  const totalTargets = groups.reduce((sum, group) => sum + group.visitTargetCount, 0);
+  const sortedGmUsers = useMemo(
+    () => [...gmUsers].sort((a, b) => getGmDisplayName(a).localeCompare(getGmDisplayName(b), "de")),
+    [gmUsers],
+  );
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9900,
+        background: "rgba(15,23,42,0.28)",
+        backdropFilter: "blur(8px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 22,
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(720px, 96vw)",
+          maxHeight: "86vh",
+          display: "flex",
+          flexDirection: "column",
+          borderRadius: 14,
+          background: "#fff",
+          border: "1px solid rgba(0,0,0,0.075)",
+          boxShadow: "0 24px 70px rgba(15,23,42,0.18), 0 2px 8px rgba(15,23,42,0.06)",
+          overflow: "hidden",
+          fontFamily: "inherit",
+          color: "#1a1a1a",
+        }}
+      >
+        <div style={{ padding: "18px 18px 15px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", gap: 14, alignItems: "flex-start", background: "#fff" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.30)" }}>
+              Kampagne umtauschen
+            </div>
+            <div style={{ marginTop: 6, fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em", color: "#1a1a1a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.25 }}>
+              {campaign.name}
+            </div>
+            <div style={{ marginTop: 5, fontSize: 10.5, fontWeight: 500, lineHeight: 1.45, color: "rgba(0,0,0,0.46)" }}>
+              Märkte werden je GM vollständig an den ausgewählten neuen GM übergeben.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <MiniMetric label="GMs" value={groups.length.toLocaleString("de-AT")} />
+            <MiniMetric label="Märkte" value={totalMarkets.toLocaleString("de-AT")} />
+            <MiniMetric label="Ziel-Visits" value={totalTargets.toLocaleString("de-AT")} />
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 7,
+              border: "none",
+              background: "rgba(0,0,0,0.05)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: submitting ? "not-allowed" : "pointer",
+              color: "rgba(0,0,0,0.45)",
+              flexShrink: 0,
+              boxShadow: "none",
+              transition: "all 0.12s",
+            }}
+            onMouseEnter={(event) => { if (!submitting) event.currentTarget.style.background = "rgba(0,0,0,0.09)"; }}
+            onMouseLeave={(event) => { event.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
+          >
+            <X size={12} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        <div style={{ padding: "14px 16px", overflowY: "auto", background: "#fff" }}>
+          {gmUsersError && (
+            <div style={{ marginBottom: 10, padding: "9px 10px", borderRadius: 9, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.055)", color: "#b91c1c", fontSize: 11, fontWeight: 700 }}>
+              {gmUsersError}
+            </div>
+          )}
+          {groups.length === 0 ? (
+            <div style={{ borderRadius: 10, border: "1px solid rgba(0,0,0,0.07)", background: "rgba(0,0,0,0.015)", padding: "26px 18px", textAlign: "center" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a" }}>Keine GM-Zuordnungen</div>
+              <div style={{ marginTop: 4, fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.44)" }}>Diese Kampagne hat aktuell keine Märkte mit GM-Zuweisung.</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {groups.map((group) => {
+                const value = values[group.gmUserId] ?? group.gmUserId;
+                const changed = value !== group.gmUserId;
+                return (
+                  <div
+                    key={group.gmUserId}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(0,1fr) 132px 250px",
+                      gap: 12,
+                      alignItems: "center",
+                      borderRadius: 10,
+                      border: changed ? "1px solid rgba(220,38,38,0.22)" : "1px solid rgba(0,0,0,0.065)",
+                      background: changed ? "rgba(220,38,38,0.025)" : "rgba(0,0,0,0.012)",
+                      padding: "10px 10px",
+                      boxShadow: changed ? "inset 2px 0 0 rgba(220,38,38,0.72)" : "none",
+                    }}
+                  >
+                    <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(220,38,38,0.08)", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, letterSpacing: "0.02em", flexShrink: 0 }}>
+                        {group.gmName.split(/\s+/).map((part) => part[0] ?? "").join("").slice(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {group.gmName}
+                        </div>
+                        <div style={{ marginTop: 2, fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.38)" }}>
+                          bisheriger Gebietsmanager
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", fontVariantNumeric: "tabular-nums" }}>
+                        {group.marketCount.toLocaleString("de-AT")} {group.marketCount === 1 ? "Markt" : "Märkte"}
+                      </div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.38)", fontVariantNumeric: "tabular-nums" }}>
+                        {group.visitTargetCount.toLocaleString("de-AT")} Ziel-Visits
+                        {group.completedCount > 0 ? ` · ${group.completedCount.toLocaleString("de-AT")} erledigt` : ""}
+                      </div>
+                    </div>
+
+                    <GmReassignSelect
+                      sourceGmName={group.gmName}
+                      value={value}
+                      gmUsers={sortedGmUsers}
+                      open={openSourceId === group.gmUserId}
+                      disabled={loadingGms || submitting || sortedGmUsers.length === 0}
+                      loading={loadingGms}
+                      onToggle={() => setOpenSourceId((current) => (current === group.gmUserId ? null : group.gmUserId))}
+                      onSelect={(nextId) => {
+                        onChange(group.gmUserId, nextId);
+                        setOpenSourceId(null);
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: "12px 16px 16px", borderTop: "1px solid rgba(0,0,0,0.06)", background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: changedCount > 0 ? "#DC2626" : "rgba(0,0,0,0.36)" }}>
+            {changedCount > 0 ? `${changedCount} Änderung${changedCount === 1 ? "" : "en"} vorbereitet` : "Keine Änderung ausgewählt"}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              style={{
+                height: 34,
+                padding: "0 14px",
+                borderRadius: 8,
+                border: "1px solid rgba(0,0,0,0.10)",
+                background: "linear-gradient(to bottom,#fff,#f7f7f8)",
+                color: "rgba(0,0,0,0.58)",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: submitting ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.08),0 1px 4px rgba(0,0,0,0.06)",
+              }}
+            >
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={submitting || changedCount === 0 || loadingGms}
+              style={{
+                height: 34,
+                minWidth: 126,
+                padding: "0 16px",
+                borderRadius: 8,
+                border: "none",
+                background: submitting || changedCount === 0 || loadingGms
+                  ? "rgba(0,0,0,0.12)"
+                  : "linear-gradient(to bottom,#DC2626,#b91c1c)",
+                color: submitting || changedCount === 0 || loadingGms ? "rgba(0,0,0,0.28)" : "#fff",
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: submitting || changedCount === 0 || loadingGms ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+                boxShadow: submitting || changedCount === 0 || loadingGms
+                  ? "none"
+                  : "inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)",
+                transition: "all 0.15s",
+              }}
+            >
+              {submitting ? "Speichert..." : "Bestätigen"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ minWidth: 68, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.07)", background: "linear-gradient(to bottom,#fff,#f8f8f8)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 1px 3px rgba(0,0,0,0.04)" }}>
+      <div style={{ fontSize: 7.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(0,0,0,0.30)" }}>{label}</div>
+      <div style={{ marginTop: 4, fontSize: 13, fontWeight: 700, color: "#1a1a1a", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+    </div>
+  );
+}
+
+function GmReassignSelect({
+  sourceGmName,
+  value,
+  gmUsers,
+  open,
+  disabled,
+  loading,
+  onToggle,
+  onSelect,
+}: {
+  sourceGmName: string;
+  value: string;
+  gmUsers: GMRecord[];
+  open: boolean;
+  disabled: boolean;
+  loading: boolean;
+  onToggle: () => void;
+  onSelect: (gmUserId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  const selectedGm = gmUsers.find((gm) => gm.id === value) ?? null;
+  const selectedLabel = selectedGm ? getGmDisplayName(selectedGm) : sourceGmName;
+  const filtered = gmUsers.filter((gm) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    const label = `${getGmDisplayName(gm)} ${gm.email} ${gm.region}`.toLowerCase();
+    return label.includes(q);
+  });
+
+  return (
+    <div style={{ position: "relative", minWidth: 0 }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disabled}
+        style={{
+          width: "100%",
+          height: 34,
+          borderRadius: 8,
+          border: "1px solid rgba(0,0,0,0.10)",
+          background: "linear-gradient(to bottom,#fff,#f7f7f7)",
+          color: disabled ? "rgba(0,0,0,0.3)" : "#1a1a1a",
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "0 10px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          cursor: disabled ? "not-allowed" : "pointer",
+          fontFamily: "inherit",
+          boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.04),0 1px 4px rgba(0,0,0,0.05)",
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {loading ? "GMs werden geladen..." : selectedLabel}
+        </span>
+        <ChevronDown size={13} strokeWidth={2} color="rgba(0,0,0,0.42)" style={{ flexShrink: 0 }} />
+      </button>
+      {open && !disabled && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 5px)",
+            right: 0,
+            width: 280,
+            maxWidth: "min(280px, 80vw)",
+            borderRadius: 9,
+            border: "1px solid rgba(0,0,0,0.09)",
+            background: "#fff",
+            boxShadow: "0 14px 34px rgba(15,23,42,0.14), 0 2px 7px rgba(15,23,42,0.06)",
+            zIndex: 10020,
+            padding: 6,
+          }}
+        >
+          <div style={{ padding: "4px 4px 6px" }}>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="GM suchen..."
+              autoFocus
+              style={{
+                width: "100%",
+                height: 28,
+                borderRadius: 7,
+                border: "1px solid rgba(0,0,0,0.08)",
+                background: "rgba(0,0,0,0.025)",
+                outline: "none",
+                padding: "0 9px",
+                fontSize: 11,
+                fontWeight: 500,
+                fontFamily: "inherit",
+                color: "#1a1a1a",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div style={{ maxHeight: 210, overflowY: "auto", scrollbarWidth: "none" }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: "12px 10px", fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.38)", textAlign: "center" }}>
+                Kein GM gefunden
+              </div>
+            ) : (
+              filtered.map((gm) => {
+                const selected = gm.id === value;
+                return (
+                  <button
+                    key={gm.id}
+                    type="button"
+                    onClick={() => onSelect(gm.id)}
+                    style={{
+                      width: "100%",
+                      minHeight: 36,
+                      border: "none",
+                      borderRadius: 7,
+                      background: selected ? "rgba(220,38,38,0.07)" : "transparent",
+                      color: selected ? "#DC2626" : "#1a1a1a",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      padding: "7px 8px",
+                      textAlign: "left",
+                      fontFamily: "inherit",
+                    }}
+                    onMouseEnter={(event) => {
+                      if (!selected) event.currentTarget.style.background = "rgba(0,0,0,0.035)";
+                    }}
+                    onMouseLeave={(event) => {
+                      event.currentTarget.style.background = selected ? "rgba(220,38,38,0.07)" : "transparent";
+                    }}
+                  >
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {getGmDisplayName(gm)}
+                      </span>
+                      <span style={{ display: "block", marginTop: 1, fontSize: 9, fontWeight: 500, color: "rgba(0,0,0,0.36)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {gm.region || gm.email}
+                      </span>
+                    </span>
+                    {selected && <Check size={13} strokeWidth={2.6} color="#DC2626" style={{ flexShrink: 0 }} />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RegionBar({
   name,
   pct,
@@ -5588,6 +6054,12 @@ export default function FbManagementPage() {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [campaignContextMenu, setCampaignContextMenu] = useState<CampaignContextMenuState | null>(null);
   const [campaignDeleteDialog, setCampaignDeleteDialog] = useState<CampaignDeleteDialogState | null>(null);
+  const [campaignReassignDialog, setCampaignReassignDialog] = useState<CampaignReassignDialogState | null>(null);
+  const [gmUsers, setGmUsers] = useState<GMRecord[]>([]);
+  const [gmUsersLoading, setGmUsersLoading] = useState(false);
+  const [gmUsersError, setGmUsersError] = useState<string | null>(null);
+  const [reassignmentsBySourceGm, setReassignmentsBySourceGm] = useState<Record<string, string>>({});
+  const [isReassigningCampaign, setIsReassigningCampaign] = useState(false);
   const [isDeletingCampaign, setIsDeletingCampaign] = useState(false);
   const [hardDeleteConfirmationInput, setHardDeleteConfirmationInput] = useState("");
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -5954,6 +6426,18 @@ export default function FbManagementPage() {
     () => campaignsData.find((entry) => entry.id === campaignDeleteDialog?.campaignId) ?? null,
     [campaignDeleteDialog?.campaignId, campaignsData],
   );
+  const reassignTargetCampaign = useMemo(
+    () => campaignsData.find((entry) => entry.id === campaignReassignDialog?.campaignId) ?? null,
+    [campaignReassignDialog?.campaignId, campaignsData],
+  );
+  const reassignGroups = useMemo(
+    () => getCampaignGmReassignGroups(reassignTargetCampaign, gmUsers),
+    [gmUsers, reassignTargetCampaign],
+  );
+  const reassignChangedCount = useMemo(
+    () => reassignGroups.filter((group) => reassignmentsBySourceGm[group.gmUserId] && reassignmentsBySourceGm[group.gmUserId] !== group.gmUserId).length,
+    [reassignGroups, reassignmentsBySourceGm],
+  );
   const hardDeletePhraseMatches = hardDeleteConfirmationInput === HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT;
 
   const handleSelectCampaign = useCallback((nextCampaignId: string) => {
@@ -6140,7 +6624,7 @@ export default function FbManagementPage() {
     if (isDeletingCampaign || isCampaignBusy(targetCampaignId)) return;
     const menuWidth = 200;
     const targetCampaign = campaignsView.find((entry) => entry.id === targetCampaignId);
-    const menuHeight = targetCampaign && targetCampaign.section !== "flex" ? 90 : 56;
+    const menuHeight = targetCampaign && targetCampaign.section !== "flex" ? 128 : 94;
     const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
     const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
     setCampaignContextMenu({
@@ -6155,11 +6639,71 @@ export default function FbManagementPage() {
     setCampaignContextMenu(null);
     setHardDeleteConfirmationInput("");
   }, [campaignContextMenu?.campaignId]);
+  const handleOpenCampaignReassignDialog = useCallback(() => {
+    if (!campaignContextMenu?.campaignId) return;
+    const targetCampaign = campaignsData.find((entry) => entry.id === campaignContextMenu.campaignId) ?? null;
+    if (!targetCampaign) return;
+    setCampaignReassignDialog({ campaignId: targetCampaign.id });
+    setReassignmentsBySourceGm(() => {
+      const next: Record<string, string> = {};
+      for (const group of getCampaignGmReassignGroups(targetCampaign, gmUsers)) {
+        next[group.gmUserId] = group.gmUserId;
+      }
+      return next;
+    });
+    setCampaignContextMenu(null);
+    setMutationError(null);
+  }, [campaignContextMenu?.campaignId, campaignsData, gmUsers]);
   const handleCloseCampaignDeleteDialog = useCallback(() => {
     if (isDeletingCampaign) return;
     setCampaignDeleteDialog(null);
     setHardDeleteConfirmationInput("");
   }, [isDeletingCampaign]);
+  const handleCloseCampaignReassignDialog = useCallback(() => {
+    if (isReassigningCampaign) return;
+    setCampaignReassignDialog(null);
+    setReassignmentsBySourceGm({});
+    setGmUsersError(null);
+  }, [isReassigningCampaign]);
+
+  useEffect(() => {
+    if (!campaignReassignDialog || gmUsers.length > 0 || gmUsersLoading) return;
+    setGmUsersLoading(true);
+    setGmUsersError(null);
+    fetchGmUsers()
+      .then((rows) => {
+        setGmUsers(rows);
+      })
+      .catch((error) => {
+        setGmUsersError(error instanceof Error ? error.message : "GM-Liste konnte nicht geladen werden.");
+      })
+      .finally(() => {
+        setGmUsersLoading(false);
+      });
+  }, [campaignReassignDialog, gmUsers.length, gmUsersLoading]);
+
+  useEffect(() => {
+    if (!campaignReassignDialog) return;
+    setReassignmentsBySourceGm((current) => {
+      const next = { ...current };
+      let changed = false;
+      const validSourceIds = new Set(reassignGroups.map((group) => group.gmUserId));
+      for (const key of Object.keys(next)) {
+        if (!validSourceIds.has(key)) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      for (const group of reassignGroups) {
+        if (!next[group.gmUserId]) {
+          next[group.gmUserId] = group.gmUserId;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [campaignReassignDialog, reassignGroups]);
+
   const handleDeleteCampaign = useCallback(async () => {
     if (!campaignDeleteDialog?.campaignId || isDeletingCampaign) return;
     const targetCampaignId = campaignDeleteDialog.campaignId;
@@ -6231,6 +6775,7 @@ export default function FbManagementPage() {
     isDeletingCampaign,
     selectedId,
   ]);
+
   useEffect(() => {
     if (!campaignContextMenu) return;
     const closeMenu = () => setCampaignContextMenu(null);
@@ -6386,6 +6931,47 @@ export default function FbManagementPage() {
       Object.entries(current).filter(([key]) => !key.startsWith(`${targetCampaignId}:`)),
     ));
   }, []);
+
+  const handleConfirmCampaignReassignment = useCallback(async () => {
+    if (!campaignReassignDialog?.campaignId || isReassigningCampaign) return;
+    const targetCampaignId = campaignReassignDialog.campaignId;
+    if ((campaignPendingOps[targetCampaignId] ?? 0) > 0) return;
+    const reassignments = reassignGroups
+      .map((group) => ({
+        fromGmUserId: group.gmUserId,
+        toGmUserId: reassignmentsBySourceGm[group.gmUserId] ?? group.gmUserId,
+      }))
+      .filter((entry) => entry.fromGmUserId !== entry.toGmUserId);
+    if (reassignments.length === 0) return;
+
+    setMutationError(null);
+    setIsReassigningCampaign(true);
+    setCampaignPendingOps((current) => ({ ...current, [targetCampaignId]: (current[targetCampaignId] ?? 0) + 1 }));
+    try {
+      const updated = await reassignCampaignGms(targetCampaignId, reassignments);
+      setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      invalidateCampaignVisitStatus(updated.id);
+      void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
+      setCampaignReassignDialog(null);
+      setReassignmentsBySourceGm({});
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "GM-Zuordnung konnte nicht umgestellt werden.");
+    } finally {
+      setIsReassigningCampaign(false);
+      setCampaignPendingOps((current) => {
+        const next = Math.max(0, (current[targetCampaignId] ?? 0) - 1);
+        return { ...current, [targetCampaignId]: next };
+      });
+    }
+  }, [
+    campaignPendingOps,
+    campaignReassignDialog?.campaignId,
+    invalidateCampaignVisitStatus,
+    isReassigningCampaign,
+    reassignGroups,
+    reassignmentsBySourceGm,
+    refreshCampaignVisitStatuses,
+  ]);
 
   const handleRemoveMarket = useCallback((id: string) => {
     if (!campaignId || isCampaignBusy(campaignId)) return;
@@ -7416,6 +8002,39 @@ export default function FbManagementPage() {
           )}
           <button
             type="button"
+            onClick={handleOpenCampaignReassignDialog}
+            disabled={isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              border: "none",
+              borderRadius: 6,
+              padding: "7px 10px",
+              background: "none",
+              textAlign: "left",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#111827",
+              cursor: isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id) ? "not-allowed" : "pointer",
+              fontFamily: "inherit",
+              transition: "background-color 0.1s ease",
+              opacity: isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id) ? 0.6 : 1,
+            }}
+            onMouseEnter={(event) => {
+              if (isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)) return;
+              event.currentTarget.style.backgroundColor = "rgba(0,0,0,0.045)";
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.backgroundColor = "transparent";
+            }}
+          >
+            <ArrowRightLeft size={12} strokeWidth={1.9} color="#111827" />
+            Umtauschen...
+          </button>
+          <button
+            type="button"
             onClick={() => handleOpenCampaignDeleteDialog("soft")}
             disabled={isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)}
             style={{
@@ -7481,6 +8100,24 @@ export default function FbManagementPage() {
             Hard löschen…
           </button>
         </div>,
+        document.body,
+      )}
+      {campaignReassignDialog && reassignTargetCampaign && createPortal(
+        <CampaignReassignModal
+          campaign={reassignTargetCampaign}
+          groups={reassignGroups}
+          gmUsers={gmUsers}
+          values={reassignmentsBySourceGm}
+          loadingGms={gmUsersLoading}
+          gmUsersError={gmUsersError}
+          submitting={isReassigningCampaign}
+          changedCount={reassignChangedCount}
+          onChange={(sourceGmUserId, targetGmUserId) => {
+            setReassignmentsBySourceGm((current) => ({ ...current, [sourceGmUserId]: targetGmUserId }));
+          }}
+          onClose={handleCloseCampaignReassignDialog}
+          onSubmit={() => void handleConfirmCampaignReassignment()}
+        />,
         document.body,
       )}
       {campaignDeleteDialog && deleteTargetCampaign && createPortal(

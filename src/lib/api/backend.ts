@@ -3258,6 +3258,17 @@ export async function migrateCampaignMarkets(
   return normalizeCampaign(data.campaign);
 }
 
+export async function reassignCampaignGms(
+  campaignId: string,
+  reassignments: Array<{ fromGmUserId: string; toGmUserId: string }>,
+): Promise<Campaign> {
+  const data = (await authedFetch(`/admin/campaigns/${campaignId}/gm-reassignments`, {
+    method: "PATCH",
+    body: JSON.stringify({ reassignments }),
+  })) as { campaign: BackendCampaign };
+  return normalizeCampaign(data.campaign);
+}
+
 export async function removeCampaignMarket(campaignId: string, marketId: string): Promise<Campaign> {
   const data = (await authedFetch(`/admin/campaigns/${campaignId}/markets/${marketId}/delete`, {
     method: "PATCH",

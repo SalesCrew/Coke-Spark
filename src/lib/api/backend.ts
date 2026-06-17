@@ -3645,10 +3645,13 @@ export async function deferDaySessionStartKm(): Promise<{ session: DaySession }>
   })) as { session: DaySession };
 }
 
-export async function endDaySession(input?: { endAt?: string }): Promise<{ session: DaySession }> {
+export async function endDaySession(input?: { endAt?: string; endTime?: string }): Promise<{ session: DaySession }> {
+  const payload: { endAt?: string; endTime?: string } = {};
+  if (input?.endAt !== undefined) payload.endAt = input.endAt;
+  if (input?.endTime !== undefined) payload.endTime = input.endTime;
   return (await authedFetch("/day-session/end", {
     method: "PATCH",
-    body: JSON.stringify({ endAt: input?.endAt }),
+    body: JSON.stringify(payload),
   })) as { session: DaySession };
 }
 

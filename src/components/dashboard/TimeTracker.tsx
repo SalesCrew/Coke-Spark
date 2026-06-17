@@ -88,36 +88,6 @@ function toYmdInTimezone(date: Date, timezone: string): string {
   }).format(date);
 }
 
-function toIsoFromWorkDateHm(workDate: string, hm: string, timeZone: string): string | null {
-  const match = /^(\d{2}):(\d{2})$/.exec(hm.trim());
-  if (!match) return null;
-  const [yearRaw, monthRaw, dayRaw] = workDate.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const day = Number(dayRaw);
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (
-    !Number.isFinite(year) ||
-    !Number.isFinite(month) ||
-    !Number.isFinite(day) ||
-    !Number.isFinite(hour) ||
-    !Number.isFinite(minute)
-  ) {
-    return null;
-  }
-  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
-  const firstOffset = getTimeZoneOffsetMs(utcGuess, timeZone);
-  let candidateEpoch = utcGuess.getTime() - firstOffset;
-  const secondOffset = getTimeZoneOffsetMs(new Date(candidateEpoch), timeZone);
-  if (secondOffset !== firstOffset) {
-    candidateEpoch = utcGuess.getTime() - secondOffset;
-  }
-  const candidate = new Date(candidateEpoch);
-  if (toYmdInTimezone(candidate, timeZone) !== workDate) return null;
-  return candidate.toISOString();
-}
-
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -1050,20 +1020,13 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistBusy(true);
     setPersistError(null);
     try {
-      const endAt = daySession
-        ? toIsoFromWorkDateHm(daySession.workDate, forgotEndTime, daySession.timezone || trackerTimezone)
-        : null;
-      if (!endAt) {
-        setPersistError("Endzeit konnte nicht auf den Arbeitstag gesetzt werden.");
-        return;
-      }
       if (needsStartKmForEnd && startNum !== null) {
         const startResult = await setDaySessionStartKm(startNum);
         persistLocalDaySessionFromBackend(startResult.session);
         setDaySession(startResult.session);
         setConfirmedStartKm(startNum);
       }
-      const ended = await endDaySession({ endAt });
+      const ended = await endDaySession({ endTime: forgotEndTime });
       persistLocalDaySessionFromBackend(ended.session);
       const endResult = await setDaySessionEndKm(num);
       persistLocalDaySessionFromBackend(endResult.session);

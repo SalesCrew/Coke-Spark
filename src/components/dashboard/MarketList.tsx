@@ -25,6 +25,7 @@ import {
   setGmVisitPreloadCache,
   setGmVisitStartPreloadCache,
   type GmMarketDetailActiveCampaign,
+  type GmMarketDetailSection,
   type GmMarketDetailPayload,
   type GmMarketPastVisit,
   type GmStartMarket,
@@ -37,7 +38,7 @@ import type { MarketRecord } from "@/types/markets";
 
 type MarketCampaignSummary = GmStartMarket["activeNowCampaigns"][number];
 
-interface Market {
+export interface GmDashboardMarket {
   id: string;
   name: string;
   chain: string;
@@ -49,6 +50,8 @@ interface Market {
   activeNowCampaigns: MarketCampaignSummary[];
   nextSM?: string;
 }
+
+type Market = GmDashboardMarket;
 
 interface MarketListProps {
   visited?: number;
@@ -97,7 +100,7 @@ function formatStammnr(record: MarketRecord): string {
   return record.cokeMasterNumber?.trim() || record.kuehlerStammnr?.trim() || "";
 }
 
-function toMarketListEntry(record: MarketRecord, activeNowCampaigns: MarketCampaignSummary[] = []): Market {
+export function toMarketListEntry(record: MarketRecord, activeNowCampaigns: MarketCampaignSummary[] = []): Market {
   return {
     id: record.id,
     name: formatMarketName(record),
@@ -281,11 +284,12 @@ function CampaignRow({
   );
 }
 
-function GmMarketDetailModal({
+export function GmMarketDetailModal({
   market,
   detail,
   isLoading,
   error,
+  sectionFilter,
   selectedCampaignIds,
   isLaunching,
   dayStarted,
@@ -300,6 +304,7 @@ function GmMarketDetailModal({
   detail: GmMarketDetailPayload | null;
   isLoading: boolean;
   error: string | null;
+  sectionFilter?: GmMarketDetailSection[];
   selectedCampaignIds: string[];
   isLaunching: boolean;
   dayStarted: boolean;
@@ -323,7 +328,18 @@ function GmMarketDetailModal({
 
   const record = detail?.market ?? market.record;
   const chain = chainColors(market.chain);
-  const selectableCampaigns = detail?.activeCampaigns.filter((campaign) => campaign.isStartable) ?? [];
+  const allowedSections = sectionFilter?.length ? new Set(sectionFilter) : null;
+  const visibleCampaigns = detail?.activeCampaigns.filter((campaign) => !allowedSections || allowedSections.has(campaign.section)) ?? [];
+  const visibleCampaignIds = new Set(visibleCampaigns.map((campaign) => campaign.campaignId));
+  const visibleDrafts = detail?.drafts.filter((draft) => draft.campaignIds.some((campaignId) => visibleCampaignIds.has(campaignId))) ?? [];
+  const visiblePastVisits =
+    detail?.pastVisits
+      .map((visit) => ({
+        ...visit,
+        sections: visit.sections.filter((section) => !allowedSections || allowedSections.has(section.section)),
+      }))
+      .filter((visit) => visit.sections.length > 0) ?? [];
+  const selectableCampaigns = visibleCampaigns.filter((campaign) => campaign.isStartable);
   const startDisabled =
     isLoading ||
     isLaunching ||
@@ -450,13 +466,13 @@ function GmMarketDetailModal({
             <FactRow label="Markt-Typ" value={marketTypeLabel(record)} />
           </section>
 
-          {detail?.drafts.length ? (
+          {visibleDrafts.length ? (
             <section style={{ display: "grid", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.86)" }}>Offener Fragebogen</div>
                 <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.36)" }}>Fortsetzen</div>
               </div>
-              {detail.drafts.map((draft) => (
+              {visibleDrafts.map((draft) => (
                 <button
                   key={draft.sessionId}
                   type="button"
@@ -497,8 +513,8 @@ function GmMarketDetailModal({
                 {selectableCampaigns.length} auswaehlbar
               </div>
             </div>
-            {detail?.activeCampaigns.length ? (
-              detail.activeCampaigns.map((campaign) => (
+            {visibleCampaigns.length ? (
+              visibleCampaigns.map((campaign) => (
                 <CampaignRow
                   key={campaign.campaignId}
                   campaign={campaign}
@@ -517,10 +533,10 @@ function GmMarketDetailModal({
           <section style={{ display: "grid", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.86)" }}>Vergangene Besuche</div>
-              <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.36)" }}>{detail?.pastVisits.length ?? 0}</div>
+              <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.36)" }}>{visiblePastVisits.length}</div>
             </div>
-            {detail?.pastVisits.length ? (
-              detail.pastVisits.map((visit) => <PastVisitRow key={visit.sessionId} visit={visit} />)
+            {visiblePastVisits.length ? (
+              visiblePastVisits.map((visit) => <PastVisitRow key={visit.sessionId} visit={visit} />)
             ) : (
               <div style={{ borderRadius: 13, background: "rgba(15,23,42,0.025)", padding: 14, fontSize: 11, fontWeight: 700, color: "rgba(15,23,42,0.42)", textAlign: "center" }}>
                 Noch keine Besuche von dir in diesem Markt.
@@ -692,7 +708,8 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
     void fetchGmMarketDetail(market.id)
       .then((payload) => {
         setDetail(payload);
-        const defaultCampaign = payload.activeCampaigns.find((campaign) => campaign.isStartable) ?? null;
+        const defaultCampaign =
+          payload.activeCampaigns.find((campaign) => (campaign.section === "standard" || campaign.section === "billa") && campaign.isStartable) ?? null;
         setSelectedCampaignIds(defaultCampaign ? [defaultCampaign.campaignId] : []);
       })
       .catch((error) => {
@@ -1034,6 +1051,7 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
           detail={detail}
           isLoading={detailLoading}
           error={detailError}
+          sectionFilter={["standard", "billa"]}
           selectedCampaignIds={selectedCampaignIds}
           isLaunching={isLaunching}
           dayStarted={dayStarted}

@@ -136,7 +136,7 @@ function StatCard({
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div>
           <div className="gm-profile-label">{label}</div>
-          <div style={{ marginTop: 8, fontSize: 27, lineHeight: 1, fontWeight: 850, letterSpacing: "-0.045em", color: accent, fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ marginTop: 8, fontSize: 27, lineHeight: 1, fontWeight: 750, letterSpacing: "-0.045em", color: accent, fontVariantNumeric: "tabular-nums" }}>
             {value}
           </div>
         </div>
@@ -364,7 +364,7 @@ export default function GmProfilPage() {
   }, [profile?.createdAt]);
 
   return (
-    <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7", fontFamily: "var(--font-inter), Inter, system-ui, sans-serif", paddingBottom: 112 }}>
+    <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7", paddingBottom: 112 }}>
       <style>{`
         @keyframes gmProfileFadeIn {
           from { opacity: 0; transform: translateY(8px); }
@@ -457,7 +457,7 @@ export default function GmProfilPage() {
         }
         .gm-profile-label {
           font-size: 8px;
-          font-weight: 820;
+          font-weight: 700;
           letter-spacing: 0.105em;
           text-transform: uppercase;
           color: rgba(15,23,42,0.34);
@@ -466,7 +466,7 @@ export default function GmProfilPage() {
           margin: 4px 0 0;
           font-size: 15px;
           line-height: 1.1;
-          font-weight: 850;
+          font-weight: 750;
           letter-spacing: -0.03em;
           color: rgba(15,23,42,0.94);
         }
@@ -548,10 +548,10 @@ export default function GmProfilPage() {
       <div className="gm-profile-page mx-auto px-6 pt-6 lg:px-10 lg:pt-8" style={{ maxWidth: 960, position: "relative", zIndex: 1 }}>
         <header style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 18 }}>
           <div>
-            <div style={{ fontSize: 9, fontWeight: 820, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>
               Profil
             </div>
-            <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.08, fontWeight: 850, letterSpacing: "-0.04em", color: "rgba(15,23,42,0.94)" }}>
+            <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.08, fontWeight: 750, letterSpacing: "-0.04em", color: "rgba(15,23,42,0.94)" }}>
               Mein Profil
             </h1>
             <p style={{ margin: "7px 0 0", maxWidth: 460, fontSize: 12, lineHeight: 1.55, fontWeight: 560, color: "rgba(15,23,42,0.48)" }}>
@@ -583,7 +583,7 @@ export default function GmProfilPage() {
                     {profile.region ? <TinyPill tone="neutral">{profile.region}</TinyPill> : null}
                     {profile.isBillaGm ? <TinyPill tone="blue">Billa GM</TinyPill> : null}
                   </div>
-                  <h2 style={{ margin: 0, fontSize: 26, lineHeight: 1.04, fontWeight: 880, letterSpacing: "-0.045em", color: "rgba(15,23,42,0.94)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <h2 style={{ margin: 0, fontSize: 26, lineHeight: 1.04, fontWeight: 750, letterSpacing: "-0.045em", color: "rgba(15,23,42,0.94)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {fullName}
                   </h2>
                   <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 7, color: "rgba(15,23,42,0.48)", fontSize: 12, fontWeight: 680 }}>
@@ -596,22 +596,22 @@ export default function GmProfilPage() {
               <div className="gm-profile-hero-metrics">
                 <div className="gm-profile-hero-metric" style={{ background: "rgba(5,150,105,0.045)" }}>
                   <div className="gm-profile-label">Status</div>
-                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6, fontSize: 16, fontWeight: 870, letterSpacing: "-0.035em", color: GREEN }}>
+                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.035em", color: GREEN }}>
                     <span style={{ width: 7, height: 7, borderRadius: 999, background: GREEN, boxShadow: "0 0 0 3px rgba(5,150,105,0.1)" }} />
                     Aktiv
                   </div>
                 </div>
                 <div className="gm-profile-hero-metric">
                   <div className="gm-profile-label">Account seit</div>
-                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 870, letterSpacing: "-0.035em", color: "rgba(15,23,42,0.88)" }}>{accountAge}</div>
+                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.035em", color: "rgba(15,23,42,0.88)" }}>{accountAge}</div>
                 </div>
                 <div className="gm-profile-hero-metric">
                   <div className="gm-profile-label">RED Besuche</div>
-                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 870, letterSpacing: "-0.035em", color: R }}>{stats.currentRedVisitCount}</div>
+                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.035em", color: R }}>{stats.currentRedVisitCount}</div>
                 </div>
                 <div className="gm-profile-hero-metric">
                   <div className="gm-profile-label">Woche</div>
-                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 870, letterSpacing: "-0.035em", color: "rgba(15,23,42,0.88)" }}>{fmtDur(stats.weekWorkMinutes)}</div>
+                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.035em", color: "rgba(15,23,42,0.88)" }}>{fmtDur(stats.weekWorkMinutes)}</div>
                 </div>
               </div>
 

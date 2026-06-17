@@ -1,10 +1,34 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Search, X, CheckCircle2, Circle } from "lucide-react";
-import { fetchGmKuehlerMhdProgress, type GmKuehlerMhdProgressPayload } from "@/lib/api/backend";
+import {
+  fetchActiveGmVisitSession,
+  fetchCurrentDaySession,
+  fetchGmKuehlerMhdProgress,
+  fetchGmMarketDetail,
+  fetchGmVisitSession,
+  fetchGmVisitStartPayload,
+  fetchLatestActiveGmVisitSession,
+  setGmVisitPreloadCache,
+  setGmVisitStartPreloadCache,
+  type GmKuehlerMhdProgressPayload,
+  type GmMarketDetailPayload,
+  type GmVisitSessionPayload,
+} from "@/lib/api/backend";
+import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
+import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
+import {
+  GmMarketDetailModal,
+  toMarketListEntry,
+  type GmDashboardMarket,
+} from "./MarketList";
 
 interface KuehlerMarket {
+  marketId?: string;
+  campaignId?: string;
+  campaignName?: string;
   chain: string;
   address: string;
   done: boolean;
@@ -63,6 +87,7 @@ function chainColor(chain: string): { bg: string; text: string } {
 }
 
 type Tab = "kuehler" | "mhd";
+const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
 const KUEHLER_MHD_PROGRESS_UPDATED_EVENT = "gm:kuehler-mhd-progress-updated";
 
@@ -87,12 +112,24 @@ export function KuehlerInventurCard({
   markets = defaultKuehlerMarkets,
   mhdMarkets = defaultMhdMarkets,
 }: KuehlerInventurCardProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("kuehler");
   const [showDetail, setShowDetail] = useState(false);
   const [search, setSearch] = useState("");
   const [progressData, setProgressData] = useState<GmKuehlerMhdProgressPayload | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [selectedMarket, setSelectedMarket] = useState<GmDashboardMarket | null>(null);
+  const [marketDetail, setMarketDetail] = useState<GmMarketDetailPayload | null>(null);
+  const [marketDetailLoading, setMarketDetailLoading] = useState(false);
+  const [marketDetailError, setMarketDetailError] = useState<string | null>(null);
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
+  const [dayStarted, setDayStarted] = useState(false);
+  const [dayGateLoading, setDayGateLoading] = useState(true);
+  const [isLaunching, setIsLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [blockedActiveVisit, setBlockedActiveVisit] = useState<GmVisitSessionPayload | null>(null);
+  const [blockedActiveOpening, setBlockedActiveOpening] = useState(false);
 
   // Auto-rotate: switches every 10s, pauses 60s after manual interaction
   const autoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -135,6 +172,19 @@ export function KuehlerInventurCard({
     handleInteraction();
   };
 
+  const refreshDayGate = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    if (!silent) setDayGateLoading(true);
+    try {
+      const payload = await fetchCurrentDaySession();
+      setDayStarted(Boolean(payload.gate?.dayStarted) || Boolean(readLatestLocalDaySessionSnapshot()));
+    } catch {
+      setDayStarted(Boolean(readLatestLocalDaySessionSnapshot()));
+    } finally {
+      if (!silent) setDayGateLoading(false);
+    }
+  }, []);
+
   const formatYmd = useCallback((value: string | undefined, fallback: string): string => {
     if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return fallback;
     const [y, m, d] = value.split("-");
@@ -161,6 +211,22 @@ export function KuehlerInventurCard({
   }, [loadProgress]);
 
   useEffect(() => {
+    void refreshDayGate();
+  }, [refreshDayGate]);
+
+  useEffect(() => {
+    const handleDaySessionUpdated = () => {
+      if (readLatestLocalDaySessionSnapshot()) {
+        setDayStarted(true);
+        setDayGateLoading(false);
+      }
+      void refreshDayGate({ silent: true });
+    };
+    window.addEventListener(DAY_SESSION_UPDATED_EVENT, handleDaySessionUpdated);
+    return () => window.removeEventListener(DAY_SESSION_UPDATED_EVENT, handleDaySessionUpdated);
+  }, [refreshDayGate]);
+
+  useEffect(() => {
     const onFocus = () => {
       void loadProgress();
     };
@@ -183,12 +249,18 @@ export function KuehlerInventurCard({
   const kuehlerPercent = kuehlerPayload?.percent ?? (loadingData ? 0 : Math.round((current / Math.max(total, 1)) * 100));
   const mhdPercent = mhdPayload?.percent ?? (loadingData ? 0 : Math.round((mhdCurrent / Math.max(mhdTotal, 1)) * 100));
   const mappedKuehlerMarkets = (kuehlerPayload?.markets ?? []).map((entry) => ({
+    marketId: entry.marketId,
+    campaignId: entry.campaignId,
+    campaignName: entry.campaignName,
     chain: entry.chain,
     address: entry.address,
     done: entry.done,
     doneDate: entry.doneAt ? new Date(entry.doneAt).toLocaleDateString("de-AT") : undefined,
   }));
   const mappedMhdMarkets = (mhdPayload?.markets ?? []).map((entry) => ({
+    marketId: entry.marketId,
+    campaignId: entry.campaignId,
+    campaignName: entry.campaignName,
     chain: entry.chain,
     address: entry.address,
     done: entry.done,
@@ -238,6 +310,177 @@ export function KuehlerInventurCard({
     const done = list.filter((m) => m.done);
     return { pending, done };
   }, [search, activeMarkets]);
+
+  const closeMarketDetail = useCallback(() => {
+    if (isLaunching) return;
+    setSelectedMarket(null);
+    setMarketDetail(null);
+    setMarketDetailError(null);
+    setSelectedCampaignIds([]);
+    setLaunchError(null);
+  }, [isLaunching]);
+
+  const openMarketDetail = useCallback((market: KuehlerMarket) => {
+    if (!market.marketId) return;
+    setMarketDetail(null);
+    setSelectedMarket(null);
+    setSelectedCampaignIds([]);
+    setMarketDetailError(null);
+    setLaunchError(null);
+    setMarketDetailLoading(true);
+    void fetchGmMarketDetail(market.marketId)
+      .then((payload) => {
+        setMarketDetail(payload);
+        setSelectedMarket(toMarketListEntry(payload.market, payload.activeCampaigns));
+        const preferredCampaign =
+          payload.activeCampaigns.find((campaign) => campaign.section === activeTab && campaign.campaignId === market.campaignId && campaign.isStartable) ??
+          payload.activeCampaigns.find((campaign) => campaign.section === activeTab && campaign.isStartable) ??
+          null;
+        setSelectedCampaignIds(preferredCampaign ? [preferredCampaign.campaignId] : []);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Marktdetails konnten nicht geladen werden.";
+        setMarketDetailError(message);
+        setSelectedMarket({
+          id: market.marketId ?? "unknown",
+          name: market.address || "Markt",
+          chain: market.chain,
+          address: market.address,
+          visited: 0,
+          frequency: 1,
+          visitedThisMonth: market.done,
+          record: {
+            id: market.marketId ?? "unknown",
+            name: market.address || "Markt",
+            dbName: market.chain,
+            address: market.address,
+            postalCode: "",
+            city: "",
+            region: "",
+            flexNumber: "",
+            standardMarketNumber: "",
+            cokeMasterNumber: "",
+            kuehlerStammnr: "",
+            emEh: "",
+            employee: "",
+            currentGmName: "",
+            plannedToId: null,
+            plannedByActiveStandardGmName: null,
+            visitFrequencyPerYear: 0,
+            infoFlag: false,
+            infoNote: "",
+            ipp: null,
+            universeMarket: false,
+            marketType: activeTab === "kuehler" ? "kuehler" : "universum",
+            isActive: true,
+            importSourceFileName: "",
+            importedAt: "",
+          },
+          activeNowCampaigns: [],
+        });
+      })
+      .finally(() => setMarketDetailLoading(false));
+  }, [activeTab]);
+
+  const toggleCampaign = useCallback((campaignId: string) => {
+    setSelectedCampaignIds((current) =>
+      current.includes(campaignId) ? current.filter((id) => id !== campaignId) : [...current, campaignId],
+    );
+  }, []);
+
+  const blockedActiveCampaignNames = useMemo(
+    () => Array.from(new Set((blockedActiveVisit?.sections ?? []).map((section) => section.campaignName).filter(Boolean))),
+    [blockedActiveVisit],
+  );
+
+  const openBlockedActiveVisit = useCallback(async () => {
+    if (!blockedActiveVisit || blockedActiveOpening) return;
+    setBlockedActiveOpening(true);
+    try {
+      const payload = await fetchGmVisitSession(blockedActiveVisit.session.id);
+      setGmVisitPreloadCache(payload);
+      const campaignIds = Array.from(new Set(payload.sections.map((section) => section.campaignId).filter(Boolean)));
+      const address = [
+        payload.market.address,
+        [payload.market.postalCode, payload.market.city].filter(Boolean).join(" "),
+      ].filter(Boolean).join(", ");
+      router.push(
+        `/gm/marktbesuch?chain=${encodeURIComponent(payload.market.name)}&address=${encodeURIComponent(address)}&marketId=${encodeURIComponent(payload.market.id)}&campaignIds=${encodeURIComponent(campaignIds.join(","))}&sessionId=${encodeURIComponent(payload.session.id)}`,
+      );
+    } catch {
+      setBlockedActiveOpening(false);
+      setLaunchError("Aktiver Fragebogen konnte nicht geoeffnet werden. Bitte erneut versuchen.");
+    }
+  }, [blockedActiveOpening, blockedActiveVisit, router]);
+
+  const launchVisit = useCallback(
+    async (market: GmDashboardMarket, campaignIds: string[], sessionId?: string) => {
+      if (!dayStarted) {
+        setLaunchError("Bitte zuerst den Arbeitstag starten.");
+        return;
+      }
+      if (campaignIds.length === 0) {
+        setLaunchError("Bitte mindestens eine Kampagne auswaehlen.");
+        return;
+      }
+
+      setIsLaunching(true);
+      setLaunchError(null);
+      setBlockedActiveVisit(null);
+      try {
+        let sessionParam = "";
+        if (sessionId) {
+          const payload = await fetchGmVisitSession(sessionId);
+          setGmVisitPreloadCache(payload);
+          sessionParam = `&sessionId=${encodeURIComponent(sessionId)}`;
+        } else {
+          const activeVisit = await fetchActiveGmVisitSession({
+            marketId: market.id,
+            campaignIds,
+          });
+          if (activeVisit.session?.id) {
+            const payload = await fetchGmVisitSession(activeVisit.session.id);
+            setGmVisitPreloadCache(payload);
+            sessionParam = `&sessionId=${encodeURIComponent(activeVisit.session.id)}`;
+          } else {
+            const latestActiveVisit = await fetchLatestActiveGmVisitSession();
+            if (latestActiveVisit.session?.id) {
+              setIsLaunching(false);
+              setBlockedActiveVisit(latestActiveVisit as GmVisitSessionPayload);
+              return;
+            }
+            const payload = await fetchGmVisitStartPayload(market.id, campaignIds);
+            setGmVisitStartPreloadCache({
+              marketId: market.id,
+              campaignIds,
+              payload,
+            });
+          }
+        }
+
+        router.push(
+          `/gm/marktbesuch?chain=${encodeURIComponent(market.chain)}&address=${encodeURIComponent(market.address)}&marketId=${encodeURIComponent(market.id)}&campaignIds=${encodeURIComponent(campaignIds.join(","))}${sessionParam}`,
+        );
+      } catch {
+        setIsLaunching(false);
+        setLaunchError("Marktbesuch konnte nicht vorbereitet werden. Bitte erneut versuchen.");
+      }
+    },
+    [dayStarted, router],
+  );
+
+  const handleStartSelected = useCallback(() => {
+    if (!selectedMarket) return;
+    void launchVisit(selectedMarket, selectedCampaignIds);
+  }, [launchVisit, selectedCampaignIds, selectedMarket]);
+
+  const handleContinueDraft = useCallback(
+    (sessionId: string, campaignIds: string[]) => {
+      if (!selectedMarket) return;
+      void launchVisit(selectedMarket, campaignIds, sessionId);
+    },
+    [launchVisit, selectedMarket],
+  );
 
   return (
     <div
@@ -465,11 +708,12 @@ export function KuehlerInventurCard({
                     <div
                       key={`p-${i}`}
                       className="flex items-center justify-between"
+                      onClick={() => openMarketDetail(m)}
                       style={{
                         padding: "7px 4px",
                         borderBottom: i < filtered.pending.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
                         transition: "background-color 0.12s ease",
-                        borderRadius: 5, cursor: "default",
+                        borderRadius: 5, cursor: m.marketId ? "pointer" : "default",
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.015)")}
                       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
@@ -508,11 +752,12 @@ export function KuehlerInventurCard({
                     <div
                       key={`d-${i}`}
                       className="flex items-center justify-between"
+                      onClick={() => openMarketDetail(m)}
                       style={{
                         padding: "7px 4px",
                         borderBottom: i < filtered.done.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
                         transition: "background-color 0.12s ease",
-                        borderRadius: 5, cursor: "default",
+                        borderRadius: 5, cursor: m.marketId ? "pointer" : "default",
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.015)")}
                       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
@@ -548,6 +793,37 @@ export function KuehlerInventurCard({
           </div>
         </div>
       </div>
+      {selectedMarket && (
+        <GmMarketDetailModal
+          market={selectedMarket}
+          detail={marketDetail}
+          isLoading={marketDetailLoading}
+          error={marketDetailError}
+          sectionFilter={[activeTab]}
+          selectedCampaignIds={selectedCampaignIds}
+          isLaunching={isLaunching}
+          dayStarted={dayStarted}
+          dayGateLoading={dayGateLoading}
+          launchError={launchError}
+          onToggleCampaign={toggleCampaign}
+          onStart={handleStartSelected}
+          onContinueDraft={handleContinueDraft}
+          onClose={closeMarketDetail}
+        />
+      )}
+      <ActiveFragebogenBlockModal
+        open={Boolean(blockedActiveVisit)}
+        opening={blockedActiveOpening}
+        marketName={blockedActiveVisit?.market.name}
+        campaignNames={blockedActiveCampaignNames}
+        onClose={() => {
+          if (blockedActiveOpening) return;
+          setBlockedActiveVisit(null);
+        }}
+        onOpenActive={() => {
+          void openBlockedActiveVisit();
+        }}
+      />
     </div>
   );
 }

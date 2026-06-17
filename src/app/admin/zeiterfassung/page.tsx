@@ -5,13 +5,16 @@ import { createPortal } from "react-dom";
 import {
   ChevronDown, Clock, Store, Car, Coffee,
   GraduationCap, Wrench, Home, Warehouse, Star, Search,
+  FileSpreadsheet, X,
 } from "lucide-react";
 import {
+  fetchAdminDiaetenExport,
   fetchAdminZeiterfassungDays,
   fetchAdminZeiterfassungGmAggregates,
   patchAdminZeiterfassungSegment,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
+import { exportAdminDiaeten, MONTH_LABELS } from "@/lib/exports/diaetenExport";
 import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 
 // ── Constants ─────────────────────────────────────────────────
@@ -524,6 +527,7 @@ function ActionRow({
                 {saving ? "Speichern..." : "Speichern"}
               </button>
             </div>
+
           </div>
         )}
         {seg.subtitle && <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{seg.subtitle}</div>}
@@ -960,6 +964,14 @@ export default function ZeiterfassungPage() {
   const [aggregateRows, setAggregateRows] = useState<AdminZeiterfassungAggregateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const currentDate = useMemo(() => new Date(), []);
+  const currentYear = currentDate.getFullYear();
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportKind, setExportKind] = useState<"zeiterfassung" | "diaeten">("diaeten");
+  const [exportMonth, setExportMonth] = useState(currentDate.getMonth());
+  const [exportYear, setExportYear] = useState(currentYear);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const loadZeiterfassungData = useCallback(async (options?: { showLoader?: boolean }) => {
     const showLoader = options?.showLoader ?? true;
@@ -1017,6 +1029,29 @@ export default function ZeiterfassungPage() {
   useEffect(() => {
     void loadZeiterfassungData({ showLoader: true });
   }, [loadZeiterfassungData]);
+
+  const handleExport = useCallback(async () => {
+    if (exportKind !== "diaeten") {
+      setExportError("Bitte Diäten auswählen.");
+      return;
+    }
+    setExporting(true);
+    setExportError(null);
+    try {
+      const payload = await fetchAdminDiaetenExport({
+        month: exportMonth,
+        year: exportYear,
+        timezone: "Europe/Vienna",
+      });
+      await exportAdminDiaeten(payload);
+      setExportModalOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Export konnte nicht erstellt werden.";
+      setExportError(message || "Export konnte nicht erstellt werden.");
+    } finally {
+      setExporting(false);
+    }
+  }, [exportKind, exportMonth, exportYear]);
 
   // Daily view: group by date, newest first
   const dateGroups = useMemo(() => {
@@ -1119,6 +1154,33 @@ export default function ZeiterfassungPage() {
               <input type="text" placeholder={view === "tage" ? "GM / Markt suchen…" : "GM suchen…"} value={search} onChange={e => setSearch(e.target.value)}
                 style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, color: "#1a1a1a", fontFamily: "inherit" }} />
             </div>
+
+            <button
+              onClick={() => {
+                setExportModalOpen(true);
+                setExportError(null);
+              }}
+              style={{
+                marginLeft: "auto",
+                height: 28,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 7,
+                border: "1px solid rgba(0,0,0,0.08)",
+                borderRadius: 8,
+                background: "#fff",
+                color: "#111827",
+                padding: "0 11px",
+                fontSize: 10,
+                fontWeight: 800,
+                boxShadow: "0 1px 4px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9)",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              <FileSpreadsheet size={13} strokeWidth={2} />
+              Export
+            </button>
           </div>
 
           {/* Body — fade key forces re-mount on tab switch */}
@@ -1184,6 +1246,218 @@ export default function ZeiterfassungPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+      {exportModalOpen && typeof document !== "undefined" && createPortal(
+        <DiaetenExportModal
+          exportKind={exportKind}
+          month={exportMonth}
+          year={exportYear}
+          yearOptions={[currentYear - 1, currentYear]}
+          exporting={exporting}
+          error={exportError}
+          onKindChange={(kind) => {
+            setExportKind(kind);
+            setExportError(null);
+          }}
+          onMonthChange={setExportMonth}
+          onYearChange={setExportYear}
+          onClose={() => {
+            if (!exporting) setExportModalOpen(false);
+          }}
+          onExport={() => { void handleExport(); }}
+        />,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+function DiaetenExportModal({
+  exportKind,
+  month,
+  year,
+  yearOptions,
+  exporting,
+  error,
+  onKindChange,
+  onMonthChange,
+  onYearChange,
+  onClose,
+  onExport,
+}: {
+  exportKind: "zeiterfassung" | "diaeten";
+  month: number;
+  year: number;
+  yearOptions: number[];
+  exporting: boolean;
+  error: string | null;
+  onKindChange: (kind: "zeiterfassung" | "diaeten") => void;
+  onMonthChange: (month: number) => void;
+  onYearChange: (year: number) => void;
+  onClose: () => void;
+  onExport: () => void;
+}) {
+  const choiceStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1,
+    border: active ? "1px solid rgba(220,38,38,0.32)" : "1px solid rgba(0,0,0,0.07)",
+    borderRadius: 12,
+    background: active ? "rgba(220,38,38,0.055)" : "#fff",
+    padding: "13px 14px",
+    textAlign: "left",
+    cursor: "pointer",
+    boxShadow: active ? "0 10px 26px rgba(220,38,38,0.08), inset 0 1px 0 rgba(255,255,255,0.9)" : "0 2px 8px rgba(0,0,0,0.04)",
+    fontFamily: "inherit",
+  });
+
+  return (
+    <div
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !exporting) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 12000,
+        background: "rgba(17,24,39,0.22)",
+        backdropFilter: "blur(8px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <div
+        onMouseDown={(event) => event.stopPropagation()}
+        style={{
+          width: "min(560px, 100%)",
+          background: "#fff",
+          borderRadius: 18,
+          border: "1px solid rgba(0,0,0,0.08)",
+          boxShadow: "0 24px 80px rgba(15,23,42,0.20), 0 2px 8px rgba(15,23,42,0.08)",
+          overflow: "hidden",
+          fontFamily: "inherit",
+        }}
+      >
+        <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.72)", marginBottom: 6 }}>
+              Export
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 850, letterSpacing: "-0.04em", color: "#111827" }}>
+              Zeiterfassung exportieren
+            </div>
+            <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.55, color: "rgba(17,24,39,0.48)", maxWidth: 390 }}>
+              Wähle den Exporttyp. Diäten werden pro GM als Excel im Mars-Rover-Format erzeugt.
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={exporting}
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 10,
+              border: "1px solid rgba(0,0,0,0.07)",
+              background: "rgba(0,0,0,0.025)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: exporting ? "default" : "pointer",
+              opacity: exporting ? 0.55 : 1,
+            }}
+          >
+            <X size={15} strokeWidth={2} color="rgba(17,24,39,0.56)" />
+          </button>
+        </div>
+
+        <div style={{ padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button type="button" onClick={() => onKindChange("zeiterfassung")} style={choiceStyle(exportKind === "zeiterfassung")}>
+              <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", marginBottom: 4 }}>Zeiterfassung</div>
+              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Bestehende Zeitdaten als separater Export.</div>
+            </button>
+            <button type="button" onClick={() => onKindChange("diaeten")} style={choiceStyle(exportKind === "diaeten")}>
+              <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", marginBottom: 4 }}>Diäten</div>
+              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Monatsdatei mit Taggeld, KM und Pausenformeln.</div>
+            </button>
+          </div>
+
+          {exportKind === "diaeten" ? (
+            <div style={{ border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, background: "rgba(0,0,0,0.018)", padding: 14 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(17,24,39,0.35)", marginBottom: 10 }}>
+                Zeitraum
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 0.55fr", gap: 10 }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  <span style={{ fontSize: 9, fontWeight: 750, color: "rgba(17,24,39,0.45)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Monat</span>
+                  <select
+                    value={month}
+                    onChange={(event) => onMonthChange(Number(event.target.value))}
+                    style={{ height: 34, borderRadius: 9, border: "1px solid rgba(0,0,0,0.09)", background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#111827", outline: "none", fontFamily: "inherit" }}
+                  >
+                    {MONTH_LABELS.map((label, index) => (
+                      <option key={label} value={index}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  <span style={{ fontSize: 9, fontWeight: 750, color: "rgba(17,24,39,0.45)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Jahr</span>
+                  <select
+                    value={year}
+                    onChange={(event) => onYearChange(Number(event.target.value))}
+                    style={{ height: 34, borderRadius: 9, border: "1px solid rgba(0,0,0,0.09)", background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#111827", outline: "none", fontFamily: "inherit" }}
+                  >
+                    {yearOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+          ) : (
+            <div style={{ border: "1px solid rgba(217,119,6,0.22)", borderRadius: 14, background: "rgba(217,119,6,0.055)", padding: 13, fontSize: 10.5, lineHeight: 1.55, color: "#92400e", fontWeight: 650 }}>
+              Bitte Diäten auswählen. Der klassische Zeiterfassungs-Export ist in Coke Spark separat geplant.
+            </div>
+          )}
+
+          {error && (
+            <div style={{ border: "1px solid rgba(220,38,38,0.20)", borderRadius: 12, background: "rgba(220,38,38,0.055)", padding: "9px 11px", fontSize: 10, fontWeight: 700, color: "#b91c1c" }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, paddingTop: 2 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={exporting}
+              style={{ height: 34, borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)", background: "#fff", padding: "0 14px", fontSize: 10.5, fontWeight: 800, color: "rgba(17,24,39,0.62)", cursor: exporting ? "default" : "pointer", fontFamily: "inherit" }}
+            >
+              Schließen
+            </button>
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={exporting || exportKind !== "diaeten"}
+              style={{
+                height: 34,
+                borderRadius: 10,
+                border: "1px solid rgba(185,28,28,0.42)",
+                background: "linear-gradient(180deg, #ef4444 0%, #dc2626 100%)",
+                color: "#fff",
+                padding: "0 16px",
+                fontSize: 10.5,
+                fontWeight: 850,
+                cursor: exporting || exportKind !== "diaeten" ? "default" : "pointer",
+                opacity: exporting || exportKind !== "diaeten" ? 0.6 : 1,
+                boxShadow: "0 8px 18px rgba(220,38,38,0.18), inset 0 1px 0 rgba(255,255,255,0.28)",
+                fontFamily: "inherit",
+              }}
+            >
+              {exporting ? "Exportiert..." : "Exportieren"}
+            </button>
           </div>
         </div>
       </div>

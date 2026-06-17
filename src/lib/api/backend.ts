@@ -2239,6 +2239,57 @@ export type AdminZeiterfassungAggregateRow = {
   visibleSessionCount: number;
 };
 
+export type AdminDiaetenExportPayload = {
+  month: number;
+  year: number;
+  timezone: string;
+  range: {
+    from: string;
+    to: string;
+    next: string;
+  };
+  gls: Array<{
+    gmId: string;
+    firstName: string;
+    lastName: string;
+    dayTrackings: Array<{
+      id: string;
+      date: string;
+      dayStartAt: string | null;
+      dayEndAt: string | null;
+      startKm: number | null;
+      endKm: number | null;
+    }>;
+    marketVisits: Array<{
+      id: string;
+      createdAt: string;
+      startAt: string;
+      endAt: string;
+      marketName: string;
+      marketAddress: string;
+      marketCity: string;
+      marketPostalCode: string;
+    }>;
+    zusatzEntries: Array<{
+      id: string;
+      entryDate: string;
+      reason: string;
+      reasonLabel: string;
+      startAt: string;
+      endAt: string;
+      isWorkTimeDeduction: boolean;
+      marketName: string | null;
+      schulungOrt: string | null;
+    }>;
+    pauses: Array<{
+      id: string;
+      date: string;
+      startAt: string;
+      endAt: string;
+    }>;
+  }>;
+};
+
 export async function fetchGmVisitStartPayload(marketId: string, campaignIds: string[]): Promise<GmVisitStartPayload> {
   const params = new URLSearchParams({
     marketId,
@@ -3683,6 +3734,20 @@ export async function fetchAdminZeiterfassungGmAggregates(input?: {
       totalGms: number;
     };
   };
+}
+
+export async function fetchAdminDiaetenExport(input: {
+  month: number;
+  year: number;
+  timezone?: string;
+}): Promise<AdminDiaetenExportPayload> {
+  const params = new URLSearchParams();
+  params.set("month", String(input.month));
+  params.set("year", String(input.year));
+  if (input.timezone) params.set("timezone", input.timezone);
+  return (await authedFetch(`/admin/zeiterfassung/diaeten-export?${params.toString()}`, {
+    cache: "no-store",
+  })) as AdminDiaetenExportPayload;
 }
 
 export async function startDaySession(input?: { timezone?: string; startedAt?: string }): Promise<{ session: DaySession }> {

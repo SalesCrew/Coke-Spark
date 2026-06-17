@@ -9,9 +9,10 @@ import {
   X, ChevronDown, AlertTriangle, CheckCircle2, Search,
 } from "lucide-react";
 import { readWorkbook, buildPreviewGrid, getColHeader, getColSample, isValidColLetter, excelColToIndex } from "@/utils/marketImport";
-import { createCampaign, fetchCampaigns, fetchGmUsers, fetchMarkets, getCampaignOverlapConflicts, migrateCampaignMarkets } from "@/lib/api/backend";
+import { createCampaign, fetchCampaigns, fetchGmUsers, fetchMarkets, getCampaignOverlapConflicts, migrateCampaignMarkets, updateMarket } from "@/lib/api/backend";
 import type { Campaign, CampaignMarketAssignmentInput, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { GMRecord } from "@/types/gebietsmanager";
+import type { MarketRecord } from "@/types/markets";
 import type { RedMonthPeriod } from "@/types/red-month";
 import { useRedMonth } from "@/context/RedMonthContext";
 
@@ -43,7 +44,7 @@ type NeuMarketCandidate = NeuMarketItem & {
 
 type CampaignMatchMode = "flex" | "kuehler_stammnr";
 
-type MarketMatchStatus = "matched" | "unmatched" | "ambiguous";
+type MarketMatchStatus = "matched" | "unmatched" | "ambiguous" | "ignored";
 type MarketMatchResult = {
   row: NeuMarketItem;
   status: MarketMatchStatus;
@@ -153,7 +154,7 @@ function buildGmOverrideLabel(value: string | undefined | null) {
 function isTemporaryGmName(value: string | undefined | null) {
   const normalized = normalizePersonName(value);
   if (!normalized) return false;
-  return /\b(?:prez[ia]?|perz[ia]?|temp(?:orary)?|test)\b/.test(normalized);
+  return /\b(?:temp(?:orary)?|test|dummy|platzhalter)\b/.test(normalized);
 }
 
 function resolveMarketGmLabel(currentGmName: string | undefined | null, employee: string | undefined | null) {
@@ -169,7 +170,11 @@ function buildMarketMatchReport(
   allMarkets: NeuMarketCandidate[],
   isAuto: boolean,
   matchMode: CampaignMatchMode,
-): { results: MarketMatchResult[]; matchedIds: string[]; unmatched: number; ambiguous: number } {
+  options: {
+    marketOverridesByRowId?: Record<string, string>;
+    ignoredRowIds?: Record<string, boolean>;
+  } = {},
+): { results: MarketMatchResult[]; matchedIds: string[]; unmatched: number; ambiguous: number; ignored: number } {
   if (isAuto) {
     const matchedIds = Array.from(new Set(allMarkets.map((market) => market.id)));
     return {
@@ -177,8 +182,21 @@ function buildMarketMatchReport(
       matchedIds,
       unmatched: 0,
       ambiguous: 0,
+      ignored: 0,
     };
   }
+
+  const byId = new Map(allMarkets.map((market) => [market.id, market]));
+  const resolveManualRowMatch = (row: NeuMarketItem): MarketMatchResult | null => {
+    if (options.ignoredRowIds?.[row.id]) {
+      return { row, status: "ignored", marketId: null, candidateIds: [], reason: "ignored" };
+    }
+    const overrideId = options.marketOverridesByRowId?.[row.id];
+    if (!overrideId) return null;
+    const matched = byId.get(overrideId);
+    if (!matched) return null;
+    return { row, status: "matched", marketId: matched.id, candidateIds: [matched.id], reason: "manual" };
+  };
 
   if (matchMode === "kuehler_stammnr") {
     const byCanonicalStammnr = new Map<string, NeuMarketCandidate[]>();
@@ -192,6 +210,9 @@ function buildMarketMatchReport(
     }
 
     const results: MarketMatchResult[] = rows.map((row) => {
+      const manualResult = resolveManualRowMatch(row);
+      if (manualResult) return manualResult;
+
       const canonical = normalizeStammnrForCampaignMatch(row.name);
       if (!canonical) {
         return { row, status: "unmatched", marketId: null, candidateIds: [], reason: "none" };
@@ -230,10 +251,10 @@ function buildMarketMatchReport(
       matchedIds,
       unmatched: results.filter((result) => result.status === "unmatched").length,
       ambiguous: results.filter((result) => result.status === "ambiguous").length,
+      ignored: results.filter((result) => result.status === "ignored").length,
     };
   }
 
-  const byId = new Map(allMarkets.map((market) => [market.id, market]));
   const identityIndex = new Map<string, NeuMarketCandidate[]>();
   const flexCompactKeyByMarketId = new Map<string, string>();
   for (const market of allMarkets) {
@@ -246,6 +267,9 @@ function buildMarketMatchReport(
     flexCompactKeyByMarketId.set(market.id, toCompactFlexKey(market.flexNumber));
   }
   const results: MarketMatchResult[] = rows.map((row) => {
+    const manualResult = resolveManualRowMatch(row);
+    if (manualResult) return manualResult;
+
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.id) && byId.has(row.id)) {
       return { row, status: "matched", marketId: row.id, candidateIds: [row.id], reason: "uuid" };
     }
@@ -313,10 +337,13 @@ function buildMarketMatchReport(
     matchedIds,
     unmatched: results.filter((result) => result.status === "unmatched").length,
     ambiguous: results.filter((result) => result.status === "ambiguous").length,
+    ignored: results.filter((result) => result.status === "ignored").length,
   };
 }
 
 function matcherReasonLabel(reason: string) {
+  if (reason === "manual") return "Manuell";
+  if (reason === "ignored") return "Ignoriert";
   if (reason === "uuid") return "UUID";
   if (reason === "flex_number") return "Flexnummer";
   if (reason === "flex_number_partial") return "Flexnummer (Teiltreffer)";
@@ -493,7 +520,40 @@ function DatePicker({ value, onChange, placeholder = "Datum wählen", disabled =
 type WhiteSelectOption = {
   value: string;
   label: string;
+  searchText?: string;
 };
+
+function compactSearchText(value: string | undefined | null) {
+  return normalizePersonName(value).replace(/[^a-z0-9]/g, "");
+}
+
+function whiteSelectOptionMatches(option: WhiteSelectOption, query: string) {
+  const normalizedQuery = normalizePersonName(query);
+  if (!normalizedQuery) return true;
+
+  const target = `${option.label} ${option.searchText ?? ""}`;
+  const normalizedTarget = normalizePersonName(target);
+  if (normalizedTarget.includes(normalizedQuery)) return true;
+
+  const compactQuery = compactSearchText(query);
+  const compactTarget = compactSearchText(target);
+  if (!compactQuery) return true;
+  if (compactTarget.includes(compactQuery)) return true;
+
+  if (compactQuery.length < 4 || compactTarget.length < 4) return false;
+
+  for (let index = 0; index < compactQuery.length; index += 1) {
+    const queryMinusOne = `${compactQuery.slice(0, index)}${compactQuery.slice(index + 1)}`;
+    if (queryMinusOne.length >= 3 && compactTarget.includes(queryMinusOne)) return true;
+  }
+
+  for (let index = 0; index < compactTarget.length; index += 1) {
+    const targetMinusOne = `${compactTarget.slice(0, index)}${compactTarget.slice(index + 1)}`;
+    if (targetMinusOne.includes(compactQuery)) return true;
+  }
+
+  return false;
+}
 
 function WhiteSelect({
   value,
@@ -507,12 +567,17 @@ function WhiteSelect({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const selected = options.find((option) => option.value === value) ?? null;
   const triggerLabel = selected?.label ?? placeholder;
+  const filteredOptions = useMemo(
+    () => options.filter((option) => whiteSelectOptionMatches(option, query)),
+    [options, query],
+  );
 
   const updateMenuPosition = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
@@ -543,6 +608,10 @@ function WhiteSelect({
       window.removeEventListener("scroll", handleWindowChange, true);
     };
   }, [open, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
 
   return (
     <>
@@ -588,6 +657,29 @@ function WhiteSelect({
             padding: 4,
           }}
         >
+          <div style={{ padding: "5px 5px 3px" }}>
+            <div style={{ position: "relative" }}>
+              <Search size={12} strokeWidth={1.8} color="rgba(0,0,0,0.32)" style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Suchen..."
+                autoFocus
+                style={{
+                  width: "100%",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  borderRadius: 7,
+                  padding: "7px 9px 7px 25px",
+                  fontSize: 11,
+                  fontWeight: 500,
+                  fontFamily: "inherit",
+                  color: "#1a1a1a",
+                  background: "rgba(0,0,0,0.015)",
+                  outline: "none",
+                }}
+              />
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -609,7 +701,7 @@ function WhiteSelect({
           >
             {placeholder}
           </button>
-          {options.map((option) => (
+          {filteredOptions.map((option) => (
             <button
               key={option.value}
               type="button"
@@ -641,6 +733,11 @@ function WhiteSelect({
               {option.label}
             </button>
           ))}
+          {filteredOptions.length === 0 && (
+            <div style={{ padding: "10px 12px", fontSize: 11, color: "rgba(0,0,0,0.38)", fontWeight: 600 }}>
+              Keine Treffer
+            </div>
+          )}
         </div>,
         document.body,
       )}
@@ -1305,6 +1402,15 @@ function StepMaerkte({
   typeId,
   markets,
   onLoad,
+  marketCandidates,
+  marketOverridesByRowId,
+  ignoredImportRowIds,
+  savingStammnrByRowId,
+  savedStammnrByRowId,
+  stammnrSaveErrorsByRowId,
+  onSetMarketOverrideForRow,
+  onToggleIgnoreImportRow,
+  onSaveImportStammnr,
   matchSummary,
   matchIssues,
   strictIdentityMode,
@@ -1316,10 +1422,20 @@ function StepMaerkte({
   typeId: string;
   markets: NeuMarketCandidate[];
   onLoad: (m: NeuMarketItem[]) => void;
+  marketCandidates?: NeuMarketCandidate[];
+  marketOverridesByRowId?: Record<string, string>;
+  ignoredImportRowIds?: Record<string, boolean>;
+  savingStammnrByRowId?: Record<string, boolean>;
+  savedStammnrByRowId?: Record<string, boolean>;
+  stammnrSaveErrorsByRowId?: Record<string, string>;
+  onSetMarketOverrideForRow?: (rowId: string, marketId: string) => void;
+  onToggleIgnoreImportRow?: (rowId: string) => void;
+  onSaveImportStammnr?: (row: NeuMarketItem, marketId: string) => void | Promise<void>;
   matchSummary?: {
     matched: number;
     unmatched: number;
     ambiguous: number;
+    ignored: number;
     unresolved: number;
   };
   matchIssues?: MarketMatchResult[];
@@ -1334,8 +1450,10 @@ function StepMaerkte({
   const hasMarkets = markets.length > 0;
   const isKuehlerCampaign = typeId === "kuehler";
   const unresolvedIssues = matchIssues ?? [];
-  const hasUnresolvedIssues = unresolvedIssues.length > 0;
-  const hasImportedState = hasMarkets || (Boolean(strictIdentityMode) && hasUnresolvedIssues);
+  const blockingIdentityIssues = unresolvedIssues.filter((issue) => issue.status !== "ignored");
+  const hasVisibleIssues = unresolvedIssues.length > 0;
+  const hasUnresolvedIssues = blockingIdentityIssues.length > 0;
+  const hasImportedState = hasMarkets || (Boolean(strictIdentityMode) && hasVisibleIssues);
   const unresolvedGmIssues = useMemo(
     () => (gmIssues ?? []).filter((issue) => issue.kind === "missing" || issue.kind === "unmatched" || issue.kind === "ambiguous" || issue.kind === "conflict"),
     [gmIssues],
@@ -1355,6 +1473,45 @@ function StepMaerkte({
         return (leftMarket?.name ?? left.gmOverrideLabel).localeCompare(rightMarket?.name ?? right.gmOverrideLabel, "de");
       }),
     [marketByIssueKey, unresolvedGmIssues],
+  );
+  const marketCandidateById = useMemo(() => {
+    const map = new Map<string, NeuMarketCandidate>();
+    for (const market of marketCandidates ?? []) {
+      map.set(market.id, market);
+    }
+    return map;
+  }, [marketCandidates]);
+  const marketOptions = useMemo(
+    () =>
+      (marketCandidates ?? []).map((market) => {
+        const location = [market.postalCode, market.city].filter(Boolean).join(" ");
+        const identity = [market.kuehlerStammnr, market.cokeMasterNumber].filter(Boolean).join(" / ");
+        return {
+          value: market.id,
+          label: [market.name || market.address || market.flexNumber || market.id, location, identity].filter(Boolean).join(" · "),
+          searchText: [
+            market.name,
+            market.address,
+            market.postalCode,
+            market.city,
+            market.region,
+            market.kuehlerStammnr,
+            market.cokeMasterNumber,
+            market.flexNumber,
+            market.standardMarketNumber,
+          ].filter(Boolean).join(" "),
+        };
+      }),
+    [marketCandidates],
+  );
+  const gmOptions = useMemo(
+    () =>
+      (gmUsers ?? []).map((gm) => ({
+        value: gm.id,
+        label: `${gm.firstName} ${gm.lastName} · ${gm.email}`,
+        searchText: `${gm.firstName} ${gm.lastName} ${gm.lastName} ${gm.firstName} ${gm.email} ${gm.region ?? ""}`,
+      })),
+    [gmUsers],
   );
 
   const regionCounts = useMemo(() => {
@@ -1467,14 +1624,109 @@ function StepMaerkte({
                   ? "Nur eindeutig gematchte Märkte werden unten gezeigt. Korrigiere die offenen Stammnr-Werte, um weiterzugehen."
                   : "Alle importierten Stammnr-Werte wurden eindeutig Märkten zugeordnet."}
               </div>
-              {hasUnresolvedIssues && (
-                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-                  {unresolvedIssues.slice(0, 8).map((issue, index) => (
-                    <div key={`${issue.row.id}-${index}`} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 10, color: "#7c2d12" }}>
-                      <span style={{ fontWeight: 700 }}>{issue.row.name || "—"}</span>
-                      <span>{issue.status === "ambiguous" ? "Mehrdeutig" : "Nicht gefunden"}</span>
-                    </div>
-                  ))}
+              {hasVisibleIssues && (
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {unresolvedIssues.slice(0, 8).map((issue, index) => {
+                    const selectedMarketId = marketOverridesByRowId?.[issue.row.id] ?? "";
+                    const selectedMarket = selectedMarketId ? marketCandidateById.get(selectedMarketId) : null;
+                    const isIgnored = issue.status === "ignored" || Boolean(ignoredImportRowIds?.[issue.row.id]);
+                    const importedStammnr = issue.row.name.trim();
+                    const currentDbStammnr = selectedMarket?.kuehlerStammnr?.trim() ?? "";
+                    const canSaveStammnr = Boolean(selectedMarket && importedStammnr && normalizeStammnrForCampaignMatch(currentDbStammnr) !== normalizeStammnrForCampaignMatch(importedStammnr));
+                    return (
+                      <div
+                        key={`manual-${issue.row.id}-${index}`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1.35fr auto",
+                          gap: 8,
+                          alignItems: "center",
+                          padding: "8px 9px",
+                          borderRadius: 8,
+                          border: `1px solid ${isIgnored ? "rgba(0,0,0,0.08)" : "rgba(180,83,9,0.20)"}`,
+                          background: isIgnored ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.82)",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: isIgnored ? "rgba(0,0,0,0.45)" : "#7c2d12" }}>{issue.row.name || "—"}</span>
+                            <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: isIgnored ? "rgba(0,0,0,0.38)" : "#92400e" }}>
+                              {isIgnored ? "Ignoriert" : issue.status === "ambiguous" ? "Markt unklar" : "Markt fehlt"}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 9, color: "rgba(124,45,18,0.78)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            Mitarbeiter: {issue.row.gm || "—"}
+                          </div>
+                          {selectedMarket && (
+                            <div style={{ marginTop: 3, fontSize: 9, color: "rgba(0,0,0,0.46)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              DB: {selectedMarket.name} · {[selectedMarket.address, [selectedMarket.postalCode, selectedMarket.city].filter(Boolean).join(" ")].filter(Boolean).join(" · ")}
+                            </div>
+                          )}
+                        </div>
+                        <WhiteSelect
+                          value={selectedMarketId}
+                          onChange={(next) => onSetMarketOverrideForRow?.(issue.row.id, next)}
+                          options={marketOptions}
+                          placeholder="DB-Markt suchen..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => onToggleIgnoreImportRow?.(issue.row.id)}
+                          style={{
+                            height: 30,
+                            padding: "0 10px",
+                            borderRadius: 7,
+                            border: "1px solid rgba(0,0,0,0.08)",
+                            background: isIgnored ? "rgba(22,163,74,0.08)" : "#fff",
+                            color: isIgnored ? "#15803d" : "rgba(0,0,0,0.45)",
+                            fontSize: 10,
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {isIgnored ? "Aktivieren" : "Ignorieren"}
+                        </button>
+                        {selectedMarket && canSaveStammnr && !isIgnored && (
+                          <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, paddingTop: 2 }}>
+                            <span style={{ fontSize: 9, color: "rgba(124,45,18,0.78)", fontWeight: 600 }}>
+                              Stammnr speichern: {currentDbStammnr || "leer"} → {importedStammnr}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => onSaveImportStammnr?.(issue.row, selectedMarket.id)}
+                              disabled={Boolean(savingStammnrByRowId?.[issue.row.id])}
+                              style={{
+                                border: "none",
+                                borderRadius: 7,
+                                padding: "5px 9px",
+                                fontSize: 10,
+                                fontWeight: 800,
+                                fontFamily: "inherit",
+                                color: "#fff",
+                                cursor: savingStammnrByRowId?.[issue.row.id] ? "wait" : "pointer",
+                                background: "linear-gradient(to bottom, #d97706, #b45309)",
+                                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.28), 0 0 0 1px #b45309, 0 1px 5px rgba(180,83,9,0.25)",
+                              }}
+                            >
+                              {savingStammnrByRowId?.[issue.row.id] ? "Speichern..." : "Stammnr speichern"}
+                            </button>
+                          </div>
+                        )}
+                        {savedStammnrByRowId?.[issue.row.id] && (
+                          <div style={{ gridColumn: "1 / -1", fontSize: 9, color: "#15803d", fontWeight: 700 }}>
+                            Stammnr wurde am Markt gespeichert.
+                          </div>
+                        )}
+                        {stammnrSaveErrorsByRowId?.[issue.row.id] && (
+                          <div style={{ gridColumn: "1 / -1", fontSize: 9, color: "#b91c1c", fontWeight: 700 }}>
+                            {stammnrSaveErrorsByRowId[issue.row.id]}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                   {unresolvedIssues.length > 8 && (
                     <div style={{ fontSize: 10, color: "#7c2d12", fontWeight: 600 }}>
                       +{unresolvedIssues.length - 8} weitere offene Stammnr-Werte
@@ -1578,10 +1830,7 @@ function StepMaerkte({
                       <WhiteSelect
                         value={gmOverridesByKey?.[issue.gmOverrideKey] ?? ""}
                         onChange={(next) => onSetGmOverrideForKey(issue.gmOverrideKey, next)}
-                        options={gmUsers.map((gm) => ({
-                          value: gm.id,
-                          label: `${gm.firstName} ${gm.lastName} · ${gm.email}`,
-                        }))}
+                        options={gmOptions}
                         placeholder="GM manuell auswählen…"
                       />
                     </div>
@@ -1817,8 +2066,14 @@ export default function NeuKampagnePage() {
   const [redMonthLoadAttempted, setRedMonthLoadAttempted] = useState(false);
   const [markets, setMarkets] = useState<NeuMarketItem[]>([]);
   const [allMarkets, setAllMarkets] = useState<NeuMarketCandidate[]>([]);
+  const [allMarketRecords, setAllMarketRecords] = useState<MarketRecord[]>([]);
   const [gmUsers, setGmUsers] = useState<GMRecord[]>([]);
   const [gmOverridesByKey, setGmOverridesByKey] = useState<Record<string, string>>({});
+  const [marketOverridesByRowId, setMarketOverridesByRowId] = useState<Record<string, string>>({});
+  const [ignoredImportRowIds, setIgnoredImportRowIds] = useState<Record<string, boolean>>({});
+  const [savingStammnrByRowId, setSavingStammnrByRowId] = useState<Record<string, boolean>>({});
+  const [savedStammnrByRowId, setSavedStammnrByRowId] = useState<Record<string, boolean>>({});
+  const [stammnrSaveErrorsByRowId, setStammnrSaveErrorsByRowId] = useState<Record<string, string>>({});
   const [existingCampaigns, setExistingCampaigns] = useState<Campaign[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
@@ -1840,6 +2095,7 @@ export default function NeuKampagnePage() {
     const loadMarkets = async () => {
       try {
         const rows = await fetchMarkets({ forceFresh: true });
+        setAllMarketRecords(rows);
         setAllMarkets(
           rows.map((row) => ({
             id: row.id,
@@ -1858,6 +2114,7 @@ export default function NeuKampagnePage() {
           })),
         );
       } catch {
+        setAllMarketRecords([]);
         setAllMarkets([]);
       }
     };
@@ -1874,6 +2131,10 @@ export default function NeuKampagnePage() {
         return getMarketStammnrCandidates(market).length > 0;
       }),
     [allMarkets, typeId],
+  );
+  const matchableMarkets = useMemo(
+    () => (matchMode === "kuehler_stammnr" ? allMarkets.filter((market) => market.isActive !== false) : assignableMarkets),
+    [allMarkets, assignableMarkets, matchMode],
   );
 
   useEffect(() => {
@@ -1934,13 +2195,138 @@ export default function NeuKampagnePage() {
     setEndDate(clamped.end);
   }, [redMonthYearRange]);
 
+  const handleLoadImportedMarkets = useCallback((items: NeuMarketItem[]) => {
+    setMarkets(items);
+    setGmOverridesByKey({});
+    setMarketOverridesByRowId({});
+    setIgnoredImportRowIds({});
+    setSavingStammnrByRowId({});
+    setSavedStammnrByRowId({});
+    setStammnrSaveErrorsByRowId({});
+  }, []);
+
+  const fullMarketRecordById = useMemo(
+    () => new Map(allMarketRecords.map((market) => [market.id, market])),
+    [allMarketRecords],
+  );
+
+  const handleSetMarketOverrideForRow = useCallback((rowId: string, marketId: string) => {
+    setMarketOverridesByRowId((current) => {
+      const next = { ...current };
+      if (marketId) next[rowId] = marketId;
+      else delete next[rowId];
+      return next;
+    });
+    setIgnoredImportRowIds((current) => {
+      if (!current[rowId]) return current;
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+    setSavedStammnrByRowId((current) => {
+      if (!current[rowId]) return current;
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+    setStammnrSaveErrorsByRowId((current) => {
+      if (!current[rowId]) return current;
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+  }, []);
+
+  const handleToggleIgnoredImportRow = useCallback((rowId: string) => {
+    setIgnoredImportRowIds((current) => {
+      const next = { ...current };
+      if (next[rowId]) delete next[rowId];
+      else next[rowId] = true;
+      return next;
+    });
+    setMarketOverridesByRowId((current) => {
+      if (!current[rowId]) return current;
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+  }, []);
+
+  const handleSaveImportStammnr = useCallback(async (row: NeuMarketItem, marketId: string) => {
+    const importedStammnr = row.name.trim();
+    const original = fullMarketRecordById.get(marketId);
+    if (!original || !importedStammnr) {
+      setStammnrSaveErrorsByRowId((current) => ({
+        ...current,
+        [row.id]: "Markt oder Import-Stammnr fehlt.",
+      }));
+      return;
+    }
+
+    setSavingStammnrByRowId((current) => ({ ...current, [row.id]: true }));
+    setStammnrSaveErrorsByRowId((current) => {
+      const next = { ...current };
+      delete next[row.id];
+      return next;
+    });
+    setSavedStammnrByRowId((current) => {
+      const next = { ...current };
+      delete next[row.id];
+      return next;
+    });
+
+    try {
+      const updated = await updateMarket({
+        ...original,
+        kuehlerStammnr: importedStammnr,
+      });
+      setAllMarketRecords((current) => current.map((market) => (market.id === updated.id ? updated : market)));
+      setAllMarkets((current) =>
+        current.map((market) =>
+          market.id === updated.id
+            ? {
+                ...market,
+                name: updated.name,
+                region: updated.region,
+                gm: resolveMarketGmLabel(updated.currentGmName, updated.employee),
+                address: updated.address,
+                postalCode: updated.postalCode,
+                city: updated.city,
+                standardMarketNumber: updated.standardMarketNumber,
+                cokeMasterNumber: updated.cokeMasterNumber,
+                kuehlerStammnr: updated.kuehlerStammnr,
+                flexNumber: updated.flexNumber,
+                marketType: updated.marketType,
+                isActive: updated.isActive,
+              }
+            : market,
+        ),
+      );
+      setSavedStammnrByRowId((current) => ({ ...current, [row.id]: true }));
+    } catch (error) {
+      setStammnrSaveErrorsByRowId((current) => ({
+        ...current,
+        [row.id]: error instanceof Error ? error.message : "Stammnr konnte nicht gespeichert werden.",
+      }));
+    } finally {
+      setSavingStammnrByRowId((current) => {
+        const next = { ...current };
+        delete next[row.id];
+        return next;
+      });
+    }
+  }, [fullMarketRecordById]);
+
   const matcherReport = useMemo(
-    () => buildMarketMatchReport(markets, assignableMarkets, isAuto, matchMode),
-    [assignableMarkets, isAuto, markets, matchMode],
+    () => buildMarketMatchReport(markets, matchableMarkets, isAuto, matchMode, {
+      marketOverridesByRowId,
+      ignoredRowIds: ignoredImportRowIds,
+    }),
+    [ignoredImportRowIds, isAuto, marketOverridesByRowId, markets, matchMode, matchableMarkets],
   );
   const matchedMarketRows = useMemo<NeuMarketCandidate[]>(() => {
     if (isAuto) return assignableMarkets;
-    const allById = new Map(assignableMarkets.map((market) => [market.id, market]));
+    const allById = new Map(matchableMarkets.map((market) => [market.id, market]));
     if (matchMode === "kuehler_stammnr") {
       const resolved: NeuMarketCandidate[] = [];
       for (const result of matcherReport.results) {
@@ -1969,14 +2355,18 @@ export default function NeuKampagnePage() {
       resolved.push(matched);
     }
     return resolved.length > 0 ? resolved : markets;
-  }, [assignableMarkets, isAuto, markets, matchMode, matcherReport.results]);
+  }, [assignableMarkets, isAuto, markets, matchMode, matchableMarkets, matcherReport.results]);
   const matcherIssueRows = useMemo(
+    () => matcherReport.results.filter((result) => result.status !== "matched" && result.status !== "ignored"),
+    [matcherReport.results],
+  );
+  const matcherVisibleIssueRows = useMemo(
     () => matcherReport.results.filter((result) => result.status !== "matched"),
     [matcherReport.results],
   );
   const step3MatchIssues = useMemo(
-    () => (matchMode === "kuehler_stammnr" ? matcherIssueRows : []),
-    [matchMode, matcherIssueRows],
+    () => (matchMode === "kuehler_stammnr" ? matcherVisibleIssueRows : []),
+    [matchMode, matcherVisibleIssueRows],
   );
   const matchedRowCount = useMemo(
     () => matcherReport.results.filter((result) => result.status === "matched" && result.marketId).length,
@@ -1988,25 +2378,16 @@ export default function NeuKampagnePage() {
       matched: matchedDisplayCount,
       unmatched: matcherReport.unmatched,
       ambiguous: matcherReport.ambiguous,
+      ignored: matcherReport.ignored,
       unresolved: matcherIssueRows.length,
     }),
-    [matchedDisplayCount, matcherIssueRows.length, matcherReport.ambiguous, matcherReport.unmatched],
+    [matchedDisplayCount, matcherIssueRows.length, matcherReport.ambiguous, matcherReport.ignored, matcherReport.unmatched],
   );
   const identityBlockingCount = useMemo(() => {
     if (isAuto) return 0;
     if (matchMode !== "kuehler_stammnr") return 0;
     return matcherIssueRows.length;
   }, [isAuto, matchMode, matcherIssueRows.length]);
-  const canProceed = (() => {
-    if (step === 1) return !!typeId;
-    if (step === 2) return !!name;
-    if (step === 3) {
-      if (isAuto) return matcherReport.matchedIds.length > 0;
-      if (matchMode === "kuehler_stammnr") return matchedMarketRows.length > 0 && identityBlockingCount === 0;
-      return markets.length > 0;
-    }
-    return true;
-  })();
   const gmNameIndex = useMemo(() => {
     const index = new Map<string, GMRecord[]>();
     for (const user of gmUsers) {
@@ -2272,7 +2653,18 @@ export default function NeuKampagnePage() {
 
   const gmBlockingIssues = assignmentBuild.issues.length;
   const hasAssignmentsToCreate = assignmentBuild.assignments.length > 0;
-  const canCreate = !!name && !isSubmitting && (isAuto ? matcherReport.matchedIds.length > 0 : (identityBlockingCount === 0 && hasAssignmentsToCreate));
+  const hasBlockingKuehlerIssues = matchMode === "kuehler_stammnr" && (identityBlockingCount > 0 || gmBlockingIssues > 0);
+  const canCreate = !!name && !isSubmitting && (isAuto ? matcherReport.matchedIds.length > 0 : (hasAssignmentsToCreate && !hasBlockingKuehlerIssues));
+  const canProceed = (() => {
+    if (step === 1) return !!typeId;
+    if (step === 2) return !!name;
+    if (step === 3) {
+      if (isAuto) return matcherReport.matchedIds.length > 0;
+      if (matchMode === "kuehler_stammnr") return matchedMarketRows.length > 0 && !hasBlockingKuehlerIssues;
+      return markets.length > 0;
+    }
+    return true;
+  })();
 
   const updateMatcherRow = useCallback((rowId: string, field: "name" | "gm", value: string) => {
     setMarkets((current) =>
@@ -2280,6 +2672,32 @@ export default function NeuKampagnePage() {
         row.id === rowId ? { ...row, [field]: value } : row,
       ),
     );
+    if (field === "name") {
+      setMarketOverridesByRowId((current) => {
+        if (!current[rowId]) return current;
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      });
+      setIgnoredImportRowIds((current) => {
+        if (!current[rowId]) return current;
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      });
+    }
+    setSavedStammnrByRowId((current) => {
+      if (!current[rowId]) return current;
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+    setStammnrSaveErrorsByRowId((current) => {
+      if (!current[rowId]) return current;
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
   }, []);
 
   const setGmOverrideForKey = useCallback((overrideKey: string, gmUserId: string) => {
@@ -2317,7 +2735,7 @@ export default function NeuKampagnePage() {
       if (!campaign.startDate || !campaign.endDate) return "Geplant";
       return `${campaign.startDate} - ${campaign.endDate}`;
     };
-    const marketNameById = new Map(assignableMarkets.map((market) => [market.id, market.name]));
+    const marketNameById = new Map(matchableMarkets.map((market) => [market.id, market.name]));
     const conflicts: CampaignMarketOverlapConflict[] = [];
     for (const assignment of assignmentBuild.assignments) {
       for (const campaign of existingCampaigns) {
@@ -2351,7 +2769,7 @@ export default function NeuKampagnePage() {
       if (!deduped.has(key)) deduped.set(key, conflict);
     }
     return Array.from(deduped.values());
-  }, [assignableMarkets, assignmentBuild.assignments, endDate, existingCampaigns, isAuto, name, startDate, startNow, typeId]);
+  }, [assignmentBuild.assignments, endDate, existingCampaigns, isAuto, matchableMarkets, name, startDate, startNow, typeId]);
 
   const submitCampaign = useCallback(
     async (
@@ -2503,7 +2921,16 @@ export default function NeuKampagnePage() {
               <StepMaerkte
                 typeId={typeId}
                 markets={matchedMarketRowsWithResolvedGm}
-                onLoad={setMarkets}
+                onLoad={handleLoadImportedMarkets}
+                marketCandidates={matchableMarkets}
+                marketOverridesByRowId={marketOverridesByRowId}
+                ignoredImportRowIds={ignoredImportRowIds}
+                savingStammnrByRowId={savingStammnrByRowId}
+                savedStammnrByRowId={savedStammnrByRowId}
+                stammnrSaveErrorsByRowId={stammnrSaveErrorsByRowId}
+                onSetMarketOverrideForRow={handleSetMarketOverrideForRow}
+                onToggleIgnoreImportRow={handleToggleIgnoredImportRow}
+                onSaveImportStammnr={handleSaveImportStammnr}
                 matchSummary={step3MatchSummary}
                 matchIssues={step3MatchIssues}
                 strictIdentityMode={matchMode === "kuehler_stammnr"}
@@ -2717,7 +3144,8 @@ export default function NeuKampagnePage() {
                             onChange={(next) => setGmOverrideForKey(group.key, next)}
                             options={gmUsers.map((gm) => ({
                               value: gm.id,
-                              label: `${gm.firstName} ${gm.lastName}`,
+                              label: `${gm.firstName} ${gm.lastName} · ${gm.email}`,
+                              searchText: `${gm.firstName} ${gm.lastName} ${gm.lastName} ${gm.firstName} ${gm.email} ${gm.region ?? ""}`,
                             }))}
                             placeholder="GM manuell auswählen…"
                           />

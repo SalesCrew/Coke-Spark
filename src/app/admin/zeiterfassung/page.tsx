@@ -15,6 +15,7 @@ import {
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
 import { exportAdminDiaeten, MONTH_LABELS } from "@/lib/exports/diaetenExport";
+import { exportAdminZeiterfassung, getMonthBoundsForZeiterfassungExport } from "@/lib/exports/zeiterfassungExport";
 import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 
 // ── Constants ─────────────────────────────────────────────────
@@ -974,7 +975,7 @@ export default function ZeiterfassungPage() {
   const [exportError, setExportError] = useState<string | null>(null);
 
   const openExportModal = useCallback(() => {
-    setExportKind("diaeten");
+    setExportKind("zeiterfassung");
     setExportModalOpen(true);
     setExportError(null);
   }, []);
@@ -1042,6 +1043,31 @@ export default function ZeiterfassungPage() {
   }, [openExportModal]);
 
   const handleExport = useCallback(async () => {
+    if (exportKind === "zeiterfassung") {
+      setExporting(true);
+      setExportError(null);
+      try {
+        const range = getMonthBoundsForZeiterfassungExport(exportYear, exportMonth);
+        const payload = await fetchAdminZeiterfassungDays({
+          from: range.from,
+          to: range.to,
+          timezone: "Europe/Vienna",
+          includeLive: true,
+        });
+        await exportAdminZeiterfassung({
+          sessions: payload.sessions,
+          range,
+          timezone: payload.meta.timezone,
+        });
+        setExportModalOpen(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Export konnte nicht erstellt werden.";
+        setExportError(message || "Export konnte nicht erstellt werden.");
+      } finally {
+        setExporting(false);
+      }
+      return;
+    }
     if (exportKind !== "diaeten") {
       setExportError("Bitte Diäten auswählen.");
       return;
@@ -1357,7 +1383,7 @@ function DiaetenExportModal({
               Zeiterfassung exportieren
             </div>
             <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.55, color: "rgba(17,24,39,0.48)", maxWidth: 390 }}>
-              Wähle den Exporttyp. Diäten werden pro GM als Excel im Mars-Rover-Format erzeugt.
+              Wähle den Exporttyp. Zeiterfassung exportiert alle Einträge inklusive berechneter Fahrtzeiten.
             </div>
           </div>
           <button
@@ -1384,7 +1410,7 @@ function DiaetenExportModal({
           <div style={{ display: "flex", gap: 10 }}>
             <button type="button" onClick={() => onKindChange("zeiterfassung")} style={choiceStyle(exportKind === "zeiterfassung")}>
               <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", marginBottom: 4 }}>Zeiterfassung</div>
-              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Bestehende Zeitdaten als separater Export.</div>
+              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Filterbare Monatsdatei mit Einträgen, Fahrtzeiten, Tages- und GM-Summen.</div>
             </button>
             <button type="button" onClick={() => onKindChange("diaeten")} style={choiceStyle(exportKind === "diaeten")}>
               <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", marginBottom: 4 }}>Diäten</div>
@@ -1392,7 +1418,7 @@ function DiaetenExportModal({
             </button>
           </div>
 
-          {exportKind === "diaeten" ? (
+          {exportKind === "diaeten" || exportKind === "zeiterfassung" ? (
             <div style={{ border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, background: "rgba(0,0,0,0.018)", padding: 14 }}>
               <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(17,24,39,0.35)", marginBottom: 10 }}>
                 Zeitraum
@@ -1424,11 +1450,7 @@ function DiaetenExportModal({
                 </label>
               </div>
             </div>
-          ) : (
-            <div style={{ border: "1px solid rgba(217,119,6,0.22)", borderRadius: 14, background: "rgba(217,119,6,0.055)", padding: 13, fontSize: 10.5, lineHeight: 1.55, color: "#92400e", fontWeight: 650 }}>
-              Bitte Diäten auswählen. Der klassische Zeiterfassungs-Export ist in Coke Spark separat geplant.
-            </div>
-          )}
+          ) : null}
 
           {error && (
             <div style={{ border: "1px solid rgba(220,38,38,0.20)", borderRadius: 12, background: "rgba(220,38,38,0.055)", padding: "9px 11px", fontSize: 10, fontWeight: 700, color: "#b91c1c" }}>
@@ -1448,7 +1470,7 @@ function DiaetenExportModal({
             <button
               type="button"
               onClick={onExport}
-              disabled={exporting || exportKind !== "diaeten"}
+              disabled={exporting}
               style={{
                 height: 34,
                 borderRadius: 10,
@@ -1458,8 +1480,8 @@ function DiaetenExportModal({
                 padding: "0 16px",
                 fontSize: 10.5,
                 fontWeight: 850,
-                cursor: exporting || exportKind !== "diaeten" ? "default" : "pointer",
-                opacity: exporting || exportKind !== "diaeten" ? 0.6 : 1,
+                cursor: exporting ? "default" : "pointer",
+                opacity: exporting ? 0.6 : 1,
                 boxShadow: "0 8px 18px rgba(220,38,38,0.18), inset 0 1px 0 rgba(255,255,255,0.28)",
                 fontFamily: "inherit",
               }}

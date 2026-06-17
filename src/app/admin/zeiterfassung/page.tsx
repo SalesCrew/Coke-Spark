@@ -973,6 +973,12 @@ export default function ZeiterfassungPage() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  const openExportModal = useCallback(() => {
+    setExportKind("diaeten");
+    setExportModalOpen(true);
+    setExportError(null);
+  }, []);
+
   const loadZeiterfassungData = useCallback(async (options?: { showLoader?: boolean }) => {
     const showLoader = options?.showLoader ?? true;
     if (showLoader) setLoading(true);
@@ -1029,6 +1035,11 @@ export default function ZeiterfassungPage() {
   useEffect(() => {
     void loadZeiterfassungData({ showLoader: true });
   }, [loadZeiterfassungData]);
+
+  useEffect(() => {
+    window.addEventListener("zeiterfassung:openExport", openExportModal);
+    return () => window.removeEventListener("zeiterfassung:openExport", openExportModal);
+  }, [openExportModal]);
 
   const handleExport = useCallback(async () => {
     if (exportKind !== "diaeten") {
@@ -1156,10 +1167,7 @@ export default function ZeiterfassungPage() {
             </div>
 
             <button
-              onClick={() => {
-                setExportModalOpen(true);
-                setExportError(null);
-              }}
+              onClick={openExportModal}
               style={{
                 marginLeft: "auto",
                 height: 28,

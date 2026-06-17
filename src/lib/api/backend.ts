@@ -2014,7 +2014,6 @@ export type TimeTrackingActivityType =
   | "homeoffice"
   | "schulung"
   | "lager"
-  | "heimfahrt"
   | "hotel"
   | "hoteluebernachtung";
 
@@ -2148,6 +2147,18 @@ export type TodaySubmissionsPayload = {
     startKm: number | null;
     endKm: number | null;
   } | null;
+};
+
+export type GmZeiterfassungPayload = {
+  sessions: AdminZeiterfassungSession[];
+  aggregate: AdminZeiterfassungAggregateRow | null;
+  meta: {
+    from: string;
+    to: string;
+    includeLive: boolean;
+    timezone: string;
+    totalSessions: number;
+  };
 };
 
 export type DaySessionReviewEdit = {
@@ -3523,6 +3534,21 @@ export async function fetchCurrentDaySession(): Promise<DaySessionCurrentPayload
 
 export async function fetchTodaySubmissions(): Promise<TodaySubmissionsPayload> {
   return (await authedFetch("/day-session/today-submissions")) as TodaySubmissionsPayload;
+}
+
+export async function fetchGmZeiterfassung(input?: {
+  from?: string;
+  to?: string;
+  includeLive?: boolean;
+  timezone?: string;
+}): Promise<GmZeiterfassungPayload> {
+  const params = new URLSearchParams();
+  if (input?.from) params.set("from", input.from);
+  if (input?.to) params.set("to", input.to);
+  if (typeof input?.includeLive === "boolean") params.set("includeLive", input.includeLive ? "true" : "false");
+  if (input?.timezone) params.set("timezone", input.timezone);
+  const query = params.toString();
+  return (await authedFetch(`/day-session/zeiterfassung${query ? `?${query}` : ""}`)) as GmZeiterfassungPayload;
 }
 
 export async function fetchAdminZeiterfassungDays(input?: {

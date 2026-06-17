@@ -86,6 +86,7 @@ interface MarketCatalogItem {
   city: string;
   region: string;
   address: string;
+  stammnr?: string;
   gm: string;
   finished: boolean;
 }
@@ -138,6 +139,7 @@ function applyMarketFilters(
   if (q) r = r.filter(m =>
     m.name.toLowerCase().includes(q) ||
     m.address.toLowerCase().includes(q) ||
+    (m.stammnr ?? "").toLowerCase().includes(q) ||
     m.gm.toLowerCase().includes(q) ||
     m.city.toLowerCase().includes(q) ||
     m.chain.toLowerCase().includes(q)
@@ -5518,7 +5520,21 @@ const MarketRow = React.memo(function MarketRow({
       {mode !== "remove" && (
         <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, backgroundColor: dotColor }} />
       )}
-      <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{market.name}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {market.name}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, marginTop: 1 }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 10, color: "rgba(0,0,0,0.4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {market.address}
+          </span>
+          {market.stammnr && (
+            <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.46)", padding: "1px 6px", borderRadius: 999, background: "rgba(0,0,0,0.04)" }}>
+              St-Nr. {market.stammnr}
+            </span>
+          )}
+        </div>
+      </div>
       <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", fontWeight: 400 }}>{market.city}</span>
       {statusLoading ? (
         <span
@@ -5541,6 +5557,8 @@ const MarketRow = React.memo(function MarketRow({
     prev.market.id === next.market.id &&
     prev.market.finished === next.market.finished &&
     prev.market.name === next.market.name &&
+    prev.market.address === next.market.address &&
+    prev.market.stammnr === next.market.stammnr &&
     prev.market.city === next.market.city &&
     prev.visitStatus?.targetVisitCount === next.visitStatus?.targetVisitCount &&
     prev.visitStatus?.submittedVisitCount === next.visitStatus?.submittedVisitCount &&
@@ -6146,6 +6164,7 @@ export default function FbManagementPage() {
             city: market.city,
             region: market.region,
             address: market.address,
+            stammnr: String(market.kuehlerStammnr || market.cokeMasterNumber || market.standardMarketNumber || "").trim(),
             gm: market.currentGmName || market.employee || "Unbekannt",
             finished: Boolean(market.infoFlag),
           };

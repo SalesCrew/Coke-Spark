@@ -11,7 +11,6 @@ import {
   Home,
   GraduationCap,
   Warehouse,
-  Route,
   BedDouble,
   Coffee,
   Clock,
@@ -112,7 +111,6 @@ const activities: readonly ZusatzActivity[] = [
   { key: "schulung", label: "Schulung", icon: GraduationCap },
   { key: "lager", label: "Lager", icon: Warehouse },
   { key: "pause", label: "Pause", icon: Coffee, manualOnly: true },
-  { key: "heimfahrt", label: "Heimfahrt", icon: Route },
   { key: "hotel", label: "Hotelübernachtung", icon: BedDouble },
 ] as const;
 

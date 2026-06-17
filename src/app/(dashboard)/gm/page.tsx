@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Home, Clock, Calendar, User, Map, LogOut } from "lucide-react";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GMStatusCard } from "@/components/dashboard/GMStatusCard";
 import { BonusCircles } from "@/components/dashboard/BonusCircles";
@@ -11,6 +10,7 @@ import { TimeTracker } from "@/components/dashboard/TimeTracker";
 import { KuehlerInventurCard } from "@/components/dashboard/KuehlerInventurCard";
 import { MarketList } from "@/components/dashboard/MarketList";
 import { ActivityLauncher } from "@/components/dashboard/ActivityLauncher";
+import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import Aurora from "@/components/ui/Aurora";
 import { RedMonthProvider } from "@/context/RedMonthContext";
 import {
@@ -32,15 +32,6 @@ import {
   type GmVisitSessionReadPayload,
 } from "@/lib/api/backend";
 import type { PraemienGmBonusSummary } from "@/types/praemien";
-
-const gmMenuItems = [
-  { label: "Home", icon: <Home size={11} strokeWidth={1.8} /> },
-  { label: "Gebiet", icon: <Map size={11} strokeWidth={1.8} /> },
-  { label: "Zeiterfassung", icon: <Clock size={11} strokeWidth={1.8} /> },
-  { label: "Kalender", icon: <Calendar size={11} strokeWidth={1.8} /> },
-  { label: "Profil", icon: <User size={11} strokeWidth={1.8} /> },
-  { label: "Logout", icon: <LogOut size={11} strokeWidth={1.9} />, action: "logout" as const, tone: "danger" as const },
-];
 
 function formatElapsedTime(totalSeconds: number): string {
   const safeSeconds = Math.max(0, totalSeconds);
@@ -500,7 +491,7 @@ export default function GMDashboard() {
 
       <div className="fixed bottom-6 left-0 right-0 z-50">
         <CollapsibleMenu
-          items={gmMenuItems}
+          items={GM_MENU_ITEMS}
           defaultIndex={0}
           onSelect={(_index, item) => {
             if (item.action === "logout") {
@@ -511,6 +502,10 @@ export default function GMDashboard() {
               }
               router.replace("/");
               router.refresh();
+              return;
+            }
+            if (item.href) {
+              router.push(item.href);
             }
           }}
         />

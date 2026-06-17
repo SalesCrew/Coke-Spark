@@ -7,6 +7,7 @@ import { Home, Clock, Calendar, User, LogOut } from "lucide-react";
 export interface MenuItem {
   label: string;
   icon: React.ReactNode;
+  href?: string;
   action?: "navigate" | "logout";
   tone?: "default" | "danger";
 }

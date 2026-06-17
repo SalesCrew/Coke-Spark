@@ -8,6 +8,6 @@ export const GM_MENU_ITEMS: MenuItem[] = [
   { label: "Gebiet", icon: <Map size={11} strokeWidth={1.8} /> },
   { label: "Zeiterfassung", href: "/gm/zeiterfassung", icon: <Clock size={11} strokeWidth={1.8} /> },
   { label: "Kalender", icon: <Calendar size={11} strokeWidth={1.8} /> },
-  { label: "Profil", icon: <User size={11} strokeWidth={1.8} /> },
+  { label: "Profil", href: "/gm/profil", icon: <User size={11} strokeWidth={1.8} /> },
   { label: "Logout", icon: <LogOut size={11} strokeWidth={1.9} />, action: "logout", tone: "danger" },
 ];

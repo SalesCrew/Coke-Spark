@@ -1288,6 +1288,48 @@ export type GmKpiSummary = {
   lastComputedAt: string;
 };
 
+export type GmProfilePayload = {
+  profile: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    address: string;
+    city: string;
+    postalCode: string;
+    region: string;
+    isBillaGm: boolean;
+    createdAt: string;
+    updatedAt: string;
+  };
+  stats: {
+    redPeriod: {
+      redPeriodId: string | null;
+      redMonthYearId: string | null;
+      label: string;
+      startDate: string;
+      endDate: string;
+      redYear: number;
+    };
+    currentRedVisitCount: number;
+    allTimeVisitCount: number;
+    latestVisit: {
+      id: string;
+      startedAt: string | null;
+      submittedAt: string | null;
+      marketName: string;
+      marketAddress: string;
+    } | null;
+    ippAllTimeAvg: number;
+    ippSampleCount: number;
+    bonusCumulativeEur: number;
+    weekWorkMinutes: number;
+    averageWorkdayMin: number;
+    trackedWeekDays: number;
+  };
+};
+
 const LEGACY_GM_KPI_SUMMARY_CACHE_KEY = "gm_kpi_summary_v1";
 const GM_KPI_SUMMARY_CACHE_PREFIX = "gm_kpi_summary_v2:";
 
@@ -1354,6 +1396,20 @@ export async function fetchGmKpiSummary(): Promise<GmKpiSummary> {
   };
   writeCachedGmKpiSummary(normalized);
   return normalized;
+}
+
+export async function fetchGmProfile(): Promise<GmProfilePayload> {
+  return (await authedFetch("/gm/profile", { cache: "no-store" })) as GmProfilePayload;
+}
+
+export async function updateOwnPasswordWithCurrent(input: {
+  currentPassword: string;
+  newPassword: string;
+}): Promise<void> {
+  await authedFetch("/auth/password", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 async function refreshAuthSession(): Promise<AuthSessionPayload | null> {

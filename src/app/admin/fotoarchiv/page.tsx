@@ -37,6 +37,7 @@ const R = "#DC2626";
 const SOFT_BORDER = "1px solid rgba(0,0,0,0.08)";
 const PANEL_SHADOW = "0 1px 2px rgba(0,0,0,0.04), 0 12px 28px rgba(15,23,42,0.05)";
 const BUTTON_SHADOW = "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)";
+const ADMIN_FONT_STACK = "var(--font-inter), Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 const TYPE_META: Record<AdminPhotoCampaignType, { label: string; color: string; bg: string }> = {
   standard: { label: "Standard", color: "#DC2626", bg: "rgba(220,38,38,0.08)" },
@@ -307,8 +308,20 @@ const iconButtonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+  lineHeight: 0,
   cursor: "pointer",
   color: "rgba(0,0,0,0.55)",
+};
+
+const viewToggleButtonStyle: React.CSSProperties = {
+  width: 34,
+  height: 32,
+  border: "none",
+  display: "grid",
+  placeItems: "center",
+  padding: 0,
+  lineHeight: 0,
+  cursor: "pointer",
 };
 
 function FilterModal({
@@ -566,17 +579,17 @@ function PhotoTile({
           ) : <ImageOff size={18} color="rgba(0,0,0,0.28)" style={{ margin: 20 }} />}
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{marketDisplayName(photo)}</div>
-          <div style={{ marginTop: 3, fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.question.text}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{marketDisplayName(photo)}</div>
+          <div style={{ marginTop: 3, fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.question.text}</div>
           <div style={{ marginTop: 5, display: "flex", gap: 5, flexWrap: "wrap" }}>{photo.tags.slice(0, 3).map((tag) => <span key={tag.id} style={tagStyle}>{tag.label}</span>)}</div>
         </div>
         <div style={{ minWidth: 0 }}>
           <span style={{ ...chipStyle, color: meta.color, background: meta.bg }}>{meta.label}</span>
-          <div style={{ marginTop: 5, fontSize: 11, fontWeight: 750, color: "rgba(0,0,0,0.62)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.campaign.name}</div>
+          <div style={{ marginTop: 5, fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.62)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.campaign.name}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: "#111827" }}>{fmtDateTime(photo.visit.submittedAt)}</div>
-          <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.38)" }}>{photo.gm.name}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{fmtDateTime(photo.visit.submittedAt)}</div>
+          <div style={{ marginTop: 4, fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.38)" }}>{photo.gm.name}</div>
         </div>
       </button>
     );
@@ -602,11 +615,11 @@ function PhotoTile({
         <span style={{ ...chipStyle, position: "absolute", top: 9, left: 9, color: meta.color, background: "rgba(255,255,255,0.92)", border: `1px solid ${meta.color}33`, backdropFilter: "blur(8px)" }}>{meta.label}</span>
       </div>
       <div style={{ padding: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{marketDisplayName(photo)}</div>
-        <div style={{ marginTop: 5, fontSize: 10, color: "rgba(0,0,0,0.48)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.campaign.name}</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{marketDisplayName(photo)}</div>
+        <div style={{ marginTop: 5, fontSize: 10, color: "rgba(0,0,0,0.48)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.campaign.name}</div>
         <div style={{ marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ fontSize: 10, fontWeight: 750, color: "rgba(0,0,0,0.42)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.gm.name}</span>
-          <span style={{ fontSize: 10, fontWeight: 850, color: "rgba(0,0,0,0.54)", fontVariantNumeric: "tabular-nums" }}>{fmtDate(photo.visit.submittedAt)}</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.42)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.gm.name}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.54)", fontVariantNumeric: "tabular-nums" }}>{fmtDate(photo.visit.submittedAt)}</span>
         </div>
         {photo.tags.length > 0 && (
           <div style={{ marginTop: 9, display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -623,7 +636,7 @@ const chipStyle: React.CSSProperties = {
   borderRadius: 999,
   padding: "3px 8px",
   fontSize: 9,
-  fontWeight: 850,
+  fontWeight: 700,
   letterSpacing: "0.03em",
   textTransform: "uppercase",
 };
@@ -632,7 +645,7 @@ const tagStyle: React.CSSProperties = {
   borderRadius: 999,
   padding: "2px 7px",
   fontSize: 9,
-  fontWeight: 800,
+  fontWeight: 600,
   color: "rgba(0,0,0,0.55)",
   background: "rgba(0,0,0,0.045)",
   border: "1px solid rgba(0,0,0,0.06)",
@@ -671,7 +684,7 @@ function DetailDrawer({
       <aside onClick={(event) => event.stopPropagation()} style={{ width: "min(520px, calc(100vw - 28px))", height: "100%", background: "#fff", borderLeft: "1px solid rgba(0,0,0,0.08)", boxShadow: "-24px 0 60px rgba(15,23,42,0.16)", padding: 18, overflowY: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 850, color: "rgba(0,0,0,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Fotodetail</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Fotodetail</div>
             <h2 style={{ margin: "3px 0 0", fontSize: 20, lineHeight: 1.05, letterSpacing: "-0.04em", color: "#111827" }}>{photo ? marketDisplayName(photo) : "Foto wird geladen"}</h2>
           </div>
           <button type="button" onClick={onClose} style={iconButtonStyle}><X size={15} /></button>
@@ -698,7 +711,7 @@ function DetailDrawer({
 
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <a href={originalSrc || undefined} download style={{ textDecoration: "none" }}>
-                <button type="button" disabled={!originalSrc} style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 850, opacity: originalSrc ? 1 : 0.55 }}>
+                <button type="button" disabled={!originalSrc} style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 700, opacity: originalSrc ? 1 : 0.55 }}>
                   <Download size={13} /> Download
                 </button>
               </a>
@@ -710,12 +723,12 @@ function DetailDrawer({
                     window.setTimeout(() => setCopied(false), 1400);
                   });
                 }}
-                style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 850 }}
+                style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 700 }}
               >
                 <Copy size={13} /> {copied ? "Kopiert" : "Adresse"}
               </button>
               <a href={`/admin/fbmanagement?campaignId=${encodeURIComponent(photo.campaign.id)}&marketId=${encodeURIComponent(photo.market.id)}&sessionId=${encodeURIComponent(photo.visitSessionId)}`} style={{ textDecoration: "none" }}>
-                <button type="button" style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 850 }}>
+                <button type="button" style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 700 }}>
                   <ExternalLink size={13} /> FB Management
                 </button>
               </a>
@@ -724,7 +737,7 @@ function DetailDrawer({
             <section style={{ marginTop: 18, border: SOFT_BORDER, borderRadius: 14, padding: 14, background: "#fff" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ ...chipStyle, color: meta.color, background: meta.bg }}>{meta.label}</span>
-                <span style={{ fontSize: 11, fontWeight: 850, color: "#111827" }}>{photo.campaign.name}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{photo.campaign.name}</span>
               </div>
               <InfoGrid rows={[
                 ["Markt", marketDisplayName(photo)],
@@ -739,7 +752,7 @@ function DetailDrawer({
             </section>
 
             <section style={{ marginTop: 10, border: SOFT_BORDER, borderRadius: 14, padding: 14, background: "#fff" }}>
-              <div style={{ fontSize: 10, fontWeight: 850, color: "rgba(0,0,0,0.36)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Datei</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Datei</div>
               <InfoGrid rows={[
                 ["Typ", photo.mimeType || "-"],
                 ["Groesse", fmtBytes(photo.byteSize)],
@@ -747,7 +760,7 @@ function DetailDrawer({
                 ["Upload", fmtDateTime(photo.uploadedAt)],
               ]} />
               {photo.tags.length > 0 && <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>{photo.tags.map((tag) => <span key={tag.id} style={tagStyle}>{tag.label}</span>)}</div>}
-              {photo.comment.trim() && <p style={{ margin: "12px 0 0", fontSize: 11, lineHeight: 1.5, fontWeight: 650, color: "rgba(0,0,0,0.58)" }}>{photo.comment}</p>}
+              {photo.comment.trim() && <p style={{ margin: "12px 0 0", fontSize: 11, lineHeight: 1.5, fontWeight: 500, color: "rgba(0,0,0,0.58)" }}>{photo.comment}</p>}
             </section>
           </>
         )}
@@ -761,8 +774,8 @@ function InfoGrid({ rows }: { rows: Array<[string, string]> }) {
     <div style={{ display: "grid", gridTemplateColumns: "108px minmax(0,1fr)", gap: "8px 12px" }}>
       {rows.map(([label, value]) => (
         <React.Fragment key={label}>
-          <div style={{ fontSize: 9, fontWeight: 850, color: "rgba(0,0,0,0.34)", letterSpacing: "0.07em", textTransform: "uppercase" }}>{label}</div>
-          <div style={{ fontSize: 11, fontWeight: 750, color: "rgba(0,0,0,0.72)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.07em", textTransform: "uppercase" }}>{label}</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.72)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div>
         </React.Fragment>
       ))}
     </div>
@@ -990,7 +1003,7 @@ export default function FotoarchivPage() {
   }, [handleExport]);
 
   return (
-    <main style={{ minHeight: "calc(100vh - 80px)", padding: 18, background: "#f5f5f7" }}>
+    <main style={{ minHeight: "calc(100vh - 80px)", padding: 18, background: "#f5f5f7", fontFamily: ADMIN_FONT_STACK }}>
       <style>{`
         @keyframes photoArchiveShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
         .photoArchiveSkeleton {
@@ -1031,7 +1044,7 @@ export default function FotoarchivPage() {
                 <Images size={15} strokeWidth={1.8} />
               </div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 9, fontWeight: 850, color: "rgba(15,23,42,0.38)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Fotoarchiv</div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(15,23,42,0.38)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Fotoarchiv</div>
                 <h1 style={{ margin: "2px 0 0", fontSize: 19, letterSpacing: "-0.035em", lineHeight: 1.04, color: "#111827" }}>Bilder aus Foto-Fragen</h1>
               </div>
             </div>
@@ -1072,7 +1085,7 @@ export default function FotoarchivPage() {
               }}
             >
               <Search size={13} color="rgba(15,23,42,0.34)" />
-              <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Markt, Kampagne, GM, Frage, Tag..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, fontWeight: 650, color: "#111827" }} />
+              <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Markt, Kampagne, GM, Frage, Tag..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, fontWeight: 500, color: "#111827", fontFamily: "inherit" }} />
             </label>
             <button
               type="button"
@@ -1088,14 +1101,14 @@ export default function FotoarchivPage() {
                 background: filterCount > 0 ? "rgba(220,38,38,0.065)" : "#ffffff",
                 boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
                 fontSize: 11,
-                fontWeight: 800,
+                fontWeight: 700,
               }}
             >
               <Filter size={13} /> Filter{filterCount > 0 ? ` (${filterCount})` : ""}
             </button>
             <div style={{ display: "flex", height: 32, borderRadius: 9, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", boxShadow: "0 1px 2px rgba(15,23,42,0.04)", overflow: "hidden" }}>
-              <button type="button" onClick={() => setViewMode("grid")} style={{ width: 34, border: "none", background: viewMode === "grid" ? "rgba(15,23,42,0.075)" : "transparent", color: viewMode === "grid" ? "#111827" : "rgba(15,23,42,0.35)", cursor: "pointer" }}><Grid3X3 size={13} /></button>
-              <button type="button" onClick={() => setViewMode("list")} style={{ width: 34, border: "none", borderLeft: "1px solid rgba(15,23,42,0.06)", background: viewMode === "list" ? "rgba(15,23,42,0.075)" : "transparent", color: viewMode === "list" ? "#111827" : "rgba(15,23,42,0.35)", cursor: "pointer" }}><List size={13} /></button>
+              <button type="button" aria-label="Rasteransicht" onClick={() => setViewMode("grid")} style={{ ...viewToggleButtonStyle, background: viewMode === "grid" ? "rgba(15,23,42,0.075)" : "transparent", color: viewMode === "grid" ? "#111827" : "rgba(15,23,42,0.35)" }}><Grid3X3 size={13} style={{ display: "block" }} /></button>
+              <button type="button" aria-label="Listenansicht" onClick={() => setViewMode("list")} style={{ ...viewToggleButtonStyle, borderLeft: "1px solid rgba(15,23,42,0.06)", background: viewMode === "list" ? "rgba(15,23,42,0.075)" : "transparent", color: viewMode === "list" ? "#111827" : "rgba(15,23,42,0.35)" }}><List size={13} style={{ display: "block" }} /></button>
             </div>
           </div>
         </div>
@@ -1116,9 +1129,9 @@ export default function FotoarchivPage() {
         <div style={{ height: 44, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <SlidersHorizontal size={14} color="rgba(0,0,0,0.34)" />
-            <span style={{ fontSize: 10, fontWeight: 850, color: "rgba(0,0,0,0.38)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Archiv</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.38)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Archiv</span>
           </div>
-          <span style={{ fontSize: 10, fontWeight: 750, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{photos.length} von {total}</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{photos.length} von {total}</span>
         </div>
 
         {loading ? (
@@ -1128,8 +1141,8 @@ export default function FotoarchivPage() {
         ) : photos.length === 0 ? (
           <div style={{ minHeight: 360, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: "rgba(0,0,0,0.40)" }}>
             <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center" }}><ImageOff size={24} strokeWidth={1.6} /></div>
-            <div style={{ fontSize: 14, fontWeight: 850, color: "#111827" }}>Keine Fotos gefunden</div>
-            <div style={{ fontSize: 11, fontWeight: 650 }}>Passe die Filter an oder wähle einen anderen Zeitraum.</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>Keine Fotos gefunden</div>
+            <div style={{ fontSize: 11, fontWeight: 500 }}>Passe die Filter an oder wähle einen anderen Zeitraum.</div>
           </div>
         ) : viewMode === "grid" ? (
           <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
@@ -1163,7 +1176,7 @@ export default function FotoarchivPage() {
 
         {hasMore && (
           <div style={{ display: "flex", justifyContent: "center", padding: "0 14px 16px" }}>
-            <button type="button" disabled={loadingMore} onClick={() => setFilters((prev) => ({ ...prev, page: (prev.page ?? 1) + 1 }))} style={{ height: 34, borderRadius: 9, border: "none", background: "linear-gradient(to bottom, #fff, #f5f5f5)", boxShadow: BUTTON_SHADOW, padding: "0 16px", fontSize: 11, fontWeight: 850, color: "rgba(0,0,0,0.62)", cursor: loadingMore ? "default" : "pointer", opacity: loadingMore ? 0.6 : 1 }}>
+            <button type="button" disabled={loadingMore} onClick={() => setFilters((prev) => ({ ...prev, page: (prev.page ?? 1) + 1 }))} style={{ height: 34, borderRadius: 9, border: "none", background: "linear-gradient(to bottom, #fff, #f5f5f5)", boxShadow: BUTTON_SHADOW, padding: "0 16px", fontSize: 11, fontWeight: 700, color: "rgba(0,0,0,0.62)", cursor: loadingMore ? "default" : "pointer", opacity: loadingMore ? 0.6 : 1 }}>
               {loadingMore ? "Wird geladen..." : "Mehr laden"}
             </button>
           </div>
@@ -1194,8 +1207,8 @@ export default function FotoarchivPage() {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ minWidth: 74, maxWidth: 160, padding: "1px 2px" }}>
-      <div style={{ fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.34)", letterSpacing: "0.085em", textTransform: "uppercase" }}>{label}</div>
-      <div style={{ marginTop: 3, fontSize: 13, lineHeight: 1, fontWeight: 900, color: "#111827", letterSpacing: "-0.035em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
+      <div style={{ fontSize: 8.5, fontWeight: 700, color: "rgba(15,23,42,0.34)", letterSpacing: "0.085em", textTransform: "uppercase" }}>{label}</div>
+      <div style={{ marginTop: 3, fontSize: 13, lineHeight: 1, fontWeight: 700, color: "#111827", letterSpacing: "-0.025em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
     </div>
   );
 }

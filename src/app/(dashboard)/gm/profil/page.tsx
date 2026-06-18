@@ -1,12 +1,14 @@
 "use client";
 
-import { type CSSProperties, type FormEvent, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
+  Camera,
   Check,
   Eye,
   EyeOff,
+  ImagePlus,
   KeyRound,
   Loader2,
   Lock,
@@ -23,8 +25,10 @@ import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import {
   BackendApiError,
+  commitGmProfilePhoto,
   fetchGmProfile,
   logoutCurrentUser,
+  presignGmProfilePhoto,
   updateOwnPasswordWithCurrent,
   type GmProfilePayload,
 } from "@/lib/api/backend";
@@ -69,6 +73,16 @@ function monogram(firstName: string, lastName: string): string {
   return `${first}${last}`.toUpperCase() || "GM";
 }
 
+function extensionFromFile(file: File): string {
+  const byName = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (byName) return byName === "jpeg" ? "jpg" : byName;
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/webp") return "webp";
+  if (file.type === "image/heic") return "heic";
+  if (file.type === "image/heif") return "heif";
+  return "jpg";
+}
+
 function SkeletonBlock({ style }: { style?: CSSProperties }) {
   return <div className="gm-profile-skeleton" style={style} />;
 }
@@ -109,7 +123,7 @@ function TinyPill({ children, tone = "neutral" }: { children: React.ReactNode; t
     blue: { color: "#2563eb", bg: "rgba(37,99,235,0.07)", ring: "rgba(37,99,235,0.13)" },
   }[tone];
   return (
-    <span style={{ height: 22, display: "inline-flex", alignItems: "center", padding: "0 8px", borderRadius: 999, background: styles.bg, boxShadow: `inset 0 0 0 1px ${styles.ring}`, color: styles.color, fontSize: 9, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+    <span style={{ height: 22, display: "inline-flex", alignItems: "center", padding: "0 8px", borderRadius: 999, background: styles.bg, boxShadow: `inset 0 0 0 1px ${styles.ring}`, color: styles.color, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>
       {children}
     </span>
   );
@@ -136,7 +150,7 @@ function StatCard({
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div>
           <div className="gm-profile-label">{label}</div>
-          <div style={{ marginTop: 8, fontSize: 27, lineHeight: 1, fontWeight: 750, letterSpacing: "-0.045em", color: accent, fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ marginTop: 8, fontSize: 27, lineHeight: 1, fontWeight: 750, letterSpacing: "-0.02em", color: accent, fontVariantNumeric: "tabular-nums" }}>
             {value}
           </div>
         </div>
@@ -166,7 +180,7 @@ function DataRow({ label, value, icon: Icon }: {
       </span>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div className="gm-profile-label" style={{ marginBottom: 3 }}>{label}</div>
-        <div style={{ fontSize: 12, fontWeight: 780, color: "rgba(15,23,42,0.88)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(15,23,42,0.88)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {value || "-"}
         </div>
       </div>
@@ -311,7 +325,7 @@ function PasswordCard() {
         <button
           type="submit"
           disabled={!canSubmit}
-          style={{ height: 38, borderRadius: 11, border: "none", background: canSubmit ? "linear-gradient(to bottom, #ef4444, #DC2626)" : "rgba(15,23,42,0.11)", color: canSubmit ? "#fff" : "rgba(15,23,42,0.32)", fontSize: 12, fontWeight: 850, cursor: canSubmit ? "pointer" : "not-allowed", fontFamily: "inherit", boxShadow: canSubmit ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #b91c1c, 0 1px 7px rgba(180,20,20,0.18)" : "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7 }}
+          style={{ height: 38, borderRadius: 11, border: "none", background: canSubmit ? "linear-gradient(to bottom, #ef4444, #DC2626)" : "rgba(15,23,42,0.11)", color: canSubmit ? "#fff" : "rgba(15,23,42,0.32)", fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "not-allowed", fontFamily: "inherit", boxShadow: canSubmit ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #b91c1c, 0 1px 7px rgba(180,20,20,0.18)" : "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7 }}
         >
           {submitting ? <Loader2 size={13} strokeWidth={2} className="animate-spin" /> : <Lock size={13} strokeWidth={2} />}
           {submitting ? "Speichern..." : "Passwort speichern"}
@@ -323,9 +337,14 @@ function PasswordCard() {
 
 export default function GmProfilPage() {
   const router = useRouter();
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [payload, setPayload] = useState<GmProfilePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -363,8 +382,59 @@ export default function GmProfilPage() {
     return `${months} Monate`;
   }, [profile?.createdAt]);
 
+  async function handleProfilePhotoFile(file: File | null | undefined) {
+    if (!file || photoUploading) return;
+    setPhotoMenuOpen(false);
+    setPhotoError(null);
+    if (!file.type.startsWith("image/") && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
+      setPhotoError("Bitte ein Bild auswählen.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPhotoError("Profilfoto darf maximal 5 MB groß sein.");
+      return;
+    }
+    setPhotoUploading(true);
+    try {
+      const presign = await presignGmProfilePhoto({
+        extension: extensionFromFile(file),
+        mimeType: file.type || undefined,
+      });
+      const uploadResponse = await fetch(presign.upload.signedUrl, {
+        method: "PUT",
+        headers: {
+          "content-type": file.type || "application/octet-stream",
+        },
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error("Profilfoto konnte nicht hochgeladen werden.");
+      }
+      const committed = await commitGmProfilePhoto({
+        storageBucket: presign.upload.bucket,
+        storagePath: presign.upload.path,
+        mimeType: file.type || undefined,
+        byteSize: file.size,
+      });
+      setPayload((current) => current
+        ? {
+            ...current,
+            profile: {
+              ...current.profile,
+              profilePhoto: committed.profilePhoto,
+              updatedAt: new Date().toISOString(),
+            },
+          }
+        : current);
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Profilfoto konnte nicht gespeichert werden.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
   return (
-    <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7", paddingBottom: 112 }}>
+    <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7", fontFamily: "var(--font-inter), Inter, system-ui, sans-serif", paddingBottom: 112 }}>
       <style>{`
         @keyframes gmProfileFadeIn {
           from { opacity: 0; transform: translateY(8px); }
@@ -418,6 +488,94 @@ export default function GmProfilPage() {
           display: flex;
           gap: 13px;
           align-items: center;
+        }
+        .gm-profile-avatar-wrap {
+          position: relative;
+          flex-shrink: 0;
+        }
+        .gm-profile-avatar-button {
+          position: relative;
+          width: 58px;
+          height: 58px;
+          border: 0;
+          border-radius: 18px;
+          padding: 0;
+          overflow: visible;
+          background: linear-gradient(145deg, rgba(220,38,38,0.14), rgba(255,255,255,0.88));
+          box-shadow: inset 0 0 0 1px rgba(220,38,38,0.14), 0 10px 24px rgba(220,38,38,0.075);
+          color: #DC2626;
+          font-family: inherit;
+          cursor: pointer;
+        }
+        .gm-profile-avatar-button:disabled {
+          cursor: default;
+          opacity: 0.78;
+        }
+        .gm-profile-avatar-initials,
+        .gm-profile-avatar-image {
+          width: 58px;
+          height: 58px;
+          border-radius: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+        }
+        .gm-profile-avatar-initials {
+          font-size: 20px;
+          font-weight: 750;
+          letter-spacing: 0;
+        }
+        .gm-profile-avatar-image {
+          object-fit: cover;
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.06);
+        }
+        .gm-profile-avatar-camera {
+          position: absolute;
+          right: -5px;
+          bottom: -5px;
+          width: 24px;
+          height: 24px;
+          border-radius: 9px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(to bottom, #ef4444, #DC2626);
+          color: #fff;
+          box-shadow: inset 0 1px 0.6px rgba(255,255,255,0.38), inset 0 -1px 0 rgba(255,255,255,0.14), 0 0 0 2px #fff, 0 8px 16px rgba(220,38,38,0.22);
+        }
+        .gm-profile-avatar-menu {
+          position: absolute;
+          top: 68px;
+          left: 0;
+          width: 196px;
+          z-index: 20;
+          border-radius: 15px;
+          padding: 6px;
+          background: rgba(255,255,255,0.98);
+          border: 1px solid rgba(15,23,42,0.07);
+          box-shadow: 0 16px 38px rgba(15,23,42,0.13), 0 1px 0 rgba(255,255,255,0.9) inset;
+          backdrop-filter: blur(14px);
+        }
+        .gm-profile-avatar-action {
+          width: 100%;
+          height: 37px;
+          border: 0;
+          border-radius: 11px;
+          background: transparent;
+          display: flex;
+          align-items: center;
+          gap: 9px;
+          padding: 0 10px;
+          color: rgba(15,23,42,0.78);
+          font-family: inherit;
+          font-size: 11px;
+          font-weight: 780;
+          cursor: pointer;
+          text-align: left;
+        }
+        .gm-profile-avatar-action:hover {
+          background: rgba(15,23,42,0.045);
         }
         .gm-profile-hero-metrics {
           position: relative;
@@ -551,14 +709,14 @@ export default function GmProfilPage() {
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>
               Profil
             </div>
-            <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.08, fontWeight: 750, letterSpacing: "-0.04em", color: "rgba(15,23,42,0.94)" }}>
+            <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.08, fontWeight: 750, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.94)" }}>
               Mein Profil
             </h1>
             <p style={{ margin: "7px 0 0", maxWidth: 460, fontSize: 12, lineHeight: 1.55, fontWeight: 560, color: "rgba(15,23,42,0.48)" }}>
               Persönliche Daten, Kennzahlen und Sicherheit an einem Ort.
             </p>
           </div>
-          <span style={{ height: 28, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 10px", borderRadius: 999, background: "#ffffff", boxShadow: "0 1px 5px rgba(15,23,42,0.06), inset 0 0 0 1px rgba(15,23,42,0.06)", fontSize: 10, fontWeight: 780, color: "rgba(15,23,42,0.48)", whiteSpace: "nowrap" }}>
+          <span style={{ height: 28, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 10px", borderRadius: 999, background: "#ffffff", boxShadow: "0 1px 5px rgba(15,23,42,0.06), inset 0 0 0 1px rgba(15,23,42,0.06)", fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.48)", whiteSpace: "nowrap" }}>
             <ShieldCheck size={12} strokeWidth={2} />
             Aktiver Account
           </span>
@@ -572,10 +730,60 @@ export default function GmProfilPage() {
           </section>
         ) : profile && stats ? (
           <>
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                void handleProfilePhotoFile(file);
+              }}
+            />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="user"
+              style={{ display: "none" }}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                void handleProfilePhotoFile(file);
+              }}
+            />
             <section className="gm-profile-hero">
               <div className="gm-profile-hero-main">
-                <div style={{ width: 58, height: 58, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(145deg, rgba(220,38,38,0.14), rgba(255,255,255,0.88))", boxShadow: "inset 0 0 0 1px rgba(220,38,38,0.14), 0 10px 24px rgba(220,38,38,0.075)", color: R, fontSize: 20, fontWeight: 900, letterSpacing: "-0.04em" }}>
-                  {monogram(profile.firstName, profile.lastName)}
+                <div className="gm-profile-avatar-wrap">
+                  <button
+                    type="button"
+                    className="gm-profile-avatar-button"
+                    onClick={() => setPhotoMenuOpen((open) => !open)}
+                    disabled={photoUploading}
+                    aria-label="Profilfoto ändern"
+                  >
+                    {profile.profilePhoto?.signedUrl ? (
+                      <img className="gm-profile-avatar-image" src={profile.profilePhoto.signedUrl} alt="Profilfoto" />
+                    ) : (
+                      <span className="gm-profile-avatar-initials">{monogram(profile.firstName, profile.lastName)}</span>
+                    )}
+                    <span className="gm-profile-avatar-camera">
+                      {photoUploading ? <Loader2 size={13} strokeWidth={2.2} className="animate-spin" /> : <Camera size={13} strokeWidth={2.2} />}
+                    </span>
+                  </button>
+                  {photoMenuOpen ? (
+                    <div className="gm-profile-avatar-menu">
+                      <button type="button" className="gm-profile-avatar-action" onClick={() => galleryInputRef.current?.click()}>
+                        <ImagePlus size={14} strokeWidth={2.1} />
+                        Aus Galerie wählen
+                      </button>
+                      <button type="button" className="gm-profile-avatar-action" onClick={() => cameraInputRef.current?.click()}>
+                        <Camera size={14} strokeWidth={2.1} />
+                        Foto aufnehmen
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 7 }}>
@@ -583,35 +791,40 @@ export default function GmProfilPage() {
                     {profile.region ? <TinyPill tone="neutral">{profile.region}</TinyPill> : null}
                     {profile.isBillaGm ? <TinyPill tone="blue">Billa GM</TinyPill> : null}
                   </div>
-                  <h2 style={{ margin: 0, fontSize: 26, lineHeight: 1.04, fontWeight: 750, letterSpacing: "-0.045em", color: "rgba(15,23,42,0.94)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <h2 style={{ margin: 0, fontSize: 26, lineHeight: 1.04, fontWeight: 750, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.94)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {fullName}
                   </h2>
                   <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 7, color: "rgba(15,23,42,0.48)", fontSize: 12, fontWeight: 680 }}>
                     <Mail size={13} strokeWidth={2} />
                     <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profile.email}</span>
                   </div>
+                  {photoError ? (
+                    <div className="gm-profile-alert error" style={{ marginTop: 9 }}>
+                      {photoError}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
               <div className="gm-profile-hero-metrics">
                 <div className="gm-profile-hero-metric" style={{ background: "rgba(5,150,105,0.045)" }}>
                   <div className="gm-profile-label">Status</div>
-                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.035em", color: GREEN }}>
+                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.02em", color: GREEN }}>
                     <span style={{ width: 7, height: 7, borderRadius: 999, background: GREEN, boxShadow: "0 0 0 3px rgba(5,150,105,0.1)" }} />
                     Aktiv
                   </div>
                 </div>
                 <div className="gm-profile-hero-metric">
                   <div className="gm-profile-label">Account seit</div>
-                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.035em", color: "rgba(15,23,42,0.88)" }}>{accountAge}</div>
+                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.88)" }}>{accountAge}</div>
                 </div>
                 <div className="gm-profile-hero-metric">
                   <div className="gm-profile-label">RED Besuche</div>
-                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.035em", color: R }}>{stats.currentRedVisitCount}</div>
+                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.02em", color: R }}>{stats.currentRedVisitCount}</div>
                 </div>
                 <div className="gm-profile-hero-metric">
                   <div className="gm-profile-label">Woche</div>
-                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.035em", color: "rgba(15,23,42,0.88)" }}>{fmtDur(stats.weekWorkMinutes)}</div>
+                  <div style={{ marginTop: 6, fontSize: 16, fontWeight: 750, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.88)" }}>{fmtDur(stats.weekWorkMinutes)}</div>
                 </div>
               </div>
 

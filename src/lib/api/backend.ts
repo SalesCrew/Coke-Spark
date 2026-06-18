@@ -1288,6 +1288,13 @@ export type GmKpiSummary = {
   lastComputedAt: string;
 };
 
+export type GmProfilePhoto = {
+  storageBucket: string;
+  storagePath: string;
+  signedUrl: string;
+  expiresAt: string;
+};
+
 export type GmProfilePayload = {
   profile: {
     id: string;
@@ -1300,6 +1307,7 @@ export type GmProfilePayload = {
     postalCode: string;
     region: string;
     isBillaGm: boolean;
+    profilePhoto: GmProfilePhoto | null;
     createdAt: string;
     updatedAt: string;
   };
@@ -1400,6 +1408,28 @@ export async function fetchGmKpiSummary(): Promise<GmKpiSummary> {
 
 export async function fetchGmProfile(): Promise<GmProfilePayload> {
   return (await authedFetch("/gm/profile", { cache: "no-store" })) as GmProfilePayload;
+}
+
+export async function presignGmProfilePhoto(input: {
+  extension?: string;
+  mimeType?: string;
+}): Promise<{ upload: { bucket: string; path: string; signedUrl: string; token: string } }> {
+  return (await authedFetch("/gm/profile/photo/presign", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as { upload: { bucket: string; path: string; signedUrl: string; token: string } };
+}
+
+export async function commitGmProfilePhoto(input: {
+  storageBucket: string;
+  storagePath: string;
+  mimeType?: string;
+  byteSize?: number;
+}): Promise<{ ok: boolean; profilePhoto: GmProfilePhoto | null }> {
+  return (await authedFetch("/gm/profile/photo/commit", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as { ok: boolean; profilePhoto: GmProfilePhoto | null };
 }
 
 export async function updateOwnPasswordWithCurrent(input: {

@@ -173,10 +173,10 @@ function GmZeitStatsPanel({ stats }: {
       <div className="gm-zeit-stats-primary">
         <div style={{ paddingRight: 72 }}>
           <div>
-            <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.11em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>
+            <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.11em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>
               Woche bisher
             </div>
-            <div style={{ marginTop: 7, fontSize: 30, fontWeight: 850, letterSpacing: "-0.045em", lineHeight: 1, color: "#059669", fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ marginTop: 7, fontSize: 30, fontWeight: 750, letterSpacing: "-0.02em", lineHeight: 1, color: "#059669", fontVariantNumeric: "tabular-nums" }}>
               {fmtDur(stats.weekWorkedMin)}
             </div>
             <div style={{ marginTop: 6, fontSize: 10, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>
@@ -190,7 +190,7 @@ function GmZeitStatsPanel({ stats }: {
         <div style={{ marginTop: 15 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
             <span style={{ fontSize: 9, fontWeight: 750, color: "rgba(15,23,42,0.38)" }}>Wochenziel</span>
-            <span style={{ fontSize: 9, fontWeight: 800, color: "rgba(15,23,42,0.48)", fontVariantNumeric: "tabular-nums" }}>{weekPct}%</span>
+            <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(15,23,42,0.48)", fontVariantNumeric: "tabular-nums" }}>{weekPct}%</span>
           </div>
           <div style={{ height: 7, borderRadius: 999, background: "rgba(15,23,42,0.055)", overflow: "hidden", boxShadow: "inset 0 0 0 1px rgba(15,23,42,0.025)" }}>
             <div style={{ width: `${weekPct}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #059669, #12b981)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.28)" }} />
@@ -202,11 +202,11 @@ function GmZeitStatsPanel({ stats }: {
         <div className="gm-zeit-stat-chip">
           <div style={{ paddingRight: 28 }}>
             <div>
-              <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)" }}>Kilometer</div>
+              <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)" }}>Kilometer</div>
               <div style={{ marginTop: 6 }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
-                  <span style={{ fontSize: 30, fontWeight: 850, letterSpacing: "-0.045em", lineHeight: 1, color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums" }}>{stats.drivenKm} km</span>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: R, fontVariantNumeric: "tabular-nums" }}>{stats.privateKm} km privat</span>
+                  <span style={{ fontSize: 30, fontWeight: 750, letterSpacing: "-0.02em", lineHeight: 1, color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums" }}>{stats.drivenKm} km</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: R, fontVariantNumeric: "tabular-nums" }}>{stats.privateKm} km privat</span>
                 </div>
                 <div style={{ marginTop: 5, fontSize: 10, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>Gesamtstrecke</div>
               </div>
@@ -229,14 +229,14 @@ function GmZeitStatsPanel({ stats }: {
 
         <div className="gm-zeit-stat-mini-grid">
           <div className="gm-zeit-stat-mini">
-            <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)" }}>Ø Arbeitstag</div>
+            <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)" }}>Ø Arbeitstag</div>
             <div aria-hidden="true" style={{ position: "absolute", left: 14, right: 14, top: 28, height: 1, background: "rgba(15,23,42,0.055)" }} />
-            <div style={{ marginTop: 5, fontSize: 20, fontWeight: 850, letterSpacing: "-0.04em", color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums" }}>{fmtDur(stats.averageWorkdayMin)}</div>
+            <div style={{ marginTop: 5, fontSize: 20, fontWeight: 750, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums" }}>{fmtDur(stats.averageWorkdayMin)}</div>
           </div>
           <div className="gm-zeit-stat-mini">
-            <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)" }}>KM privat</div>
+            <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)" }}>KM privat</div>
             <div aria-hidden="true" style={{ position: "absolute", left: 14, right: 14, top: 28, height: 1, background: "rgba(15,23,42,0.055)" }} />
-            <div style={{ marginTop: 5, fontSize: 20, fontWeight: 850, letterSpacing: "-0.04em", color: R, fontVariantNumeric: "tabular-nums" }}>{stats.privateKm} km</div>
+            <div style={{ marginTop: 5, fontSize: 20, fontWeight: 750, letterSpacing: "-0.02em", color: R, fontVariantNumeric: "tabular-nums" }}>{stats.privateKm} km</div>
           </div>
         </div>
       </div>
@@ -372,7 +372,7 @@ function WeeklyProgress({ sessions }: { sessions: AdminZeiterfassungSession[] })
     <div className="gm-zeit-week-strip">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.11em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>KW {getIsoWeek(today)}</div>
+          <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.11em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>KW {getIsoWeek(today)}</div>
           <div style={{ marginTop: 3, fontSize: 11, fontWeight: 650, color: "rgba(15,23,42,0.48)" }}>Aktuelle Woche</div>
         </div>
         <div style={{ flex: 1, maxWidth: 420 }}>
@@ -395,10 +395,10 @@ function WeeklyProgress({ sessions }: { sessions: AdminZeiterfassungSession[] })
 function MetricCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div className="gm-zeit-metric-cell">
-      <div style={{ fontSize: 8, fontWeight: 760, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)", marginBottom: 3 }}>
+      <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)", marginBottom: 3 }}>
         {label}
       </div>
-      <div style={{ fontSize: 12, fontWeight: 800, color: accent ?? "rgba(15,23,42,0.88)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: accent ?? "rgba(15,23,42,0.88)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
         {value}
       </div>
     </div>
@@ -418,10 +418,10 @@ function GmZeitTimelineRow({ segment, first, last }: { segment: GmZeitSegment; f
         </span>
       </div>
       <div style={{ minWidth: 0, flex: 1, padding: "9px 0" }}>
-        <div style={{ fontSize: 8, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)", marginBottom: 2 }}>
+        <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)", marginBottom: 2 }}>
           {meta.label}
         </div>
-        <div style={{ fontSize: 12, fontWeight: meta.quiet ? 680 : 780, letterSpacing: "-0.015em", color: meta.quiet ? "rgba(15,23,42,0.62)" : "rgba(15,23,42,0.92)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: 12, fontWeight: meta.quiet ? 680 : 780, letterSpacing: 0, color: meta.quiet ? "rgba(15,23,42,0.62)" : "rgba(15,23,42,0.92)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {segment.title}
         </div>
         {segment.subtitle && (
@@ -431,7 +431,7 @@ function GmZeitTimelineRow({ segment, first, last }: { segment: GmZeitSegment; f
         )}
       </div>
       <div style={{ padding: "9px 0", textAlign: "right", flexShrink: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: "rgba(15,23,42,0.86)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(15,23,42,0.86)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
           {segment.start} - {segment.end}
         </div>
         <div style={{ marginTop: 2, fontSize: 9, fontWeight: 650, color: "rgba(15,23,42,0.32)" }}>
@@ -453,11 +453,11 @@ function GmZeitDayRow({ day, defaultExpanded = false }: { day: GmZeitDay; defaul
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-            <span style={{ fontSize: 12, fontWeight: 780, color: "rgba(15,23,42,0.92)", letterSpacing: "-0.02em", whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(15,23,42,0.92)", letterSpacing: "-0.02em", whiteSpace: "nowrap" }}>
               {day.dateLabel}, {day.dateShort}
             </span>
             {day.isToday && (
-              <span style={{ height: 18, display: "inline-flex", alignItems: "center", padding: "0 7px", borderRadius: 999, background: "rgba(220,38,38,0.08)", color: R, fontSize: 8, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              <span style={{ height: 18, display: "inline-flex", alignItems: "center", padding: "0 7px", borderRadius: 999, background: "rgba(220,38,38,0.08)", color: R, fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                 Heute
               </span>
             )}
@@ -675,10 +675,10 @@ export default function GmZeiterfassungPage() {
       <div className="gm-zeit-page mx-auto px-6 pt-6 lg:px-10 lg:pt-8" style={{ maxWidth: 960, position: "relative", zIndex: 1 }}>
         <header style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 18 }}>
           <div>
-            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>
               Zeiterfassung
             </div>
-            <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.08, fontWeight: 800, letterSpacing: "-0.035em", color: "rgba(15,23,42,0.94)" }}>
+            <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.08, fontWeight: 700, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.94)" }}>
               Meine Zeiten
             </h1>
             <p style={{ margin: "7px 0 0", maxWidth: 440, fontSize: 12, lineHeight: 1.55, fontWeight: 560, color: "rgba(15,23,42,0.48)" }}>
@@ -702,10 +702,10 @@ export default function GmZeiterfassungPage() {
             <section className="gm-zeit-main-card">
               <div style={{ padding: "15px 16px 13px", borderBottom: "1px solid rgba(15,23,42,0.055)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)", marginBottom: 4 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)", marginBottom: 4 }}>
                     Verlauf
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.025em", color: "rgba(15,23,42,0.92)" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0, color: "rgba(15,23,42,0.92)" }}>
                     Meine Tage
                   </div>
                 </div>
@@ -724,7 +724,7 @@ export default function GmZeiterfassungPage() {
                 </div>
               ) : (
                 <div style={{ padding: "34px 16px 38px", textAlign: "center" }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: "rgba(15,23,42,0.72)" }}>Keine Zeiten gefunden</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(15,23,42,0.72)" }}>Keine Zeiten gefunden</div>
                   <div style={{ marginTop: 5, fontSize: 11, fontWeight: 600, color: "rgba(15,23,42,0.38)" }}>
                     Fuer den gewaehlten Zeitraum gibt es noch keine abgeschlossenen oder laufenden Tage.
                   </div>

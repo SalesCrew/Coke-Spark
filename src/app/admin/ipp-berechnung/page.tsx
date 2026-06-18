@@ -7,7 +7,8 @@ import type {
   IppMarketAuditRecord,
   IppQuestionAuditRow, IppAverageSummary, SectionType,
 } from "@/types/ipp";
-import { fetchAdminIppDetail, fetchAdminIppRows, type AdminIppListRow } from "@/lib/api/backend";
+import { fetchAdminIppDetail, fetchAdminIppRows, readAuthSession, type AdminIppListRow } from "@/lib/api/backend";
+import { exportIppExcel } from "@/lib/exports/analysisExports";
 
 // ── Constants ─────────────────────────────────────────────────
 const R = "#DC2626";
@@ -721,7 +722,9 @@ export default function IppBerechnungPage() {
     redMonats: string[];
   }>({ regions: [], gms: [], chains: [], redMonats: [] });
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -832,6 +835,30 @@ export default function IppBerechnungPage() {
 
   const clearFilters = () => { setSearch(""); setFilterRegion(null); setFilterGm(null); setFilterChain(null); setFilterMonat(null); };
 
+  const handleExport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await exportIppExcel({
+        rows: allAuditRecords,
+        filteredRows: filtered,
+        exportedBy: readAuthSession()?.user.email ?? "",
+        note: hasFilters ? "Export enthaelt Gesamtbestand und aktuellen UI-Filter." : "Export enthaelt den geladenen IPP-Gesamtbestand.",
+      });
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "IPP-Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    const handler = () => { void handleExport(); };
+    window.addEventListener("admin:ipp:export", handler);
+    return () => window.removeEventListener("admin:ipp:export", handler);
+  });
+
   if (isLoading) {
     return <IppPageSkeleton />;
   }
@@ -851,6 +878,9 @@ export default function IppBerechnungPage() {
 
       {loadError && (
         <div style={{ fontSize: 12, color: "#DC2626" }}>{loadError}</div>
+      )}
+      {exportError && (
+        <div style={{ fontSize: 12, color: "#DC2626" }}>{exportError}</div>
       )}
 
       {/* Summary strip */}

@@ -6,6 +6,7 @@ import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, 
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { MarketVisitLog } from "@/types/markets";
 import { createGmUser, fetchGmUsers, readAuthSession, updateGmUser } from "@/lib/api/backend";
+import { exportGebietsmanagerExcel } from "@/lib/exports/masterDataExports";
 
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
@@ -828,6 +829,8 @@ export default function GebietsmanagerPage() {
   const [newId, setNewId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isExportingGms, setIsExportingGms] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ gmId: string; x: number; y: number } | null>(null);
   const [billaToggleBusyId, setBillaToggleBusyId] = useState<string | null>(null);
   const selectedGm = gms.find(g => g.id === selectedId) ?? null;
@@ -932,17 +935,47 @@ export default function GebietsmanagerPage() {
     }
   }, [billaToggleBusyId]);
 
+  const handleExportGms = useCallback(async () => {
+    if (isExportingGms) return;
+    setExportError(null);
+    setIsExportingGms(true);
+    try {
+      await exportGebietsmanagerExcel({
+        gms,
+        visits,
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExportingGms(false);
+    }
+  }, [gms, isExportingGms, visits]);
+
+  useEffect(() => {
+    const handler = () => { void handleExportGms(); };
+    window.addEventListener("admin:gebietsmanager:export", handler);
+    return () => window.removeEventListener("admin:gebietsmanager:export", handler);
+  }, [handleExportGms]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
       <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
         <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>Gebietsmanager</span>
-          {gms.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{gms.length} {gms.length === 1 ? "GM" : "GMs"}</span>}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {gms.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{gms.length} {gms.length === 1 ? "GM" : "GMs"}</span>}
+          </div>
         </div>
         {backendError ? (
           <div style={{ margin: "0 10px 10px", padding: "9px 11px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.05)", color: "#b91c1c", fontSize: 11, fontWeight: 600 }}>
             {backendError}
+          </div>
+        ) : null}
+        {exportError ? (
+          <div style={{ margin: "0 10px 10px", padding: "9px 11px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.05)", color: "#b91c1c", fontSize: 11, fontWeight: 600 }}>
+            Export fehlgeschlagen: {exportError}
           </div>
         ) : null}
 

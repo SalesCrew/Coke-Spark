@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Plus, Warehouse } from "lucide-react";
-import { createAdminLager, fetchAdminLager, fetchGmUsers, updateAdminLager } from "@/lib/api/backend";
+import { createAdminLager, fetchAdminLager, fetchGmUsers, readAuthSession, updateAdminLager } from "@/lib/api/backend";
+import { exportLagerExcel } from "@/lib/exports/masterDataExports";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { LagerRecord } from "@/types/lager";
 
@@ -45,6 +46,8 @@ export default function LagerPage() {
   const [submitting, setSubmitting] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isExportingLager, setIsExportingLager] = useState(false);
   const [form, setForm] = useState<LagerFormState>(EMPTY_FORM);
   const [editingLagerId, setEditingLagerId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<LagerFormState>(EMPTY_FORM);
@@ -215,6 +218,29 @@ export default function LagerPage() {
     [editingLagerId, resetCreateForm, resetEditForm],
   );
 
+  const handleExportLager = useCallback(async () => {
+    if (isExportingLager) return;
+    setExportError(null);
+    setIsExportingLager(true);
+    try {
+      await exportLagerExcel({
+        lagers,
+        gms,
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExportingLager(false);
+    }
+  }, [gms, isExportingLager, lagers]);
+
+  useEffect(() => {
+    const handler = () => { void handleExportLager(); };
+    window.addEventListener("admin:lager:export", handler);
+    return () => window.removeEventListener("admin:lager:export", handler);
+  }, [handleExportLager]);
+
   return (
     <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
       <div
@@ -240,36 +266,44 @@ export default function LagerPage() {
               <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)" }}>{lagers.length} gesamt</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (createOpen) {
-                setCreateOpen(false);
-                resetCreateForm();
-                return;
-              }
-              resetEditForm();
-              setCreateOpen(true);
-            }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "7px 14px",
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#fff",
-              background: `linear-gradient(to bottom, ${R}, ${R_D})`,
-              border: "none",
-              borderRadius: 7,
-              cursor: "pointer",
-              boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)",
-            }}
-          >
-            <Plus size={12} />
-            Neues Lager
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (createOpen) {
+                  setCreateOpen(false);
+                  resetCreateForm();
+                  return;
+                }
+                resetEditForm();
+                setCreateOpen(true);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "7px 14px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#fff",
+                background: `linear-gradient(to bottom, ${R}, ${R_D})`,
+                border: "none",
+                borderRadius: 7,
+                cursor: "pointer",
+                boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)",
+              }}
+            >
+              <Plus size={12} />
+              Neues Lager
+            </button>
+          </div>
         </div>
+
+        {exportError ? (
+          <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", fontSize: 10, color: R, fontWeight: 600 }}>
+            Export fehlgeschlagen: {exportError}
+          </div>
+        ) : null}
 
         {createOpen && (
           <div style={{ borderRadius: 11, border: "1px solid rgba(0,0,0,0.08)", background: "#fff", padding: "12px 12px 10px", display: "flex", flexDirection: "column", gap: 10 }}>

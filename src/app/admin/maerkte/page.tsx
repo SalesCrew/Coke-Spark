@@ -27,6 +27,7 @@ import {
   updateMarketKuehlerUnit,
   type NormalizeMarketRegionsResult,
 } from "@/lib/api/backend";
+import { exportMarketsExcel } from "@/lib/exports/masterDataExports";
 import { useRedMonth } from "@/context/RedMonthContext";
 
 // ── Constants ─────────────────────────────────────────────────
@@ -1795,6 +1796,8 @@ export default function MaerktePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isExportingMarkets, setIsExportingMarkets] = useState(false);
   const [isNormalizingRegions, setIsNormalizingRegions] = useState(false);
   const [normalizeError, setNormalizeError] = useState<string | null>(null);
   const [normalizeSummary, setNormalizeSummary] = useState<NormalizeMarketRegionsResult | null>(null);
@@ -2105,6 +2108,7 @@ export default function MaerktePage() {
   }, [markets, debouncedSearch, filters, marketSearchBlobById, visitedInRedMonatSet]);
 
   const activeFilterCount = Object.values(filters).filter(isMarketFilterValueActive).length;
+  const hasFilters = !!search.trim() || activeFilterCount > 0;
   const selectedMarket = useMemo(() => markets.find(m => m.id === selectedId) ?? null, [markets, selectedId]);
   const contextMenuMarket = useMemo(
     () => markets.find((market) => market.id === marketContextMenu?.marketId) ?? null,
@@ -2117,6 +2121,32 @@ export default function MaerktePage() {
 
   // Stable select handler — passed into memoized rows so they don't re-render on unrelated state changes
   const handleSelectMarket = useCallback((id: string | null) => setSelectedId(id), []);
+
+  const handleExportMarkets = useCallback(async () => {
+    if (isExportingMarkets) return;
+    setExportError(null);
+    setIsExportingMarkets(true);
+    try {
+      const marketIds = new Set(filtered.map((market) => market.id));
+      await exportMarketsExcel({
+        markets: filtered,
+        visits: visits.filter((visit) => marketIds.has(visit.marketId)),
+        allMarketCount: markets.length,
+        filterLabel: hasFilters ? "Gefilterte Ansicht" : "Alle Märkte",
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExportingMarkets(false);
+    }
+  }, [filtered, hasFilters, isExportingMarkets, markets.length, visits]);
+
+  useEffect(() => {
+    const handler = () => { void handleExportMarkets(); };
+    window.addEventListener("admin:maerkte:export", handler);
+    return () => window.removeEventListener("admin:maerkte:export", handler);
+  }, [handleExportMarkets]);
 
   // ── Filter chip helper ─────────────────────────────────────
   function FilterBtn({ label, filterKey, opts: options, inactiveLabel, nullLabel }: { label: string; filterKey: keyof MarketFilters; opts: string[]; inactiveLabel?: string; nullLabel?: string }) {
@@ -2160,8 +2190,6 @@ export default function MaerktePage() {
 
   if (!mounted) return null;
 
-  const hasFilters = !!search.trim() || activeFilterCount > 0;
-
   if (isLoadingMarkets) {
     return <MaerktePageSkeleton />;
   }
@@ -2203,7 +2231,7 @@ export default function MaerktePage() {
         {/* White inner card */}
         <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
 
-        {(loadError || saveError || deleteError || importError || normalizeError || normalizeSummary || isNormalizingRegions) && (
+        {(loadError || saveError || deleteError || importError || exportError || normalizeError || normalizeSummary || isNormalizingRegions) && (
           <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", gap: 6 }}>
             {loadError && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)" }}>
@@ -2226,6 +2254,11 @@ export default function MaerktePage() {
             {importError && (
               <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", fontSize: 10, color: R, fontWeight: 600 }}>
                 Import fehlgeschlagen: {importError}
+              </div>
+            )}
+            {exportError && (
+              <div style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", fontSize: 10, color: R, fontWeight: 600 }}>
+                Export fehlgeschlagen: {exportError}
               </div>
             )}
             {isNormalizingRegions && (

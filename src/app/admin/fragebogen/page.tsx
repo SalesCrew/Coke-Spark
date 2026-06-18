@@ -26,7 +26,8 @@ import { useFlexModules, useBillaModules } from "@/app/admin/adminContexts";
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { Question, Module, Fragebogen } from "@/types/fragebogen";
 import { SpezialfrageEditor } from "@/components/admin/SpezialfrageEditor";
-import { fetchCampaigns, fetchPhotoTags } from "@/lib/api/backend";
+import { fetchCampaigns, fetchPhotoTags, readAuthSession } from "@/lib/api/backend";
+import { exportFragebogenExcel } from "@/lib/exports/planningExports";
 
 type Tab = "fragen" | "module" | "fragebogen";
 
@@ -2195,6 +2196,8 @@ export default function FragebogenPage() {
   const hasLoadedContent = modules.length > 0 || fragebogenList.length > 0;
   const [initialLoadCompleted, setInitialLoadCompleted] = useState(false);
   const [campaignUsageByFragebogenId, setCampaignUsageByFragebogenId] = useState<Record<string, string[]>>({});
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (hasLoadedContent) setInitialLoadCompleted(true);
@@ -2282,12 +2285,43 @@ export default function FragebogenPage() {
       )
     : fragebogenList;
 
+  const handleExport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await exportFragebogenExcel({
+        modules,
+        flexModules,
+        billaModules,
+        fragebogen: fragebogenList,
+        campaignUsageByFragebogenId,
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    const handler = () => { void handleExport(); };
+    window.addEventListener("admin:fragebogen:export", handler);
+    return () => window.removeEventListener("admin:fragebogen:export", handler);
+  });
+
   if (!initialLoadCompleted && !hasLoadedContent) {
     return <FragebogenPageSkeleton />;
   }
 
   return (
     <div>
+      {exportError && (
+        <div style={{ marginBottom: 10, padding: "9px 11px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.06)", color: "#DC2626", fontSize: 11, fontWeight: 600 }}>
+          Export fehlgeschlagen: {exportError}
+        </div>
+      )}
       {/* Tab bar */}
       <div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 0 }}>

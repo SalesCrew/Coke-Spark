@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   ChevronDown, Clock, Store, Car, Coffee,
   GraduationCap, Wrench, Home, Warehouse, Star, Search,
-  FileSpreadsheet, X,
+  X,
 } from "lucide-react";
 import {
   fetchAdminDiaetenExport,
@@ -1192,29 +1192,6 @@ export default function ZeiterfassungPage() {
                 style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, color: "#1a1a1a", fontFamily: "inherit" }} />
             </div>
 
-            <button
-              onClick={openExportModal}
-              style={{
-                marginLeft: "auto",
-                height: 28,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 7,
-                border: "1px solid rgba(0,0,0,0.08)",
-                borderRadius: 8,
-                background: "#fff",
-                color: "#111827",
-                padding: "0 11px",
-                fontSize: 10,
-                fontWeight: 800,
-                boxShadow: "0 1px 4px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              <FileSpreadsheet size={13} strokeWidth={2} />
-              Export
-            </button>
           </div>
 
           {/* Body — fade key forces re-mount on tab switch */}

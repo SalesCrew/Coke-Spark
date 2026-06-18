@@ -17,6 +17,7 @@ import {
   fetchAdminPraemienWave,
   fetchAdminPraemienWaves,
   patchAdminPraemienWave,
+  readAuthSession,
   replaceAdminPraemienFlexScores,
   replaceAdminPraemienPillars,
   replaceAdminPraemienQualityScores,
@@ -27,6 +28,7 @@ import type {
   PraemienQuarter, PraemienPillar, PraemienThreshold, PraemienSourceRef, SectionType,
   PraemienFlexSubmission, PraemienQualitySubmission, PraemienQualityCriteria,
 } from "@/types/praemien";
+import { exportPraemienExcel } from "@/lib/exports/analysisExports";
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -4028,6 +4030,8 @@ export default function PraemienPage() {
   const [sectionErrors, setSectionErrors] = useState<Partial<Record<AutosaveSection, string>>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [conflictSection, setConflictSection] = useState<AutosaveSection | null>(null);
   const [quarters, setQuarters] = useState<PraemienQuarter[]>([]);
   const [activeQuarterId, setActiveQuarterId] = useState<string | null>(null);
@@ -4241,6 +4245,30 @@ export default function PraemienPage() {
       setSaveError(message);
     }
   };
+
+  const handleExportPraemien = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await exportPraemienExcel({
+        quarters,
+        activeQuarterId,
+        sourceCatalog: bonusSources,
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Praemien-Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    const handler = () => { void handleExportPraemien(); };
+    window.addEventListener("admin:praemien:export", handler);
+    return () => window.removeEventListener("admin:praemien:export", handler);
+  });
 
   const saveSection = useCallback(async (quarter: PraemienQuarter, section: AutosaveSection) => {
     if (!quarter.id || !isUuid(quarter.id)) return quarter;
@@ -4573,6 +4601,11 @@ export default function PraemienPage() {
               </button>
             </div>
           )}
+        </div>
+      )}
+      {exportError && (
+        <div style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.05)", color: "#991b1b", fontSize: 12 }}>
+          {exportError}
         </div>
       )}
       {unsavedSections.length > 0 && (

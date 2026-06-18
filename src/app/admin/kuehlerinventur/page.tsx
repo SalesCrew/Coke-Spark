@@ -23,6 +23,8 @@ import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { Question, Module, Fragebogen } from "@/types/fragebogen";
 import type { QuestionType } from "@/types/fragebogen";
 import { useKuehlerModules } from "@/app/admin/adminContexts";
+import { readAuthSession } from "@/lib/api/backend";
+import { exportFragebogenExcel } from "@/lib/exports/planningExports";
 
 // ── Yellow accent colours ──────────────────────────────────────
 const Y = "#F59E0B";
@@ -865,6 +867,8 @@ export default function KuehlerinventurPage() {
   const typeDropRef = useRef<HTMLDivElement>(null);
   const hasLoadedContent = modules.length > 0 || fragebogenList.length > 0;
   const [initialLoadCompleted, setInitialLoadCompleted] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (hasLoadedContent) setInitialLoadCompleted(true);
@@ -915,12 +919,42 @@ export default function KuehlerinventurPage() {
     fragebogen: fragebogenList.length,
   };
 
+  const handleExport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await exportFragebogenExcel({
+        modules,
+        fragebogen: fragebogenList,
+        primaryScope: "kuehler",
+        title: "Kuehlerinventur Fragebogen",
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    const handler = () => { void handleExport(); };
+    window.addEventListener("admin:kuehlerinventur:export", handler);
+    return () => window.removeEventListener("admin:kuehlerinventur:export", handler);
+  });
+
   if (!initialLoadCompleted && !hasLoadedContent) {
     return <FragebogenPageSkeleton />;
   }
 
   return (
     <div>
+      {exportError && (
+        <div style={{ marginBottom: 10, padding: "9px 11px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.06)", color: "#DC2626", fontSize: 11, fontWeight: 600 }}>
+          Export fehlgeschlagen: {exportError}
+        </div>
+      )}
       {/* Tab bar */}
       <div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 0 }}>

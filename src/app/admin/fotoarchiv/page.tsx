@@ -23,12 +23,14 @@ import {
   fetchAdminPhotos,
   fetchAdminPhotoSignedUrls,
   fetchRedMonthCalendar,
+  readAuthSession,
   type AdminPhotoArchiveFacets,
   type AdminPhotoArchiveFilters,
   type AdminPhotoArchiveItem,
   type AdminPhotoSignedUrl,
   type AdminPhotoCampaignType,
 } from "@/lib/api/backend";
+import { exportFotoarchivExcel } from "@/lib/exports/analysisExports";
 import type { RedMonthPeriod } from "@/types/red-month";
 
 const R = "#DC2626";
@@ -779,6 +781,8 @@ export default function FotoarchivPage() {
   const [stats, setStats] = useState({ visitedMarkets: 0, campaigns: 0 });
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -952,6 +956,41 @@ export default function FotoarchivPage() {
     setFilters(compact({ ...next, page: 1, pageSize: 30 }));
   }, []);
 
+  const handleExport = useCallback(async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const pageSize = 200;
+      let page = 1;
+      let expectedTotal = 0;
+      const allPhotos: AdminPhotoArchiveItem[] = [];
+      while (page === 1 || allPhotos.length < expectedTotal) {
+        const response = await fetchAdminPhotos({ ...filters, page, pageSize });
+        expectedTotal = response.total;
+        allPhotos.push(...response.photos);
+        if (response.photos.length === 0) break;
+        page += 1;
+      }
+      await exportFotoarchivExcel({
+        photos: allPhotos,
+        total: expectedTotal,
+        filters,
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Fotoarchiv-Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [filters, isExporting]);
+
+  useEffect(() => {
+    const handler = () => { void handleExport(); };
+    window.addEventListener("admin:fotoarchiv:export", handler);
+    return () => window.removeEventListener("admin:fotoarchiv:export", handler);
+  }, [handleExport]);
+
   return (
     <main style={{ minHeight: "calc(100vh - 80px)", padding: 18, background: "#f5f5f7" }}>
       <style>{`
@@ -1067,6 +1106,11 @@ export default function FotoarchivPage() {
       {error && (
         <div style={{ borderRadius: 12, border: "1px solid rgba(220,38,38,0.18)", background: "rgba(220,38,38,0.06)", color: R, padding: 12, fontSize: 12, fontWeight: 800, marginBottom: 12 }}>
           {error}
+        </div>
+      )}
+      {exportError && (
+        <div style={{ borderRadius: 12, border: "1px solid rgba(220,38,38,0.18)", background: "rgba(220,38,38,0.06)", color: R, padding: 12, fontSize: 12, fontWeight: 800, marginBottom: 12 }}>
+          {exportError}
         </div>
       )}
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { Plus, Download } from "lucide-react";
+import { Plus, Download, FileSpreadsheet } from "lucide-react";
 import { AdminSidenav } from "@/components/ui/AdminSidenav";
 import { ModuleEditor } from "@/components/admin/ModuleEditor";
 import { FragebogenEditor } from "@/components/admin/FragebogenEditor";
@@ -634,6 +634,39 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
   const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : "Standardbesuch";
+  const exportEventName =
+    isMhd ? "admin:mhd:export"
+    : isKuehler ? "admin:kuehlerinventur:export"
+    : isFlex ? "admin:flexbesuche:export"
+    : isBilla ? "admin:billa:export"
+    : isFbManagement ? "admin:fbmanagement:export"
+    : isFotoarchiv ? "admin:fotoarchiv:export"
+    : isPraemien ? "admin:praemien:export"
+    : isMaerkte ? "admin:maerkte:export"
+    : isLager ? "admin:lager:export"
+    : isGebietsmanager ? "admin:gebietsmanager:export"
+    : isIppBerechnung ? "admin:ipp:export"
+    : isGmDashboard ? "admin:gm-dashboard:export"
+    : pathname === "/admin/fragebogen" ? "admin:fragebogen:export"
+    : null;
+  const showHeaderExcelExport = Boolean(exportEventName) && !isFbNeu && !isFbExtend;
+  const headerSecondaryButtonStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "7px 14px",
+    fontSize: 11,
+    fontWeight: 650,
+    color: "rgba(0,0,0,0.62)",
+    background: "linear-gradient(to bottom, #ffffff, #f5f5f5)",
+    border: "none",
+    borderRadius: 7,
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+    letterSpacing: "0.01em",
+    boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)",
+  };
+
   return (
     <AdminAccessProvider session={session} pathname={pathname}>
     <AdminAccessGate>
@@ -662,6 +695,18 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
             {/* Action buttons */}
             <div style={{ display: "flex", gap: 10 }}>
+              {showHeaderExcelExport && exportEventName ? (
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent(exportEventName))}
+                  style={headerSecondaryButtonStyle}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.82"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                >
+                  <FileSpreadsheet size={12} strokeWidth={2} />
+                  Excel Export
+                </button>
+              ) : null}
               {isMhd && canWriteCurrentPage ? (
                 <>
                   <button

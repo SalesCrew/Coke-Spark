@@ -25,10 +25,12 @@ import {
   migrateCampaignMarkets,
   patchCampaignVisitAnswer,
   reassignCampaignGms,
+  readAuthSession,
   removeCampaignMarket,
   switchCampaignFragebogen,
 } from "@/lib/api/backend";
 import type { CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
+import { exportFbManagementExcel } from "@/lib/exports/planningExports";
 
 type FragebogenOption = {
   id: string;
@@ -6072,6 +6074,8 @@ export default function FbManagementPage() {
   const [visitDetailByKey, setVisitDetailByKey] = useState<CampaignVisitDetailByKey>({});
   const [visitDetailLoadingByKey, setVisitDetailLoadingByKey] = useState<Record<string, boolean>>({});
   const [visitDetailErrorByKey, setVisitDetailErrorByKey] = useState<Record<string, string | null>>({});
+  const [isExportingFbManagement, setIsExportingFbManagement] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [switchingCampaignId, setSwitchingCampaignId] = useState<string | null>(null);
   const [campaignPendingOps, setCampaignPendingOps] = useState<Record<string, number>>({});
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -7333,6 +7337,32 @@ export default function FbManagementPage() {
     setMarketFilter("all");
   };
 
+  const handleExportFbManagement = useCallback(async () => {
+    if (isExportingFbManagement) return;
+    setIsExportingFbManagement(true);
+    setExportError(null);
+    try {
+      await exportFbManagementExcel({
+        campaigns: campaignsData,
+        markets: marketsData,
+        visitStatusByCampaignId,
+        fragebogenByScope,
+        modulesByScope,
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExportingFbManagement(false);
+    }
+  }, [campaignsData, fragebogenByScope, isExportingFbManagement, marketsData, modulesByScope, visitStatusByCampaignId]);
+
+  useEffect(() => {
+    const handler = () => { void handleExportFbManagement(); };
+    window.addEventListener("admin:fbmanagement:export", handler);
+    return () => window.removeEventListener("admin:fbmanagement:export", handler);
+  }, [handleExportFbManagement]);
+
   return (
     <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
       {mutationError && (
@@ -7343,6 +7373,11 @@ export default function FbManagementPage() {
       {visitLoadError && (
         <div style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(217,119,6,0.24)", background: "rgba(217,119,6,0.07)", color: "#b45309", fontSize: 11, fontWeight: 600 }}>
           {visitLoadError}
+        </div>
+      )}
+      {exportError && (
+        <div style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.22)", background: "rgba(220,38,38,0.06)", color: "#DC2626", fontSize: 11, fontWeight: 600 }}>
+          Export fehlgeschlagen: {exportError}
         </div>
       )}
       {overlapConflicts && overlapConflicts.length > 0 && (
@@ -7510,19 +7545,21 @@ export default function FbManagementPage() {
           flexDirection: "column",
           gap: 2,
         }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", marginBottom: 8, gap: 8 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.3)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Kampagnen</span>
-            <button
-              onClick={() => { setShowInactive((prev) => !prev); }}
-              style={{
-                fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: 5, border: "none", cursor: "pointer",
-                backgroundColor: showInactive ? "rgba(220,38,38,0.1)" : "rgba(22,163,74,0.1)",
-                color: showInactive ? "#DC2626" : "#16a34a",
-                transition: "all 0.15s ease",
-              }}
-            >
-              {showInactive ? "Inaktiv" : "Aktiv"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button
+                onClick={() => { setShowInactive((prev) => !prev); }}
+                style={{
+                  fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: 5, border: "none", cursor: "pointer",
+                  backgroundColor: showInactive ? "rgba(220,38,38,0.1)" : "rgba(22,163,74,0.1)",
+                  color: showInactive ? "#DC2626" : "#16a34a",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {showInactive ? "Inaktiv" : "Aktiv"}
+              </button>
+            </div>
           </div>
           <div
             className="fbmCampaignList"

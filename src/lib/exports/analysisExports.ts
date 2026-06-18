@@ -1,4 +1,4 @@
-import type { AdminPhotoArchiveFilters, AdminPhotoArchiveItem } from "@/lib/api/backend";
+import { fetchAdminPhotoSignedUrls, type AdminPhotoArchiveFilters, type AdminPhotoArchiveItem } from "@/lib/api/backend";
 import {
   appendMetaSheet,
   appendTableSheet,
@@ -74,6 +74,62 @@ function campaignTypeLabel(value: string): string {
   if (value === "kuehler") return "Kuehler";
   if (value === "mhd") return "MHD";
   return value;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function cleanPhotoFilePart(value: string | null | undefined, fallback: string): string {
+  const raw = (value ?? "").trim() || fallback;
+  if (!raw) return "";
+  return fileSafeName(raw).slice(0, 72);
+}
+
+function photoFileExtension(photo: AdminPhotoArchiveItem): string {
+  const fromPath = photo.storagePath.split(/[?#]/)[0]?.split(".").pop()?.trim().toLowerCase() ?? "";
+  if (/^[a-z0-9]{2,5}$/.test(fromPath)) return fromPath === "jpeg" ? "jpg" : fromPath;
+  const mime = (photo.mimeType ?? "").toLowerCase();
+  if (mime.includes("png")) return "png";
+  if (mime.includes("webp")) return "webp";
+  if (mime.includes("heic")) return "heic";
+  if (mime.includes("heif")) return "heif";
+  return "jpg";
+}
+
+function photoMarketStammnr(photo: AdminPhotoArchiveItem): string {
+  return (
+    photo.market.cokeMasterNumber?.trim() ||
+    photo.market.kuehlerStammnr?.trim() ||
+    photo.market.standardMarketNumber?.trim() ||
+    ""
+  );
+}
+
+function photoExportBaseName(photo: AdminPhotoArchiveItem): string {
+  const stammnr = cleanPhotoFilePart(photoMarketStammnr(photo), "");
+  const market = cleanPhotoFilePart(photo.market.name || `${photo.market.address} ${photo.market.postalCode} ${photo.market.city}`, "Markt");
+  const gmFirstName = cleanPhotoFilePart(photo.gm.name.split(/\s+/).filter(Boolean)[0], "GM");
+  const campaign = cleanPhotoFilePart(photo.campaign.name, "Kampagne");
+  const section = cleanPhotoFilePart(campaignTypeLabel(photo.campaign.type), "Sektion");
+  const marketPart = `${stammnr}${market}`.slice(0, 90) || "Markt";
+  return `${marketPart}.${gmFirstName}-${campaign}.${section}`.slice(0, 180);
+}
+
+function uniquePhotoFileName(photo: AdminPhotoArchiveItem, usedNames: Map<string, number>): string {
+  const baseName = photoExportBaseName(photo);
+  const ext = photoFileExtension(photo);
+  const key = `${baseName}.${ext}`.toLowerCase();
+  const count = (usedNames.get(key) ?? 0) + 1;
+  usedNames.set(key, count);
+  return count === 1 ? `${baseName}.${ext}` : `${baseName}_${count}.${ext}`;
 }
 
 function filterSummary(filters?: AdminPhotoArchiveFilters): string {
@@ -213,6 +269,80 @@ export async function exportFotoarchivExcel(input: {
       });
     },
   });
+}
+
+export async function exportFotoarchivImagesZip(input: {
+  photos: AdminPhotoArchiveItem[];
+  exportedBy?: string;
+}) {
+  if (input.photos.length === 0) {
+    throw new Error("Keine Fotos im aktuellen Filter.");
+  }
+
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  const folderName = `CokeSpark_Fotoexport_${fileSafeName(new Date().toISOString().slice(0, 10))}`;
+  const exportFolder = zip.folder(folderName) ?? zip;
+  const usedNames = new Map<string, number>();
+  const failures: string[] = [];
+
+  const photos = input.photos.slice().sort((a, b) =>
+    (a.market.name || a.market.address).localeCompare(b.market.name || b.market.address, "de") ||
+    a.gm.name.localeCompare(b.gm.name, "de") ||
+    a.campaign.name.localeCompare(b.campaign.name, "de") ||
+    a.id.localeCompare(b.id),
+  );
+
+  const signedUrlByPhotoId = new Map<string, string>();
+  for (let index = 0; index < photos.length; index += 40) {
+    const chunk = photos.slice(index, index + 40);
+    const urls = await fetchAdminPhotoSignedUrls(chunk.map((photo) => photo.id), "original");
+    for (const url of urls) {
+      if (url.signedUrl) signedUrlByPhotoId.set(url.photoId, url.signedUrl);
+    }
+  }
+
+  for (const photo of photos) {
+    const signedUrl = signedUrlByPhotoId.get(photo.id);
+    const filename = uniquePhotoFileName(photo, usedNames);
+    if (!signedUrl) {
+      failures.push(`${filename}: Keine signierte Original-URL erhalten (${photo.id})`);
+      continue;
+    }
+    try {
+      const response = await fetch(signedUrl);
+      if (!response.ok) {
+        failures.push(`${filename}: Download fehlgeschlagen (${response.status})`);
+        continue;
+      }
+      exportFolder.file(filename, await response.blob());
+    } catch (error) {
+      failures.push(`${filename}: ${error instanceof Error ? error.message : "Download fehlgeschlagen"}`);
+    }
+  }
+
+  exportFolder.file(
+    "_README.txt",
+    [
+      "Coke Spark Fotoarchiv Export",
+      `Erstellt am: ${formatExportDateTime()}`,
+      `Benutzer: ${input.exportedBy ?? ""}`,
+      `Fotos im Filter: ${photos.length}`,
+      "Inhalt: Bilddateien direkt in diesem Export-Ordner",
+      "",
+      "Dateiname:",
+      "StammnrMarkt.VornameGM-Kampagne.Sektion.Dateiendung",
+      "",
+      failures.length ? `Fehlerhafte Fotos: ${failures.length}` : "Alle Fotos wurden exportiert.",
+    ].join("\r\n"),
+  );
+
+  if (failures.length > 0) {
+    exportFolder.file("_Exportfehler.txt", failures.join("\r\n"));
+  }
+
+  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  downloadBlob(blob, `${folderName}.zip`);
 }
 
 export async function exportIppExcel(input: {

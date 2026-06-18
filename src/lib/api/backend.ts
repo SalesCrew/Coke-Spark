@@ -1971,6 +1971,89 @@ export type GmVisitSessionReadPayload = {
   }>;
 };
 
+export type GmCompletedVisitSummary = {
+  id: string;
+  startedAt: string;
+  submittedAt: string | null;
+  durationMinutes: number | null;
+  market: {
+    id: string;
+    name: string;
+    address: string;
+    postalCode: string;
+    city: string;
+  };
+  sections: Array<{
+    id: string;
+    section: "standard" | "flex" | "billa" | "kuehler" | "mhd";
+    campaignId: string;
+    campaignName: string;
+    fragebogenName: string;
+    questionCount: number;
+    answeredCount: number;
+    photoCount: number;
+  }>;
+  totals: {
+    questionCount: number;
+    answeredCount: number;
+    photoCount: number;
+  };
+};
+export type GmVisitAnswerChangeRequestResult = {
+  ok: boolean;
+  request: {
+    id: string;
+    status: "pending" | "approved" | "rejected" | "cancelled";
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+};
+export type AdminAnswerChangeRequest = {
+  id: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  createdAt: string;
+  updatedAt: string;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
+  adminNote: string | null;
+  visitSessionId: string;
+  visitSessionQuestionId: string;
+  visitAnswerId: string | null;
+  questionType: "single" | "yesno" | "yesnomulti" | "multiple" | "likert" | "text" | "numeric" | "slider" | "photo" | "matrix";
+  questionText: string;
+  currentAnswerSnapshot: Record<string, unknown>;
+  requestedAnswerPayload: Record<string, unknown>;
+  requestedAnswerSummary: string;
+  requestNote: string | null;
+  autoApplicable: boolean;
+  autoApplicabilityError: string | null;
+  gm: {
+    id: string;
+    name: string;
+    email: string;
+    region: string | null;
+  };
+  market: {
+    id: string;
+    name: string;
+    address: string;
+    postalCode: string;
+    city: string;
+    region: string | null;
+  };
+  session: {
+    id: string;
+    startedAt: string | null;
+    submittedAt: string | null;
+  };
+  section: {
+    section: "standard" | "flex" | "billa" | "kuehler" | "mhd";
+    campaignId: string;
+    campaignName: string;
+    fragebogenName: string;
+  };
+};
+
 export type CampaignMarketVisitSummary = BackendCampaignMarketVisitSummary;
 export type CampaignMarketVisitStatus = {
   marketId: string;
@@ -2043,6 +2126,9 @@ export type AdminPhotoArchiveItem = {
   market: {
     id: string;
     name: string;
+    standardMarketNumber: string | null;
+    cokeMasterNumber: string | null;
+    kuehlerStammnr: string | null;
     address: string;
     postalCode: string;
     city: string;
@@ -2704,6 +2790,62 @@ export function clearLatestActiveGmVisitHandoff(sessionId?: string): void {
 
 export async function fetchGmVisitSession(sessionId: string): Promise<GmVisitSessionReadPayload> {
   return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`, { cache: "no-store" })) as GmVisitSessionReadPayload;
+}
+
+export async function fetchGmCompletedVisitSessions(input: { limit?: number } = {}): Promise<GmCompletedVisitSummary[]> {
+  const params = new URLSearchParams();
+  if (input.limit) params.set("limit", String(input.limit));
+  const query = params.toString();
+  const response = (await authedFetch(
+    `/markets/gm/visit-sessions/completed${query ? `?${query}` : ""}`,
+    { cache: "no-store" },
+  )) as { visits?: GmCompletedVisitSummary[] };
+  return response.visits ?? [];
+}
+
+export async function requestGmVisitAnswerChange(input: {
+  sessionId: string;
+  visitQuestionId: string;
+  requestedAnswerPayload: Record<string, unknown>;
+  requestedAnswerSummary: string;
+  requestNote?: string;
+}): Promise<GmVisitAnswerChangeRequestResult> {
+  return (await authedFetch(`/markets/gm/visit-sessions/${input.sessionId}/change-requests`, {
+    method: "POST",
+    body: JSON.stringify({
+      visitQuestionId: input.visitQuestionId,
+      requestedAnswerPayload: input.requestedAnswerPayload,
+      requestedAnswerSummary: input.requestedAnswerSummary,
+      ...(input.requestNote?.trim() ? { requestNote: input.requestNote.trim() } : {}),
+    }),
+  })) as GmVisitAnswerChangeRequestResult;
+}
+
+export async function fetchAdminAnswerChangeRequests(): Promise<AdminAnswerChangeRequest[]> {
+  const response = (await authedFetch("/admin/campaigns/answer-change-requests", {
+    cache: "no-store",
+  })) as { requests?: AdminAnswerChangeRequest[] };
+  return response.requests ?? [];
+}
+
+export async function approveAdminAnswerChangeRequest(
+  requestId: string,
+  input: { adminNote?: string } = {},
+): Promise<{ ok: boolean; request: { id: string; status: "approved" }; answerId?: string }> {
+  return (await authedFetch(`/admin/campaigns/answer-change-requests/${requestId}/approve`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { ok: boolean; request: { id: string; status: "approved" }; answerId?: string };
+}
+
+export async function rejectAdminAnswerChangeRequest(
+  requestId: string,
+  input: { adminNote?: string } = {},
+): Promise<{ ok: boolean; request: { id: string; status: "rejected"; updatedAt?: string } }> {
+  return (await authedFetch(`/admin/campaigns/answer-change-requests/${requestId}/reject`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { ok: boolean; request: { id: string; status: "rejected"; updatedAt?: string } };
 }
 
 export async function fetchActiveGmVisitSession(input: {

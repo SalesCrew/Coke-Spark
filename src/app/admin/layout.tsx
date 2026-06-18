@@ -38,6 +38,7 @@ import {
   type KuehlerCtxValue, type MhdCtxValue, type FlexCtxValue, type BillaCtxValue,
 } from "@/app/admin/adminContexts";
 import { RedMonthHeaderControl } from "@/components/admin/RedMonthHeaderControl";
+import { AnswerChangeRequestFlap } from "@/components/admin/AnswerChangeRequestFlap";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
 import { AdminAccessProvider, useAdminAccess } from "@/context/AdminAccessContext";
 import { getAdminPageKeyForPath, type AdminPageKey } from "@/components/ui/adminNavigation";
@@ -650,6 +651,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : pathname === "/admin/fragebogen" ? "admin:fragebogen:export"
     : null;
   const showHeaderExcelExport = Boolean(exportEventName) && !isFbNeu && !isFbExtend;
+  const headerExportLabel = isFotoarchiv ? "Foto Export" : "Excel Export";
+  const HeaderExportIcon = isFotoarchiv ? Download : FileSpreadsheet;
   const headerSecondaryButtonStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
@@ -703,8 +706,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.82"; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
                 >
-                  <FileSpreadsheet size={12} strokeWidth={2} />
-                  Excel Export
+                  <HeaderExportIcon size={12} strokeWidth={2} />
+                  {headerExportLabel}
                 </button>
               ) : null}
               {isMhd && canWriteCurrentPage ? (
@@ -857,6 +860,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
             {children}
           </main>
         </div>
+        {session?.user.role === "admin" ? <AnswerChangeRequestFlap /> : null}
 
         {/* Fragebogen modals */}
         {moduleEditorOpen && (

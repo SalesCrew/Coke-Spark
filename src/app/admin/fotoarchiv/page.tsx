@@ -30,7 +30,7 @@ import {
   type AdminPhotoSignedUrl,
   type AdminPhotoCampaignType,
 } from "@/lib/api/backend";
-import { exportFotoarchivExcel } from "@/lib/exports/analysisExports";
+import { exportFotoarchivImagesZip } from "@/lib/exports/analysisExports";
 import type { RedMonthPeriod } from "@/types/red-month";
 
 const R = "#DC2626";
@@ -961,7 +961,7 @@ export default function FotoarchivPage() {
     setIsExporting(true);
     setExportError(null);
     try {
-      const pageSize = 200;
+      const pageSize = 80;
       let page = 1;
       let expectedTotal = 0;
       const allPhotos: AdminPhotoArchiveItem[] = [];
@@ -972,10 +972,8 @@ export default function FotoarchivPage() {
         if (response.photos.length === 0) break;
         page += 1;
       }
-      await exportFotoarchivExcel({
+      await exportFotoarchivImagesZip({
         photos: allPhotos,
-        total: expectedTotal,
-        filters,
         exportedBy: readAuthSession()?.user.email ?? "",
       });
     } catch (err) {

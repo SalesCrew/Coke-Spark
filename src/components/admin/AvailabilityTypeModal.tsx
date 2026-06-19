@@ -58,7 +58,7 @@ export function AvailabilityTypeModal({
           }}
         >
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>
-            Verfuegbarkeits-Typ waehlen
+            Verfügbarkeits-Typ wählen
           </div>
           <button
             type="button"
@@ -122,7 +122,7 @@ export function AvailabilityTypeModal({
             })}
           </div>
           <div style={{ marginTop: 14, fontSize: 11, color: "rgba(0,0,0,0.45)" }}>
-            Der Typ wird zusammen mit der Verfuegbarkeitsabfrage gespeichert.
+            Der Typ wird zusammen mit der Verfügbarkeitsabfrage gespeichert.
           </div>
         </div>
 
@@ -168,7 +168,7 @@ export function AvailabilityTypeModal({
               cursor: selectedType ? "pointer" : "not-allowed",
             }}
           >
-            Uebernehmen
+            Übernehmen
           </button>
         </div>
       </div>

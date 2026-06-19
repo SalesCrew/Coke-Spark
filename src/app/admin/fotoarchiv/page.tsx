@@ -43,7 +43,7 @@ const TYPE_META: Record<AdminPhotoCampaignType, { label: string; color: string; 
   standard: { label: "Standard", color: "#DC2626", bg: "rgba(220,38,38,0.08)" },
   flex: { label: "Flex", color: "#65a30d", bg: "rgba(132,204,22,0.10)" },
   billa: { label: "Billa", color: "#0891B2", bg: "rgba(8,145,178,0.10)" },
-  kuehler: { label: "Kuehler", color: "#D97706", bg: "rgba(245,158,11,0.10)" },
+  kuehler: { label: "Kühler", color: "#D97706", bg: "rgba(245,158,11,0.10)" },
   mhd: { label: "MHD", color: "#7C3AED", bg: "rgba(124,58,237,0.10)" },
 };
 
@@ -755,7 +755,7 @@ function DetailDrawer({
               <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Datei</div>
               <InfoGrid rows={[
                 ["Typ", photo.mimeType || "-"],
-                ["Groesse", fmtBytes(photo.byteSize)],
+                ["Gr??e", fmtBytes(photo.byteSize)],
                 ["Abmessung", photo.widthPx && photo.heightPx ? `${photo.widthPx} x ${photo.heightPx}` : "-"],
                 ["Upload", fmtDateTime(photo.uploadedAt)],
               ]} />

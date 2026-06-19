@@ -453,7 +453,7 @@ export function TimeTracker(_: TimeTrackerProps) {
       setPersistError(null);
       notifyDaySessionUpdated();
     } catch {
-      setPersistError("Tagesstart ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+      setPersistError("Tagesstart ist lokal gesichert. Synchronisierung läuft, sobald die Verbindung wieder da ist.");
     }
   }, [notifyDaySessionUpdated]);
 
@@ -473,7 +473,7 @@ export function TimeTracker(_: TimeTrackerProps) {
       if (!session) {
         if (localSnapshot) {
           applyLocalDaySessionSnapshot(localSnapshot);
-          setPersistError("Tagesstart ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+          setPersistError("Tagesstart ist lokal gesichert. Synchronisierung läuft, sobald die Verbindung wieder da ist.");
           void reconcileLocalDayStart(localSnapshot);
           return;
         }
@@ -520,7 +520,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     } catch (error) {
       if (localSnapshot) {
         applyLocalDaySessionSnapshot(localSnapshot);
-        setPersistError("Tagesstart ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist.");
+        setPersistError("Tagesstart ist lokal gesichert. Synchronisierung läuft, sobald die Verbindung wieder da ist.");
         void reconcileLocalDayStart(localSnapshot);
         return;
       }
@@ -846,7 +846,7 @@ export function TimeTracker(_: TimeTrackerProps) {
       notifyDaySessionUpdated();
     } catch (error) {
       const message = localSnapshot
-        ? "Tagesstart ist lokal gesichert. Synchronisierung laeuft, sobald die Verbindung wieder da ist."
+        ? "Tagesstart ist lokal gesichert. Synchronisierung läuft, sobald die Verbindung wieder da ist."
         : error instanceof Error ? error.message : "Tagesstart konnte nicht gespeichert werden.";
       if (!localSnapshot) {
         setRunning(false);

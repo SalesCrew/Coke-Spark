@@ -74,7 +74,7 @@ function sectionLabel(value: string | null | undefined): string {
   if (value === "standard") return "Standard";
   if (value === "flex") return "Flex";
   if (value === "billa") return "Billa";
-  if (value === "kuehler") return "Kuehler";
+  if (value === "kuehler") return "Kühler";
   if (value === "mhd") return "MHD";
   return value ?? "";
 }
@@ -158,7 +158,7 @@ export async function exportFbManagementExcel(input: {
       appendMetaSheet(XLSX, wb, [
         ...baseMeta("FB Management", campaigns.length, {
           exportedBy: input.exportedBy,
-          note: "Kampagnen, Zielmaerkte, Besuchsstatus und Katalog-Bezug.",
+          note: "Kampagnen, Zielmärkte, Besuchsstatus und Katalog-Bezug.",
         }),
         { label: "Assignments", value: assignmentRows.length },
         { label: "Fragebogen im Katalog", value: scopeFragebogenRows.length },
@@ -180,18 +180,18 @@ export async function exportFbManagementExcel(input: {
           { header: "Ende", width: 14, value: (c) => c.endDate ?? "" },
           { header: "Fragebogen ID", width: 38, value: (c) => c.currentFragebogenId ?? "" },
           { header: "Fragebogen", width: 34, value: (c) => c.currentFragebogenName ?? "" },
-          { header: "Unique Maerkte", width: 13, value: (c) => c.marketIds.length, align: "right" },
+          { header: "Unique Märkte", width: 13, value: (c) => c.marketIds.length, align: "right" },
           { header: "Visit Targets", width: 13, value: (c) => c.assignments.reduce((sum, row) => sum + (row.visitTargetCount ?? 0), 0), align: "right" },
           { header: "Submitted Visits", width: 15, value: (c) => Object.values(input.visitStatusByCampaignId[c.id] ?? {}).reduce((sum, row) => sum + (row.submittedVisitCount ?? 0), 0), align: "right" },
-          { header: "Komplett Maerkte", width: 15, value: (c) => Object.values(input.visitStatusByCampaignId[c.id] ?? {}).filter((row) => row.isComplete).length, align: "right" },
+          { header: "Komplett Märkte", width: 15, value: (c) => Object.values(input.visitStatusByCampaignId[c.id] ?? {}).filter((row) => row.isComplete).length, align: "right" },
           { header: "Erstellt", width: 24, value: (c) => c.createdAt },
           { header: "Aktualisiert", width: 24, value: (c) => c.updatedAt },
         ],
       });
 
       appendTableSheet(XLSX, wb, {
-        name: "Zielmaerkte",
-        title: "Kampagnen-Zielmaerkte",
+        name: "Zielmärkte",
+        title: "Kampagnen-Zielmärkte",
         description: "Eine Zeile je Kampagnenassignment mit GM, Markt, Visit-Ziel und aktuellem Besuchsstatus.",
         rows: assignmentRows,
         columns: [
@@ -276,7 +276,7 @@ export async function exportFbManagementExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Summen",
         title: "Summen",
-        description: "Schnelle Kontrollsummen fuer Kampagnen und Zielmaerkte.",
+        description: "Schnelle Kontrollsummen für Kampagnen und Zielmärkte.",
         rows: summaryRows,
         columns: [
           { header: "Gruppe", width: 18, value: (r) => r.gruppe },
@@ -439,7 +439,7 @@ export async function exportFragebogenExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Summen",
         title: "Summen",
-        description: "Kontrollsummen fuer den Fragebogen-Katalog.",
+        description: "Kontrollsummen für den Fragebogen-Katalog.",
         rows: summaryRows,
         columns: [
           { header: "Gruppe", width: 18, value: (r) => r.gruppe },
@@ -509,7 +509,7 @@ export async function exportGmDashboardExcel(input?: { exportedBy?: string }) {
       appendTableSheet(XLSX, wb, {
         name: "Intervalle",
         title: "Dashboard Intervalle",
-        description: "Zeitintervalle, die fuer die Dashboard-Charts verwendet werden.",
+        description: "Zeitintervalle, die für die Dashboard-Charts verwendet werden.",
         rows: intervalsByMode,
         columns: [
           { header: "Modus", width: 12, value: (row) => row.mode },
@@ -540,7 +540,7 @@ export async function exportGmDashboardExcel(input?: { exportedBy?: string }) {
       appendTableSheet(XLSX, wb, {
         name: "IPP Verteilung",
         title: "IPP Verteilung",
-        description: "Intervall- und kumulative Verteilung fuer Platzierung/Zweitplatzierung.",
+        description: "Intervall- und kumulative Verteilung für Platzierung/Zweitplatzierung.",
         rows: [
           ...ippPie.slices.map((slice) => ({ scope: "Intervall", total: ippPie.total, slice })),
           ...ippPieCum.slices.map((slice) => ({ scope: "Kumuliert", total: ippPieCum.total, slice })),

@@ -1071,7 +1071,7 @@ function VisitDatePicker({
         ref={triggerRef}
         className="visit-date-trigger"
         type="button"
-        aria-label="Besuchstag waehlen"
+        aria-label="Besuchstag wählen"
         onClick={() => setOpen((current) => !current)}
         style={{
           width: 22,
@@ -3522,7 +3522,7 @@ function MarktbesuchInner() {
         })
         .catch((error) => {
           console.error("visit start time update failed", error);
-          setSubmitSessionError("Startzeit konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.");
+          setSubmitSessionError("Startzeit konnte nicht gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.");
         });
     }, 450);
 
@@ -3938,7 +3938,7 @@ function MarktbesuchInner() {
     if (!hasVisitStartParams || !startTimeEdited) return true;
     if (!visitSessionId) return false;
     if (!visitSessionStartedAt || !isValidHm(vonVal)) {
-      setVisitExitError("Startzeit konnte nicht gespeichert werden. Bitte gueltige Zeit im Format HH:MM eingeben.");
+      setVisitExitError("Startzeit konnte nicht gespeichert werden. Bitte gültige Zeit im Format HH:MM eingeben.");
       return false;
     }
     const startedAtIso = toIsoForDateKeyTime(visitDateKey, vonVal);
@@ -3958,7 +3958,7 @@ function MarktbesuchInner() {
       return true;
     } catch (error) {
       console.error("visit start time update before leaving failed", error);
-      setVisitExitError("Startzeit konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.");
+      setVisitExitError("Startzeit konnte nicht gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.");
       return false;
     }
   }
@@ -4065,7 +4065,7 @@ function MarktbesuchInner() {
     setSubmitSessionError(null);
     if (!visitSessionId) {
       if (hasVisitStartParams) {
-        setSubmitSessionError("Marktbesuch konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.");
+        setSubmitSessionError("Marktbesuch konnte nicht gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.");
         return;
       }
       transitionTo("confirm");
@@ -4482,7 +4482,7 @@ function MarktbesuchInner() {
     } catch (error) {
       const message = error instanceof Error && error.message
         ? error.message
-        : "Start konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.";
+        : "Start konnte nicht gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.";
       setVisitStartError(message);
     } finally {
       setVisitStartLoading(false);
@@ -4522,7 +4522,7 @@ function MarktbesuchInner() {
     } catch (error) {
       const message = error instanceof Error && error.message
         ? error.message
-        : "Marktbesuch konnte nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.";
+        : "Marktbesuch konnte nicht gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.";
       setVisitStartError(message);
     } finally {
       setVisitStartLoading(false);

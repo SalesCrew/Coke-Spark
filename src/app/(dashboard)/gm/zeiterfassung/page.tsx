@@ -726,7 +726,7 @@ export default function GmZeiterfassungPage() {
                 <div style={{ padding: "34px 16px 38px", textAlign: "center" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(15,23,42,0.72)" }}>Keine Zeiten gefunden</div>
                   <div style={{ marginTop: 5, fontSize: 11, fontWeight: 600, color: "rgba(15,23,42,0.38)" }}>
-                    Fuer den gewaehlten Zeitraum gibt es noch keine abgeschlossenen oder laufenden Tage.
+                    Für den gewählten Zeitraum gibt es noch keine abgeschlossenen oder laufenden Tage.
                   </div>
                 </div>
               )}

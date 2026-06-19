@@ -129,16 +129,16 @@ function formatDateTime(value: string | null): string {
 function sectionLabel(section: string): string {
   if (section === "standard") return "Standard";
   if (section === "flex") return "Flex";
-  if (section === "kuehler") return "Kuehler";
+  if (section === "kuehler") return "Kühler";
   if (section === "mhd") return "MHD";
   if (section === "billa") return "Billa";
   return section;
 }
 
 function marketTypeLabel(record: MarketRecord): string {
-  if (record.marketType === "both") return "Universum + Kuehler";
+  if (record.marketType === "both") return "Universum + Kühler";
   if (record.marketType === "universum") return "Universum";
-  if (record.marketType === "kuehler") return "Kuehler";
+  if (record.marketType === "kuehler") return "Kühler";
   return "-";
 }
 
@@ -510,7 +510,7 @@ export function GmMarketDetailModal({
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.86)" }}>Kampagnen</div>
               <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.36)" }}>
-                {selectableCampaigns.length} auswaehlbar
+                {selectableCampaigns.length} auswählbar
               </div>
             </div>
             {visibleCampaigns.length ? (
@@ -525,7 +525,7 @@ export function GmMarketDetailModal({
               ))
             ) : (
               <div style={{ borderRadius: 13, background: "rgba(15,23,42,0.025)", padding: 14, fontSize: 11, fontWeight: 700, color: "rgba(15,23,42,0.42)", textAlign: "center" }}>
-                Keine Kampagnen fuer diesen Markt.
+                Keine Kampagnen für diesen Markt.
               </div>
             )}
           </section>
@@ -631,7 +631,7 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
       })
       .catch((error) => {
         if (cancelled) return;
-        const message = error instanceof Error ? error.message : "Maerkte konnten nicht geladen werden.";
+        const message = error instanceof Error ? error.message : "Märkte konnten nicht geladen werden.";
         setLoadError(message);
         setMarkets([]);
       })
@@ -766,7 +766,7 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
         return;
       }
       if (campaignIds.length === 0) {
-        setLaunchError("Bitte mindestens eine Kampagne auswaehlen.");
+        setLaunchError("Bitte mindestens eine Kampagne auswählen.");
         return;
       }
 
@@ -859,7 +859,7 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
           RED Monat endet in {daysLeft} Tagen
         </span>
         <span className="text-[11px] font-medium text-gray-500">
-          Maerkte besucht <span className="font-semibold text-gray-700">{visited}/{totalMarkets}</span>
+          Märkte besucht <span className="font-semibold text-gray-700">{visited}/{totalMarkets}</span>
         </span>
       </div>
 
@@ -1019,28 +1019,28 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
 
         {isLoading && (
           <div className="text-center py-8">
-            <span className="text-[10px] text-gray-400">Maerkte werden geladen...</span>
+            <span className="text-[10px] text-gray-400">Märkte werden geladen...</span>
           </div>
         )}
 
         {!isLoading && loadError && (
           <div className="text-center py-8">
-            <span className="text-[10px] text-gray-400">Maerkte konnten nicht geladen werden</span>
+            <span className="text-[10px] text-gray-400">Märkte konnten nicht geladen werden</span>
           </div>
         )}
 
         {!isLoading && !loadError && markets.length === 0 && (
           <div className="text-center py-10">
-            <div className="text-[11px] font-medium text-gray-500">Noch keine zugewiesenen Maerkte</div>
+            <div className="text-[11px] font-medium text-gray-500">Noch keine zugewiesenen Märkte</div>
             <div className="mt-1 text-[10px] text-gray-400">
-              Sobald aktive Kampagnen-Maerkte fuer dich zugewiesen sind, erscheinen sie hier.
+              Sobald aktive Kampagnen-Märkte für dich zugewiesen sind, erscheinen sie hier.
             </div>
           </div>
         )}
 
         {!isLoading && !loadError && markets.length > 0 && filtered.length === 0 && (
           <div className="text-center py-4">
-            <span className="text-[10px] text-gray-400">Keine Maerkte gefunden</span>
+            <span className="text-[10px] text-gray-400">Keine Märkte gefunden</span>
           </div>
         )}
       </div>

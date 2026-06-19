@@ -224,7 +224,7 @@ export function getMonthBoundsForZeiterfassungExport(year: number, month: number
 
 export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput): Promise<void> {
   if (input.sessions.length === 0) {
-    throw new Error("Fuer diesen Zeitraum gibt es keine Zeiterfassungsdaten.");
+    throw new Error("Für diesen Zeitraum gibt es keine Zeiterfassungsdaten.");
   }
 
   const XLSX = await import("xlsx-js-style");
@@ -306,7 +306,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
     "Segment ID",
   ];
   const detailWs: Worksheet = {};
-  addTitle(detailWs, "Zeiterfassung Eintraege", `${input.range.from} bis ${input.range.to} - ${input.timezone}`, detailHeaders.length - 1);
+  addTitle(detailWs, "Zeiterfassung Einträge", `${input.range.from} bis ${input.range.to} - ${input.timezone}`, detailHeaders.length - 1);
   detailHeaders.forEach((label, col) => setCell(detailWs, encodeCell, 3, col, label, header));
 
   const detailRows = buildSegmentRows(input.sessions);
@@ -350,7 +350,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
   detailWs["!autofilter"] = { ref: encodeRange({ s: { r: 3, c: 0 }, e: { r: detailLastRow, c: detailHeaders.length - 1 } }) };
   detailWs["!cols"] = [12, 13, 24, 12, 14, 14, 11, 26, 36, 10, 10, 11, 11, 10, 10, 12, 13, 13, 11, 12, 10, 15, 34, 38, 38].map((wch) => ({ wch }));
   detailWs["!rows"] = Array.from({ length: detailLastRow + 1 }, (_, index) => ({ hpt: index === 0 ? 24 : index === 1 ? 20 : index === 3 ? 28 : 18 }));
-  XLSX.utils.book_append_sheet(wb, detailWs, safeSheetName("Eintraege"));
+  XLSX.utils.book_append_sheet(wb, detailWs, safeSheetName("Einträge"));
 
   const dayHeaders = [
     "Datum",
@@ -376,7 +376,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
     "Session ID",
   ];
   const dayWs: Worksheet = {};
-  addTitle(dayWs, "Tagesuebersicht", "Ein Tag pro GM, inklusive berechneter Fahrtzeiten und Tages-KPIs.", dayHeaders.length - 1);
+  addTitle(dayWs, "Tagesübersicht", "Ein Tag pro GM, inklusive berechneter Fahrtzeiten und Tages-KPIs.", dayHeaders.length - 1);
   dayHeaders.forEach((label, col) => setCell(dayWs, encodeCell, 3, col, label, header));
   input.sessions
     .slice()
@@ -434,7 +434,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
     "Zusatz",
   ];
   const summaryWs: Worksheet = {};
-  addTitle(summaryWs, "GM Summen", "Praktische Summen pro GM fuer schnelle Kontrollen und Pivot-Auswertungen.", summaryHeaders.length - 1);
+  addTitle(summaryWs, "GM Summen", "Praktische Summen pro GM für schnelle Kontrollen und Pivot-Auswertungen.", summaryHeaders.length - 1);
   summaryHeaders.forEach((label, col) => setCell(summaryWs, encodeCell, 3, col, label, header));
   const gmRows = buildGmSummary(input.sessions);
   gmRows.forEach((rowData, index) => {

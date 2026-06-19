@@ -928,7 +928,7 @@ export default function KuehlerinventurPage() {
         modules,
         fragebogen: fragebogenList,
         primaryScope: "kuehler",
-        title: "Kuehlerinventur Fragebogen",
+        title: "Kühlerinventur Fragebogen",
         exportedBy: readAuthSession()?.user.email ?? "",
       });
     } catch (error) {

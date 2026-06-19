@@ -4152,7 +4152,7 @@ export default function PraemienPage() {
       setActiveQuarterId(activeWave.id);
       isHydratingRef.current = false;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Praemien-Daten konnten nicht geladen werden.";
+      const message = error instanceof Error ? error.message : "Prämien-Daten konnten nicht geladen werden.";
       setLoadError(message);
     } finally {
       setIsLoading(false);
@@ -4258,7 +4258,7 @@ export default function PraemienPage() {
         exportedBy: readAuthSession()?.user.email ?? "",
       });
     } catch (error) {
-      setExportError(error instanceof Error ? error.message : "Praemien-Export konnte nicht erstellt werden.");
+      setExportError(error instanceof Error ? error.message : "Prämien-Export konnte nicht erstellt werden.");
     } finally {
       setIsExporting(false);
     }

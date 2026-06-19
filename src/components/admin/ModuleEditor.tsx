@@ -874,7 +874,7 @@ function ChoiceConfig({
         )}
         {disabled && (
           <div style={{ marginTop: 6, fontSize: 9, color: "rgba(0,0,0,0.35)" }}>
-            Optionen sind bei aktiver Verfuegbarkeitsabfrage fixiert.
+            Optionen sind bei aktiver Verfügbarkeitsabfrage fixiert.
           </div>
         )}
       </div>
@@ -2042,7 +2042,7 @@ function QuestionCard({
                   }}
                 />
                 <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>
-                  Verfuegbarkeitsabfrage
+                  Verfügbarkeitsabfrage
                 </span>
                 {question.singleChoiceAvailability === true && (
                   <button
@@ -2063,7 +2063,7 @@ function QuestionCard({
                       cursor: "pointer",
                     }}
                   >
-                    Typ: {question.singleChoiceAvailabilityType ?? "waehlen"}
+                    Typ: {question.singleChoiceAvailabilityType ?? "wählen"}
                   </button>
                 )}
               </div>
@@ -2503,7 +2503,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
             })}
           </div>
           <p style={{ margin: "8px 6px 0", fontSize: 10, lineHeight: 1.35, color: "rgba(0,0,0,0.42)" }}>
-            Hinweis: Rechtsklick auf eine Frage zum Typwechsel. Antworten/Optionen werden zurueckgesetzt, Fragetext und Foto bleiben.
+            Hinweis: Rechtsklick auf eine Frage zum Typwechsel. Antworten/Optionen werden zurückgesetzt, Fragetext und Foto bleiben.
           </p>
 
           <div

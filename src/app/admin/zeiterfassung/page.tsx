@@ -380,7 +380,7 @@ function ActionRow({
   async function saveTimeEdit() {
     if (!editableKind || saving) return;
     if (!isValidHm(draftStart) || !isValidHm(draftEnd)) {
-      setEditError("Bitte gueltige Uhrzeiten im Format HH:MM eingeben.");
+      setEditError("Bitte gültige Uhrzeiten im Format HH:MM eingeben.");
       return;
     }
     if (toMin(draftEnd) <= toMin(draftStart)) {

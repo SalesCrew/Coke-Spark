@@ -297,7 +297,7 @@ export default function GMDashboard() {
                 Fragebogen abbrechen?
               </div>
               <div style={{ fontSize: 10, color: "rgba(0,0,0,0.46)", lineHeight: 1.45 }}>
-                Willst du wirklich abbrechen? Alle Daten aus diesem laufenden Fragebogen werden geloescht.
+                Willst du wirklich abbrechen? Alle Daten aus diesem laufenden Fragebogen werden gelöscht.
               </div>
               {activeVisitCancelError && (
                 <div style={{ marginTop: 8, fontSize: 10, fontWeight: 700, color: "#DC2626", lineHeight: 1.35 }}>
@@ -326,7 +326,7 @@ export default function GMDashboard() {
                     boxShadow: "0 0 0 0.5px rgba(0,0,0,0.06)",
                   }}
                 >
-                  Zurueck
+                  Zurück
                 </button>
                 <button
                   type="button"
@@ -348,7 +348,7 @@ export default function GMDashboard() {
                       : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)",
                   }}
                 >
-                  {activeVisitCancelling ? "Loesche..." : "Abbrechen bestaetigen"}
+                  {activeVisitCancelling ? "Lösche..." : "Abbrechen bestätigen"}
                 </button>
               </div>
             </>
@@ -393,7 +393,7 @@ export default function GMDashboard() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {activeVisitOpening ? "Oeffne..." : "Zum Fragebogen"}
+                  {activeVisitOpening ? "?ffne..." : "Zum Fragebogen"}
                 </button>
                 <button
                   type="button"

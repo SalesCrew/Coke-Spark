@@ -71,7 +71,7 @@ function campaignTypeLabel(value: string): string {
   if (value === "standard") return "Standard";
   if (value === "flex") return "Flex";
   if (value === "billa") return "Billa";
-  if (value === "kuehler") return "Kuehler";
+  if (value === "kuehler") return "Kühler";
   if (value === "mhd") return "MHD";
   return value;
 }
@@ -193,7 +193,7 @@ export async function exportFotoarchivExcel(input: {
           note: filterSummary(input.filters),
         }),
         { label: "Gesamt im Filter", value: input.total ?? photos.length },
-        { label: "Hinweis Bilder", value: "Export enthaelt Metadaten und Storage-Pfade, keine eingebetteten Bilddateien." },
+        { label: "Hinweis Bilder", value: "Export enthält Metadaten und Storage-Pfade, keine eingebetteten Bilddateien." },
       ]);
 
       appendTableSheet(XLSX, wb, {
@@ -225,7 +225,7 @@ export async function exportFotoarchivExcel(input: {
           { header: "Dauer Min", width: 11, value: (p) => p.visit.durationMinutes ?? "", align: "right" },
           { header: "Upload", width: 24, value: (p) => p.uploadedAt ?? "" },
           { header: "MIME", width: 16, value: (p) => p.mimeType ?? "" },
-          { header: "Groesse Bytes", width: 14, value: (p) => p.byteSize ?? "", align: "right" },
+          { header: "Gr??e Bytes", width: 14, value: (p) => p.byteSize ?? "", align: "right" },
           { header: "Breite px", width: 11, value: (p) => p.widthPx ?? "", align: "right" },
           { header: "Hoehe px", width: 11, value: (p) => p.heightPx ?? "", align: "right" },
           { header: "Bucket", width: 18, value: (p) => p.storageBucket },
@@ -237,7 +237,7 @@ export async function exportFotoarchivExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Foto Tags",
         title: "Foto Tags",
-        description: "Eine Zeile pro Foto-Tag, praktisch fuer Tag-Pivots und Kontrollen.",
+        description: "Eine Zeile pro Foto-Tag, praktisch für Tag-Pivots und Kontrollen.",
         rows: tagRows,
         columns: [
           { header: "Foto ID", width: 38, value: (row) => row.photo.id },
@@ -259,7 +259,7 @@ export async function exportFotoarchivExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Summen",
         title: "Summen",
-        description: "Kontrollsummen fuer Fotoarchiv-Auswertungen.",
+        description: "Kontrollsummen für Fotoarchiv-Auswertungen.",
         rows: summaryRows,
         columns: [
           { header: "Gruppe", width: 18, value: (r) => r.gruppe },
@@ -392,13 +392,13 @@ export async function exportIppExcel(input: {
         { label: "Filterzeilen", value: filteredRows.length },
         { label: "IPP Oesterreich alle", value: Number(allSummary.average.toFixed(4)) },
         { label: "IPP Oesterreich gefiltert", value: Number(filteredSummary.average.toFixed(4)) },
-        { label: "Maerkte im Schnitt alle", value: allSummary.includedRows },
-        { label: "Maerkte im Schnitt gefiltert", value: filteredSummary.includedRows },
+        { label: "Märkte im Schnitt alle", value: allSummary.includedRows },
+        { label: "Märkte im Schnitt gefiltert", value: filteredSummary.includedRows },
       ]);
 
       appendTableSheet(XLSX, wb, {
-        name: "IPP Maerkte",
-        title: "IPP Maerkte",
+        name: "IPP Märkte",
+        title: "IPP Märkte",
         description: "Alle geladenen IPP-Marktzeilen mit RED-Monat, Markt, GM und Berechnungsstatus.",
         rows,
         columns: rowColumns,
@@ -422,7 +422,7 @@ export async function exportIppExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Summen",
         title: "IPP Summen",
-        description: "Kontrollsummen fuer Pivot und Filter.",
+        description: "Kontrollsummen für Pivot und Filter.",
         rows: summaryRows,
         columns: [
           { header: "Gruppe", width: 18, value: (r) => r.gruppe },
@@ -451,27 +451,27 @@ export async function exportPraemienExcel(input: {
   );
   const qualityRows = quarters.flatMap((quarter) => quarter.qualitySubmissions.map((submission) => ({ quarter, submission })));
   const flexRows = quarters.flatMap((quarter) => quarter.flexSubmissions.map((submission) => ({ quarter, submission })));
-  const filename = `CokeSpark_Praemien_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
+  const filename = `CokeSpark_Prämien_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
 
   await buildAndDownloadWorkbook({
     filename,
     build: ({ XLSX, wb }) => {
       appendMetaSheet(XLSX, wb, [
-        ...baseMeta("Praemien", quarters.length, {
+        ...baseMeta("Prämien", quarters.length, {
           exportedBy: input.exportedBy,
-          note: activeQuarter ? `Aktive Ansicht: ${activeQuarter.name}` : "Keine aktive Praemien-Welle",
+          note: activeQuarter ? `Aktive Ansicht: ${activeQuarter.name}` : "Keine aktive Prämien-Welle",
         }),
         { label: "Wellen", value: quarters.length },
         { label: "Schwellen", value: thresholds.length },
         { label: "Quellen", value: sources.length },
-        { label: "Qualitaet Scores", value: qualityRows.length },
+        { label: "Qualität Scores", value: qualityRows.length },
         { label: "Flex Scores", value: flexRows.length },
       ]);
 
       appendTableSheet(XLSX, wb, {
-        name: "Praemien Wellen",
-        title: "Praemien Wellen",
-        description: "Konfiguration und Umfang jeder geladenen Praemien-Welle.",
+        name: "Prämien Wellen",
+        title: "Prämien Wellen",
+        description: "Konfiguration und Umfang jeder geladenen Prämien-Welle.",
         rows: quarters,
         columns: [
           { header: "Wave ID", width: 38, value: (q) => q.id },
@@ -482,11 +482,11 @@ export async function exportPraemienExcel(input: {
           { header: "Start", width: 14, value: (q) => q.startDate },
           { header: "Ende", width: 14, value: (q) => q.endDate },
           { header: "Beschreibung", width: 42, value: (q) => q.description },
-          { header: "Saeulen", width: 10, value: (q) => q.pillars.length, align: "right" },
+          { header: "Säulen", width: 10, value: (q) => q.pillars.length, align: "right" },
           { header: "Quellen", width: 10, value: (q) => q.pillars.reduce((sum, pillar) => sum + pillar.sourceRefs.length, 0), align: "right" },
           { header: "Quellen Punkte", width: 14, value: (q) => q.pillars.reduce((sum, pillar) => sum + pillar.sourceRefs.reduce((subtotal, source) => subtotal + sourceRowPoints(source), 0), 0), align: "right", numberFormat: "0.0" },
           { header: "Schwellen", width: 10, value: (q) => q.thresholds.length, align: "right" },
-          { header: "Qualitaet Scores", width: 15, value: (q) => q.qualitySubmissions.length, align: "right" },
+          { header: "Qualität Scores", width: 15, value: (q) => q.qualitySubmissions.length, align: "right" },
           { header: "Flex Scores", width: 12, value: (q) => q.flexSubmissions.length, align: "right" },
           { header: "Erstellt", width: 24, value: (q) => q.createdAt },
           { header: "Aktualisiert", width: 24, value: (q) => q.updatedAt ?? "" },
@@ -495,8 +495,8 @@ export async function exportPraemienExcel(input: {
 
       appendTableSheet(XLSX, wb, {
         name: "Schwellen",
-        title: "Schwellen & Praemien",
-        description: "Praemienstufen je Welle.",
+        title: "Schwellen & Prämien",
+        description: "Prämienstufen je Welle.",
         rows: thresholds,
         columns: [
           { header: "Welle", width: 34, value: (row) => row.quarter.name },
@@ -508,13 +508,13 @@ export async function exportPraemienExcel(input: {
       });
 
       appendTableSheet(XLSX, wb, {
-        name: "Saeulen",
-        title: "Saeulen",
-        description: "Saeulen, Gewichtung und verknuepfte Quellen.",
+        name: "Säulen",
+        title: "Säulen",
+        description: "Säulen, Gewichtung und verknüpfte Quellen.",
         rows: pillars,
         columns: [
           { header: "Welle", width: 34, value: (row) => row.quarter.name },
-          { header: "Saeule", width: 24, value: (row) => row.pillar.name },
+          { header: "Säule", width: 24, value: (row) => row.pillar.name },
           { header: "Beschreibung", width: 42, value: (row) => row.pillar.description },
           { header: "Farbe", width: 12, value: (row) => row.pillar.color },
           { header: "Quellen", width: 10, value: (row) => row.pillar.sourceRefs.length, align: "right" },
@@ -525,11 +525,11 @@ export async function exportPraemienExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Quellen",
         title: "Boni-Quellen",
-        description: "Alle Fragebogen-Quellen, die einer Praemien-Saeule zugewiesen sind.",
+        description: "Alle Fragebogen-Quellen, die einer Prämien-Säule zugewiesen sind.",
         rows: sources,
         columns: [
           { header: "Welle", width: 34, value: (row) => row.quarter.name },
-          { header: "Saeule", width: 24, value: (row) => row.pillar.name },
+          { header: "Säule", width: 24, value: (row) => row.pillar.name },
           { header: "Sektion", width: 12, value: (row) => campaignTypeLabel(row.source.sectionType) },
           { header: "Fragebogen", width: 34, value: (row) => row.source.fragebogenName },
           { header: "Modul", width: 28, value: (row) => row.source.moduleName },
@@ -543,9 +543,9 @@ export async function exportPraemienExcel(input: {
       });
 
       appendTableSheet(XLSX, wb, {
-        name: "Qualitaet",
-        title: "Qualitaet Scores",
-        description: "Manuelle Qualitaetsbewertungen pro GM und Welle.",
+        name: "Qualität",
+        title: "Qualität Scores",
+        description: "Manuelle Qualitätsbewertungen pro GM und Welle.",
         rows: qualityRows,
         columns: [
           { header: "Welle", width: 34, value: (row) => row.quarter.name },
@@ -583,7 +583,7 @@ export async function exportPraemienExcel(input: {
         appendTableSheet(XLSX, wb, {
           name: "Quellen Katalog",
           title: "Quellen Katalog",
-          description: "Geladene moegliche Bonus-Quellen aus den Frageboegen.",
+          description: "Geladene mögliche Bonus-Quellen aus den Fragebögen.",
           rows: input.sourceCatalog,
           columns: [
             { header: "Key", width: 38, value: (row) => row.key ?? "" },

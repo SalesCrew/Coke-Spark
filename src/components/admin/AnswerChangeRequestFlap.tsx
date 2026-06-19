@@ -51,7 +51,7 @@ function sectionLabel(section: AdminAnswerChangeRequest["section"]["section"]): 
   if (section === "standard") return "Standard";
   if (section === "flex") return "Flex";
   if (section === "billa") return "Billa";
-  if (section === "kuehler") return "Kuehler";
+  if (section === "kuehler") return "Kühler";
   if (section === "mhd") return "MHD";
   return section;
 }
@@ -123,7 +123,7 @@ export function AnswerChangeRequestFlap() {
       const next = sortRequests(await fetchAdminAnswerChangeRequests());
       setRequests(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Aenderungsanfragen konnten nicht geladen werden.");
+      setError(err instanceof Error ? err.message : "?nderungsanfragen konnten nicht geladen werden.");
     } finally {
       setLoading(false);
     }
@@ -225,27 +225,27 @@ export function AnswerChangeRequestFlap() {
         className="answer-flap-tab"
         type="button"
         onClick={() => setOpen((value) => !value)}
-        aria-label={open ? "Aenderungsanfragen schliessen" : "Aenderungsanfragen oeffnen"}
+        aria-label={open ? "?nderungsanfragen schließen" : "?nderungsanfragen ?ffnen"}
       >
         {!open ? <span className={`answer-flap-tab-dot ${pendingRequests.length > 0 ? "is-hot" : ""}`} /> : null}
-        <span className="answer-flap-tab-label">{open ? "Schliessen" : "Anfragen"}</span>
+        <span className="answer-flap-tab-label">{open ? "Schließen" : "Anfragen"}</span>
         {!open ? <span className="answer-flap-tab-count">{pendingRequests.length}</span> : null}
       </button>
-        <section className="answer-flap-panel" aria-label="Aenderungsanfragen">
+        <section className="answer-flap-panel" aria-label="?nderungsanfragen">
           <header className="answer-flap-header">
             <div className="answer-flap-title">
               <div className="answer-flap-eyebrow">Pruefung</div>
-              <h2>Antwortpruefung</h2>
+              <h2>Antwortprüfung</h2>
               <p>Korrekturen aus fertigen Marktbesuchen.</p>
             </div>
             <div className="answer-flap-header-actions">
               <button type="button" className="answer-icon-button" onClick={() => void loadRequests()} aria-label="Aktualisieren" disabled={loading}>
                 {loading ? <Loader2 size={14} className="answer-spin" /> : <RefreshCcw size={14} />}
               </button>
-              <button type="button" className="answer-icon-button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Kleiner anzeigen" : "Groesser anzeigen"}>
+              <button type="button" className="answer-icon-button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Kleiner anzeigen" : "Gr??er anzeigen"}>
                 {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               </button>
-              <button type="button" className="answer-icon-button" onClick={() => setOpen(false)} aria-label="Schliessen">
+              <button type="button" className="answer-icon-button" onClick={() => setOpen(false)} aria-label="Schließen">
                 <X size={14} />
               </button>
             </div>

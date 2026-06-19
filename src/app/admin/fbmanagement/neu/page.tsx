@@ -3042,16 +3042,16 @@ export default function NeuKampagnePage() {
               </div>
               {matchMode === "kuehler_stammnr" && (
                 <div style={{ marginTop: 6 }}>
-                  Mehrfach vorkommende Stammnr werden als separate Kuehler-Assignments gespeichert.
+                  Mehrfach vorkommende Stammnr werden als separate Kühler-Assignments gespeichert.
                 </div>
               )}
               {(matcherReport.ambiguous > 0 || matcherReport.unmatched > 0 || gmBlockingIssues > 0) && (
                 <div style={{ marginTop: 6, color: "#b45309", fontWeight: 600 }}>
                   {matcherReport.ambiguous > 0 || matcherReport.unmatched > 0
                     ? matchMode === "kuehler_stammnr"
-                      ? "Nicht zuordenbare Maerkte muessen vor dem Erstellen korrigiert werden."
-                      : "Zeilen ohne Markt-Match werden beim Erstellen automatisch uebersprungen."
-                    : "Zeilen ohne zuordenbaren GM werden beim Erstellen automatisch uebersprungen."}
+                      ? "Nicht zuordenbare Märkte müssen vor dem Erstellen korrigiert werden."
+                      : "Zeilen ohne Markt-Match werden beim Erstellen automatisch übersprungen."
+                    : "Zeilen ohne zuordenbaren GM werden beim Erstellen automatisch übersprungen."}
                 </div>
               )}
               {matcherDisplayRows.length > 0 && (
@@ -3102,7 +3102,7 @@ export default function NeuKampagnePage() {
                                   ? "Kein GM gefunden"
                                   : gmIssue.kind === "ambiguous"
                                     ? "Mehrdeutiger GM"
-                                    : "Konflikt fuer selben Markt"
+                                    : "Konflikt für selben Markt"
                             }
                           </div>
                           <div style={{ color: "rgba(124,45,18,0.9)" }}>

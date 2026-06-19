@@ -844,7 +844,7 @@ export default function IppBerechnungPage() {
         rows: allAuditRecords,
         filteredRows: filtered,
         exportedBy: readAuthSession()?.user.email ?? "",
-        note: hasFilters ? "Export enthaelt Gesamtbestand und aktuellen UI-Filter." : "Export enthaelt den geladenen IPP-Gesamtbestand.",
+        note: hasFilters ? "Export enthält Gesamtbestand und aktuellen UI-Filter." : "Export enthält den geladenen IPP-Gesamtbestand.",
       });
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "IPP-Export konnte nicht erstellt werden.");

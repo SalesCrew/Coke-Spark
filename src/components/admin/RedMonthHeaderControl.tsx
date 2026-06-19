@@ -106,7 +106,7 @@ function RedMonthDatePicker({ value, onChange }: { value: string; onChange: (val
           cursor: "pointer",
         }}
       >
-        <span>{value ? formatDate(value) : "Datum waehlen"}</span>
+        <span>{value ? formatDate(value) : "Datum wählen"}</span>
         <Calendar size={11} strokeWidth={2} color="rgba(0,0,0,0.35)" />
       </button>
 
@@ -331,7 +331,7 @@ export function RedMonthHeaderControl() {
     const cycleWeeks = parseCycleDraft(cycleDraft);
     const periodCount = Number(periodCountDraft);
     if (!Number.isFinite(redYear) || !anchorStart || cycleWeeks.length === 0 || !Number.isFinite(periodCount) || periodCount <= 0) {
-      setFormError("Bitte gueltiges Jahr, Startdatum, Rhythmus und Periodenanzahl angeben.");
+      setFormError("Bitte gültiges Jahr, Startdatum, Rhythmus und Periodenanzahl angeben.");
       return;
     }
     try {
@@ -621,7 +621,7 @@ export function RedMonthHeaderControl() {
                 ))}
                 {sortedYears.length === 0 && (
                   <div style={{ border: "1px dashed rgba(0,0,0,0.12)", borderRadius: 12, padding: 12, fontSize: 10, color: "rgba(0,0,0,0.45)", lineHeight: 1.5 }}>
-                    Noch keine gespeicherten RED-Jahre gefunden. Der aktuelle Kalender laeuft ueber den Legacy-Fallback.
+                    Noch keine gespeicherten RED-Jahre gefunden. Der aktuelle Kalender läuft über den Legacy-Fallback.
                   </div>
                 )}
               </div>
@@ -656,7 +656,7 @@ export function RedMonthHeaderControl() {
                 })}
                 {(mode === "view" ? calendar : previewPeriods).length === 0 && (
                   <div style={{ border: "1px dashed rgba(0,0,0,0.12)", borderRadius: 12, padding: 14, fontSize: 10, color: "rgba(0,0,0,0.45)", textAlign: "center" }}>
-                    Keine RED-Monate fuer diese Ansicht.
+                    Keine RED-Monate für diese Ansicht.
                   </div>
                 )}
               </div>

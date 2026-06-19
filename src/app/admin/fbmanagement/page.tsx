@@ -7095,7 +7095,7 @@ export default function FbManagementPage() {
         setCampaignsData((current) =>
           current.map((entry) => (entry.id === campaignId ? { ...entry, marketIds: previousMarketIds } : entry)),
         );
-        setMutationError(error instanceof Error ? error.message : "Aenderung konnte nicht rueckgaengig gemacht werden.");
+        setMutationError(error instanceof Error ? error.message : "?nderung konnte nicht rückgängig gemacht werden.");
       })
       .finally(() => {
         setCampaignPendingOps((current) => {

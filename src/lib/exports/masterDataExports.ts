@@ -28,15 +28,15 @@ function baseMeta(page: string, rows: number, extra?: ExportBaseMeta): ExportMet
 }
 
 function marketTypeLabel(value: MarketRecord["marketType"]): string {
-  if (value === "both") return "Universum + Kuehler";
-  if (value === "kuehler") return "Kuehler";
+  if (value === "both") return "Universum + Kühler";
+  if (value === "kuehler") return "Kühler";
   return "Universum";
 }
 
 function sectionLabel(value: MarketVisitLog["sectionType"]): string {
   if (value === "standard") return "Standard";
   if (value === "flex") return "Flex";
-  if (value === "kuehler") return "Kuehler";
+  if (value === "kuehler") return "Kühler";
   if (value === "mhd") return "MHD";
   if (value === "billa") return "Billa";
   return value;
@@ -60,13 +60,13 @@ export async function exportMarketsExcel(input: {
     a.address.localeCompare(b.address, "de"),
   );
   const visits = input.visits ?? [];
-  const filename = `CokeSpark_Maerkte_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
+  const filename = `CokeSpark_Märkte_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
 
   await buildAndDownloadWorkbook({
     filename,
     build: ({ XLSX, wb }) => {
       appendMetaSheet(XLSX, wb, [
-        ...baseMeta("Maerkte", markets.length, {
+        ...baseMeta("Märkte", markets.length, {
           exportedBy: input.exportedBy,
           note: input.filterLabel ?? "Aktueller Seitenstand",
         }),
@@ -74,8 +74,8 @@ export async function exportMarketsExcel(input: {
       ]);
 
       appendTableSheet(XLSX, wb, {
-        name: "Maerkte",
-        title: "Maerkte",
+        name: "Märkte",
+        title: "Märkte",
         description: "Filterbare Marktstammdaten inklusive Klassifikation, GM-Zuordnung und Importdaten.",
         rows: markets,
         columns: [
@@ -90,7 +90,7 @@ export async function exportMarketsExcel(input: {
           { header: "EM/EH", width: 9, value: (m) => m.emEh },
           { header: "Flexnummer", width: 16, value: (m) => m.flexNumber },
           { header: "Stammnr. Coke", width: 18, value: (m) => m.cokeMasterNumber },
-          { header: "Stammnr. Kuehler", width: 18, value: (m) => m.kuehlerStammnr },
+          { header: "Stammnr. Kühler", width: 18, value: (m) => m.kuehlerStammnr },
           { header: "Standardmarkt Nr.", width: 18, value: (m) => m.standardMarketNumber },
           { header: "Mitarbeiter", width: 24, value: (m) => m.employee },
           { header: "Aktueller GM", width: 24, value: (m) => m.currentGmName },
@@ -98,7 +98,7 @@ export async function exportMarketsExcel(input: {
           { header: "Besuchsfrequenz/Jahr", width: 18, value: (m) => m.visitFrequencyPerYear, align: "right" },
           { header: "Universums-Markt", width: 16, value: (m) => yesNo(m.universeMarket), align: "center" },
           { header: "Markt-Typ", width: 18, value: (m) => marketTypeLabel(m.marketType) },
-          { header: "Kuehler-Markt", width: 14, value: (m) => yesNo(m.marketType === "kuehler" || m.marketType === "both"), align: "center" },
+          { header: "Kühler-Markt", width: 14, value: (m) => yesNo(m.marketType === "kuehler" || m.marketType === "both"), align: "center" },
           { header: "Info", width: 9, value: (m) => yesNo(m.infoFlag), align: "center" },
           { header: "Info Notiz", width: 34, value: (m) => m.infoNote },
           { header: "IPP", width: 9, value: (m) => m.ipp ?? "", align: "right", numberFormat: "0.0" },
@@ -110,7 +110,7 @@ export async function exportMarketsExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Klassifikation",
         title: "Markt-Klassifikation",
-        description: "Pruefansicht fuer Universum, Kuehler, Billa/Handelskette und Besuchsfrequenzen.",
+        description: "Prüfansicht für Universum, Kühler, Billa/Handelskette und Besuchsfrequenzen.",
         rows: markets,
         columns: [
           { header: "Markt", width: 30, value: (m) => m.name },
@@ -119,7 +119,7 @@ export async function exportMarketsExcel(input: {
           { header: "PLZ", width: 9, value: (m) => m.postalCode },
           { header: "Ort", width: 22, value: (m) => m.city },
           { header: "Universums-Markt", width: 16, value: (m) => yesNo(m.universeMarket), align: "center" },
-          { header: "Kuehler-Markt", width: 14, value: (m) => yesNo(m.marketType === "kuehler" || m.marketType === "both"), align: "center" },
+          { header: "Kühler-Markt", width: 14, value: (m) => yesNo(m.marketType === "kuehler" || m.marketType === "both"), align: "center" },
           { header: "Beides", width: 10, value: (m) => yesNo(m.marketType === "both"), align: "center" },
           { header: "Frequenz", width: 10, value: (m) => m.visitFrequencyPerYear, align: "right" },
           { header: "Mitarbeiter", width: 24, value: (m) => m.employee },
@@ -129,7 +129,7 @@ export async function exportMarketsExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Besuchslog",
         title: "Besuchslog",
-        description: "Lokale Besuchsnotizen/Altbestand der Maerkte-Seite, falls vorhanden.",
+        description: "Lokale Besuchsnotizen/Altbestand der Märkte-Seite, falls vorhanden.",
         rows: visits,
         columns: [
           { header: "Visit ID", width: 30, value: (v) => v.id },
@@ -153,7 +153,7 @@ export async function exportMarketsExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Summen",
         title: "Summen",
-        description: "Schnelle Kontrollsummen fuer Pivot und Filter.",
+        description: "Schnelle Kontrollsummen für Pivot und Filter.",
         rows: summaryRows,
         columns: [
           { header: "Gruppe", width: 18, value: (r) => r.gruppe },
@@ -232,7 +232,7 @@ export async function exportGebietsmanagerExcel(input: {
           { header: "Besuche", width: 10, value: (row) => row.total, align: "right" },
           { header: "Standard", width: 10, value: (row) => row.standard, align: "right" },
           { header: "Flex", width: 10, value: (row) => row.flex, align: "right" },
-          { header: "Kuehler", width: 10, value: (row) => row.kuehler, align: "right" },
+          { header: "Kühler", width: 10, value: (row) => row.kuehler, align: "right" },
           { header: "MHD", width: 10, value: (row) => row.mhd, align: "right" },
           { header: "Billa", width: 10, value: (row) => row.billa, align: "right" },
           { header: "Ø Dauer Min", width: 13, value: (row) => row.avgDuration, align: "right" },
@@ -331,7 +331,7 @@ export async function exportLagerExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Summen",
         title: "Summen",
-        description: "Kontrollsummen fuer Lager und GM-Zuordnung.",
+        description: "Kontrollsummen für Lager und GM-Zuordnung.",
         rows: summaryRows,
         columns: [
           { header: "Gruppe", width: 18, value: (row) => row.gruppe },

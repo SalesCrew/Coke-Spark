@@ -162,7 +162,7 @@ export function IppOverlapModal({
               boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10)",
             }}
           >
-            Schliessen
+            Schließen
           </button>
         </div>
 
@@ -170,7 +170,7 @@ export function IppOverlapModal({
           <IppMiniDropdown
             label="Basis Intervall"
             value={draftBaseIntervalId}
-            placeholder="Intervall waehlen..."
+            placeholder="Intervall wählen..."
             options={intervals.map((interval) => ({ value: interval.id, label: formatIntervalOptionLabel(interval) }))}
             minWidth={228}
             onChange={setDraftBaseIntervalId}
@@ -179,7 +179,7 @@ export function IppOverlapModal({
           <IppMiniDropdown
             label="Ziel Intervall"
             value={draftCompareIntervalId}
-            placeholder="Intervall waehlen..."
+            placeholder="Intervall wählen..."
             options={compareOptions}
             minWidth={228}
             onChange={(value) => {

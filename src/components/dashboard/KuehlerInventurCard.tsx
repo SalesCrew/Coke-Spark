@@ -420,7 +420,7 @@ export function KuehlerInventurCard({
         return;
       }
       if (campaignIds.length === 0) {
-        setLaunchError("Bitte mindestens eine Kampagne auswaehlen.");
+        setLaunchError("Bitte mindestens eine Kampagne auswählen.");
         return;
       }
 

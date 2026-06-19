@@ -1024,7 +1024,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
             })}
           </div>
           <p style={{ margin: "8px 6px 0", fontSize: 10, lineHeight: 1.35, color: "rgba(0,0,0,0.42)" }}>
-            Hinweis: Rechtsklick auf eine Frage zum Typwechsel. Antworten/Optionen werden zurueckgesetzt, Fragetext und Foto bleiben.
+            Hinweis: Rechtsklick auf eine Frage zum Typwechsel. Antworten/Optionen werden zurückgesetzt, Fragetext und Foto bleiben.
           </p>
 
           <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "12px 6px" }} />

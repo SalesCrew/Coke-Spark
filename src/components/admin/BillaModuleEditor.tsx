@@ -335,7 +335,7 @@ function BillaChoiceConfig({
             Option hinzufügen
           </button>
         )}
-        {disabled && <div style={{ marginTop: 6, fontSize: 9, color: "rgba(0,0,0,0.35)" }}>Optionen sind bei aktiver Verfuegbarkeitsabfrage fixiert.</div>}
+        {disabled && <div style={{ marginTop: 6, fontSize: 9, color: "rgba(0,0,0,0.35)" }}>Optionen sind bei aktiver Verfügbarkeitsabfrage fixiert.</div>}
       </div>
     </div>
   );
@@ -883,7 +883,7 @@ function BillaQuestionCard({ question, index, isExpanded, onToggle, onUpdate, on
                     openAvailabilityModal();
                   }}
                 />
-                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Verfuegbarkeitsabfrage</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Verfügbarkeitsabfrage</span>
                 {question.singleChoiceAvailability === true && (
                   <button
                     type="button"
@@ -903,7 +903,7 @@ function BillaQuestionCard({ question, index, isExpanded, onToggle, onUpdate, on
                       cursor: "pointer",
                     }}
                   >
-                    Typ: {question.singleChoiceAvailabilityType ?? "waehlen"}
+                    Typ: {question.singleChoiceAvailabilityType ?? "wählen"}
                   </button>
                 )}
               </div>
@@ -1079,7 +1079,7 @@ export function BillaModuleEditor({ onClose, onSave, existingModule, existingQue
             })}
           </div>
           <p style={{ margin: "8px 6px 0", fontSize: 10, lineHeight: 1.35, color: "rgba(0,0,0,0.42)" }}>
-            Hinweis: Rechtsklick auf eine Frage zum Typwechsel. Antworten/Optionen werden zurueckgesetzt, Fragetext und Foto bleiben.
+            Hinweis: Rechtsklick auf eine Frage zum Typwechsel. Antworten/Optionen werden zurückgesetzt, Fragetext und Foto bleiben.
           </p>
           <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "12px 6px" }} />
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, fontWeight: 500, color: GD }}>

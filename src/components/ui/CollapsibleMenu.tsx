@@ -10,6 +10,7 @@ export interface MenuItem {
   href?: string;
   action?: "navigate" | "logout";
   tone?: "default" | "danger";
+  isNew?: boolean;
 }
 
 interface CollapsibleMenuProps {
@@ -192,14 +193,16 @@ export function CollapsibleMenu({
           {items.map((item, i) => {
             const isSelected = i === displayIndex;
             const isDanger = item.tone === "danger" || item.action === "logout";
+            const isNew = item.isNew === true;
             const dangerSoftBackground = "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(254,226,226,0.94))";
             const dangerSoftShadow = "inset 0 1px 0 rgba(255,255,255,0.7), 0 0 0 1px rgba(220,38,38,0.16), 0 1px 4px rgba(185,28,28,0.1)";
+            const newSoftBackground = "linear-gradient(90deg, rgba(220,38,38,0.075) 0%, rgba(220,38,38,0.035) 38%, rgba(255,255,255,0.18) 100%)";
 
             return (
               <div
                 key={item.label}
                 className={cn(
-                  "grid cursor-pointer items-center",
+                  "relative grid cursor-pointer items-center",
                   "transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
                 )}
                 style={{
@@ -215,11 +218,15 @@ export function CollapsibleMenu({
                     ? "linear-gradient(to bottom, #DC2626, #e84040)"
                     : isDanger
                       ? dangerSoftBackground
+                    : isNew
+                      ? newSoftBackground
                     : undefined,
                   boxShadow: isSelected
                     ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
                     : isDanger
                       ? dangerSoftShadow
+                    : isNew
+                      ? "inset 0 1px 0 rgba(255,255,255,0.72), 0 0 0 1px rgba(220,38,38,0.055)"
                     : undefined,
                 }}
               >
@@ -246,6 +253,30 @@ export function CollapsibleMenu({
                 >
                   {item.label}
                 </span>
+                {isNew && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      right: 11,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      borderRadius: 999,
+                      padding: "1px 5px",
+                      fontSize: 7.5,
+                      lineHeight: "12px",
+                      fontWeight: 700,
+                      letterSpacing: "0.015em",
+                      color: isSelected ? "rgba(255,255,255,0.92)" : "rgba(220,38,38,0.68)",
+                      background: isSelected ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.72)",
+                      boxShadow: isSelected
+                        ? "inset 0 0 0 1px rgba(255,255,255,0.18)"
+                        : "inset 0 0 0 1px rgba(220,38,38,0.08)",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    Neu
+                  </span>
+                )}
               </div>
             );
           })}

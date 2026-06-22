@@ -28,6 +28,7 @@ import {
   readAuthSession,
   removeCampaignMarket,
   switchCampaignFragebogen,
+  updateCampaign,
 } from "@/lib/api/backend";
 import type { CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
 import { exportFbManagementExcel } from "@/lib/exports/planningExports";
@@ -7128,6 +7129,34 @@ export default function FbManagementPage() {
     [campaignCurrentFragebogenId, campaignId, campaignPendingOps, switchingCampaignId],
   );
 
+  const handleToggleCampaignActive = useCallback(async () => {
+    if (!campaign || !campaignId || isCampaignBusy(campaignId)) return;
+    const nextStatus = campaign.status === "inactive" ? "active" : "inactive";
+    if (nextStatus === "active" && campaign.scheduleType === "scheduled" && campaign.endDate) {
+      const todayVienna = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Vienna" }).format(new Date());
+      if (campaign.endDate < todayVienna) {
+        setMutationError("Diese Kampagne ist bereits abgelaufen und kann nicht mehr aktiviert werden.");
+        return;
+      }
+    }
+
+    setMutationError(null);
+    setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
+    try {
+      const updated = await updateCampaign(campaignId, { status: nextStatus });
+      setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      invalidateCampaignVisitStatus(updated.id);
+      void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Kampagnenstatus konnte nicht gespeichert werden.");
+    } finally {
+      setCampaignPendingOps((current) => {
+        const next = Math.max(0, (current[campaignId] ?? 0) - 1);
+        return { ...current, [campaignId]: next };
+      });
+    }
+  }, [campaign, campaignId, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
+
   const handleExportFbManagement = useCallback(async () => {
     if (isExportingFbManagement) return;
     setIsExportingFbManagement(true);
@@ -7595,18 +7624,28 @@ export default function FbManagementPage() {
             <div>
               <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", margin: 0, lineHeight: 1.2 }}>{campaign.name}</h2>
               <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{
-                  width: 36, height: 20, borderRadius: 99, cursor: "pointer",
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={campaign.status !== "inactive"}
+                  aria-label={campaign.status !== "inactive" ? "Kampagne pausieren" : "Kampagne aktivieren"}
+                  disabled={campaignBusy}
+                  onClick={handleToggleCampaignActive}
+                  style={{
+                  width: 36, height: 20, borderRadius: 99, cursor: campaignBusy ? "not-allowed" : "pointer",
                   backgroundColor: campaign.status !== "inactive" ? campaign.color : "rgba(0,0,0,0.12)",
                   position: "relative", transition: "background-color 0.2s ease",
                   flexShrink: 0,
+                  border: "none",
+                  padding: 0,
+                  opacity: campaignBusy ? 0.62 : 1,
                 }}>
                   <div style={{
                     position: "absolute", top: 2, left: campaign.status !== "inactive" ? 18 : 2,
                     width: 16, height: 16, borderRadius: "50%", backgroundColor: "#fff",
                     boxShadow: "0 1px 4px rgba(0,0,0,0.18)", transition: "left 0.2s ease",
                   }} />
-                </div>
+                </button>
                 <span style={{ fontSize: 11, fontWeight: 400, color: "rgba(0,0,0,0.35)", letterSpacing: "0" }}>Kampagne aktiv</span>
               </div>
             </div>

@@ -193,6 +193,17 @@ function activeFilterCount(filters: Filters): number {
   ].filter((key) => Boolean((filters as Record<string, unknown>)[key])).length;
 }
 
+function dedupePhotosById(items: AdminPhotoArchiveItem[]): AdminPhotoArchiveItem[] {
+  const seen = new Set<string>();
+  const result: AdminPhotoArchiveItem[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    result.push(item);
+  }
+  return result;
+}
+
 function SelectField({
   label,
   value,
@@ -928,7 +939,7 @@ export default function FotoarchivPage() {
     fetchAdminPhotos({ ...filters, pageSize: 30 })
       .then((data) => {
         if (cancelled) return;
-        setPhotos((prev) => page > 1 ? [...prev, ...data.photos] : data.photos);
+        setPhotos((prev) => page > 1 ? dedupePhotosById([...prev, ...data.photos]) : dedupePhotosById(data.photos));
         if (data.facets) setFacets(data.facets);
         setTotal(data.total);
         setStats(data.stats ?? { visitedMarkets: 0, campaigns: 0 });

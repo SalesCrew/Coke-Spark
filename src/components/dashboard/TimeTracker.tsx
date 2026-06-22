@@ -48,9 +48,14 @@ type ReviewDraft = {
   startTime: string;
   endTime: string;
 };
+type EarlyEndConfirmation = {
+  startAt: string;
+  endAt: string;
+};
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
 const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
+const EARLY_DAY_END_THRESHOLD_SECONDS = 6 * 60 * 60;
 
 function fmt(s: number): string {
   const h   = String(Math.floor(s / 3600)).padStart(2, "0");
@@ -65,6 +70,18 @@ function fmtDuration(s: number): string {
   if (h === 0) return `${m} Min`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}min`;
+}
+
+function fmtDateTimeInTimezone(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat("de-AT", {
+    timeZone: timezone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(iso));
 }
 
 function fmtKm(raw: string): string {
@@ -312,6 +329,7 @@ export function TimeTracker(_: TimeTrackerProps) {
   const [persistBusy, setPersistBusy] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
   const [openEndKmOnly, setOpenEndKmOnly] = useState(false);
+  const [earlyEndConfirmation, setEarlyEndConfirmation] = useState<EarlyEndConfirmation | null>(null);
 
   // ── KM state ─────────────────────────────────────────────────────────────
   const [startKmInput, setStartKmInput]         = useState("");
@@ -634,6 +652,7 @@ export function TimeTracker(_: TimeTrackerProps) {
     setReviewEditingKey(null);
     setReviewError(null);
     setReviewSaving(false);
+    setEarlyEndConfirmation(null);
     transitionTo("idle");
   }
 
@@ -904,15 +923,15 @@ export function TimeTracker(_: TimeTrackerProps) {
   const startKmValid = startKmInput.length > 0 && parseInt(startKmInput, 10) > 0;
 
   // ── End KM (manual STOP) ──────────────────────────────────────────────────
-  const handleStopPressed = useCallback(async () => {
-    if (persistBusy) return;
+  const completeEndDay = useCallback(async (endAt?: string) => {
     setPersistBusy(true);
     setPersistError(null);
     try {
-      const { session } = await endDaySession();
+      const { session } = await endDaySession(endAt ? { endAt } : undefined);
       persistLocalDaySessionFromBackend(session);
       setDaySession(session);
       setOpenEndKmOnly(false);
+      setEarlyEndConfirmation(null);
       setConfirmedStartKm(session.startKm ?? null);
       if (session.startKm == null) setStartKmInput("");
       setEndKmInput(session.endKm != null ? String(session.endKm) : "");
@@ -930,6 +949,39 @@ export function TimeTracker(_: TimeTrackerProps) {
       setPersistBusy(false);
     }
   }, [notifyDaySessionUpdated, persistBusy]);
+
+  const handleStopPressed = useCallback(() => {
+    if (persistBusy) return;
+    const pressedEndAt = new Date().toISOString();
+    const startAt = daySession?.dayStartedAt;
+    if (startAt) {
+      const startedMs = new Date(startAt).getTime();
+      const endedMs = new Date(pressedEndAt).getTime();
+      const deltaSeconds = Math.floor((endedMs - startedMs) / 1000);
+      if (
+        Number.isFinite(startedMs) &&
+        Number.isFinite(endedMs) &&
+        deltaSeconds >= 0 &&
+        deltaSeconds < EARLY_DAY_END_THRESHOLD_SECONDS
+      ) {
+        setPersistError(null);
+        setEarlyEndConfirmation({ startAt, endAt: pressedEndAt });
+        return;
+      }
+    }
+    void completeEndDay(pressedEndAt);
+  }, [completeEndDay, daySession?.dayStartedAt, persistBusy]);
+
+  const handleEarlyEndCancel = useCallback(() => {
+    if (persistBusy) return;
+    setEarlyEndConfirmation(null);
+    setPersistError(null);
+  }, [persistBusy]);
+
+  const handleEarlyEndConfirm = useCallback(() => {
+    if (!earlyEndConfirmation || persistBusy) return;
+    void completeEndDay(earlyEndConfirmation.endAt);
+  }, [completeEndDay, earlyEndConfirmation, persistBusy]);
   const handleEndKmCancel = useCallback(() => {
     setOpenEndKmOnly(false);
     setRunning(true); setPaused(false); transitionTo("recording");
@@ -1134,6 +1186,9 @@ export function TimeTracker(_: TimeTrackerProps) {
     if (!draft) return count;
     return count + (draft.startTime !== segment.start || draft.endTime !== segment.end ? 1 : 0);
   }, 0);
+  const earlyEndDurationSeconds = earlyEndConfirmation
+    ? Math.max(0, Math.floor((new Date(earlyEndConfirmation.endAt).getTime() - new Date(earlyEndConfirmation.startAt).getTime()) / 1000))
+    : 0;
 
   // ── Shared new-car slot (reused in both endKm and forgotEnd) ──────────────
   function NewCarSlotContent() {
@@ -1213,6 +1268,121 @@ export function TimeTracker(_: TimeTrackerProps) {
       )}
 
       {/* ── TimeTracker card ───────────────────────────────── */}
+      {earlyEndConfirmation && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10020,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+            background: "rgba(15,23,42,0.22)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            fontFamily: "var(--font-inter), Inter, system-ui, sans-serif",
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div
+            style={{
+              width: "min(330px, 100%)",
+              borderRadius: 18,
+              border: "1px solid rgba(255,255,255,0.78)",
+              background: "radial-gradient(ellipse 130% 90% at 50% -18%, rgba(217,119,6,0.13) 0%, rgba(255,255,255,0.98) 58%, #fff 100%)",
+              boxShadow: "0 28px 80px rgba(15,23,42,0.18), 0 8px 22px rgba(146,64,14,0.08)",
+              overflow: "hidden",
+              animation: "earlyEndConfirmIn 0.18s cubic-bezier(0.4,0,0.2,1) both",
+            }}
+          >
+            <style>{`
+              @keyframes earlyEndConfirmIn {
+                from { opacity: 0; transform: scale(0.96) translateY(8px); }
+                to { opacity: 1; transform: scale(1) translateY(0); }
+              }
+            `}</style>
+            <div style={{ padding: "18px 18px 14px", textAlign: "center" }}>
+              <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(217,119,6,0.72)", marginBottom: 7 }}>
+                Kurzer Arbeitstag
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "rgba(15,23,42,0.92)", lineHeight: 1.22, letterSpacing: "-0.025em" }}>
+                Bist du sicher, dass du den Tag schon beenden willst?
+              </div>
+              <div style={{ margin: "8px auto 0", maxWidth: 240, fontSize: 10, lineHeight: 1.45, fontWeight: 550, color: "rgba(15,23,42,0.48)" }}>
+                Der Arbeitstag ist noch unter 6 Stunden. Erst nach deiner Bestätigung wird das Tagesende gespeichert.
+              </div>
+            </div>
+
+            <div style={{ padding: "0 18px 14px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 7 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 10px", borderRadius: 10, background: "rgba(15,23,42,0.035)", border: "1px solid rgba(15,23,42,0.055)" }}>
+                  <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>Start laut DB</span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "rgba(15,23,42,0.86)", fontVariantNumeric: "tabular-nums" }}>
+                    {fmtDateTimeInTimezone(earlyEndConfirmation.startAt, trackerTimezone)}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 10px", borderRadius: 10, background: "rgba(217,119,6,0.06)", border: "1px solid rgba(217,119,6,0.13)" }}>
+                  <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(146,64,14,0.58)" }}>Ende jetzt</span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "rgba(146,64,14,0.92)", fontVariantNumeric: "tabular-nums" }}>
+                    {fmtDateTimeInTimezone(earlyEndConfirmation.endAt, trackerTimezone)}
+                  </span>
+                </div>
+              </div>
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <span style={{ width: 5, height: 5, borderRadius: 999, background: "rgba(217,119,6,0.7)" }} />
+                <span style={{ fontSize: 10, fontWeight: 750, color: "rgba(15,23,42,0.52)" }}>
+                  Bisherige Dauer: {fmtDuration(earlyEndDurationSeconds)}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, padding: "0 18px 18px" }}>
+              <button
+                type="button"
+                onClick={handleEarlyEndCancel}
+                disabled={persistBusy}
+                style={{
+                  flex: 1,
+                  height: 34,
+                  borderRadius: 9,
+                  border: "1px solid rgba(15,23,42,0.07)",
+                  background: "linear-gradient(to bottom, #ffffff, #f4f4f5)",
+                  color: "rgba(15,23,42,0.58)",
+                  fontSize: 11,
+                  fontWeight: 750,
+                  cursor: persistBusy ? "not-allowed" : "pointer",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 3px rgba(15,23,42,0.05)",
+                  opacity: persistBusy ? 0.6 : 1,
+                }}
+              >
+                Nein
+              </button>
+              <button
+                type="button"
+                onClick={handleEarlyEndConfirm}
+                disabled={persistBusy}
+                style={{
+                  flex: 1.45,
+                  height: 34,
+                  borderRadius: 9,
+                  border: "none",
+                  background: "linear-gradient(to bottom, #DC2626, #e84040)",
+                  color: "#fff",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: persistBusy ? "not-allowed" : "pointer",
+                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), 0 0 0 1px #c42020, 0 4px 12px rgba(180,20,20,0.16)",
+                  opacity: persistBusy ? 0.72 : 1,
+                }}
+              >
+                {persistBusy ? "Speichert..." : "Ja, beenden"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {phase === "dayReview" && (
         <div
           style={{

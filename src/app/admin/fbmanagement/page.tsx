@@ -7128,6 +7128,32 @@ export default function FbManagementPage() {
     [campaignCurrentFragebogenId, campaignId, campaignPendingOps, switchingCampaignId],
   );
 
+  const handleExportFbManagement = useCallback(async () => {
+    if (isExportingFbManagement) return;
+    setIsExportingFbManagement(true);
+    setExportError(null);
+    try {
+      await exportFbManagementExcel({
+        campaigns: campaignsData,
+        markets: marketsData,
+        visitStatusByCampaignId,
+        fragebogenByScope,
+        modulesByScope,
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExportingFbManagement(false);
+    }
+  }, [campaignsData, fragebogenByScope, isExportingFbManagement, marketsData, modulesByScope, visitStatusByCampaignId]);
+
+  useEffect(() => {
+    const handler = () => { void handleExportFbManagement(); };
+    window.addEventListener("admin:fbmanagement:export", handler);
+    return () => window.removeEventListener("admin:fbmanagement:export", handler);
+  }, [handleExportFbManagement]);
+
   if (loading) {
     return (
       <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -7336,32 +7362,6 @@ export default function FbManagementPage() {
     setMarketEditMode("idle");
     setMarketFilter("all");
   };
-
-  const handleExportFbManagement = useCallback(async () => {
-    if (isExportingFbManagement) return;
-    setIsExportingFbManagement(true);
-    setExportError(null);
-    try {
-      await exportFbManagementExcel({
-        campaigns: campaignsData,
-        markets: marketsData,
-        visitStatusByCampaignId,
-        fragebogenByScope,
-        modulesByScope,
-        exportedBy: readAuthSession()?.user.email ?? "",
-      });
-    } catch (error) {
-      setExportError(error instanceof Error ? error.message : "Export konnte nicht erstellt werden.");
-    } finally {
-      setIsExportingFbManagement(false);
-    }
-  }, [campaignsData, fragebogenByScope, isExportingFbManagement, marketsData, modulesByScope, visitStatusByCampaignId]);
-
-  useEffect(() => {
-    const handler = () => { void handleExportFbManagement(); };
-    window.addEventListener("admin:fbmanagement:export", handler);
-    return () => window.removeEventListener("admin:fbmanagement:export", handler);
-  }, [handleExportFbManagement]);
 
   return (
     <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>

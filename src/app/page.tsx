@@ -1,6 +1,7 @@
 "use client";
 
 import { Inter_Tight } from "next/font/google";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Login from "@/components/Login";
 import { fetchGmKpiSummary, loginWithBackend, saveAuthSession } from "@/lib/api/backend";
@@ -12,6 +13,19 @@ const loginFont = Inter_Tight({
 
 export default function Home() {
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash || "";
+    const params = new URLSearchParams(window.location.search || "");
+    const type = String(params.get("type") || "").toLowerCase();
+    const hasRecoveryHash = /access_token=|type=recovery/i.test(hash);
+    const hasRecoveryQuery = type === "recovery" || params.has("token_hash") || params.has("code");
+    if (!hasRecoveryHash && !hasRecoveryQuery) return;
+
+    const query = params.toString();
+    router.replace(`/auth/reset-password${query ? `?${query}` : ""}${hash}`);
+  }, [router]);
 
   return (
     <div className={loginFont.className}>
@@ -38,8 +52,9 @@ export default function Home() {
 
           router.push("/admin");
         }}
-        onForgot={() => {
-          router.push("/");
+        onForgot={(email) => {
+          const query = email ? `?email=${encodeURIComponent(email)}` : "";
+          router.push(`/auth/passwort-vergessen${query}`);
         }}
       />
     </div>

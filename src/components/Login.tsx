@@ -12,7 +12,7 @@ export interface LoginCredentials {
 
 export interface LoginProps {
   onSubmit?: (creds: LoginCredentials) => Promise<void> | void;
-  onForgot?: () => void;
+  onForgot?: (email?: string) => void;
   headline?: ReactNode;
   subHeadline?: string;
 }
@@ -167,7 +167,7 @@ export default function Login({
                 <div className="cs-field">
                   <label htmlFor="cs-pass" className="cs-label">
                     Password
-                    <button type="button" className="cs-link hint" onClick={onForgot}>
+                    <button type="button" className="cs-link hint" onClick={() => onForgot?.(email.trim())}>
                       Forgot?
                     </button>
                   </label>

@@ -54,6 +54,10 @@ import Aurora from "@/components/ui/Aurora";
 
 type Phase = "idle" | "active" | "abschluss" | "confirm";
 type ActiveSection = "fragebogen" | "kuehler" | "mhd";
+type SubmittedVisitTimeSummary = {
+  startedAt: string;
+  submittedAt: string;
+};
 
 interface Answer {
   questionId: string;
@@ -750,6 +754,14 @@ function secondsSince(iso: string | null): number {
   if (!iso) return 0;
   const ms = Date.now() - new Date(iso).getTime();
   return ms > 0 ? Math.floor(ms / 1000) : 0;
+}
+
+function secondsBetween(startIso: string | null, endIso: string | null): number {
+  if (!startIso || !endIso) return 0;
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  return Math.max(0, Math.floor((endMs - startMs) / 1000));
 }
 
 function hhmmFromIso(iso: string | null): string {
@@ -3281,6 +3293,7 @@ function MarktbesuchInner() {
   const [visitDateKey, setVisitDateKey] = useState(() => formatDateKey(new Date()));
   const [manualTimeEdited, setManualTimeEdited] = useState(false);
   const [startTimeEdited, setStartTimeEdited] = useState(false);
+  const [submittedVisitTimeSummary, setSubmittedVisitTimeSummary] = useState<SubmittedVisitTimeSummary | null>(null);
   const [comment, setComment] = useState("");
   const [clockTarget, setClockTarget] = useState<"von" | "bis" | null>(null);
   const [visitStartLoading, setVisitStartLoading] = useState(false);
@@ -3326,6 +3339,7 @@ function MarktbesuchInner() {
     setTimerRunning(false);
     setTimerStopped(false);
     setTimerSeconds(0);
+    setSubmittedVisitTimeSummary(null);
   }, []);
 
   const hydrateFromSessionPayload = useCallback((payload: GmVisitSessionReadPayload, options?: { runTimer?: boolean }) => {
@@ -3446,6 +3460,7 @@ function MarktbesuchInner() {
 
     setVisitSessionId(payload.session.id);
     setVisitSessionStartedAt(payload.session.startedAt ?? null);
+    setSubmittedVisitTimeSummary(null);
     const sessionStartedDate = payload.session.startedAt ? new Date(payload.session.startedAt) : new Date();
     setVisitDateKey(formatDateKey(Number.isFinite(sessionStartedDate.getTime()) ? sessionStartedDate : new Date()));
     setVonVal(hhmmFromIso(payload.session.startedAt ?? null));
@@ -4095,6 +4110,7 @@ function MarktbesuchInner() {
         return;
       }
 
+      let submittedSummary: SubmittedVisitTimeSummary | null = null;
       if (manualTimeEdited) {
         if ((startTimeEdited && !isValidHm(vonVal)) || !isValidHm(bisVal)) {
           setSubmitSessionError("Bitte gültige Zeiten im Format HH:MM eingeben.");
@@ -4113,9 +4129,14 @@ function MarktbesuchInner() {
           startedAt: startedAtIso,
           submittedAt: submittedAtIso,
         });
+        submittedSummary = { startedAt: startedAtIso, submittedAt: submittedAtIso };
       } else {
+        const submittedAtIso = new Date().toISOString();
+        const startedAtIso = visitSessionStartedAt ?? toIsoForDateKeyTime(visitDateKey, vonVal);
         await submitGmVisitSession(visitSessionId);
+        submittedSummary = { startedAt: startedAtIso, submittedAt: submittedAtIso };
       }
+      setSubmittedVisitTimeSummary(submittedSummary);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
       }
@@ -4446,6 +4467,11 @@ function MarktbesuchInner() {
   const kuehlerProgressPct = visibleKUEHLER_QUESTIONS.length > 0 ? (kuehlerAnsweredCount / visibleKUEHLER_QUESTIONS.length) * 100 : 0;
   const mhdProgressPct = visibleMHD_QUESTIONS.length > 0 ? (mhdAnsweredCount / visibleMHD_QUESTIONS.length) * 100 : 0;
   const visitStartBlocked = visitStartLoading || (!!hasVisitStartParams && (Boolean(visitStartError) || totalSectionQuestionCount === 0));
+  const confirmStartLabel = submittedVisitTimeSummary ? hhmmFromIso(submittedVisitTimeSummary.startedAt) : vonVal;
+  const confirmEndLabel = submittedVisitTimeSummary ? hhmmFromIso(submittedVisitTimeSummary.submittedAt) : bisVal;
+  const confirmDurationSeconds = submittedVisitTimeSummary
+    ? secondsBetween(submittedVisitTimeSummary.startedAt, submittedVisitTimeSummary.submittedAt)
+    : timerSeconds;
 
   async function handleTimerStart() {
     if (visitStartBlocked) return;
@@ -4980,7 +5006,7 @@ function MarktbesuchInner() {
                     letterSpacing: "0.01em",
                   }}>
                     <Clock size={9} strokeWidth={2} />
-                    {vonVal} – {bisVal} · {fmtHM(timerSeconds)}
+                    {confirmStartLabel} – {confirmEndLabel} · {fmtHM(confirmDurationSeconds)}
                   </span>
                 </div>
               </div>
@@ -4999,10 +5025,10 @@ function MarktbesuchInner() {
                 }}>
                   <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(0,0,0,0.28)", marginBottom: 5 }}>Dauer</div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: "#059669", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em", lineHeight: 1 }}>
-                    {fmtHM(timerSeconds)}
+                    {fmtHM(confirmDurationSeconds)}
                   </div>
                   <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
-                    {vonVal} – {bisVal}
+                    {confirmStartLabel} – {confirmEndLabel}
                   </div>
                 </div>
                 {/* Questions */}

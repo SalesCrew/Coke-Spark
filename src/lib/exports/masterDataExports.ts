@@ -1,4 +1,5 @@
 import type { GMRecord } from "@/types/gebietsmanager";
+import type { SMRecord } from "@/types/shelfmerchandizer";
 import type { LagerRecord } from "@/types/lager";
 import type { MarketRecord, MarketVisitLog } from "@/types/markets";
 import {
@@ -44,6 +45,10 @@ function sectionLabel(value: MarketVisitLog["sectionType"]): string {
 
 function gmFullName(gm: GMRecord): string {
   return `${gm.firstName} ${gm.lastName}`.trim();
+}
+
+function smFullName(sm: SMRecord): string {
+  return `${sm.firstName} ${sm.lastName}`.trim();
 }
 
 export async function exportMarketsExcel(input: {
@@ -265,6 +270,108 @@ export async function exportGebietsmanagerExcel(input: {
         columns: [
           { header: "Region", width: 16, value: (row) => row.region },
           { header: "GMs", width: 10, value: (row) => row.anzahl, align: "right" },
+        ],
+      });
+    },
+  });
+}
+
+export async function exportShelfMerchandizerExcel(input: {
+  sms: SMRecord[];
+  visits?: MarketVisitLog[];
+  exportedBy?: string;
+}) {
+  const sms = input.sms.slice().sort((a, b) => a.region.localeCompare(b.region, "de") || smFullName(a).localeCompare(smFullName(b), "de"));
+  const visits = input.visits ?? [];
+  const visitsBySm = new Map<string, MarketVisitLog[]>();
+  visits.forEach((visit) => {
+    const key = visit.gmName.trim();
+    visitsBySm.set(key, [...(visitsBySm.get(key) ?? []), visit]);
+  });
+  const filename = `CokeSpark_ShelfMerchandizer_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
+
+  await buildAndDownloadWorkbook({
+    filename,
+    build: ({ XLSX, wb }) => {
+      appendMetaSheet(XLSX, wb, baseMeta("Shelf Merchandizer", sms.length, { exportedBy: input.exportedBy }));
+      appendTableSheet(XLSX, wb, {
+        name: "Shelf Merchandizer",
+        title: "Shelf Merchandizer",
+        description: "Stammdaten, Regionen und Besuchsplatzhalter.",
+        rows: sms,
+        columns: [
+          { header: "SM ID", width: 38, value: (sm) => sm.id },
+          { header: "Vorname", width: 18, value: (sm) => sm.firstName },
+          { header: "Nachname", width: 18, value: (sm) => sm.lastName },
+          { header: "Name", width: 26, value: (sm) => smFullName(sm) },
+          { header: "E-Mail", width: 30, value: (sm) => sm.email },
+          { header: "Telefon", width: 18, value: (sm) => sm.phone },
+          { header: "Adresse", width: 28, value: (sm) => sm.address },
+          { header: "PLZ", width: 9, value: (sm) => sm.postalCode },
+          { header: "Ort", width: 20, value: (sm) => sm.city },
+          { header: "Region", width: 12, value: (sm) => sm.region },
+          { header: "Besuche", width: 10, value: (sm) => sm.visitCount ?? 0, align: "right" },
+          { header: "Erstellt am", width: 24, value: (sm) => sm.createdAt },
+        ],
+      });
+
+      const smSummary = sms.map((sm) => {
+        const smVisits = visitsBySm.get(smFullName(sm)) ?? [];
+        return {
+          sm,
+          total: smVisits.length || sm.visitCount || 0,
+          standard: smVisits.filter((visit) => visit.sectionType === "standard").length,
+          flex: smVisits.filter((visit) => visit.sectionType === "flex").length,
+          kuehler: smVisits.filter((visit) => visit.sectionType === "kuehler").length,
+          mhd: smVisits.filter((visit) => visit.sectionType === "mhd").length,
+          billa: smVisits.filter((visit) => visit.sectionType === "billa").length,
+          avgDuration: smVisits.length ? Math.round(smVisits.reduce((sum, visit) => sum + visit.durationMin, 0) / smVisits.length) : 0,
+        };
+      });
+      appendTableSheet(XLSX, wb, {
+        name: "SM Summen",
+        title: "SM Summen",
+        description: "Besuchsplatzhalter pro Shelf Merchandizer.",
+        rows: smSummary,
+        columns: [
+          { header: "SM", width: 26, value: (row) => smFullName(row.sm) },
+          { header: "Region", width: 12, value: (row) => row.sm.region },
+          { header: "Besuche", width: 10, value: (row) => row.total, align: "right" },
+          { header: "Standard", width: 10, value: (row) => row.standard, align: "right" },
+          { header: "Flex", width: 10, value: (row) => row.flex, align: "right" },
+          { header: "Kühler", width: 10, value: (row) => row.kuehler, align: "right" },
+          { header: "MHD", width: 10, value: (row) => row.mhd, align: "right" },
+          { header: "Billa", width: 10, value: (row) => row.billa, align: "right" },
+          { header: "Ø Dauer Min", width: 13, value: (row) => row.avgDuration, align: "right" },
+        ],
+      });
+
+      appendTableSheet(XLSX, wb, {
+        name: "Besuchslog",
+        title: "Besuchslog",
+        description: "Besuchsplatzhalter der Shelf-Merchandizer-Seite, falls vorhanden.",
+        rows: visits,
+        columns: [
+          { header: "Visit ID", width: 30, value: (v) => v.id },
+          { header: "SM", width: 24, value: (v) => v.gmName },
+          { header: "Markt", width: 30, value: (v) => v.marketName ?? "" },
+          { header: "Sektion", width: 12, value: (v) => sectionLabel(v.sectionType) },
+          { header: "Fragebogen", width: 28, value: (v) => v.fragebogenName },
+          { header: "Besucht am", width: 24, value: (v) => v.visitedAt },
+          { header: "Dauer Min", width: 11, value: (v) => v.durationMin, align: "right" },
+          { header: "RED Monat", width: 14, value: (v) => v.redMonatLabel },
+        ],
+      });
+
+      const regionRows = countBy(sms, (sm) => sm.region).map((row) => ({ region: row.key, anzahl: row.count }));
+      appendTableSheet(XLSX, wb, {
+        name: "Regionen",
+        title: "Regionen",
+        description: "SM-Verteilung nach Region.",
+        rows: regionRows,
+        columns: [
+          { header: "Region", width: 16, value: (row) => row.region },
+          { header: "SMs", width: 10, value: (row) => row.anzahl, align: "right" },
         ],
       });
     },

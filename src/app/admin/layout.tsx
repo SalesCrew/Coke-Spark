@@ -126,6 +126,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isMaerkte = pathname.startsWith("/admin/maerkte");
   const isLager = pathname.startsWith("/admin/lager");
   const isGebietsmanager = pathname.startsWith("/admin/gebietsmanager");
+  const isShelfMerchandizer = pathname.startsWith("/admin/shelfmerchandizer");
   const isZeiterfassung  = pathname.startsWith("/admin/zeiterfassung");
   const isIppBerechnung  = pathname.startsWith("/admin/ipp-berechnung");
   const isGmDashboard    = pathname.startsWith("/admin/gm-dashboard");
@@ -634,7 +635,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : "Standardbesuch";
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandizer ? "Shelf Merchandizer" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : "Standardbesuch";
   const exportEventName =
     isMhd ? "admin:mhd:export"
     : isKuehler ? "admin:kuehlerinventur:export"
@@ -646,6 +647,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : isMaerkte ? "admin:maerkte:export"
     : isLager ? "admin:lager:export"
     : isGebietsmanager ? "admin:gebietsmanager:export"
+    : isShelfMerchandizer ? "admin:shelfmerchandizer:export"
     : isIppBerechnung ? "admin:ipp:export"
     : isGmDashboard ? "admin:gm-dashboard:export"
     : pathname === "/admin/fragebogen" ? "admin:fragebogen:export"
@@ -834,6 +836,16 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                 >
                   <Plus size={12} strokeWidth={2} />
                   GM erstellen
+                </button>
+              ) : isShelfMerchandizer && canWriteCurrentPage ? (
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent("shelfmerchandizer:openCreate"))}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                >
+                  <Plus size={12} strokeWidth={2} />
+                  SM erstellen
                 </button>
               ) : canWriteCurrentPage ? (
                 <>

@@ -1,6 +1,7 @@
 "use client";
 
 import type { GMRecord } from "@/types/gebietsmanager";
+import type { SMRecord } from "@/types/shelfmerchandizer";
 import type { KuehlerUnitRecord, MarketRecord } from "@/types/markets";
 import type { Fragebogen, Module, Question, SingleChoiceAvailabilityType } from "@/types/fragebogen";
 import type {
@@ -453,6 +454,23 @@ function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): 
   };
 }
 
+function mapBackendUserToSmRecord(user: BackendUser, oneTimePassword?: string): SMRecord {
+  return {
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    phone: user.phone ?? "",
+    address: user.address ?? "",
+    city: user.city ?? "",
+    postalCode: user.postalCode ?? "",
+    region: user.region ?? "",
+    visitCount: 0,
+    createdAt: user.createdAt ?? new Date().toISOString(),
+    password: oneTimePassword,
+  };
+}
+
 export type AdminUserRecord = {
   id: string;
   role: "admin";
@@ -735,6 +753,7 @@ function resolveAdminPageKeyForPath(pathname: string): string | null {
   if (pathname.startsWith("/admin/zeiterfassung")) return "zeiterfassung";
   if (pathname.startsWith("/admin/maerkte")) return "maerkte";
   if (pathname.startsWith("/admin/lager")) return "lager";
+  if (pathname.startsWith("/admin/shelfmerchandizer")) return "shelfmerchandizer";
   if (pathname.startsWith("/admin/gebietsmanager")) return "gebietsmanager";
   if (pathname.startsWith("/admin/fragebogen")) return "fragebogen";
   return null;
@@ -1478,12 +1497,19 @@ const DIRECTORY_CACHE_TTL_MS = 60_000;
 
 let gmUsersDirectoryCache: { expiresAt: number; data: GMRecord[] } | null = null;
 let gmUsersDirectoryInFlight: Promise<GMRecord[]> | null = null;
+let smUsersDirectoryCache: { expiresAt: number; data: SMRecord[] } | null = null;
+let smUsersDirectoryInFlight: Promise<SMRecord[]> | null = null;
 let marketsDirectoryCache: { expiresAt: number; data: MarketRecord[] } | null = null;
 let marketsDirectoryInFlight: Promise<MarketRecord[]> | null = null;
 
 function invalidateGmUsersDirectoryCache(): void {
   gmUsersDirectoryCache = null;
   gmUsersDirectoryInFlight = null;
+}
+
+function invalidateSmUsersDirectoryCache(): void {
+  smUsersDirectoryCache = null;
+  smUsersDirectoryInFlight = null;
 }
 
 function invalidateMarketsDirectoryCache(): void {
@@ -1515,6 +1541,32 @@ export async function fetchGmUsers(): Promise<GMRecord[]> {
   });
 
   return gmUsersDirectoryInFlight;
+}
+
+export async function fetchSmUsers(): Promise<SMRecord[]> {
+  const now = Date.now();
+  if (smUsersDirectoryCache && smUsersDirectoryCache.expiresAt > now) {
+    return smUsersDirectoryCache.data;
+  }
+  if (smUsersDirectoryInFlight) {
+    return smUsersDirectoryInFlight;
+  }
+
+  smUsersDirectoryInFlight = (async () => {
+    try {
+      const data = (await authedFetch("/admin/users?role=sm")) as { users?: BackendUser[] };
+      const users = (data.users ?? []).map((u) => mapBackendUserToSmRecord(u));
+      smUsersDirectoryCache = { data: users, expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS };
+      return users;
+    } catch (error) {
+      if (smUsersDirectoryCache) return smUsersDirectoryCache.data;
+      throw error;
+    }
+  })().finally(() => {
+    smUsersDirectoryInFlight = null;
+  });
+
+  return smUsersDirectoryInFlight;
 }
 
 export async function fetchAdminUsers(): Promise<AdminUserRecord[]> {
@@ -1635,6 +1687,45 @@ export async function updateGmUser(payload: GMRecord): Promise<GMRecord> {
   })) as { user: BackendUser };
   const next = mapBackendUserToGmRecord(data.user);
   invalidateGmUsersDirectoryCache();
+  return next;
+}
+
+export async function createSmUser(payload: Omit<SMRecord, "id" | "createdAt" | "password" | "visitCount">): Promise<SMRecord> {
+  const data = (await authedFetch("/admin/users", {
+    method: "POST",
+    body: JSON.stringify({
+      role: "sm",
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      email: payload.email,
+      phone: payload.phone,
+      address: payload.address,
+      city: payload.city,
+      postalCode: payload.postalCode,
+      region: payload.region,
+    }),
+  })) as { user: BackendUser; oneTimePassword?: string };
+  const next = mapBackendUserToSmRecord(data.user, data.oneTimePassword);
+  invalidateSmUsersDirectoryCache();
+  return next;
+}
+
+export async function updateSmUser(payload: SMRecord): Promise<SMRecord> {
+  const data = (await authedFetch(`/admin/users/${payload.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      email: payload.email,
+      phone: payload.phone,
+      address: payload.address,
+      city: payload.city,
+      postalCode: payload.postalCode,
+      region: payload.region,
+    }),
+  })) as { user: BackendUser };
+  const next = mapBackendUserToSmRecord(data.user);
+  invalidateSmUsersDirectoryCache();
   return next;
 }
 

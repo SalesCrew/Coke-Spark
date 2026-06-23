@@ -363,28 +363,62 @@ function WeeklyProgress({ sessions }: { sessions: AdminZeiterfassungSession[] })
   const today = new Date();
   const weekStart = startOfWeek(today);
   const sessionDates = new Set(sessions.map((session) => session.date));
+  const currentWeekdayIndex = Math.min(4, Math.max(0, (today.getDay() + 6) % 7));
   const days = ["Mo", "Di", "Mi", "Do", "Fr"].map((label, index) => {
     const date = addDays(weekStart, index);
-    return { label, done: sessionDates.has(toYmd(date)) };
+    const ymd = toYmd(date);
+    const hasEntry = sessionDates.has(ymd);
+    const elapsed = index <= currentWeekdayIndex;
+    return { label, hasEntry, elapsed };
   });
-  const progressPct = Math.round((days.filter((day) => day.done).length / days.length) * 100);
+  const dayProgress = Math.min(1, Math.max(0, (today.getHours() * 60 + today.getMinutes()) / (24 * 60)));
+  const timeBasedWeekIndex = Math.min(days.length - 1, currentWeekdayIndex + dayProgress);
+  const progressPct = days.length > 1 ? Math.round((timeBasedWeekIndex / (days.length - 1)) * 1000) / 10 : 0;
   return (
     <div className="gm-zeit-week-strip">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <div>
+      <div style={{ display: "grid", gridTemplateColumns: "180px minmax(180px, 1fr) minmax(260px, 380px)", alignItems: "center", columnGap: 22 }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.11em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>KW {getIsoWeek(today)}</div>
           <div style={{ marginTop: 3, fontSize: 11, fontWeight: 650, color: "rgba(15,23,42,0.48)" }}>Aktuelle Woche</div>
         </div>
-        <div style={{ flex: 1, maxWidth: 420 }}>
-          <div style={{ position: "relative", height: 28, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", alignItems: "center", gap: 0 }}>
-            <div style={{ position: "absolute", left: 12, right: 12, top: 13, height: 2, borderRadius: 99, background: "rgba(15,23,42,0.06)" }} />
-            <div style={{ position: "absolute", left: 12, top: 13, width: `${progressPct}%`, maxWidth: "calc(100% - 24px)", height: 2, borderRadius: 99, background: "rgba(220,38,38,0.68)" }} />
-            {days.map((day) => (
-              <div key={day.label} style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 999, background: day.done ? R : "#ffffff", boxShadow: day.done ? "0 0 0 3px rgba(220,38,38,0.08)" : "0 0 0 1px rgba(15,23,42,0.1)" }} />
-                <span style={{ fontSize: 9, fontWeight: 750, color: day.done ? "rgba(15,23,42,0.7)" : "rgba(15,23,42,0.26)" }}>{day.label}</span>
-              </div>
-            ))}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, minWidth: 0, color: "rgba(15,23,42,0.32)" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 9, fontWeight: 700, whiteSpace: "nowrap" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", border: "1.3px solid rgba(220,38,38,0.58)", background: "#fff", boxSizing: "border-box" }} />
+            vorbei
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 9, fontWeight: 700, whiteSpace: "nowrap" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", border: "1.3px solid rgba(220,38,38,0.68)", background: R, boxSizing: "border-box" }} />
+            Eintrag
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 9, fontWeight: 700, whiteSpace: "nowrap" }}>
+            <span style={{ width: 16, height: 2, borderRadius: 99, background: "rgba(220,38,38,0.48)" }} />
+            Stand
+          </span>
+        </div>
+        <div style={{ width: "100%", maxWidth: 380, minWidth: 260, justifySelf: "end" }}>
+          <div style={{ flex: 1, minWidth: 0, position: "relative", height: 28, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", alignItems: "center", gap: 0 }}>
+            <div style={{ position: "absolute", left: "10%", right: "10%", top: 12, height: 2, borderRadius: 99, background: "rgba(15,23,42,0.06)", zIndex: 0 }} />
+            <div style={{ position: "absolute", left: "10%", top: 12, width: `calc(80% * ${progressPct / 100})`, height: 2, borderRadius: 99, background: "rgba(220,38,38,0.6)", zIndex: 0 }} />
+            {days.map((day) => {
+              const dotBorder = day.elapsed || day.hasEntry ? "rgba(220,38,38,0.78)" : "rgba(15,23,42,0.1)";
+              return (
+                <div key={day.label} style={{ position: "relative", zIndex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                  <span
+                    style={{
+                      display: "block",
+                      width: 9,
+                      height: 9,
+                      flex: "0 0 9px",
+                      borderRadius: "50%",
+                      boxSizing: "border-box",
+                      background: day.hasEntry ? R : "#ffffff",
+                      border: `1.5px solid ${dotBorder}`,
+                    }}
+                  />
+                  <span style={{ fontSize: 9, fontWeight: 750, color: day.elapsed || day.hasEntry ? "rgba(15,23,42,0.7)" : "rgba(15,23,42,0.26)" }}>{day.label}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

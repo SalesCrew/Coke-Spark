@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
-import type { SMRecord } from "@/types/shelfmerchandizer";
+import type { SMRecord } from "@/types/shelfmerchandiser";
 import type { MarketVisitLog } from "@/types/markets";
 import { createSmUser, fetchSmUsers, readAuthSession, updateSmUser } from "@/lib/api/backend";
-import { exportShelfMerchandizerExcel } from "@/lib/exports/masterDataExports";
+import { exportShelfMerchandiserExcel } from "@/lib/exports/masterDataExports";
 
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
@@ -132,7 +132,7 @@ function SMCard({
             <div style={{ fontSize: 13, fontWeight: 700, color: active ? R : "#1a1a1a", letterSpacing: "-0.02em", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis", transition: "color 0.15s" }}>
               {gm.firstName} {gm.lastName}
             </div>
-            <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>Shelf Merchandizer</div>
+            <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>Shelf Merchandiser</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
@@ -398,7 +398,7 @@ function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose
               </div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", lineHeight: 1.2 }}>{draft.firstName} {draft.lastName}</div>
-                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>Shelf Merchandizer · {draft.region}</div>
+                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>Shelf Merchandiser · {draft.region}</div>
               </div>
             </div>
             <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.05)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(0,0,0,0.4)", transition: "all 0.12s", flexShrink: 0 }}
@@ -722,7 +722,7 @@ function CreateModal({
               <UserCheck size={14} strokeWidth={2} color={R} />
             </div>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>{step === "form" ? "Shelf Merchandizer erstellen" : "SM erfolgreich erstellt"}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>{step === "form" ? "Shelf Merchandiser erstellen" : "SM erfolgreich erstellt"}</div>
               <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 1 }}>{step === "form" ? "Alle Felder ausfüllen" : `${form.firstName} ${form.lastName}`}</div>
             </div>
           </div>
@@ -783,7 +783,7 @@ function CreateModal({
 }
 
 // ── Page ─────────────────────────────────────────────────────
-export default function ShelfMerchandizerPage() {
+export default function ShelfMerchandiserPage() {
   const [gms, setGms] = useState<SMRecord[]>([]);
   const [visits, setVisits] = useState<MarketVisitLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -831,8 +831,8 @@ export default function ShelfMerchandizerPage() {
 
   useEffect(() => {
     const handler = () => setShowCreate(true);
-    window.addEventListener("shelfmerchandizer:openCreate", handler);
-    return () => window.removeEventListener("shelfmerchandizer:openCreate", handler);
+    window.addEventListener("shelfmerchandiser:openCreate", handler);
+    return () => window.removeEventListener("shelfmerchandiser:openCreate", handler);
   }, []);
 
 
@@ -871,7 +871,7 @@ export default function ShelfMerchandizerPage() {
     setExportError(null);
     setIsExportingGms(true);
     try {
-      await exportShelfMerchandizerExcel({
+      await exportShelfMerchandiserExcel({
         sms: gms,
         visits,
         exportedBy: readAuthSession()?.user.email ?? "",
@@ -885,8 +885,8 @@ export default function ShelfMerchandizerPage() {
 
   useEffect(() => {
     const handler = () => { void handleExportGms(); };
-    window.addEventListener("admin:shelfmerchandizer:export", handler);
-    return () => window.removeEventListener("admin:shelfmerchandizer:export", handler);
+    window.addEventListener("admin:shelfmerchandiser:export", handler);
+    return () => window.removeEventListener("admin:shelfmerchandiser:export", handler);
   }, [handleExportGms]);
 
   return (
@@ -894,7 +894,7 @@ export default function ShelfMerchandizerPage() {
 
       <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
         <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>Shelf Merchandizer</span>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>Shelf Merchandiser</span>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {gms.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{gms.length} {gms.length === 1 ? "SM" : "SMs"}</span>}
           </div>
@@ -919,8 +919,8 @@ export default function ShelfMerchandizerPage() {
                 <UserCheck size={22} strokeWidth={1.5} color={R} />
               </div>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", marginBottom: 6 }}>Noch keine Shelf Merchandizer angelegt</div>
-                <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", maxWidth: 300, lineHeight: 1.6 }}>Erstelle den ersten SM, um Shelf-Merchandizer-Zugänge zu verwalten.</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", marginBottom: 6 }}>Noch keine Shelf Merchandiser angelegt</div>
+                <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", maxWidth: 300, lineHeight: 1.6 }}>Erstelle den ersten SM, um Shelf-Merchandiser-Zugänge zu verwalten.</div>
               </div>
               <button onClick={() => setShowCreate(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 18px", fontSize: 11, fontWeight: 700, color: "#fff", background: `linear-gradient(to bottom,${R},${RD})`, border: "none", borderRadius: 8, cursor: "pointer", boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)`, fontFamily: "inherit" }}>
                 <Plus size={11} strokeWidth={2.5} /> SM erstellen

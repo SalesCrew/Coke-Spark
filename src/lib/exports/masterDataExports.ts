@@ -1,5 +1,5 @@
 import type { GMRecord } from "@/types/gebietsmanager";
-import type { SMRecord } from "@/types/shelfmerchandizer";
+import type { SMRecord } from "@/types/shelfmerchandiser";
 import type { LagerRecord } from "@/types/lager";
 import type { MarketRecord, MarketVisitLog } from "@/types/markets";
 import {
@@ -276,7 +276,7 @@ export async function exportGebietsmanagerExcel(input: {
   });
 }
 
-export async function exportShelfMerchandizerExcel(input: {
+export async function exportShelfMerchandiserExcel(input: {
   sms: SMRecord[];
   visits?: MarketVisitLog[];
   exportedBy?: string;
@@ -288,15 +288,15 @@ export async function exportShelfMerchandizerExcel(input: {
     const key = visit.gmName.trim();
     visitsBySm.set(key, [...(visitsBySm.get(key) ?? []), visit]);
   });
-  const filename = `CokeSpark_ShelfMerchandizer_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
+  const filename = `CokeSpark_ShelfMerchandiser_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
 
   await buildAndDownloadWorkbook({
     filename,
     build: ({ XLSX, wb }) => {
-      appendMetaSheet(XLSX, wb, baseMeta("Shelf Merchandizer", sms.length, { exportedBy: input.exportedBy }));
+      appendMetaSheet(XLSX, wb, baseMeta("Shelf Merchandiser", sms.length, { exportedBy: input.exportedBy }));
       appendTableSheet(XLSX, wb, {
-        name: "Shelf Merchandizer",
-        title: "Shelf Merchandizer",
+        name: "Shelf Merchandiser",
+        title: "Shelf Merchandiser",
         description: "Stammdaten, Regionen und Besuchsplatzhalter.",
         rows: sms,
         columns: [
@@ -331,7 +331,7 @@ export async function exportShelfMerchandizerExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "SM Summen",
         title: "SM Summen",
-        description: "Besuchsplatzhalter pro Shelf Merchandizer.",
+        description: "Besuchsplatzhalter pro Shelf Merchandiser.",
         rows: smSummary,
         columns: [
           { header: "SM", width: 26, value: (row) => smFullName(row.sm) },
@@ -349,7 +349,7 @@ export async function exportShelfMerchandizerExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Besuchslog",
         title: "Besuchslog",
-        description: "Besuchsplatzhalter der Shelf-Merchandizer-Seite, falls vorhanden.",
+        description: "Besuchsplatzhalter der Shelf-Merchandiser-Seite, falls vorhanden.",
         rows: visits,
         columns: [
           { header: "Visit ID", width: 30, value: (v) => v.id },

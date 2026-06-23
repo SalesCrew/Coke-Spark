@@ -31,7 +31,7 @@ export type AdminPageKey =
   | "maerkte"
   | "lager"
   | "gebietsmanager"
-  | "shelfmerchandizer";
+  | "shelfmerchandiser";
 
 export type AdminNavItem = {
   label: string;
@@ -93,7 +93,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { label: "Märkte", icon: MapPin, href: "/admin/maerkte", pageKey: "maerkte", color: cokeRed },
       { label: "Lager", icon: Warehouse, href: "/admin/lager", pageKey: "lager", color: cokeRed },
       { label: "Gebietsmanager", icon: UserCheck, href: "/admin/gebietsmanager", pageKey: "gebietsmanager", color: cokeRed },
-      { label: "Shelf Merchandizer", icon: UserCheck, href: "/admin/shelfmerchandizer", pageKey: "shelfmerchandizer", color: cokeRed },
+      { label: "Shelf Merchandiser", icon: UserCheck, href: "/admin/shelfmerchandiser", pageKey: "shelfmerchandiser", color: cokeRed },
     ],
   },
 ];

@@ -1,7 +1,7 @@
 "use client";
 
 import type { GMRecord } from "@/types/gebietsmanager";
-import type { SMRecord } from "@/types/shelfmerchandizer";
+import type { SMRecord } from "@/types/shelfmerchandiser";
 import type { KuehlerUnitRecord, MarketRecord } from "@/types/markets";
 import type { Fragebogen, Module, Question, SingleChoiceAvailabilityType } from "@/types/fragebogen";
 import type {
@@ -753,7 +753,7 @@ function resolveAdminPageKeyForPath(pathname: string): string | null {
   if (pathname.startsWith("/admin/zeiterfassung")) return "zeiterfassung";
   if (pathname.startsWith("/admin/maerkte")) return "maerkte";
   if (pathname.startsWith("/admin/lager")) return "lager";
-  if (pathname.startsWith("/admin/shelfmerchandizer")) return "shelfmerchandizer";
+  if (pathname.startsWith("/admin/shelfmerchandiser")) return "shelfmerchandiser";
   if (pathname.startsWith("/admin/gebietsmanager")) return "gebietsmanager";
   if (pathname.startsWith("/admin/fragebogen")) return "fragebogen";
   return null;

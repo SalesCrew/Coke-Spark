@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -26,8 +26,11 @@ import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import {
   fetchGmCompletedVisitSessions,
   fetchGmVisitSession,
+  commitGmVisitPhotos,
   logoutCurrentUser,
+  presignGmVisitPhoto,
   requestGmVisitAnswerChange,
+  saveGmVisitAnswer,
   type GmCompletedVisitSummary,
   type GmVisitSessionReadPayload,
 } from "@/lib/api/backend";
@@ -166,6 +169,20 @@ function questionAnswerSummary(question: VisitQuestion): string {
   if (answer.valueNumber != null) return String(answer.valueNumber);
   const jsonPreview = jsonValuePreview(answer.valueJson);
   return jsonPreview || "Antwort gespeichert";
+}
+
+function questionTypeLabel(type: VisitQuestion["type"]): string {
+  if (type === "single") return "Einzelauswahl";
+  if (type === "yesno") return "Ja/Nein";
+  if (type === "yesnomulti") return "Ja/Nein mit Auswahl";
+  if (type === "multiple") return "Mehrfachauswahl";
+  if (type === "likert") return "Skala";
+  if (type === "text") return "Textantwort";
+  if (type === "numeric") return "Zahlenfeld";
+  if (type === "slider") return "Schieberegler";
+  if (type === "photo") return "Foto-Frage";
+  if (type === "matrix") return "Matrix";
+  return "Frage";
 }
 
 function CardShell({ children, style }: { children: ReactNode; style?: CSSProperties }) {
@@ -346,6 +363,102 @@ function MatrixAnswer({ question }: { question: VisitQuestion }) {
   );
 }
 
+type ActivityPhotoTagMode = "all" | "perPhoto";
+
+type ActivityPhotoEntry = {
+  key: string;
+  id?: string;
+  storageBucket?: string;
+  storagePath?: string;
+  signedUrl?: string | null;
+  mimeType?: string | null;
+  byteSize?: number | null;
+  widthPx?: number | null;
+  heightPx?: number | null;
+  sha256?: string | null;
+  tagIds: string[];
+  file?: File;
+  previewUrl?: string;
+};
+
+type ActivityPhotoTagMeta = {
+  id: string;
+  label: string;
+};
+
+function normalizePhotoTagIds(values: unknown[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function samePhotoTagSet(left: string[], right: string[]): boolean {
+  const normalizedLeft = normalizePhotoTagIds(left).sort();
+  const normalizedRight = normalizePhotoTagIds(right).sort();
+  return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
+
+function unionPhotoTagIds(groups: string[][]): string[] {
+  return normalizePhotoTagIds(groups.flat());
+}
+
+function normalizeTagSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("de-AT")
+    .trim();
+}
+
+function configuredPhotoTags(question: VisitQuestion): ActivityPhotoTagMeta[] {
+  const config = question.config ?? {};
+  const tagIds = Array.isArray(config.tagIds) ? config.tagIds.filter((id): id is string => typeof id === "string") : [];
+  const meta = Array.isArray(config.tagMeta)
+    ? config.tagMeta.filter((entry): entry is { id: string; label: string } => (
+        isPlainRecord(entry)
+        && typeof entry.id === "string"
+        && typeof entry.label === "string"
+      ))
+    : [];
+  return tagIds.map((id) => {
+    const match = meta.find((entry) => entry.id === id);
+    return { id, label: match?.label || id };
+  });
+}
+
+function initialActivityPhotoState(question: VisitQuestion): {
+  photos: ActivityPhotoEntry[];
+  tagMode: ActivityPhotoTagMode;
+  sharedTagIds: string[];
+} {
+  const photos = (question.answer?.photos ?? []).map((photo, index): ActivityPhotoEntry => ({
+    key: photo.storagePath || photo.id || `photo-${index}`,
+    id: photo.id,
+    storageBucket: photo.storageBucket,
+    storagePath: photo.storagePath,
+    signedUrl: photo.signedUrl ?? null,
+    mimeType: photo.mimeType,
+    byteSize: photo.byteSize,
+    widthPx: photo.widthPx,
+    heightPx: photo.heightPx,
+    sha256: photo.sha256,
+    tagIds: normalizePhotoTagIds(photo.tags.map((tag) => tag.photoTagId).filter(Boolean)),
+  }));
+  const tagGroups = photos.map((photo) => photo.tagIds);
+  const firstGroup = tagGroups[0] ?? [];
+  const tagsAreShared = tagGroups.length <= 1 || tagGroups.every((group) => samePhotoTagSet(group, firstGroup));
+  return {
+    photos,
+    tagMode: tagsAreShared ? "all" : "perPhoto",
+    sharedTagIds: tagsAreShared ? normalizePhotoTagIds(firstGroup) : unionPhotoTagIds(tagGroups),
+  };
+}
+
 function PhotoAnswer({ question }: { question: VisitQuestion }) {
   const photos = question.answer?.photos ?? [];
   if (photos.length === 0) return <div className="gm-activity-empty-answer">Keine Fotos gespeichert.</div>;
@@ -367,6 +480,283 @@ function PhotoAnswer({ question }: { question: VisitQuestion }) {
           ) : null}
         </figure>
       ))}
+    </div>
+  );
+}
+
+function PhotoDirectEditForm({
+  sessionId,
+  question,
+  accent,
+  onClose,
+  onSaved,
+}: {
+  sessionId: string;
+  question: VisitQuestion;
+  accent: string;
+  onClose: () => void;
+  onSaved: (message: string) => Promise<void>;
+}) {
+  const initial = useMemo(() => initialActivityPhotoState(question), [question]);
+  const configuredTags = useMemo(() => configuredPhotoTags(question), [question]);
+  const [photos, setPhotos] = useState<ActivityPhotoEntry[]>(initial.photos);
+  const [tagMode, setTagMode] = useState<ActivityPhotoTagMode>(initial.tagMode);
+  const [sharedTagIds, setSharedTagIds] = useState<string[]>(initial.sharedTagIds);
+  const [activePhotoKey, setActivePhotoKey] = useState(initial.photos[0]?.key ?? "");
+  const [tagSearch, setTagSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const previewUrlsRef = useRef<string[]>([]);
+
+  useEffect(() => () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrlsRef.current = [];
+  }, []);
+
+  useEffect(() => {
+    if (photos.length === 0) {
+      setActivePhotoKey("");
+      return;
+    }
+    if (!photos.some((photo) => photo.key === activePhotoKey)) {
+      setActivePhotoKey(photos[0]?.key ?? "");
+    }
+  }, [activePhotoKey, photos]);
+
+  const activePhoto = photos.find((photo) => photo.key === activePhotoKey) ?? photos[0] ?? null;
+  const currentTagIds = tagMode === "all" ? sharedTagIds : normalizePhotoTagIds(activePhoto?.tagIds ?? []);
+  const normalizedTagSearch = normalizeTagSearchText(tagSearch);
+  const visibleTags = normalizedTagSearch
+    ? configuredTags.filter((tag) => currentTagIds.includes(tag.id) || normalizeTagSearchText(tag.label).includes(normalizedTagSearch))
+    : configuredTags;
+  const tagsEnabled = configuredTags.length > 0;
+
+  const addFiles = (files: File[]) => {
+    if (files.length === 0) return;
+    const nextPhotos = files.map((file): ActivityPhotoEntry => {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrlsRef.current.push(previewUrl);
+      const key = `local-${crypto.randomUUID()}`;
+      return {
+        key,
+        file,
+        previewUrl,
+        mimeType: file.type || null,
+        byteSize: file.size,
+        tagIds: tagMode === "all" ? normalizePhotoTagIds(sharedTagIds) : [],
+      };
+    });
+    setPhotos((current) => [...current, ...nextPhotos]);
+    setActivePhotoKey(nextPhotos[0]?.key ?? activePhotoKey);
+  };
+
+  const removePhoto = (key: string) => {
+    setPhotos((current) => current.filter((photo) => photo.key !== key));
+  };
+
+  const switchTagMode = (nextMode: ActivityPhotoTagMode) => {
+    if (nextMode === tagMode) return;
+    if (nextMode === "perPhoto") {
+      setPhotos((current) => current.map((photo) => ({ ...photo, tagIds: normalizePhotoTagIds(sharedTagIds) })));
+      setTagMode("perPhoto");
+      return;
+    }
+    const nextShared = unionPhotoTagIds(photos.map((photo) => photo.tagIds));
+    setSharedTagIds(nextShared);
+    setTagMode("all");
+  };
+
+  const toggleTag = (tagId: string) => {
+    if (tagMode === "all") {
+      setSharedTagIds((current) => current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId]);
+      return;
+    }
+    if (!activePhoto) return;
+    setPhotos((current) => current.map((photo) => {
+      if (photo.key !== activePhoto.key) return photo;
+      const nextTags = photo.tagIds.includes(tagId)
+        ? photo.tagIds.filter((id) => id !== tagId)
+        : [...photo.tagIds, tagId];
+      return { ...photo, tagIds: normalizePhotoTagIds(nextTags) };
+    }));
+  };
+
+  const save = async () => {
+    if (question.required && photos.length === 0) {
+      setError("Diese Foto-Frage braucht mindestens ein Foto.");
+      return;
+    }
+    if (question.required && tagsEnabled) {
+      const validTags = tagMode === "all"
+        ? sharedTagIds.length > 0
+        : photos.every((photo) => normalizePhotoTagIds(photo.tagIds).length > 0);
+      if (!validTags) {
+        setError(tagMode === "all" ? "Bitte waehle mindestens einen Tag aus." : "Bitte tagge jedes Foto.");
+        return;
+      }
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      const answerId = question.answer?.id
+        ?? (await saveGmVisitAnswer({ sessionId, visitQuestionId: question.id })).result.answerId;
+      const committedPhotos = [];
+      for (const photo of photos) {
+        const photoTagIds = tagMode === "all" ? normalizePhotoTagIds(sharedTagIds) : normalizePhotoTagIds(photo.tagIds);
+        if (photo.file) {
+          const ext = (photo.file.name.split(".").pop() ?? "jpg").toLowerCase();
+          const presign = await presignGmVisitPhoto({ sessionId, visitAnswerId: answerId, extension: ext });
+          const uploadResponse = await fetch(presign.upload.signedUrl, {
+            method: "PUT",
+            headers: { "content-type": photo.file.type || "application/octet-stream" },
+            body: photo.file,
+          });
+          if (!uploadResponse.ok) throw new Error("Foto-Upload fehlgeschlagen.");
+          committedPhotos.push({
+            storageBucket: presign.upload.bucket,
+            storagePath: presign.upload.path,
+            mimeType: photo.file.type || undefined,
+            byteSize: photo.file.size,
+            photoTagIds,
+          });
+          continue;
+        }
+        if (!photo.storageBucket || !photo.storagePath) continue;
+        committedPhotos.push({
+          storageBucket: photo.storageBucket,
+          storagePath: photo.storagePath,
+          mimeType: photo.mimeType ?? undefined,
+          byteSize: photo.byteSize ?? undefined,
+          widthPx: photo.widthPx ?? undefined,
+          heightPx: photo.heightPx ?? undefined,
+          sha256: photo.sha256 ?? undefined,
+          photoTagIds,
+        });
+      }
+      await commitGmVisitPhotos({ sessionId, visitAnswerId: answerId, photos: committedPhotos });
+      await onSaved("Fotos und Tags gespeichert.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fotos konnten nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="gm-activity-photo-editor">
+      <div className="gm-activity-photo-editor-head">
+        <div>
+          <span>Foto-Antwort</span>
+          <strong>Fotos und Tags direkt bearbeiten</strong>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Foto-Bearbeitung schliessen">
+          <X size={13} strokeWidth={2.2} />
+        </button>
+      </div>
+
+      <div className="gm-activity-photo-editor-upload">
+        <button type="button" onClick={() => cameraInputRef.current?.click()}>
+          <Camera size={14} strokeWidth={2.1} />
+          Kamera
+        </button>
+        <button type="button" onClick={() => galleryInputRef.current?.click()}>
+          <ImageOff size={14} strokeWidth={2.1} />
+          Galerie
+        </button>
+        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          addFiles(files);
+        }} />
+        <input ref={galleryInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          addFiles(files);
+        }} />
+      </div>
+
+      {photos.length > 0 ? (
+        <div className="gm-activity-photo-editor-grid">
+          {photos.map((photo, index) => {
+            const active = activePhoto?.key === photo.key;
+            const src = photo.previewUrl ?? photo.signedUrl ?? "";
+            const tagCount = tagMode === "all" ? sharedTagIds.length : photo.tagIds.length;
+            return (
+              <div
+                key={photo.key}
+                className={`gm-activity-photo-editor-card ${active ? "is-active" : ""}`}
+                style={{ "--photo-accent": accent } as CSSProperties}
+              >
+                <button
+                  type="button"
+                  className="gm-activity-photo-select"
+                  onClick={() => setActivePhotoKey(photo.key)}
+                >
+                  <span className="gm-activity-photo-thumb">
+                    {src ? <img src={src} alt={`Foto ${index + 1}`} /> : <ImageOff size={17} strokeWidth={2} />}
+                  </span>
+                  <span className="gm-activity-photo-thumb-meta">
+                    <strong>Foto {index + 1}</strong>
+                    <em>{tagCount} Tags</em>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="gm-activity-photo-remove"
+                  onClick={() => removePhoto(photo.key)}
+                  aria-label={`Foto ${index + 1} entfernen`}
+                >
+                  <X size={10} strokeWidth={2.5} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="gm-activity-photo-editor-empty">Noch keine Fotos in dieser Antwort.</div>
+      )}
+
+      {tagsEnabled ? (
+        <div className="gm-activity-photo-tag-panel">
+          {photos.length > 1 ? (
+            <div className="gm-activity-photo-tag-mode">
+              {(["all", "perPhoto"] as const).map((mode) => (
+                <button key={mode} type="button" className={tagMode === mode ? "active" : ""} onClick={() => switchTagMode(mode)}>
+                  {mode === "all" ? "Alle Fotos" : "Einzeln"}
+                </button>
+              ))}
+              <span>{tagMode === "all" ? "gleiche Tags" : "pro Foto"}</span>
+            </div>
+          ) : null}
+          <div className="gm-activity-photo-tag-search">
+            <Search size={12} strokeWidth={2} />
+            <input value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} placeholder="Tag suchen..." />
+          </div>
+          <div className="gm-activity-photo-tag-list">
+            {visibleTags.map((tag) => {
+              const selected = currentTagIds.includes(tag.id);
+              return (
+                <button key={tag.id} type="button" className={selected ? "selected" : ""} onClick={() => toggleTag(tag.id)}>
+                  {selected ? <Check size={10} strokeWidth={2.5} /> : null}
+                  {tag.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {error ? <div className="gm-activity-request-error">{error}</div> : null}
+      <div className="gm-activity-photo-editor-actions">
+        <button type="button" onClick={onClose} disabled={saving}>Abbrechen</button>
+        <button type="button" onClick={() => { void save(); }} disabled={saving}>
+          {saving ? <Loader2 size={14} strokeWidth={2.2} className="animate-spin" /> : <Check size={14} strokeWidth={2.2} />}
+          Direkt speichern
+        </button>
+      </div>
     </div>
   );
 }
@@ -792,7 +1182,15 @@ function ChangeRequestForm({
   );
 }
 
-function ReadOnlyVisitViewer({ payload, onClose }: { payload: GmVisitSessionReadPayload; onClose: () => void }) {
+function ReadOnlyVisitViewer({
+  payload,
+  onClose,
+  onPayloadUpdated,
+}: {
+  payload: GmVisitSessionReadPayload;
+  onClose: () => void;
+  onPayloadUpdated: (payload: GmVisitSessionReadPayload) => void;
+}) {
   const questions = useMemo(() => (
     payload.sections
       .slice()
@@ -801,11 +1199,13 @@ function ReadOnlyVisitViewer({ payload, onClose }: { payload: GmVisitSessionRead
   ), [payload.sections]);
   const [index, setIndex] = useState(0);
   const [changeRequestQuestionId, setChangeRequestQuestionId] = useState<string | null>(null);
+  const [photoEditQuestionId, setPhotoEditQuestionId] = useState<string | null>(null);
   const [requestSuccessByQuestionId, setRequestSuccessByQuestionId] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setIndex(0);
     setChangeRequestQuestionId(null);
+    setPhotoEditQuestionId(null);
     setRequestSuccessByQuestionId({});
   }, [payload.session.id]);
 
@@ -865,11 +1265,16 @@ function ReadOnlyVisitViewer({ payload, onClose }: { payload: GmVisitSessionRead
         </div>
 
         {current ? (
-          <section className="gm-activity-question-card">
+          <section className="gm-activity-question-card" style={{ "--gm-question-accent": accent } as CSSProperties}>
             <div className="gm-activity-question-meta">
               <span style={{ color: accent }}>{sectionLabel(current.section.section)}</span>
               <span>{current.question.required ? "Pflichtfrage" : "Optional"}</span>
               <span>{questionAnswerSummary(current.question)}</span>
+            </div>
+            <div className="gm-activity-question-type-line">
+              <i aria-hidden="true" />
+              <span>Antwortformat</span>
+              <strong>{questionTypeLabel(current.question.type)}</strong>
             </div>
             <h3>{current.question.text}</h3>
             <ReadOnlyAnswer question={current.question} accent={accent} />
@@ -877,7 +1282,31 @@ function ReadOnlyVisitViewer({ payload, onClose }: { payload: GmVisitSessionRead
               {currentSuccess ? (
                 <span className="gm-activity-request-success">{currentSuccess}</span>
               ) : null}
-              {changeRequestQuestionId === current.question.id ? (
+              {current.question.type === "photo" ? (
+                photoEditQuestionId === current.question.id ? (
+                  <PhotoDirectEditForm
+                    sessionId={payload.session.id}
+                    question={current.question}
+                    accent={accent}
+                    onClose={() => setPhotoEditQuestionId(null)}
+                    onSaved={async (message) => {
+                      const refreshed = await fetchGmVisitSession(payload.session.id);
+                      onPayloadUpdated(refreshed);
+                      setRequestSuccessByQuestionId((currentMap) => ({ ...currentMap, [current.question.id]: message }));
+                      setPhotoEditQuestionId(null);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="gm-activity-request-open is-photo-direct"
+                    onClick={() => setPhotoEditQuestionId(current.question.id)}
+                  >
+                    <Camera size={13} strokeWidth={2.2} />
+                    Fotos & Tags bearbeiten
+                  </button>
+                )
+              ) : changeRequestQuestionId === current.question.id ? (
                 <ChangeRequestForm
                   sessionId={payload.session.id}
                   question={current.question}
@@ -1398,6 +1827,31 @@ export default function GmActivityPage() {
           font-weight: 800;
           color: rgba(15,23,42,0.4);
         }
+        .gm-activity-question-type-line {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          margin: -3px 0 12px;
+          font-size: 9px;
+          font-weight: 780;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          color: rgba(15,23,42,0.36);
+        }
+        .gm-activity-question-type-line i {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: var(--gm-question-accent, #dc2626);
+          opacity: 0.72;
+          flex: 0 0 auto;
+        }
+        .gm-activity-question-type-line strong {
+          font-size: 10px;
+          font-weight: 820;
+          letter-spacing: 0.055em;
+          color: rgba(15,23,42,0.68);
+        }
         .gm-activity-question-card h3 {
           margin: 0 0 16px;
           font-size: 18px;
@@ -1476,6 +1930,270 @@ export default function GmActivityPage() {
           font-weight: 680;
           color: rgba(15,23,42,0.52);
           line-height: 1.35;
+        }
+        .gm-activity-photo-editor {
+          border-radius: 18px;
+          padding: 14px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.88));
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.065), 0 10px 28px rgba(15,23,42,0.055);
+        }
+        .gm-activity-photo-editor-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        .gm-activity-photo-editor-head span {
+          display: block;
+          margin-bottom: 4px;
+          font-size: 9px;
+          font-weight: 820;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: rgba(15,23,42,0.34);
+        }
+        .gm-activity-photo-editor-head strong {
+          display: block;
+          font-size: 14px;
+          line-height: 1.15;
+          font-weight: 800;
+          color: rgba(15,23,42,0.88);
+        }
+        .gm-activity-photo-editor-head > button,
+        .gm-activity-photo-remove {
+          border: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-family: inherit;
+          cursor: pointer;
+        }
+        .gm-activity-photo-editor-head > button {
+          width: 28px;
+          height: 28px;
+          border-radius: 10px;
+          color: rgba(15,23,42,0.44);
+          background: rgba(15,23,42,0.045);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.055);
+          flex-shrink: 0;
+        }
+        .gm-activity-photo-editor-upload {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .gm-activity-photo-editor-upload button,
+        .gm-activity-photo-editor-actions button,
+        .gm-activity-photo-tag-mode button,
+        .gm-activity-photo-tag-list button {
+          font-family: inherit;
+          cursor: pointer;
+          border: none;
+        }
+        .gm-activity-photo-editor-upload button {
+          height: 38px;
+          border-radius: 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          font-size: 11px;
+          font-weight: 800;
+          color: rgba(15,23,42,0.64);
+          background: rgba(255,255,255,0.82);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.075), 0 1px 5px rgba(15,23,42,0.04);
+        }
+        .gm-activity-photo-editor-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(94px, 1fr));
+          gap: 9px;
+          margin-bottom: 12px;
+        }
+        .gm-activity-photo-editor-card {
+          position: relative;
+          border-radius: 14px;
+          padding: 6px;
+          background: rgba(255,255,255,0.78);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.065), 0 1px 6px rgba(15,23,42,0.04);
+        }
+        .gm-activity-photo-editor-card.is-active {
+          background: color-mix(in srgb, var(--photo-accent) 7%, #fff);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--photo-accent) 34%, transparent), 0 5px 16px color-mix(in srgb, var(--photo-accent) 14%, transparent);
+        }
+        .gm-activity-photo-select {
+          width: 100%;
+          border: none;
+          padding: 0;
+          background: transparent;
+          font-family: inherit;
+          text-align: left;
+          cursor: pointer;
+        }
+        .gm-activity-photo-thumb {
+          height: 68px;
+          border-radius: 10px;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: rgba(15,23,42,0.28);
+          background: rgba(15,23,42,0.045);
+        }
+        .gm-activity-photo-thumb img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .gm-activity-photo-thumb-meta {
+          margin-top: 7px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+        }
+        .gm-activity-photo-thumb-meta strong {
+          font-size: 10px;
+          font-weight: 800;
+          color: rgba(15,23,42,0.74);
+        }
+        .gm-activity-photo-thumb-meta em {
+          font-style: normal;
+          font-size: 9px;
+          font-weight: 800;
+          color: rgba(15,23,42,0.36);
+        }
+        .gm-activity-photo-remove {
+          position: absolute;
+          top: 6px;
+          right: 6px;
+          width: 22px;
+          height: 22px;
+          border-radius: 8px;
+          color: rgba(15,23,42,0.52);
+          background: rgba(255,255,255,0.88);
+          box-shadow: 0 1px 6px rgba(15,23,42,0.10), inset 0 0 0 1px rgba(15,23,42,0.06);
+        }
+        .gm-activity-photo-editor-empty {
+          margin-bottom: 12px;
+          padding: 18px;
+          border-radius: 14px;
+          text-align: center;
+          font-size: 11px;
+          font-weight: 720;
+          color: rgba(15,23,42,0.42);
+          background: rgba(15,23,42,0.035);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.05);
+        }
+        .gm-activity-photo-tag-panel {
+          display: grid;
+          gap: 10px;
+        }
+        .gm-activity-photo-tag-mode {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .gm-activity-photo-tag-mode button {
+          height: 28px;
+          padding: 0 10px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 820;
+          color: rgba(15,23,42,0.46);
+          background: rgba(15,23,42,0.045);
+        }
+        .gm-activity-photo-tag-mode button.active {
+          color: rgba(15,23,42,0.86);
+          background: #fff;
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.08), 0 1px 5px rgba(15,23,42,0.055);
+        }
+        .gm-activity-photo-tag-mode span {
+          margin-left: auto;
+          font-size: 9px;
+          font-weight: 800;
+          color: rgba(15,23,42,0.34);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .gm-activity-photo-tag-search {
+          height: 36px;
+          border-radius: 12px;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          padding: 0 11px;
+          color: rgba(15,23,42,0.32);
+          background: rgba(255,255,255,0.82);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.075);
+        }
+        .gm-activity-photo-tag-search input {
+          flex: 1;
+          min-width: 0;
+          border: none;
+          outline: none;
+          background: transparent;
+          font: inherit;
+          font-size: 11px;
+          font-weight: 700;
+          color: rgba(15,23,42,0.72);
+        }
+        .gm-activity-photo-tag-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+        }
+        .gm-activity-photo-tag-list button {
+          min-height: 30px;
+          border-radius: 999px;
+          padding: 0 11px;
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 10px;
+          font-weight: 760;
+          color: rgba(15,23,42,0.58);
+          background: rgba(255,255,255,0.86);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.075), 0 1px 4px rgba(15,23,42,0.035);
+        }
+        .gm-activity-photo-tag-list button.selected {
+          color: #fff;
+          background: linear-gradient(180deg, #ef4444, #dc2626);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.24), inset 0 -1px 0 rgba(0,0,0,0.12), 0 0 0 1px rgba(185,28,28,0.78), 0 6px 14px rgba(220,38,38,0.16);
+        }
+        .gm-activity-photo-editor-actions {
+          margin-top: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+        .gm-activity-photo-editor-actions button {
+          height: 36px;
+          border-radius: 11px;
+          padding: 0 13px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          font-size: 11px;
+          font-weight: 820;
+        }
+        .gm-activity-photo-editor-actions button:first-child {
+          color: rgba(15,23,42,0.5);
+          background: rgba(15,23,42,0.045);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.055);
+        }
+        .gm-activity-photo-editor-actions button:last-child {
+          color: #fff;
+          background: linear-gradient(180deg, #16a34a 0%, #059669 52%, #047857 100%);
+          box-shadow: inset 0 1px 0.8px rgba(255,255,255,0.34), inset 0 -1px 0 rgba(0,0,0,0.10), 0 0 0 1px rgba(4,120,87,0.72), 0 8px 18px rgba(5,150,105,0.16);
+        }
+        .gm-activity-photo-editor-actions button:disabled {
+          opacity: 0.62;
+          cursor: wait;
         }
         .gm-activity-matrix {
           overflow-x: auto;
@@ -2110,7 +2828,12 @@ export default function GmActivityPage() {
           align-items: center;
           gap: 5px;
           overflow-x: auto;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
           padding: 3px 0;
+        }
+        .gm-activity-dot-row::-webkit-scrollbar {
+          display: none;
         }
         .gm-activity-dot-row button {
           width: 6px;
@@ -2252,7 +2975,13 @@ export default function GmActivityPage() {
         />
       </div>
 
-      {viewerPayload ? <ReadOnlyVisitViewer payload={viewerPayload} onClose={() => setViewerPayload(null)} /> : null}
+      {viewerPayload ? (
+        <ReadOnlyVisitViewer
+          payload={viewerPayload}
+          onClose={() => setViewerPayload(null)}
+          onPayloadUpdated={setViewerPayload}
+        />
+      ) : null}
     </main>
   );
 }

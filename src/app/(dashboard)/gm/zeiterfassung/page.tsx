@@ -493,20 +493,25 @@ function GmZeitDayRow({ day, defaultExpanded = false }: { day: GmZeitDay; defaul
 
 export default function GmZeiterfassungPage() {
   const router = useRouter();
-  const [range, setRange] = useState<"week" | "month" | "all">("week");
+  const [range, setRange] = useState<"week" | "month" | "all">("month");
   const [payload, setPayload] = useState<GmZeiterfassungPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const selectedRange = useMemo(() => getDateRange(range), [range]);
   const days = useMemo(() => (payload?.sessions ?? []).map(mapSessionToDay), [payload?.sessions]);
+  const currentWeekNumber = getIsoWeek(new Date());
+  const weeklySessions = useMemo(
+    () => (payload?.sessions ?? []).filter((session) => getIsoWeek(new Date(`${session.date}T12:00:00`)) === currentWeekNumber),
+    [currentWeekNumber, payload?.sessions],
+  );
   const stats = useMemo(() => ({
     drivenKm: payload?.aggregate?.totalKmDriven ?? 0,
     privateKm: payload?.aggregate?.privatnutzungKm ?? 0,
     averageWorkdayMin: payload?.aggregate?.averageWorkdayMin ?? 0,
     weekWorkedMin: payload?.aggregate?.currentKwReineArbeitszeitMin ?? 0,
     weekTargetMin: WEEKLY_REINE_ARBEITSZEIT_TARGET_MIN,
-    recordedDays: payload?.aggregate?.trackedDays ?? 0,
-  }), [payload?.aggregate]);
+    recordedDays: weeklySessions.filter((session) => session.status === "submitted" && session.hasCompleteKm).length,
+  }), [payload?.aggregate, weeklySessions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -697,7 +702,7 @@ export default function GmZeiterfassungPage() {
           <>
             <GmZeitStatsPanel stats={stats} />
 
-            <WeeklyProgress sessions={payload?.sessions ?? []} />
+            <WeeklyProgress sessions={weeklySessions} />
 
             <section className="gm-zeit-main-card">
               <div style={{ padding: "15px 16px 13px", borderBottom: "1px solid rgba(15,23,42,0.055)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>

@@ -225,7 +225,7 @@ function buildDayRows(payload: AdminDiaetenExportPayload, gm: DiaetenGm): DailyE
       endAt,
       kind,
       reason: entry.reasonLabel || fallbackReasonLabel(reason),
-      location: kind === "eligible" ? entry.marketName || entry.schulungOrt || "" : "",
+      location: kind === "eligible" ? entry.location || entry.marketName || entry.schulungOrt || "" : "",
     });
   }
 

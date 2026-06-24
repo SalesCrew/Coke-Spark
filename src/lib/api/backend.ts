@@ -2487,6 +2487,7 @@ export type AdminDiaetenExportPayload = {
       endAt: string;
       isWorkTimeDeduction: boolean;
       marketName: string | null;
+      location: string | null;
       schulungOrt: string | null;
     }>;
     pauses: Array<{

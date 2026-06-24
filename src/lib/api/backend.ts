@@ -1888,6 +1888,7 @@ export type GmKuehlerMhdProgressMarket = {
   campaignName: string;
   chain: string;
   address: string;
+  stammnr: string | null;
   done: boolean;
   doneAt: string | null;
 };

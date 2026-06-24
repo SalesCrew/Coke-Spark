@@ -31,6 +31,7 @@ interface KuehlerMarket {
   campaignName?: string;
   chain: string;
   address: string;
+  stammnr?: string | null;
   done: boolean;
   doneDate?: string;
 }
@@ -84,6 +85,19 @@ function chainColor(chain: string): { bg: string; text: string } {
   if (key.includes("PENNY")) return { bg: "rgba(194,65,12,0.08)", text: "#c2410c" };
   if (key.includes("HOFER")) return { bg: "rgba(59,130,246,0.08)", text: "#2563eb" };
   return { bg: "rgba(0,0,0,0.04)", text: "#6b7280" };
+}
+
+function StammnrValue({ value }: { value?: string | null }) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  return (
+    <span
+      className="text-[8px] tabular-nums shrink-0 ml-2"
+      style={{ color: "rgba(15,23,42,0.34)", fontWeight: 650, letterSpacing: "0.01em" }}
+    >
+      {trimmed}
+    </span>
+  );
 }
 
 type Tab = "kuehler" | "mhd";
@@ -254,6 +268,7 @@ export function KuehlerInventurCard({
     campaignName: entry.campaignName,
     chain: entry.chain,
     address: entry.address,
+    stammnr: entry.stammnr,
     done: entry.done,
     doneDate: entry.doneAt ? new Date(entry.doneAt).toLocaleDateString("de-AT") : undefined,
   }));
@@ -263,6 +278,7 @@ export function KuehlerInventurCard({
     campaignName: entry.campaignName,
     chain: entry.chain,
     address: entry.address,
+    stammnr: entry.stammnr,
     done: entry.done,
     doneDate: entry.doneAt ? new Date(entry.doneAt).toLocaleDateString("de-AT") : undefined,
   }));
@@ -728,6 +744,7 @@ export function KuehlerInventurCard({
                         </span>
                         <span className="text-[9px] font-medium text-gray-500 truncate">{m.address}</span>
                       </div>
+                      <StammnrValue value={m.stammnr} />
                     </div>
                   );
                 })}
@@ -772,7 +789,10 @@ export function KuehlerInventurCard({
                         </span>
                         <span className="text-[9px] font-medium text-gray-500 truncate">{m.address}</span>
                       </div>
-                      <span className="text-[8px] tabular-nums text-gray-400 shrink-0 ml-2">{m.doneDate}</span>
+                      <div className="flex items-center shrink-0">
+                        <StammnrValue value={m.stammnr} />
+                        <span className="text-[8px] tabular-nums shrink-0 ml-2" style={{ color: "rgba(5,150,105,0.72)", fontWeight: 650 }}>{m.doneDate}</span>
+                      </div>
                     </div>
                   );
                 })}

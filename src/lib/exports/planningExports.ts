@@ -1,5 +1,6 @@
 import type { Campaign } from "@/types/campaign";
 import type { Fragebogen, Module, Question } from "@/types/fragebogen";
+import type { CampaignMarketVisitSummary } from "@/lib/api/backend";
 import {
   appendMetaSheet,
   appendTableSheet,
@@ -56,6 +57,14 @@ type CampaignExportStatus = {
   submittedAt: string | null;
   durationMinutes: number | null;
   gmName: string | null;
+};
+
+type CampaignVisitDetailExportError = {
+  campaignId: string;
+  campaignName: string;
+  marketId: string;
+  marketName: string;
+  reason: string;
 };
 
 type GmDashboardExportScope = IppFilterScope & FuellstandFilterScope & PlatzierungenFilterScope;
@@ -121,10 +130,99 @@ function moduleMap(modules: Module[]): Map<string, Module> {
   return new Map(modules.map((module) => [module.id, module]));
 }
 
+type VisitDetailSection = CampaignMarketVisitSummary["sections"][number];
+type VisitDetailQuestion = VisitDetailSection["questions"][number];
+type VisitAnswerRow = {
+  visit: CampaignMarketVisitSummary;
+  section: VisitDetailSection;
+  question: VisitDetailQuestion;
+  questionIndex: number;
+  campaign: Campaign | null;
+  market: CampaignExportMarket | null;
+};
+
+function stringifyUnknown(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function visitAnswerOptionsSummary(question: VisitDetailQuestion): string {
+  const options = question.answer?.options ?? [];
+  if (options.length === 0) return "";
+  const top = options
+    .filter((option) => option.optionRole === "top")
+    .sort((a, b) => a.orderIndex - b.orderIndex)
+    .map((option) => option.optionValue);
+  const sub = options
+    .filter((option) => option.optionRole === "sub")
+    .sort((a, b) => a.orderIndex - b.orderIndex)
+    .map((option) => option.optionValue);
+  if (top.length > 0 && sub.length > 0) return `${top.join(", ")} | ${sub.join(", ")}`;
+  return [...top, ...sub].join(", ");
+}
+
+function visitAnswerMatrixSummary(question: VisitDetailQuestion): string {
+  const cells = question.answer?.matrixCells ?? [];
+  if (cells.length === 0) return "";
+  return cells
+    .slice()
+    .sort((a, b) => a.orderIndex - b.orderIndex)
+    .map((cell) => {
+      const key = [cell.rowKey, cell.columnKey].filter(Boolean).join(" / ");
+      if (cell.cellSelected != null) return `${key}: ${yesNo(cell.cellSelected)}`;
+      if (cell.cellValueDate) return `${key}: ${cell.cellValueDate}`;
+      return `${key}: ${cell.cellValueText ?? ""}`;
+    })
+    .join("; ");
+}
+
+function visitAnswerPhotoTagSummary(question: VisitDetailQuestion): string {
+  return (question.answer?.photos ?? [])
+    .map((photo, index) => {
+      const labels = (photo.tags ?? [])
+        .map((tag) => tag.photoTagLabelSnapshot)
+        .filter((label) => label.trim().length > 0);
+      return labels.length > 0 ? `Foto ${index + 1}: ${labels.join(", ")}` : "";
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
+function visitAnswerPhotoPathSummary(question: VisitDetailQuestion): string {
+  return (question.answer?.photos ?? [])
+    .map((photo) => photo.storagePath)
+    .filter((path) => path.trim().length > 0)
+    .join("; ");
+}
+
+function visitAnswerSummary(question: VisitDetailQuestion): string {
+  const answer = question.answer;
+  if (!answer) return "";
+  if (question.type === "photo") {
+    const count = answer.photos.length;
+    return count > 0 ? `${count} Foto${count === 1 ? "" : "s"}` : "";
+  }
+  if (question.type === "matrix") return visitAnswerMatrixSummary(question);
+  const options = visitAnswerOptionsSummary(question);
+  if (options) return options;
+  if (answer.valueNumber != null && answer.valueNumber !== "") return answer.valueNumber;
+  if (answer.valueText != null && answer.valueText !== "") return answer.valueText;
+  if (answer.valueJson != null) return stringifyUnknown(answer.valueJson);
+  return "";
+}
+
 export async function exportFbManagementExcel(input: {
   campaigns: Campaign[];
   markets: CampaignExportMarket[];
   visitStatusByCampaignId: Record<string, Record<string, CampaignExportStatus>>;
+  visitDetails?: CampaignMarketVisitSummary[];
+  visitDetailErrors?: CampaignVisitDetailExportError[];
   fragebogenByScope?: Record<string, Fragebogen[]>;
   modulesByScope?: Record<string, Module[]>;
   exportedBy?: string;
@@ -150,6 +248,21 @@ export async function exportFbManagementExcel(input: {
   const historyRows = campaigns.flatMap((campaign) => campaign.history.map((history) => ({ campaign, history })));
   const scopeFragebogenRows = Object.entries(input.fragebogenByScope ?? {}).flatMap(([scope, rows]) => rows.map((fragebogen) => ({ scope, fragebogen })));
   const scopeModuleRows = Object.entries(input.modulesByScope ?? {}).flatMap(([scope, rows]) => rows.map((module) => ({ scope, module })));
+  const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+  const answerRows: VisitAnswerRow[] = (input.visitDetails ?? []).flatMap((visit) =>
+    visit.sections.flatMap((section) => {
+      const campaign = campaignById.get(section.campaignId) ?? null;
+      const market = marketById.get(visit.marketId) ?? null;
+      return section.questions.map((question, questionIndex) => ({
+        visit,
+        section,
+        question,
+        questionIndex,
+        campaign,
+        market,
+      }));
+    }),
+  );
   const filename = `CokeSpark_FB_Management_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
 
   await buildAndDownloadWorkbook({
@@ -161,6 +274,8 @@ export async function exportFbManagementExcel(input: {
           note: "Kampagnen, Zielmärkte, Besuchsstatus und Katalog-Bezug.",
         }),
         { label: "Assignments", value: assignmentRows.length },
+        { label: "Antwortzeilen", value: answerRows.length },
+        { label: "Antwortdetails Fehler", value: input.visitDetailErrors?.length ?? 0 },
         { label: "Fragebogen im Katalog", value: scopeFragebogenRows.length },
         { label: "Module im Katalog", value: scopeModuleRows.length },
       ]);
@@ -266,6 +381,62 @@ export async function exportFbManagementExcel(input: {
           { header: "Geaendert am", width: 24, value: (row) => row.history.changedAt },
         ],
       });
+
+      appendTableSheet(XLSX, wb, {
+        name: "Antworten",
+        title: "Fragebogen-Antworten",
+        description: "Eine Zeile je Frage aus geladenen, eingereichten Marktbesuchen. Sichtbar=false bedeutet: Frage war beim Submit durch Chain/Regel ausgeblendet.",
+        rows: answerRows,
+        columns: [
+          { header: "Campaign ID", width: 38, value: (row) => row.section.campaignId },
+          { header: "Kampagne", width: 34, value: (row) => row.campaign?.name ?? "" },
+          { header: "Sektion", width: 12, value: (row) => sectionLabel(row.section.section) },
+          { header: "Market ID", width: 38, value: (row) => row.visit.marketId },
+          { header: "Markt", width: 30, value: (row) => row.market?.name ?? "" },
+          { header: "Adresse", width: 28, value: (row) => row.market?.address ?? "" },
+          { header: "Stammnr", width: 16, value: (row) => row.market?.stammnr ?? "" },
+          { header: "Ort", width: 22, value: (row) => row.market?.city ?? "" },
+          { header: "Region", width: 12, value: (row) => row.market?.region ?? "" },
+          { header: "GM", width: 24, value: (row) => row.visit.gmName ?? "" },
+          { header: "Session ID", width: 38, value: (row) => row.visit.sessionId ?? "" },
+          { header: "Started", width: 24, value: (row) => row.visit.startedAt ?? "" },
+          { header: "Submitted At", width: 24, value: (row) => row.visit.submittedAt ?? "" },
+          { header: "Dauer Min", width: 11, value: (row) => row.visit.durationMinutes ?? "", align: "right" },
+          { header: "Fragebogen", width: 34, value: (row) => row.section.fragebogenName },
+          { header: "Modul", width: 30, value: (row) => row.question.moduleName },
+          { header: "Reihenfolge", width: 10, value: (row) => row.questionIndex + 1, align: "right" },
+          { header: "Frage ID", width: 38, value: (row) => row.question.questionId },
+          { header: "Typ", width: 16, value: (row) => questionTypeLabel(row.question.type) },
+          { header: "Pflicht", width: 9, value: (row) => yesNo(row.question.required), align: "center" },
+          { header: "Sichtbar", width: 9, value: (row) => yesNo(row.question.visibility.isVisibleAtSubmit), align: "center" },
+          { header: "Status", width: 14, value: (row) => row.question.answer?.answerStatus ?? "unanswered" },
+          { header: "Gültig", width: 9, value: (row) => yesNo(row.question.answer?.isValid), align: "center" },
+          { header: "Antwort", width: 58, value: (row) => visitAnswerSummary(row.question) },
+          { header: "Optionen", width: 44, value: (row) => visitAnswerOptionsSummary(row.question) },
+          { header: "Matrix", width: 54, value: (row) => visitAnswerMatrixSummary(row.question) },
+          { header: "Kommentar", width: 42, value: (row) => row.question.comment ?? "" },
+          { header: "Fotos", width: 8, value: (row) => row.question.answer?.photos.length ?? 0, align: "right" },
+          { header: "Foto Tags", width: 48, value: (row) => visitAnswerPhotoTagSummary(row.question) },
+          { header: "Foto Pfade", width: 64, value: (row) => visitAnswerPhotoPathSummary(row.question) },
+          { header: "Validation Error", width: 42, value: (row) => row.question.answer?.validationError ?? "" },
+        ],
+      });
+
+      if ((input.visitDetailErrors ?? []).length > 0) {
+        appendTableSheet(XLSX, wb, {
+          name: "Export Hinweise",
+          title: "Nicht geladene Antwortdetails",
+          description: "Diese Marktbesuche konnten beim Export nicht vollständig geladen werden.",
+          rows: input.visitDetailErrors ?? [],
+          columns: [
+            { header: "Campaign ID", width: 38, value: (row) => row.campaignId },
+            { header: "Kampagne", width: 34, value: (row) => row.campaignName },
+            { header: "Market ID", width: 38, value: (row) => row.marketId },
+            { header: "Markt", width: 30, value: (row) => row.marketName },
+            { header: "Grund", width: 58, value: (row) => row.reason },
+          ],
+        });
+      }
 
       const summaryRows = [
         ...countBy(campaigns, (c) => sectionLabel(c.section)).map((row) => ({ gruppe: "Sektion", merkmal: row.key, anzahl: row.count })),

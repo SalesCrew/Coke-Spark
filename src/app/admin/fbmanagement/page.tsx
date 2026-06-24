@@ -55,6 +55,7 @@ const ADD_PANEL_LOAD_STEP = 80;
 const VISIT_STATUS_BATCH_SIZE = 50;
 const VISIT_STATUS_MAX_CONCURRENT_BATCHES = 2;
 const VISIT_DETAIL_PREFETCH_MAX_CONCURRENT = 1;
+const VISIT_DETAIL_EXPORT_MAX_CONCURRENT = 3;
 const HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT = "Ich bin mir sicher, dass ich alle Daten zu dieser Kampagne Löschen will!";
 
 type CampaignContextMenuState = {
@@ -103,6 +104,30 @@ interface MarketListFilters {
   city: string | null;
   region: string | null;
 }
+
+type FbManagementExportFilters = {
+  campaignIds: string[];
+  sections: CampaignSection[];
+  gmNames: string[];
+  regions: string[];
+  onlySubmitted: boolean;
+};
+
+type FbManagementExportProgress = {
+  percent: number;
+  headline: string;
+  detail: string;
+};
+
+type FbManagementExportCampaignStatusFilter = "all" | "active" | "inactive";
+
+const DEFAULT_FB_MANAGEMENT_EXPORT_FILTERS: FbManagementExportFilters = {
+  campaignIds: [],
+  sections: [],
+  gmNames: [],
+  regions: [],
+  onlySubmitted: true,
+};
 
 const MARKET_CATALOG: MarketCatalogItem[] = [
   { id: "m1",  name: "Billa Wien 10",          chain: "Billa",  city: "Wien",        region: "Ost",  address: "Favoritenstr. 10, 1100 Wien",            gm: "Thomas Huber",   finished: true  },
@@ -160,6 +185,49 @@ function chunkArray<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(index, index + size));
   }
   return chunks;
+}
+
+function toggleListValue<T extends string>(items: T[], value: T): T[] {
+  return items.includes(value)
+    ? items.filter((item) => item !== value)
+    : [...items, value];
+}
+
+function normalizeExportFilterValue(value: string | null | undefined): string {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
+}
+
+function displayExportGmName(value: string): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (!normalized) return "";
+  const withoutEmail = normalized.replace(/\S+@\S+\.\S+/g, " ").replace(/\s+/g, " ").trim();
+  const source = withoutEmail || normalized;
+  const nameParts = source
+    .split(/[\s,;|/]+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !part.includes("@") && /[A-Za-zÀ-ž]/.test(part));
+  if (nameParts.length >= 2) return `${nameParts[0]} ${nameParts[1]}`;
+  return nameParts[0] ?? source;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await worker(items[currentIndex], currentIndex);
+      }
+    }),
+  );
+  return results;
 }
 
 function getVisitDetailKey(campaignId: string, marketId: string, sessionId: string | null | undefined): string {
@@ -263,6 +331,15 @@ function sectionToScope(section: CampaignSection): FragebogenScopeKey {
   if (section === "kuehler") return "kuehler";
   if (section === "mhd") return "mhd";
   return "main";
+}
+
+function sectionLabel(section: CampaignSection): string {
+  if (section === "standard") return "Standard";
+  if (section === "flex") return "Flex";
+  if (section === "billa") return "Billa";
+  if (section === "kuehler") return "Kühler";
+  if (section === "mhd") return "MHD";
+  return section;
 }
 
 function getStringArray(value: unknown): string[] | undefined {
@@ -6077,6 +6154,12 @@ export default function FbManagementPage() {
   const [visitDetailErrorByKey, setVisitDetailErrorByKey] = useState<Record<string, string | null>>({});
   const [isExportingFbManagement, setIsExportingFbManagement] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportFilters, setExportFilters] = useState<FbManagementExportFilters>(DEFAULT_FB_MANAGEMENT_EXPORT_FILTERS);
+  const [exportCampaignSearch, setExportCampaignSearch] = useState("");
+  const [exportCampaignStatusFilter, setExportCampaignStatusFilter] = useState<FbManagementExportCampaignStatusFilter>("all");
+  const [exportGmSearch, setExportGmSearch] = useState("");
+  const [exportProgress, setExportProgress] = useState<FbManagementExportProgress | null>(null);
   const [switchingCampaignId, setSwitchingCampaignId] = useState<string | null>(null);
   const [campaignPendingOps, setCampaignPendingOps] = useState<Record<string, number>>({});
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -6890,6 +6973,91 @@ export default function FbManagementPage() {
   const mfGms = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.gm))).sort(), [assignedMarkets]);
   const mfCities = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.city))).sort(), [assignedMarkets]);
   const mfRegions = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.region))).sort(), [assignedMarkets]);
+  const exportSectionOptions = useMemo(
+    () => (Object.keys(SECTION_COLORS) as CampaignSection[]).filter((section) => campaignsData.some((entry) => entry.section === section)),
+    [campaignsData],
+  );
+  const exportCampaignOptions = useMemo(
+    () =>
+      campaignsData
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "de"))
+        .filter((entry) => {
+          if (exportCampaignStatusFilter === "active") return entry.status !== "inactive";
+          if (exportCampaignStatusFilter === "inactive") return entry.status === "inactive";
+          return true;
+        })
+        .filter((entry) => {
+          const q = exportCampaignSearch.trim().toLocaleLowerCase("de");
+          if (!q) return true;
+          return (
+            entry.name.toLocaleLowerCase("de").includes(q) ||
+            sectionLabel(entry.section).toLocaleLowerCase("de").includes(q)
+          );
+        }),
+    [campaignsData, exportCampaignSearch, exportCampaignStatusFilter],
+  );
+  const exportGmOptions = useMemo(() => {
+    const namesByDisplay = new Map<string, string>();
+    const addName = (value: string | null | undefined) => {
+      const displayName = displayExportGmName(value ?? "");
+      if (!displayName) return;
+      const key = normalizeExportFilterValue(displayName);
+      if (!namesByDisplay.has(key)) namesByDisplay.set(key, displayName);
+    };
+    for (const entry of campaignsData) {
+      for (const assignment of entry.assignments) {
+        addName(assignment.gmName);
+      }
+      for (const status of Object.values(visitStatusByCampaignId[entry.id] ?? {})) {
+        addName(status.gmName);
+      }
+    }
+    for (const market of marketsData) {
+      addName(market.gm);
+    }
+    const q = exportGmSearch.trim().toLocaleLowerCase("de");
+    return Array.from(namesByDisplay.values())
+      .sort((a, b) => a.localeCompare(b, "de"))
+      .filter((name) => !q || name.toLocaleLowerCase("de").includes(q));
+  }, [campaignsData, exportGmSearch, marketsData, visitStatusByCampaignId]);
+  const exportRegionOptions = useMemo(
+    () => Array.from(new Set(marketsData.map((market) => market.region).filter(Boolean))).sort((a, b) => a.localeCompare(b, "de")),
+    [marketsData],
+  );
+  const exportPreview = useMemo(() => {
+    const campaignIdSet = exportFilters.campaignIds.length ? new Set(exportFilters.campaignIds) : null;
+    const sectionSet = exportFilters.sections.length ? new Set(exportFilters.sections) : null;
+    const gmSet = new Set(exportFilters.gmNames.map(normalizeExportFilterValue));
+    const regionSet = new Set(exportFilters.regions.map(normalizeExportFilterValue));
+    let campaignCount = 0;
+    let assignmentCount = 0;
+    let submittedCount = 0;
+    for (const entry of campaignsData) {
+      if (campaignIdSet && !campaignIdSet.has(entry.id)) continue;
+      if (sectionSet && !sectionSet.has(entry.section)) continue;
+      if (exportCampaignStatusFilter === "active" && entry.status === "inactive") continue;
+      if (exportCampaignStatusFilter === "inactive" && entry.status !== "inactive") continue;
+      campaignCount += 1;
+      const statuses = visitStatusByCampaignId[entry.id] ?? {};
+      for (const assignment of entry.assignments) {
+        const market = marketById.get(assignment.marketId);
+        const status = statuses[assignment.marketId] ?? null;
+        const gmCandidates = [
+          normalizeExportFilterValue(assignment.gmName),
+          normalizeExportFilterValue(status?.gmName),
+          normalizeExportFilterValue(market?.gm),
+        ];
+        const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
+        const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
+        const submittedOk = !exportFilters.onlySubmitted || Boolean(status?.hasSubmittedVisit);
+        if (!gmOk || !regionOk || !submittedOk) continue;
+        assignmentCount += 1;
+        if (status?.hasSubmittedVisit) submittedCount += status.submittedVisitCount || 1;
+      }
+    }
+    return { campaignCount, assignmentCount, submittedCount };
+  }, [campaignsData, exportCampaignStatusFilter, exportFilters, marketById, visitStatusByCampaignId]);
   const selectedRegionGms = useMemo(() => {
     if (!selectedRegion || !campaign) return [];
     const marketsInRegion = assignedMarkets.filter((market) => market.region === selectedRegion);
@@ -7157,31 +7325,232 @@ export default function FbManagementPage() {
     }
   }, [campaign, campaignId, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
-  const handleExportFbManagement = useCallback(async () => {
+  const handleExportFbManagement = useCallback(async (filters: FbManagementExportFilters) => {
     if (isExportingFbManagement) return;
     setIsExportingFbManagement(true);
     setExportError(null);
+    setExportProgress({
+      percent: 4,
+      headline: "Export wird vorbereitet",
+      detail: "Filter und Kampagnen werden geprüft.",
+    });
     try {
+      const campaignIdSet = filters.campaignIds.length ? new Set(filters.campaignIds) : null;
+      const sectionSet = filters.sections.length ? new Set(filters.sections) : null;
+      const gmSet = new Set(filters.gmNames.map(normalizeExportFilterValue));
+      const regionSet = new Set(filters.regions.map(normalizeExportFilterValue));
+      const baseCampaigns = campaignsData.filter((entry) => {
+        if (campaignIdSet && !campaignIdSet.has(entry.id)) return false;
+        if (sectionSet && !sectionSet.has(entry.section)) return false;
+        if (exportCampaignStatusFilter === "active" && entry.status === "inactive") return false;
+        if (exportCampaignStatusFilter === "inactive" && entry.status !== "inactive") return false;
+        return true;
+      });
+      if (baseCampaigns.length === 0) {
+        throw new Error("Für diese Exportfilter wurden keine Kampagnen gefunden.");
+      }
+
+      const exportVisitStatusByCampaignId: Record<string, CampaignVisitStatusByMarket> = { ...visitStatusByCampaignId };
+      const campaignIdsForExport = baseCampaigns.map((entry) => entry.id);
+      if (campaignIdsForExport.length > 0) {
+        setExportProgress({
+          percent: 16,
+          headline: "Besuchsstatus wird geladen",
+          detail: `${campaignIdsForExport.length} Kampagne${campaignIdsForExport.length === 1 ? "" : "n"} werden abgeglichen.`,
+        });
+        const statusBatchGroups = await mapWithConcurrency(
+          chunkArray(campaignIdsForExport, VISIT_STATUS_BATCH_SIZE),
+          VISIT_STATUS_MAX_CONCURRENT_BATCHES,
+          async (chunk) => fetchCampaignMarketVisitStatuses(chunk),
+        );
+        for (const batchGroup of statusBatchGroups) {
+          for (const batch of batchGroup) {
+            exportVisitStatusByCampaignId[batch.campaignId] = Object.fromEntries(
+              batch.markets.map((status) => [status.marketId, status]),
+            );
+          }
+        }
+        setVisitStatusByCampaignId((current) => ({ ...current, ...exportVisitStatusByCampaignId }));
+      }
+
+      setExportProgress({
+        percent: 28,
+        headline: "Filter werden angewendet",
+        detail: "Märkte, GMs und eingereichte Besuche werden eingegrenzt.",
+      });
+      const marketLevelFiltersActive = gmSet.size > 0 || regionSet.size > 0 || filters.onlySubmitted;
+      const filteredCampaigns = baseCampaigns
+        .map((exportCampaign) => {
+          const statuses = exportVisitStatusByCampaignId[exportCampaign.id] ?? {};
+          const assignments = exportCampaign.assignments.filter((assignment) => {
+            const status = statuses[assignment.marketId] ?? null;
+            const market = marketById.get(assignment.marketId);
+            const gmCandidates = [
+              normalizeExportFilterValue(assignment.gmName),
+              normalizeExportFilterValue(status?.gmName),
+              normalizeExportFilterValue(market?.gm),
+            ];
+            const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
+            const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
+            const submittedOk = !filters.onlySubmitted || Boolean(status?.hasSubmittedVisit);
+            return gmOk && regionOk && submittedOk;
+          });
+          const marketIds = Array.from(new Set(assignments.map((assignment) => assignment.marketId)));
+          return { ...exportCampaign, assignments, marketIds };
+        })
+        .filter((entry) => entry.assignments.length > 0 || !marketLevelFiltersActive);
+
+      const filteredVisitStatusByCampaignId: Record<string, CampaignVisitStatusByMarket> = {};
+      for (const exportCampaign of filteredCampaigns) {
+        const marketIdSet = new Set(exportCampaign.marketIds);
+        filteredVisitStatusByCampaignId[exportCampaign.id] = Object.fromEntries(
+          Object.entries(exportVisitStatusByCampaignId[exportCampaign.id] ?? {}).filter(([marketId, status]) =>
+            marketIdSet.has(marketId) && (!filters.onlySubmitted || Boolean(status.hasSubmittedVisit)),
+          ),
+        );
+      }
+
+      const assignmentTotal = filteredCampaigns.reduce((sum, entry) => sum + entry.assignments.length, 0);
+      if (filteredCampaigns.length === 0 || assignmentTotal === 0) {
+        throw new Error("Für diese Exportfilter wurden keine passenden Zielmärkte gefunden.");
+      }
+
+      const detailTargetsByKey = new Map<string, {
+        campaignId: string;
+        campaignName: string;
+        marketId: string;
+        marketName: string;
+        sessionId: string;
+        key: string;
+      }>();
+      for (const exportCampaign of filteredCampaigns) {
+        const statuses = filteredVisitStatusByCampaignId[exportCampaign.id] ?? {};
+        for (const status of Object.values(statuses)) {
+          if (!status.sessionId || !status.hasSubmittedVisit) continue;
+          const market = marketById.get(status.marketId);
+          const key = getVisitDetailKey(exportCampaign.id, status.marketId, status.sessionId);
+          detailTargetsByKey.set(key, {
+            campaignId: exportCampaign.id,
+            campaignName: exportCampaign.name,
+            marketId: status.marketId,
+            marketName: market?.name ?? status.marketId,
+            sessionId: status.sessionId,
+            key,
+          });
+        }
+      }
+
+      const detailTargets = Array.from(detailTargetsByKey.values());
+      const loadedDetails: CampaignMarketVisitSummary[] = [];
+      const loadedDetailByKey: CampaignVisitDetailByKey = {};
+      const detailErrors: Array<{
+        campaignId: string;
+        campaignName: string;
+        marketId: string;
+        marketName: string;
+        reason: string;
+      }> = [];
+      if (detailTargets.length > 0) {
+        setExportProgress({
+          percent: 34,
+          headline: "Antworten werden geladen",
+          detail: `0 von ${detailTargets.length} Besuch${detailTargets.length === 1 ? "" : "en"} geladen.`,
+        });
+      } else {
+        setExportProgress({
+          percent: 74,
+          headline: "Keine Antwortdetails im Filter",
+          detail: "Der Export enthält Kampagnen- und Zielmarkt-Daten ohne Antwortzeilen.",
+        });
+      }
+      let loadedDetailCount = 0;
+      await mapWithConcurrency(
+        detailTargets,
+        VISIT_DETAIL_EXPORT_MAX_CONCURRENT,
+        async (target) => {
+          const cached = visitDetailByKey[target.key];
+          if (cached) {
+            loadedDetails.push(cached);
+            loadedDetailCount += 1;
+            setExportProgress({
+              percent: Math.min(86, 34 + Math.round((loadedDetailCount / Math.max(1, detailTargets.length)) * 50)),
+              headline: "Antworten werden geladen",
+              detail: `${loadedDetailCount} von ${detailTargets.length} Besuch${detailTargets.length === 1 ? "" : "en"} geladen.`,
+            });
+            return;
+          }
+          try {
+            const detail = await fetchCampaignMarketVisitDetail({
+              campaignId: target.campaignId,
+              marketId: target.marketId,
+              sessionId: target.sessionId,
+            }, { timeoutMs: 45000 });
+            loadedDetails.push(detail);
+            loadedDetailByKey[target.key] = detail;
+          } catch (error) {
+            detailErrors.push({
+              campaignId: target.campaignId,
+              campaignName: target.campaignName,
+              marketId: target.marketId,
+              marketName: target.marketName,
+              reason: error instanceof Error ? error.message : "Antwortdetails konnten nicht geladen werden.",
+            });
+          } finally {
+            loadedDetailCount += 1;
+            setExportProgress({
+              percent: Math.min(86, 34 + Math.round((loadedDetailCount / Math.max(1, detailTargets.length)) * 50)),
+              headline: "Antworten werden geladen",
+              detail: `${loadedDetailCount} von ${detailTargets.length} Besuch${detailTargets.length === 1 ? "" : "en"} geladen.`,
+            });
+          }
+        },
+      );
+
+      if (Object.keys(loadedDetailByKey).length > 0) {
+        setVisitDetailByKey((current) => ({ ...current, ...loadedDetailByKey }));
+      }
+
+      setExportProgress({
+        percent: 92,
+        headline: "Excel wird generiert",
+        detail: "Arbeitsmappe mit Antworten und Kontrollblättern wird erstellt.",
+      });
       await exportFbManagementExcel({
-        campaigns: campaignsData,
+        campaigns: filteredCampaigns,
         markets: marketsData,
-        visitStatusByCampaignId,
+        visitStatusByCampaignId: filteredVisitStatusByCampaignId,
+        visitDetails: loadedDetails,
+        visitDetailErrors: detailErrors,
         fragebogenByScope,
         modulesByScope,
         exportedBy: readAuthSession()?.user.email ?? "",
       });
+      setExportProgress({
+        percent: 100,
+        headline: "Download wird gestartet",
+        detail: "Der Export ist fertig vorbereitet.",
+      });
+      window.setTimeout(() => {
+        setExportDialogOpen(false);
+        setExportProgress(null);
+      }, 700);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "Export konnte nicht erstellt werden.");
+      setExportProgress(null);
     } finally {
       setIsExportingFbManagement(false);
     }
-  }, [campaignsData, fragebogenByScope, isExportingFbManagement, marketsData, modulesByScope, visitStatusByCampaignId]);
+  }, [campaignsData, exportCampaignStatusFilter, fragebogenByScope, isExportingFbManagement, marketById, marketsData, modulesByScope, visitDetailByKey, visitStatusByCampaignId]);
 
   useEffect(() => {
-    const handler = () => { void handleExportFbManagement(); };
+    const handler = () => {
+      setExportError(null);
+      setExportProgress(null);
+      setExportDialogOpen(true);
+    };
     window.addEventListener("admin:fbmanagement:export", handler);
     return () => window.removeEventListener("admin:fbmanagement:export", handler);
-  }, [handleExportFbManagement]);
+  }, []);
 
   if (loading) {
     return (
@@ -7392,6 +7761,57 @@ export default function FbManagementPage() {
     setMarketFilter("all");
   };
 
+  const toggleExportCampaign = (nextCampaignId: string) => {
+    if (isExportingFbManagement) return;
+    setExportFilters((current) => ({
+      ...current,
+      campaignIds: toggleListValue(current.campaignIds, nextCampaignId),
+    }));
+  };
+
+  const toggleExportSection = (section: CampaignSection) => {
+    if (isExportingFbManagement) return;
+    setExportFilters((current) => ({
+      ...current,
+      sections: toggleListValue(current.sections, section),
+    }));
+  };
+
+  const toggleExportGm = (gmName: string) => {
+    if (isExportingFbManagement) return;
+    setExportFilters((current) => ({
+      ...current,
+      gmNames: toggleListValue(current.gmNames, gmName),
+    }));
+  };
+
+  const toggleExportRegion = (region: string) => {
+    if (isExportingFbManagement) return;
+    setExportFilters((current) => ({
+      ...current,
+      regions: toggleListValue(current.regions, region),
+    }));
+  };
+
+  const resetExportFilters = () => {
+    if (isExportingFbManagement) return;
+    setExportFilters(DEFAULT_FB_MANAGEMENT_EXPORT_FILTERS);
+    setExportCampaignSearch("");
+    setExportCampaignStatusFilter("all");
+    setExportGmSearch("");
+    setExportError(null);
+  };
+
+  const cycleExportCampaignStatusFilter = () => {
+    if (isExportingFbManagement) return;
+    setExportCampaignStatusFilter((current) =>
+      current === "all" ? "active" : current === "active" ? "inactive" : "all",
+    );
+  };
+
+  const exportCampaignStatusLabel =
+    exportCampaignStatusFilter === "all" ? "Alle" : exportCampaignStatusFilter === "active" ? "Aktiv" : "Inaktiv";
+
   return (
     <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 16 }}>
       {mutationError && (
@@ -7408,6 +7828,413 @@ export default function FbManagementPage() {
         <div style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.22)", background: "rgba(220,38,38,0.06)", color: "#DC2626", fontSize: 11, fontWeight: 600 }}>
           Export fehlgeschlagen: {exportError}
         </div>
+      )}
+      {exportDialogOpen && typeof document !== "undefined" && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="FB Management Export"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !isExportingFbManagement) setExportDialogOpen(false);
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1800,
+            background: "rgba(12,18,30,0.28)",
+            backdropFilter: "blur(7px)",
+            WebkitBackdropFilter: "blur(7px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 22,
+          }}
+        >
+          <div
+            style={{
+              width: "min(760px, 96vw)",
+              maxHeight: "88vh",
+              overflow: "hidden",
+              borderRadius: 18,
+              background: "#fff",
+              border: "1px solid rgba(0,0,0,0.08)",
+              boxShadow: "0 30px 90px rgba(15,23,42,0.22), 0 2px 10px rgba(15,23,42,0.08)",
+              display: "flex",
+              flexDirection: "column",
+              fontFamily: "var(--font-inter), Inter, system-ui, sans-serif",
+            }}
+          >
+            <div style={{ padding: "20px 22px 16px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>
+                  Auswertungs-Export
+                </div>
+                <div style={{ marginTop: 5, fontSize: 20, lineHeight: 1.05, fontWeight: 760, letterSpacing: "-0.035em", color: "#111827" }}>
+                  FB Management exportieren
+                </div>
+                <div style={{ marginTop: 7, maxWidth: 560, fontSize: 12, lineHeight: 1.45, color: "rgba(15,23,42,0.56)", fontWeight: 520 }}>
+                  Dieser Export enthält Fragebogen-Antworten und kann je nach Filter sehr groß werden. Engere Filter verkürzen Ladezeit und Dateigröße deutlich.
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isExportingFbManagement}
+                onClick={() => setExportDialogOpen(false)}
+                aria-label="Export schließen"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 10,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  background: "linear-gradient(to bottom,#fff,#f7f7f8)",
+                  color: "rgba(15,23,42,0.55)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: isExportingFbManagement ? "not-allowed" : "pointer",
+                  opacity: isExportingFbManagement ? 0.45 : 1,
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                }}
+              >
+                <X size={14} strokeWidth={2.2} />
+              </button>
+            </div>
+
+            <div style={{ padding: 18, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+              <style>{`
+                .fbm-export-hidden-scroll {
+                  scrollbar-width: none;
+                  -ms-overflow-style: none;
+                }
+                .fbm-export-hidden-scroll::-webkit-scrollbar {
+                  width: 0;
+                  height: 0;
+                  display: none;
+                }
+              `}</style>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+                {[
+                  { label: "Kampagnen", value: exportPreview.campaignCount || "alle", sub: exportFilters.campaignIds.length ? "ausgewählt" : "ohne Kampagnenfilter" },
+                  { label: "Zielmärkte", value: exportPreview.assignmentCount || "wird geprüft", sub: exportFilters.onlySubmitted ? "nur eingereicht" : "alle Zielmärkte" },
+                  { label: "Antworten", value: exportPreview.submittedCount || "Status lädt", sub: "Details werden beim Export geladen" },
+                ].map((item) => (
+                  <div key={item.label} style={{ borderRadius: 12, border: "1px solid rgba(0,0,0,0.07)", background: "linear-gradient(to bottom,#fff,#fafafa)", padding: "12px 13px", boxShadow: "0 1px 5px rgba(0,0,0,0.035)" }}>
+                    <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.11em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>{item.label}</div>
+                    <div style={{ marginTop: 5, fontSize: 18, fontWeight: 780, letterSpacing: "-0.03em", color: "#111827" }}>{item.value}</div>
+                    <div style={{ marginTop: 2, fontSize: 10, fontWeight: 600, color: "rgba(15,23,42,0.42)" }}>{item.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ borderRadius: 14, border: "1px solid rgba(220,38,38,0.16)", background: "linear-gradient(135deg, rgba(220,38,38,0.055), rgba(255,255,255,0.92))", padding: "11px 13px", display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <div style={{ width: 7, height: 7, marginTop: 5, borderRadius: "50%", background: "#DC2626", boxShadow: "0 0 0 3px rgba(220,38,38,0.08)", flexShrink: 0 }} />
+                <div style={{ fontSize: 11, lineHeight: 1.45, color: "rgba(15,23,42,0.56)", fontWeight: 560 }}>
+                  Hoher Payload: Antwortdetails, Foto-Metadaten und Statusdaten werden erst beim Export zusammengesetzt. Währenddessen bitte die Seite offen lassen.
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 14, alignItems: "start" }}>
+                <div style={{ borderRadius: 14, border: "1px solid rgba(0,0,0,0.075)", background: "#fff", padding: 12, minWidth: 0, display: "flex", flexDirection: "column", height: 386 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Kampagnen</div>
+                      <div style={{ marginTop: 2, fontSize: 11, color: "rgba(15,23,42,0.48)", fontWeight: 560 }}>
+                        Keine Auswahl bedeutet alle Kampagnen.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isExportingFbManagement}
+                      onClick={cycleExportCampaignStatusFilter}
+                      style={{ border: "none", background: "transparent", color: exportCampaignStatusFilter === "inactive" ? "rgba(220,38,38,0.74)" : "rgba(15,23,42,0.48)", fontSize: 10, fontWeight: 720, cursor: isExportingFbManagement ? "not-allowed" : "pointer" }}
+                    >
+                      {exportCampaignStatusLabel}
+                    </button>
+                  </div>
+                  <div style={{ height: 34, borderRadius: 9, background: "rgba(0,0,0,0.035)", border: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 8, padding: "0 10px", marginBottom: 10 }}>
+                    <Search size={12} strokeWidth={2} color="rgba(15,23,42,0.35)" />
+                    <input
+                      value={exportCampaignSearch}
+                      disabled={isExportingFbManagement}
+                      onChange={(event) => setExportCampaignSearch(event.target.value)}
+                      placeholder="Kampagne suchen..."
+                      style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 11, color: "#111827", fontWeight: 520 }}
+                    />
+                  </div>
+                  <div className="fbm-export-hidden-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 0 }}>
+                    {exportCampaignOptions.map((entry) => {
+                      const active = exportFilters.campaignIds.includes(entry.id);
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          disabled={isExportingFbManagement}
+                          onClick={() => toggleExportCampaign(entry.id)}
+                          style={{
+                            minHeight: 36,
+                            borderRadius: 9,
+                            border: active ? "1px solid rgba(220,38,38,0.25)" : "1px solid rgba(0,0,0,0.055)",
+                            background: active ? "rgba(220,38,38,0.055)" : "rgba(0,0,0,0.018)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 9,
+                            padding: "8px 10px",
+                            textAlign: "left",
+                            cursor: isExportingFbManagement ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: SECTION_COLORS[entry.section], flexShrink: 0 }} />
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: 11, fontWeight: 720, color: "#111827", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{entry.name}</span>
+                            <span style={{ display: "block", marginTop: 1, fontSize: 9, fontWeight: 640, color: "rgba(15,23,42,0.38)" }}>{sectionLabel(entry.section)}</span>
+                          </span>
+                          <span style={{ width: 16, height: 16, borderRadius: 6, border: active ? "none" : "1px solid rgba(0,0,0,0.12)", background: active ? "#DC2626" : "#fff", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            {active ? <Check size={10} strokeWidth={2.4} /> : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ borderRadius: 14, border: "1px solid rgba(0,0,0,0.075)", background: "#fff", padding: 12 }}>
+                    <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)", marginBottom: 9 }}>Sektionen</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {exportSectionOptions.map((section) => {
+                        const active = exportFilters.sections.includes(section);
+                        return (
+                          <button
+                            key={section}
+                            type="button"
+                            disabled={isExportingFbManagement}
+                            onClick={() => toggleExportSection(section)}
+                            style={{
+                              height: 27,
+                              padding: "0 9px",
+                              borderRadius: 8,
+                              border: active ? `1px solid ${SECTION_COLORS[section]}55` : "1px solid rgba(0,0,0,0.075)",
+                              background: active ? `${SECTION_COLORS[section]}12` : "#fff",
+                              color: active ? SECTION_COLORS[section] : "rgba(15,23,42,0.55)",
+                              fontSize: 10,
+                              fontWeight: 760,
+                              cursor: isExportingFbManagement ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {sectionLabel(section)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{ borderRadius: 14, border: "1px solid rgba(0,0,0,0.075)", background: "#fff", padding: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 9 }}>
+                      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>GM</div>
+                      <button
+                        type="button"
+                        disabled={isExportingFbManagement}
+                        onClick={() => setExportFilters((current) => ({ ...current, gmNames: [] }))}
+                        style={{ border: "none", background: "transparent", color: "rgba(220,38,38,0.72)", fontSize: 10, fontWeight: 720, cursor: isExportingFbManagement ? "not-allowed" : "pointer" }}
+                      >
+                        Alle
+                      </button>
+                    </div>
+                    <div style={{ height: 30, borderRadius: 8, background: "rgba(0,0,0,0.035)", border: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 7, padding: "0 9px", marginBottom: 8 }}>
+                      <Search size={11} strokeWidth={2} color="rgba(15,23,42,0.35)" />
+                      <input
+                        value={exportGmSearch}
+                        disabled={isExportingFbManagement}
+                        onChange={(event) => setExportGmSearch(event.target.value)}
+                        placeholder="GM suchen..."
+                        style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 10, color: "#111827", fontWeight: 540 }}
+                      />
+                    </div>
+                    <div className="fbm-export-hidden-scroll" style={{ height: 126, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", alignContent: "start", gap: 6, paddingRight: 0 }}>
+                      {exportGmOptions.map((name) => {
+                        const active = exportFilters.gmNames.includes(name);
+                        const initials = name
+                          .split(/\s+/)
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => part.charAt(0).toLocaleUpperCase("de"))
+                          .join("") || "GM";
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            disabled={isExportingFbManagement}
+                            onClick={() => toggleExportGm(name)}
+                            style={{
+                              minHeight: 34,
+                              borderRadius: 9,
+                              border: active ? "1px solid rgba(220,38,38,0.24)" : "1px solid rgba(0,0,0,0.055)",
+                              background: active ? "rgba(220,38,38,0.055)" : "rgba(0,0,0,0.018)",
+                              textAlign: "left",
+                              padding: "6px 7px",
+                              cursor: isExportingFbManagement ? "not-allowed" : "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 7,
+                              overflow: "hidden",
+                            }}
+                          >
+                            <span style={{ width: 20, height: 20, borderRadius: 7, background: active ? "rgba(220,38,38,0.12)" : "rgba(15,23,42,0.055)", color: active ? "#DC2626" : "rgba(15,23,42,0.42)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 820, letterSpacing: "0.02em", flexShrink: 0 }}>
+                              {initials}
+                            </span>
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ display: "block", fontSize: 10, lineHeight: 1.1, fontWeight: 760, color: active ? "#DC2626" : "rgba(15,23,42,0.72)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {name}
+                              </span>
+                            </span>
+                            <span style={{ width: 12, height: 12, borderRadius: 4, border: active ? "none" : "1px solid rgba(0,0,0,0.11)", background: active ? "#DC2626" : "#fff", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              {active ? <Check size={8} strokeWidth={2.6} /> : null}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{ borderRadius: 14, border: "1px solid rgba(0,0,0,0.075)", background: "#fff", padding: 12 }}>
+                    <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)", marginBottom: 9 }}>Regionen</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {exportRegionOptions.map((region) => {
+                        const active = exportFilters.regions.includes(region);
+                        return (
+                          <button
+                            key={region}
+                            type="button"
+                            disabled={isExportingFbManagement}
+                            onClick={() => toggleExportRegion(region)}
+                            style={{
+                              height: 27,
+                              padding: "0 9px",
+                              borderRadius: 8,
+                              border: active ? "1px solid rgba(220,38,38,0.24)" : "1px solid rgba(0,0,0,0.075)",
+                              background: active ? "rgba(220,38,38,0.055)" : "#fff",
+                              color: active ? "#DC2626" : "rgba(15,23,42,0.55)",
+                              fontSize: 10,
+                              fontWeight: 760,
+                              cursor: isExportingFbManagement ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {region}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <label style={{ borderRadius: 14, border: "1px solid rgba(0,0,0,0.075)", background: "#fff", padding: "12px 13px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, cursor: isExportingFbManagement ? "not-allowed" : "pointer" }}>
+                <span>
+                  <span style={{ display: "block", fontSize: 11, fontWeight: 760, color: "#111827" }}>Nur eingereichte Besuche mit Antworten exportieren</span>
+                  <span style={{ display: "block", marginTop: 3, fontSize: 10, lineHeight: 1.4, color: "rgba(15,23,42,0.45)", fontWeight: 540 }}>
+                    Empfohlen für Auswertungen. Deaktivieren, wenn du zusätzlich alle Zielmarkt-Zeilen ohne Antworten brauchst.
+                  </span>
+                </span>
+                <span
+                  style={{
+                    width: 42,
+                    height: 24,
+                    borderRadius: 99,
+                    padding: 3,
+                    background: exportFilters.onlySubmitted ? "linear-gradient(to bottom,#DC2626,#b91c1c)" : "rgba(15,23,42,0.12)",
+                    boxShadow: exportFilters.onlySubmitted ? "inset 0 1px 0 rgba(255,255,255,0.24), 0 1px 5px rgba(220,38,38,0.20)" : "inset 0 1px 2px rgba(0,0,0,0.08)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={exportFilters.onlySubmitted}
+                    disabled={isExportingFbManagement}
+                    onChange={(event) => setExportFilters((current) => ({ ...current, onlySubmitted: event.target.checked }))}
+                    style={{ display: "none" }}
+                  />
+                  <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "#fff", transform: exportFilters.onlySubmitted ? "translateX(18px)" : "translateX(0)", transition: "transform 0.18s ease", boxShadow: "0 1px 4px rgba(0,0,0,0.18)" }} />
+                </span>
+              </label>
+
+              {exportProgress && (
+                <div style={{ borderRadius: 14, border: "1px solid rgba(0,0,0,0.075)", background: "linear-gradient(to bottom,#fff,#fafafa)", padding: "13px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 760, color: "#111827" }}>{exportProgress.headline}</div>
+                    <div style={{ fontSize: 10, fontWeight: 760, color: "rgba(15,23,42,0.42)", fontVariantNumeric: "tabular-nums" }}>{exportProgress.percent}%</div>
+                  </div>
+                  <div style={{ marginTop: 8, height: 7, borderRadius: 99, background: "rgba(15,23,42,0.08)", overflow: "hidden" }}>
+                    <div style={{ width: `${exportProgress.percent}%`, height: "100%", borderRadius: 99, background: "linear-gradient(90deg,#b91c1c,#ef4444,#DC2626)", transition: "width 0.24s ease" }} />
+                  </div>
+                  <div style={{ marginTop: 7, fontSize: 10, fontWeight: 560, color: "rgba(15,23,42,0.42)" }}>{exportProgress.detail}</div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "14px 18px", borderTop: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <button
+                type="button"
+                disabled={isExportingFbManagement}
+                onClick={resetExportFilters}
+                style={{
+                  height: 34,
+                  padding: "0 12px",
+                  borderRadius: 9,
+                  border: "1px solid rgba(0,0,0,0.09)",
+                  background: "linear-gradient(to bottom,#fff,#f7f7f8)",
+                  color: "rgba(15,23,42,0.58)",
+                  fontSize: 11,
+                  fontWeight: 720,
+                  cursor: isExportingFbManagement ? "not-allowed" : "pointer",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+                }}
+              >
+                Filter zurücksetzen
+              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  disabled={isExportingFbManagement}
+                  onClick={() => setExportDialogOpen(false)}
+                  style={{
+                    height: 34,
+                    padding: "0 13px",
+                    borderRadius: 9,
+                    border: "1px solid rgba(0,0,0,0.09)",
+                    background: "transparent",
+                    color: "rgba(15,23,42,0.55)",
+                    fontSize: 11,
+                    fontWeight: 720,
+                    cursor: isExportingFbManagement ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="button"
+                  disabled={isExportingFbManagement || campaignsData.length === 0}
+                  onClick={() => void handleExportFbManagement(exportFilters)}
+                  style={{
+                    height: 36,
+                    padding: "0 18px",
+                    borderRadius: 9,
+                    border: "none",
+                    background: isExportingFbManagement ? "rgba(220,38,38,0.45)" : "linear-gradient(to bottom,#ef4444,#DC2626 55%,#b91c1c)",
+                    color: "#fff",
+                    fontSize: 11,
+                    fontWeight: 820,
+                    cursor: isExportingFbManagement || campaignsData.length === 0 ? "not-allowed" : "pointer",
+                    boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.34), inset 0 -1px 0 rgba(0,0,0,0.10), 0 0 0 1px rgba(185,28,28,0.92), 0 2px 8px rgba(220,38,38,0.20)",
+                    minWidth: 126,
+                  }}
+                >
+                  {isExportingFbManagement ? "Export läuft..." : "Export starten"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
       {overlapConflicts && overlapConflicts.length > 0 && (
         <div

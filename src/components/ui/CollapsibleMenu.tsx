@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { Home, Clock, Calendar, User, LogOut } from "lucide-react";
+import { Home, Clock, User, LogOut } from "lucide-react";
 
 export interface MenuItem {
   label: string;
@@ -27,7 +27,6 @@ const CARD_PADDING = 5;
 export const defaultMenuItems: MenuItem[] = [
   { label: "Home", icon: <Home size={11} strokeWidth={1.8} /> },
   { label: "Zeiterfassung", icon: <Clock size={11} strokeWidth={1.8} /> },
-  { label: "Kalender", icon: <Calendar size={11} strokeWidth={1.8} /> },
   { label: "Profil", icon: <User size={11} strokeWidth={1.8} /> },
 ];
 

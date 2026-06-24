@@ -28,6 +28,7 @@ import {
   fetchGmVisitStartPayload,
   fetchGmAssignedStartMarkets,
   fetchGmFlexStartMarkets,
+  fetchGmMarketDetail,
   startDayPause,
   endDayPause,
   createManualDayPause,
@@ -1069,7 +1070,7 @@ function AccordionRow({
 export function ActivityLauncher() {
   const router = useRouter();
   const [view, setView] = useState<View>("idle");
-  const [marketListMode, setMarketListMode] = useState<MarketListMode>("assigned");
+  const [marketListMode, setMarketListMode] = useState<MarketListMode>("flex");
   const [openActivity, setOpenActivity] = useState<string | null>(null);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [isMarketsLoading, setIsMarketsLoading] = useState(true);
@@ -1087,6 +1088,7 @@ export function ActivityLauncher() {
   const [dayGateLoading, setDayGateLoading] = useState(true);
   const [activeDraftsByActivity, setActiveDraftsByActivity] = useState<Partial<Record<TimeTrackingActivityType, TimeTrackingEntry>>>({});
   const [lockedRunningActivity, setLockedRunningActivity] = useState<TimeTrackingActivityType | null>(null);
+  const [sectionStatusByCampaignId, setSectionStatusByCampaignId] = useState<Record<string, MarketSectionStatus>>({});
   const cardRef = useRef<HTMLDivElement>(null);
   const launchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const launchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1170,6 +1172,35 @@ export function ActivityLauncher() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedMarket) {
+      setSectionStatusByCampaignId({});
+      return;
+    }
+    let cancelled = false;
+    setSectionStatusByCampaignId({});
+    void fetchGmMarketDetail(selectedMarket.id)
+      .then((payload) => {
+        if (cancelled) return;
+        const next: Record<string, MarketSectionStatus> = {};
+        for (const campaign of payload.activeCampaigns ?? []) {
+          next[campaign.campaignId] = campaign.isComplete
+            ? "ausgefuellt"
+            : campaign.submittedVisitCount > 0
+              ? "teils_ausgefuellt"
+              : "nicht_ausgefuellt";
+        }
+        setSectionStatusByCampaignId(next);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSectionStatusByCampaignId({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMarket]);
 
   useEffect(() => {
     void refreshDayGate();
@@ -1762,7 +1793,7 @@ export function ActivityLauncher() {
         <div style={{ display: "flex", flexDirection: "column", gap: 7, paddingBottom: 58 }}>
           {selectableSections.map((section) => {
             const selected = selectedSectionIds.includes(section.campaignId);
-            const status = sectionStatusMeta("nicht_ausgefuellt");
+            const status = sectionStatusMeta(sectionStatusByCampaignId[section.campaignId] ?? "nicht_ausgefuellt");
             return (
               <button
                 key={section.campaignId}

@@ -544,8 +544,8 @@ function buildWorkbook(payload: AdminDiaetenExportPayload, gm: DiaetenGm, XLSX: 
     );
     setFormula(r, 9, `IF($I${excelRow}="","",$I${excelRow}-IF(ISNUMBER($K${excelRow}),$K${excelRow},0))`, { ...plainCell, fill: { fgColor: { rgb: purple } } }, '#,##0.00" €"');
     setFormula(r, 10, `IF(ISBLANK($B${excelRow})," ",IF($I${excelRow}>${euro(rates.taxThreshold)},$I${excelRow}-${euro(rates.taxThreshold)},"-"))`, dataCell, '#,##0.00" €"', "s");
-    setCell(r, 11, row.startKm ?? "", plainCell);
-    setCell(r, 12, row.endKm ?? "", plainCell);
+    setCell(r, 11, row.startKm ?? "", plainCell, row.startKm == null ? undefined : { t: "n", z: "#,##0" });
+    setCell(r, 12, row.endKm ?? "", plainCell, row.endKm == null ? undefined : { t: "n", z: "#,##0" });
     setCell(r, 13, "", plainCell);
     setFormula(r, 14, `IF($A${excelRow}="","",IF($N${excelRow}="","",${euro(rates.overnightFlat)}))`, plainCell, '#,##0.00" €"');
     setFormula(r, 15, `IF($E${excelRow}="",0,ROUND(MAX(0,($E${excelRow}-$D${excelRow})*24),2))`, plainCell, "0.00");

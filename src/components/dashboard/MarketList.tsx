@@ -62,6 +62,10 @@ const CARD_MENU_SPACE = 80;
 const MIN_CARD_HEIGHT = 260;
 const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 
+function isStandardListCampaign(campaign: MarketCampaignSummary): boolean {
+  return campaign.section === "standard" || campaign.section === "billa";
+}
+
 function chainColors(chain: string): { bg: string; text: string } {
   const key = chain.toUpperCase();
   if (key.includes("BILLA")) return { bg: "rgba(234,179,8,0.10)", text: "#a16207" };
@@ -741,7 +745,13 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
     void fetchGmAssignedStartMarkets()
       .then((rows) => {
         if (cancelled) return;
-        const mapped = rows.map((row) => toMarketListEntry(row.market, row.activeNowCampaigns));
+        const mapped = rows
+          .map((row) => ({
+            market: row.market,
+            activeNowCampaigns: row.activeNowCampaigns.filter(isStandardListCampaign),
+          }))
+          .filter((row) => row.activeNowCampaigns.length > 0)
+          .map((row) => toMarketListEntry(row.market, row.activeNowCampaigns));
         const deduped = Array.from(new Map(mapped.map((entry) => [entry.id, entry])).values());
         setMarkets(deduped);
       })

@@ -1886,6 +1886,8 @@ export type GmKuehlerMhdProgressMarket = {
   marketId: string;
   campaignId: string;
   campaignName: string;
+  kuehlerUnitId?: string | null;
+  kuehlerNumber?: string | null;
   chain: string;
   address: string;
   stammnr: string | null;
@@ -1994,6 +1996,8 @@ export type GmVisitSessionReadPayload = {
     status: "draft" | "submitted" | "cancelled";
     startedAt: string;
     submittedAt: string | null;
+    kuehlerUnitId?: string | null;
+    kuehlerNumber?: string | null;
   };
   market: {
     id: string;
@@ -2068,6 +2072,8 @@ export type GmCompletedVisitSummary = {
   startedAt: string;
   submittedAt: string | null;
   durationMinutes: number | null;
+  kuehlerUnitId?: string | null;
+  kuehlerNumber?: string | null;
   market: {
     id: string;
     name: string;
@@ -2148,7 +2154,10 @@ export type AdminAnswerChangeRequest = {
 
 export type CampaignMarketVisitSummary = BackendCampaignMarketVisitSummary;
 export type CampaignMarketVisitStatus = {
+  rowId?: string;
   marketId: string;
+  kuehlerUnitId?: string | null;
+  kuehlerNumber?: string | null;
   targetVisitCount: number;
   submittedVisitCount: number;
   isComplete: boolean;
@@ -2499,11 +2508,16 @@ export type AdminDiaetenExportPayload = {
   }>;
 };
 
-export async function fetchGmVisitStartPayload(marketId: string, campaignIds: string[]): Promise<GmVisitStartPayload> {
+export async function fetchGmVisitStartPayload(
+  marketId: string,
+  campaignIds: string[],
+  options: { kuehlerUnitId?: string | null } = {},
+): Promise<GmVisitStartPayload> {
   const params = new URLSearchParams({
     marketId,
     campaignIds: campaignIds.join(","),
   });
+  if (options.kuehlerUnitId) params.set("kuehlerUnitId", options.kuehlerUnitId);
   return (await authedFetch(`/markets/gm/visit-sessions/start-payload?${params.toString()}`, { cache: "no-store" })) as GmVisitStartPayload;
 }
 
@@ -2512,6 +2526,7 @@ export type GmVisitSessionPayload = GmVisitStartPayload & {
     id: string;
     status: "draft" | "submitted" | "cancelled";
     startedAt: string;
+    kuehlerUnitId?: string | null;
   };
 };
 
@@ -2536,6 +2551,7 @@ type GmVisitStartPreloadCacheEnvelope = {
   ownerUserId: string;
   marketId: string;
   campaignIds: string[];
+  kuehlerUnitId?: string | null;
   createdAtMs: number;
   payload: GmVisitStartPayload;
 };
@@ -2575,8 +2591,17 @@ function normalizeVisitPreloadCampaignIds(campaignIds: string[]): string[] {
   return Array.from(new Set(campaignIds.map((id) => id.trim()).filter(Boolean))).sort();
 }
 
-function getGmVisitStartPreloadMemoryKey(userId: string, marketId: string, campaignIds: string[]): string {
-  return `${userId}:${marketId}:${normalizeVisitPreloadCampaignIds(campaignIds).join(",")}`;
+function normalizeVisitPreloadKuehlerUnitId(kuehlerUnitId?: string | null): string {
+  return typeof kuehlerUnitId === "string" ? kuehlerUnitId.trim() : "";
+}
+
+function getGmVisitStartPreloadMemoryKey(
+  userId: string,
+  marketId: string,
+  campaignIds: string[],
+  kuehlerUnitId?: string | null,
+): string {
+  return `${userId}:${marketId}:${normalizeVisitPreloadCampaignIds(campaignIds).join(",")}:${normalizeVisitPreloadKuehlerUnitId(kuehlerUnitId)}`;
 }
 
 function getGmActiveVisitHandoffMemoryKey(userId: string): string {
@@ -2588,12 +2613,17 @@ function getGmActiveVisitHandoffCacheKey(): string {
   return userId ? `${GM_ACTIVE_VISIT_HANDOFF_CACHE_PREFIX}${userId}` : `${GM_ACTIVE_VISIT_HANDOFF_CACHE_PREFIX}anon`;
 }
 
-export function getGmVisitStartPreloadCacheKey(marketId: string, campaignIds: string[]): string {
+export function getGmVisitStartPreloadCacheKey(
+  marketId: string,
+  campaignIds: string[],
+  kuehlerUnitId?: string | null,
+): string {
   const userId = getActiveAuthUserId();
   const campaignKey = normalizeVisitPreloadCampaignIds(campaignIds).join(",");
+  const unitKey = normalizeVisitPreloadKuehlerUnitId(kuehlerUnitId);
   return userId
-    ? `${GM_VISIT_START_PRELOAD_CACHE_PREFIX}${userId}:${marketId}:${campaignKey}`
-    : `${GM_VISIT_START_PRELOAD_CACHE_PREFIX}anon:${marketId}:${campaignKey}`;
+    ? `${GM_VISIT_START_PRELOAD_CACHE_PREFIX}${userId}:${marketId}:${campaignKey}:${unitKey}`
+    : `${GM_VISIT_START_PRELOAD_CACHE_PREFIX}anon:${marketId}:${campaignKey}:${unitKey}`;
 }
 
 export function getGmVisitPreloadCacheKey(sessionId: string): string {
@@ -2685,6 +2715,7 @@ export function clearGmVisitPreloadCache(sessionId: string): void {
 export function setGmVisitStartPreloadCache(input: {
   marketId: string;
   campaignIds: string[];
+  kuehlerUnitId?: string | null;
   payload: GmVisitStartPayload;
 }): void {
   const userId = getActiveAuthUserId();
@@ -2694,13 +2725,14 @@ export function setGmVisitStartPreloadCache(input: {
     ownerUserId: userId,
     marketId: input.marketId,
     campaignIds: normalizedCampaignIds,
+    kuehlerUnitId: normalizeVisitPreloadKuehlerUnitId(input.kuehlerUnitId) || null,
     createdAtMs: Date.now(),
     payload: input.payload,
   };
-  gmVisitStartPreloadMemoryCache[getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds)] = envelope;
+  gmVisitStartPreloadMemoryCache[getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds, input.kuehlerUnitId)] = envelope;
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds), JSON.stringify(envelope));
+    window.sessionStorage.setItem(getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds, input.kuehlerUnitId), JSON.stringify(envelope));
   } catch {
     // Keep in-memory cache as best-effort fallback.
   }
@@ -2709,17 +2741,20 @@ export function setGmVisitStartPreloadCache(input: {
 export function readGmVisitStartPreloadCache(input: {
   marketId: string;
   campaignIds: string[];
+  kuehlerUnitId?: string | null;
 }): GmVisitStartPayload | null {
   const userId = getActiveAuthUserId();
   if (!userId) return null;
   const normalizedCampaignIds = normalizeVisitPreloadCampaignIds(input.campaignIds);
-  const memoryKey = getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds);
+  const normalizedKuehlerUnitId = normalizeVisitPreloadKuehlerUnitId(input.kuehlerUnitId);
+  const memoryKey = getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds, normalizedKuehlerUnitId);
   const inMemory = gmVisitStartPreloadMemoryCache[memoryKey];
   if (inMemory) {
     if (
       inMemory.ownerUserId === userId &&
       inMemory.marketId === input.marketId &&
       inMemory.campaignIds.join(",") === normalizedCampaignIds.join(",") &&
+      normalizeVisitPreloadKuehlerUnitId(inMemory.kuehlerUnitId) === normalizedKuehlerUnitId &&
       Date.now() - inMemory.createdAtMs <= GM_VISIT_PRELOAD_CACHE_TTL_MS &&
       Array.isArray(inMemory.payload.sections)
     ) {
@@ -2728,7 +2763,7 @@ export function readGmVisitStartPreloadCache(input: {
     delete gmVisitStartPreloadMemoryCache[memoryKey];
   }
   if (typeof window === "undefined") return null;
-  const key = getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds);
+  const key = getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds, normalizedKuehlerUnitId);
   let raw: string | null = null;
   try {
     raw = window.sessionStorage.getItem(key);
@@ -2745,7 +2780,8 @@ export function readGmVisitStartPreloadCache(input: {
       !parsed ||
       parsed.ownerUserId !== userId ||
       parsed.marketId !== input.marketId ||
-      parsedCampaignIds.join(",") !== normalizedCampaignIds.join(",")
+      parsedCampaignIds.join(",") !== normalizedCampaignIds.join(",") ||
+      normalizeVisitPreloadKuehlerUnitId(parsed.kuehlerUnitId) !== normalizedKuehlerUnitId
     ) {
       window.sessionStorage.removeItem(key);
       return null;
@@ -2770,15 +2806,17 @@ export function readGmVisitStartPreloadCache(input: {
 export function clearGmVisitStartPreloadCache(input: {
   marketId: string;
   campaignIds: string[];
+  kuehlerUnitId?: string | null;
 }): void {
   const userId = getActiveAuthUserId();
   const normalizedCampaignIds = normalizeVisitPreloadCampaignIds(input.campaignIds);
+  const normalizedKuehlerUnitId = normalizeVisitPreloadKuehlerUnitId(input.kuehlerUnitId);
   if (userId) {
-    delete gmVisitStartPreloadMemoryCache[getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds)];
+    delete gmVisitStartPreloadMemoryCache[getGmVisitStartPreloadMemoryKey(userId, input.marketId, normalizedCampaignIds, normalizedKuehlerUnitId)];
   }
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds));
+    window.sessionStorage.removeItem(getGmVisitStartPreloadCacheKey(input.marketId, normalizedCampaignIds, normalizedKuehlerUnitId));
   } catch {
     // noop
   }
@@ -2944,11 +2982,13 @@ export async function rejectAdminAnswerChangeRequest(
 export async function fetchActiveGmVisitSession(input: {
   marketId: string;
   campaignIds: string[];
+  kuehlerUnitId?: string | null;
 }): Promise<GmVisitSessionPayload | { session: null }> {
   const params = new URLSearchParams({
     marketId: input.marketId,
     campaignIds: input.campaignIds.join(","),
   });
+  if (input.kuehlerUnitId) params.set("kuehlerUnitId", input.kuehlerUnitId);
   return (await authedFetch(`/markets/gm/visit-sessions/active?${params.toString()}`, { cache: "no-store" })) as GmVisitSessionPayload | { session: null };
 }
 
@@ -2959,6 +2999,7 @@ export async function fetchLatestActiveGmVisitSession(): Promise<GmVisitSessionP
 export async function createGmVisitSession(input: {
   marketId: string;
   campaignIds: string[];
+  kuehlerUnitId?: string | null;
   clientSessionToken?: string;
   startedAt?: string;
 }): Promise<GmVisitSessionPayload> {
@@ -4081,10 +4122,16 @@ export async function deferDaySessionEndKm(): Promise<{ session: DaySession }> {
   })) as { session: DaySession };
 }
 
-export async function submitDaySession(input?: { comment?: string }): Promise<{ session: DaySession }> {
+export async function submitDaySession(input?: {
+  comment?: string;
+  reviewEdits?: DaySessionReviewEdit[];
+}): Promise<{ session: DaySession }> {
   return (await authedFetch("/day-session/submit", {
     method: "POST",
-    body: JSON.stringify({ comment: input?.comment }),
+    body: JSON.stringify({
+      comment: input?.comment,
+      reviewEdits: input?.reviewEdits,
+    }),
   })) as { session: DaySession };
 }
 

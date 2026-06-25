@@ -298,6 +298,11 @@ function VisitCard({
           <div className="gm-activity-campaign-line">
             {names.length ? names.join(" · ") : "Abgeschlossener Fragebogen"}
           </div>
+          {visit.kuehlerNumber && (
+            <div className="gm-activity-campaign-line" style={{ color: "#0f766e" }}>
+              Kühler {visit.kuehlerNumber}
+            </div>
+          )}
         </div>
         <div className="gm-activity-card-metric">
           <Clock size={12} strokeWidth={2} color="rgba(15,23,42,0.38)" />
@@ -1224,7 +1229,10 @@ function ReadOnlyVisitViewer({
           <div style={{ minWidth: 0, flex: 1 }}>
             <div className="gm-activity-viewer-eyebrow">Abgeschlossener Fragebogen</div>
             <h2>{marketTitle(payload.market)}</h2>
-            <p>{marketAddress(payload.market)}</p>
+            <p>
+              {marketAddress(payload.market)}
+              {payload.session.kuehlerNumber ? ` · Kühler ${payload.session.kuehlerNumber}` : ""}
+            </p>
           </div>
           <button type="button" className="gm-activity-icon-button" onClick={onClose} aria-label="Schließen">
             <X size={16} strokeWidth={2.2} />

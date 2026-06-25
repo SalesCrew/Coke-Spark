@@ -85,6 +85,7 @@ type CampaignGmReassignGroup = {
 
 interface MarketCatalogItem {
   id: string;
+  marketId?: string;
   name: string;
   chain: string;
   city: string;
@@ -93,6 +94,8 @@ interface MarketCatalogItem {
   stammnr?: string;
   gm: string;
   finished: boolean;
+  isKuehlerUnitRow?: boolean;
+  kuehlerNumber?: string | null;
 }
 
 type CampaignVisitStatusByMarket = Record<string, CampaignMarketVisitStatus>;
@@ -168,6 +171,7 @@ function applyMarketFilters(
     m.name.toLowerCase().includes(q) ||
     m.address.toLowerCase().includes(q) ||
     (m.stammnr ?? "").toLowerCase().includes(q) ||
+    (m.kuehlerNumber ?? "").toLowerCase().includes(q) ||
     m.gm.toLowerCase().includes(q) ||
     m.city.toLowerCase().includes(q) ||
     m.chain.toLowerCase().includes(q)
@@ -177,6 +181,17 @@ function applyMarketFilters(
   if (filters.city)   r = r.filter(m => m.city   === filters.city);
   if (filters.region) r = r.filter(m => m.region === filters.region);
   return r;
+}
+
+function getCampaignVisitStatusRowId(status: CampaignMarketVisitStatus): string {
+  return status.rowId || status.marketId;
+}
+
+function getCampaignVisitStatusesForMarket(
+  statuses: CampaignVisitStatusByMarket,
+  marketId: string,
+): CampaignMarketVisitStatus[] {
+  return Object.values(statuses).filter((status) => status.marketId === marketId || getCampaignVisitStatusRowId(status) === marketId);
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -6356,7 +6371,7 @@ export default function FbManagementPage() {
             for (const batch of batches) {
               received.add(batch.campaignId);
               next[batch.campaignId] = Object.fromEntries(
-                batch.markets.map((status) => [status.marketId, status]),
+                batch.markets.map((status) => [getCampaignVisitStatusRowId(status), status]),
               ) as CampaignVisitStatusByMarket;
             }
             for (const id of campaignIds) {
@@ -6464,6 +6479,27 @@ export default function FbManagementPage() {
     for (const campaignEntry of campaignsData) {
       const visitStatusByMarket = visitStatusByCampaignId[campaignEntry.id] ?? {};
       const assigned: MarketCatalogItem[] = [];
+      const statusRows = Object.values(visitStatusByMarket);
+      if (campaignEntry.section === "kuehler" && statusRows.length > 0) {
+        for (const status of statusRows) {
+          const market = marketById.get(status.marketId);
+          if (!market) continue;
+          const kuehlerNumber = status.kuehlerNumber?.trim() || null;
+          assigned.push({
+            ...market,
+            id: getCampaignVisitStatusRowId(status),
+            marketId: market.id,
+            name: kuehlerNumber ? `Kühler ${kuehlerNumber}` : "Kühler",
+            address: [market.name, market.address].filter(Boolean).join(" · "),
+            gm: status.gmName ?? market.gm,
+            finished: status.isComplete,
+            isKuehlerUnitRow: true,
+            kuehlerNumber,
+          });
+        }
+        byCampaign.set(campaignEntry.id, assigned);
+        continue;
+      }
       for (const marketId of campaignEntry.marketIds) {
         const market = marketById.get(marketId);
         if (!market) continue;
@@ -6918,21 +6954,22 @@ export default function FbManagementPage() {
     [campaignId, visitStatusByCampaignId],
   );
   const selectedVisitStatus = selectedMarket ? campaignVisitStatusByMarket[selectedMarket] ?? null : null;
+  const selectedMarketId = selectedVisitStatus?.marketId ?? selectedMarket;
   const selectedVisitDetailKey =
-    campaignId && selectedMarket && selectedVisitStatus?.hasSubmittedVisit
-      ? getVisitDetailKey(campaignId, selectedMarket, selectedVisitStatus.sessionId)
+    campaignId && selectedMarketId && selectedVisitStatus?.hasSubmittedVisit
+      ? getVisitDetailKey(campaignId, selectedMarketId, selectedVisitStatus.sessionId)
       : null;
   const selectedVisitDetail = selectedVisitDetailKey ? visitDetailByKey[selectedVisitDetailKey] ?? null : null;
   const selectedVisitDetailLoading = selectedVisitDetailKey ? Boolean(visitDetailLoadingByKey[selectedVisitDetailKey]) : false;
   const selectedVisitDetailError = selectedVisitDetailKey ? visitDetailErrorByKey[selectedVisitDetailKey] ?? null : null;
 
   useEffect(() => {
-    if (!campaignId || !selectedMarket || !selectedVisitStatus?.hasSubmittedVisit) return;
-    void refreshMarketVisitDetail(campaignId, selectedMarket, selectedVisitStatus.sessionId);
+    if (!campaignId || !selectedMarketId || !selectedVisitStatus?.hasSubmittedVisit) return;
+    void refreshMarketVisitDetail(campaignId, selectedMarketId, selectedVisitStatus.sessionId);
   }, [
     campaignId,
     refreshMarketVisitDetail,
-    selectedMarket,
+    selectedMarketId,
     selectedVisitStatus?.hasSubmittedVisit,
     selectedVisitStatus?.sessionId,
   ]);
@@ -7042,7 +7079,8 @@ export default function FbManagementPage() {
       const statuses = visitStatusByCampaignId[entry.id] ?? {};
       for (const assignment of entry.assignments) {
         const market = marketById.get(assignment.marketId);
-        const status = statuses[assignment.marketId] ?? null;
+        const matchingStatuses = getCampaignVisitStatusesForMarket(statuses, assignment.marketId);
+        const status = matchingStatuses[0] ?? null;
         const gmCandidates = [
           normalizeExportFilterValue(assignment.gmName),
           normalizeExportFilterValue(status?.gmName),
@@ -7050,10 +7088,10 @@ export default function FbManagementPage() {
         ];
         const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
         const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
-        const submittedOk = !exportFilters.onlySubmitted || Boolean(status?.hasSubmittedVisit);
+        const submittedOk = !exportFilters.onlySubmitted || matchingStatuses.some((entry) => entry.hasSubmittedVisit);
         if (!gmOk || !regionOk || !submittedOk) continue;
         assignmentCount += 1;
-        if (status?.hasSubmittedVisit) submittedCount += status.submittedVisitCount || 1;
+        submittedCount += matchingStatuses.reduce((sum, entry) => sum + (entry.hasSubmittedVisit ? Math.max(1, entry.submittedVisitCount || 1) : 0), 0);
       }
     }
     return { campaignCount, assignmentCount, submittedCount };
@@ -7061,7 +7099,7 @@ export default function FbManagementPage() {
   const selectedRegionGms = useMemo(() => {
     if (!selectedRegion || !campaign) return [];
     const marketsInRegion = assignedMarkets.filter((market) => market.region === selectedRegion);
-    const marketById = new Map(marketsInRegion.map((market) => [market.id, market] as const));
+    const marketById = new Map(marketsInRegion.map((market) => [market.marketId ?? market.id, market] as const));
     const statsByGm = new Map<string, { name: string; total: number; filled: number }>();
     const normalizeGmKey = (value: string) => value.trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
 
@@ -7089,7 +7127,8 @@ export default function FbManagementPage() {
     for (const market of marketsInRegion) {
       const gmName = market.gm?.trim() ?? "";
       if (!gmName) continue;
-      if (campaign.assignments?.some((assignment) => assignment.marketId === market.id)) continue;
+      const sourceMarketId = market.marketId ?? market.id;
+      if (campaign.assignments?.some((assignment) => assignment.marketId === sourceMarketId)) continue;
       const current = ensure(gmName);
       if (!current) continue;
       current.total += 1;
@@ -7366,7 +7405,7 @@ export default function FbManagementPage() {
         for (const batchGroup of statusBatchGroups) {
           for (const batch of batchGroup) {
             exportVisitStatusByCampaignId[batch.campaignId] = Object.fromEntries(
-              batch.markets.map((status) => [status.marketId, status]),
+              batch.markets.map((status) => [getCampaignVisitStatusRowId(status), status]),
             );
           }
         }
@@ -7383,7 +7422,8 @@ export default function FbManagementPage() {
         .map((exportCampaign) => {
           const statuses = exportVisitStatusByCampaignId[exportCampaign.id] ?? {};
           const assignments = exportCampaign.assignments.filter((assignment) => {
-            const status = statuses[assignment.marketId] ?? null;
+            const matchingStatuses = getCampaignVisitStatusesForMarket(statuses, assignment.marketId);
+            const status = matchingStatuses[0] ?? null;
             const market = marketById.get(assignment.marketId);
             const gmCandidates = [
               normalizeExportFilterValue(assignment.gmName),
@@ -7392,7 +7432,7 @@ export default function FbManagementPage() {
             ];
             const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
             const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
-            const submittedOk = !filters.onlySubmitted || Boolean(status?.hasSubmittedVisit);
+            const submittedOk = !filters.onlySubmitted || matchingStatuses.some((entry) => entry.hasSubmittedVisit);
             return gmOk && regionOk && submittedOk;
           });
           const marketIds = Array.from(new Set(assignments.map((assignment) => assignment.marketId)));
@@ -7404,8 +7444,8 @@ export default function FbManagementPage() {
       for (const exportCampaign of filteredCampaigns) {
         const marketIdSet = new Set(exportCampaign.marketIds);
         filteredVisitStatusByCampaignId[exportCampaign.id] = Object.fromEntries(
-          Object.entries(exportVisitStatusByCampaignId[exportCampaign.id] ?? {}).filter(([marketId, status]) =>
-            marketIdSet.has(marketId) && (!filters.onlySubmitted || Boolean(status.hasSubmittedVisit)),
+          Object.entries(exportVisitStatusByCampaignId[exportCampaign.id] ?? {}).filter(([, status]) =>
+            marketIdSet.has(status.marketId) && (!filters.onlySubmitted || Boolean(status.hasSubmittedVisit)),
           ),
         );
       }
@@ -8677,8 +8717,12 @@ export default function FbManagementPage() {
         {/* Grey header row — Zugewiesene Märkte + all controls */}
         <div style={{ padding: "11px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>Zugewiesene Märkte</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>{assignedMarkets.length} Märkte gesamt</span>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>
+              {campaign?.section === "kuehler" ? "Zugewiesene Kühler" : "Zugewiesene Märkte"}
+            </span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>
+              {assignedMarkets.length} {campaign?.section === "kuehler" ? "Kühler" : "Märkte"} gesamt
+            </span>
             {isVisitStatusLoading && (
               <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.42)" }}>Besuchsstatus lädt...</span>
             )}
@@ -8783,7 +8827,8 @@ export default function FbManagementPage() {
             </div>
           )}
           {visibleFilteredMarkets.map((m) => {
-            const visitStatus = campaignVisitStatusByMarket[m.id] ?? null;
+            const marketIdForMutation = m.marketId ?? m.id;
+            const visitStatus = campaignVisitStatusByMarket[m.id] ?? campaignVisitStatusByMarket[marketIdForMutation] ?? null;
             const rowStatusLoading = Boolean(campaign && !campaign.statusLoaded && (campaign.statusLoading || isVisitStatusLoading));
             return (
               <MarketRow
@@ -8792,18 +8837,18 @@ export default function FbManagementPage() {
                 visitStatus={visitStatus}
                 statusLoading={rowStatusLoading}
                 mode={marketEditMode}
-                isRemoving={removingIds.includes(m.id)}
-                isEntering={enteringIds.includes(m.id)}
-                onRemove={() => handleRemoveMarket(m.id)}
+                isRemoving={removingIds.includes(marketIdForMutation)}
+                isEntering={enteringIds.includes(marketIdForMutation)}
+                onRemove={() => handleRemoveMarket(marketIdForMutation)}
                 removeDisabled={campaignBusy}
                 onClick={visitStatus?.hasSubmittedVisit && marketEditMode === "idle" ? () => setSelectedMarket(m.id) : undefined}
               />
             );
           })}
           {selectedMarket && (() => {
-            const m = marketsData.find((x) => x.id === selectedMarket);
+            const m = selectedMarketId ? marketsData.find((x) => x.id === selectedMarketId) : null;
             if (!m) return null;
-            const visitStatus = campaignVisitStatusByMarket[m.id] ?? null;
+            const visitStatus = selectedVisitStatus ?? campaignVisitStatusByMarket[m.id] ?? null;
             if (!campaignId || !visitStatus?.hasSubmittedVisit) return null;
             const retryDetail = () => {
               void refreshMarketVisitDetail(campaignId, m.id, visitStatus.sessionId, { force: true });

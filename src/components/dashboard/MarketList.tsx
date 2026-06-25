@@ -284,6 +284,97 @@ function CampaignRow({
   );
 }
 
+export type GmMarketDetailCampaignChoice = {
+  key: string;
+  campaignId: string;
+  campaignName: string;
+  section: GmMarketDetailSection;
+  kuehlerUnitId?: string | null;
+  kuehlerNumber?: string | null;
+  done?: boolean;
+  doneDate?: string;
+  isStartable?: boolean;
+};
+
+function CampaignChoiceRow({
+  choice,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  choice: GmMarketDetailCampaignChoice;
+  selected: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  const done = Boolean(choice.done);
+  const unitLabel = choice.kuehlerNumber?.trim() || "Kühler";
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onSelect}
+      style={{
+        border: selected ? "1px solid rgba(220,38,38,0.42)" : "1px solid rgba(15,23,42,0.07)",
+        background: selected ? "rgba(220,38,38,0.055)" : disabled ? "rgba(15,23,42,0.025)" : "#fff",
+        borderRadius: 13,
+        padding: "11px 12px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.62 : 1,
+        textAlign: "left",
+        fontFamily: "inherit",
+      }}
+    >
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span
+            style={{
+              fontSize: 8,
+              fontWeight: 700,
+              color: "#b45309",
+              background: "rgba(245,158,11,0.10)",
+              borderRadius: 999,
+              padding: "3px 7px",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {sectionLabel(choice.section)}
+          </span>
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 800,
+              color: "rgba(15,23,42,0.62)",
+              background: "rgba(15,23,42,0.045)",
+              borderRadius: 999,
+              padding: "3px 7px",
+              letterSpacing: "0.01em",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {unitLabel}
+          </span>
+          {done && <Check size={12} color="#16a34a" />}
+        </span>
+        <span style={{ display: "block", marginTop: 6, fontSize: 11, fontWeight: 700, color: "rgba(15,23,42,0.86)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {choice.campaignName}
+        </span>
+      </span>
+      <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+        <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: done ? "#16a34a" : "rgba(15,23,42,0.82)" }}>{done ? "1/1" : "0/1"}</span>
+        <span style={{ display: "block", marginTop: 1, fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.38)" }}>
+          {done ? (choice.doneDate || "fertig") : "offen"}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export function GmMarketDetailModal({
   market,
   detail,
@@ -291,11 +382,14 @@ export function GmMarketDetailModal({
   error,
   sectionFilter,
   selectedCampaignIds,
+  campaignChoices,
+  selectedCampaignChoiceKey,
   isLaunching,
   dayStarted,
   dayGateLoading,
   launchError,
   onToggleCampaign,
+  onSelectCampaignChoice,
   onStart,
   onContinueDraft,
   onClose,
@@ -306,11 +400,14 @@ export function GmMarketDetailModal({
   error: string | null;
   sectionFilter?: GmMarketDetailSection[];
   selectedCampaignIds: string[];
+  campaignChoices?: GmMarketDetailCampaignChoice[];
+  selectedCampaignChoiceKey?: string | null;
   isLaunching: boolean;
   dayStarted: boolean;
   dayGateLoading: boolean;
   launchError: string | null;
   onToggleCampaign: (campaignId: string) => void;
+  onSelectCampaignChoice?: (choice: GmMarketDetailCampaignChoice) => void;
   onStart: () => void;
   onContinueDraft: (sessionId: string, campaignIds: string[]) => void;
   onClose: () => void;
@@ -340,13 +437,22 @@ export function GmMarketDetailModal({
       }))
       .filter((visit) => visit.sections.length > 0) ?? [];
   const selectableCampaigns = visibleCampaigns.filter((campaign) => campaign.isStartable);
+  const visibleCampaignChoices =
+    campaignChoices?.filter((choice) => !allowedSections || allowedSections.has(choice.section)) ?? [];
+  const hasCampaignChoices = visibleCampaignChoices.length > 0;
+  const selectableCampaignChoiceCount = visibleCampaignChoices.filter((choice) => choice.isStartable !== false && !choice.done).length;
+  const selectedCampaignChoice = hasCampaignChoices
+    ? visibleCampaignChoices.find((choice) => choice.key === selectedCampaignChoiceKey) ?? null
+    : null;
   const startDisabled =
     isLoading ||
     isLaunching ||
     dayGateLoading ||
     !dayStarted ||
     selectedCampaignIds.length === 0 ||
-    selectableCampaigns.length === 0;
+    (hasCampaignChoices
+      ? !selectedCampaignChoice || selectedCampaignChoice.done || selectedCampaignChoice.isStartable === false || selectableCampaignChoiceCount === 0
+      : selectableCampaigns.length === 0);
 
   if (!mounted) return null;
 
@@ -510,10 +616,20 @@ export function GmMarketDetailModal({
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.86)" }}>Kampagnen</div>
               <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.36)" }}>
-                {selectableCampaigns.length} auswählbar
+                {hasCampaignChoices ? selectableCampaignChoiceCount : selectableCampaigns.length} auswählbar
               </div>
             </div>
-            {visibleCampaigns.length ? (
+            {hasCampaignChoices ? (
+              visibleCampaignChoices.map((choice) => (
+                <CampaignChoiceRow
+                  key={choice.key}
+                  choice={choice}
+                  selected={selectedCampaignChoiceKey === choice.key}
+                  disabled={choice.isStartable === false || Boolean(choice.done) || isLaunching}
+                  onSelect={() => onSelectCampaignChoice?.(choice)}
+                />
+              ))
+            ) : visibleCampaigns.length ? (
               visibleCampaigns.map((campaign) => (
                 <CampaignRow
                   key={campaign.campaignId}

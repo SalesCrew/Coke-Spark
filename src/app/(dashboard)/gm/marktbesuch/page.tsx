@@ -26,6 +26,7 @@ import {
   type GmVisitStartSection,
 } from "@/lib/api/backend";
 import { getPhotoTagPoolStorageKey } from "@/utils/photoTags";
+import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 import { computeHiddenQuestionIds as computeRuleHiddenQuestionIds } from "@/lib/conditional-visibility";
 import {
   ChevronLeft,
@@ -78,6 +79,8 @@ interface SampleQuestion {
   rules?: Array<Record<string, unknown>>;
   chains?: string[];
   appliesToMarketChain?: boolean;
+  singleChoiceAvailability?: boolean | null;
+  singleChoiceAvailabilityType?: string | null;
   // type-specific config
   config?: {
     // likert
@@ -125,6 +128,8 @@ function mapVisitQuestionToSample(
     rules: question.rules ?? [],
     chains: question.chains ?? [],
     appliesToMarketChain: question.appliesToMarketChain ?? true,
+    singleChoiceAvailability: question.singleChoiceAvailability ?? null,
+    singleChoiceAvailabilityType: question.singleChoiceAvailabilityType ?? null,
     config,
   };
 }
@@ -682,6 +687,7 @@ const DEFAULT_KUEHLER_QUESTIONS: SampleQuestion[] = [
     moduleId: "k-m1",
     moduleName: "Befüllung",
     imageUrl: "https://picsum.photos/seed/kuehler/400/280",
+    singleChoiceAvailability: true,
   },
   {
     id: "k2",
@@ -1916,6 +1922,7 @@ function QuestionCard({
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           {question.options.map((opt) => {
             const selected = answer === opt;
+            const optionLabel = question.singleChoiceAvailability ? formatAvailabilityLabel(opt) : opt;
             return (
               <button
                 key={opt}
@@ -1940,7 +1947,7 @@ function QuestionCard({
                 }}>
                   {selected && <Check size={8} strokeWidth={3} color="#fff" />}
                 </div>
-                {opt}
+                {optionLabel}
               </button>
             );
           })}
@@ -3235,6 +3242,7 @@ function MarktbesuchInner() {
   const marketId = params.get("marketId") || "";
   const campaignIdsParam = params.get("campaignIds") || "";
   const sessionIdFromParams = params.get("sessionId") || "";
+  const kuehlerUnitId = params.get("kuehlerUnitId") || "";
   const paramsString = params.toString();
   const campaignIds = useMemo(
     () =>
@@ -3554,7 +3562,7 @@ function MarktbesuchInner() {
 
   useEffect(() => {
     if (!hasVisitStartParams || visitBootstrapDone) return;
-    const runKey = `${marketId}|${campaignIdsParam}|${sessionIdFromParams.trim()}|${visitStartRetryNonce}`;
+    const runKey = `${marketId}|${campaignIdsParam}|${sessionIdFromParams.trim()}|${kuehlerUnitId}|${visitStartRetryNonce}`;
     if (bootstrapRunKeyRef.current === runKey) return;
     bootstrapRunKeyRef.current = runKey;
     let active = true;
@@ -3577,10 +3585,10 @@ function MarktbesuchInner() {
     }
 
     if (!resumeId) {
-      const preloaded = readGmVisitStartPreloadCache({ marketId, campaignIds });
+      const preloaded = readGmVisitStartPreloadCache({ marketId, campaignIds, kuehlerUnitId });
       if (preloaded && Array.isArray(preloaded.sections)) {
         hydrateFromStartPayload(preloaded);
-        clearGmVisitStartPreloadCache({ marketId, campaignIds });
+        clearGmVisitStartPreloadCache({ marketId, campaignIds, kuehlerUnitId });
         setVisitStartError(null);
         setVisitStartLoading(false);
         setVisitBootstrapDone(true);
@@ -3602,7 +3610,7 @@ function MarktbesuchInner() {
           return;
         }
 
-        const activeVisit = await fetchActiveGmVisitSession({ marketId, campaignIds });
+        const activeVisit = await fetchActiveGmVisitSession({ marketId, campaignIds, kuehlerUnitId });
         if (isStale()) return;
         if (activeVisit?.session?.id) {
           const hydratedPayload = await fetchGmVisitSession(activeVisit.session.id);
@@ -3612,7 +3620,7 @@ function MarktbesuchInner() {
           return;
         }
 
-        const payload = await fetchGmVisitStartPayload(marketId, campaignIds);
+        const payload = await fetchGmVisitStartPayload(marketId, campaignIds, { kuehlerUnitId });
         if (isStale()) return;
         hydrateFromStartPayload(payload);
         setVisitBootstrapDone(true);
@@ -3640,6 +3648,7 @@ function MarktbesuchInner() {
     hasVisitStartParams,
     hydrateFromSessionPayload,
     hydrateFromStartPayload,
+    kuehlerUnitId,
     marketId,
     sessionIdFromParams,
     visitBootstrapDone,
@@ -4500,6 +4509,7 @@ function MarktbesuchInner() {
       const created = await createGmVisitSession({
         marketId,
         campaignIds,
+        kuehlerUnitId: kuehlerUnitId || undefined,
         clientSessionToken,
         startedAt: clientStartedAt,
       });
@@ -4540,6 +4550,7 @@ function MarktbesuchInner() {
       const created = await createGmVisitSession({
         marketId,
         campaignIds,
+        kuehlerUnitId: kuehlerUnitId || undefined,
         clientSessionToken,
         startedAt: clientStartedAt,
       });

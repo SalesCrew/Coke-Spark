@@ -22,6 +22,7 @@ import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import {
   GmMarketDetailModal,
   toMarketListEntry,
+  type GmMarketDetailCampaignChoice,
   type GmDashboardMarket,
 } from "./MarketList";
 
@@ -29,6 +30,8 @@ interface KuehlerMarket {
   marketId?: string;
   campaignId?: string;
   campaignName?: string;
+  kuehlerUnitId?: string | null;
+  kuehlerNumber?: string | null;
   chain: string;
   address: string;
   stammnr?: string | null;
@@ -100,6 +103,26 @@ function StammnrValue({ value }: { value?: string | null }) {
   );
 }
 
+function KuehlerNumberValue({ value }: { value?: string | null }) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  return (
+    <span
+      className="text-[8px] tabular-nums shrink-0 ml-2"
+      style={{ color: "rgba(217,119,6,0.82)", fontWeight: 750, letterSpacing: "0.01em" }}
+    >
+      {trimmed}
+    </span>
+  );
+}
+
+function getKuehlerChoiceKey(entry: Pick<KuehlerMarket, "campaignId" | "kuehlerUnitId" | "kuehlerNumber" | "address">, index = 0) {
+  return [
+    entry.campaignId ?? "campaign",
+    entry.kuehlerUnitId ?? entry.kuehlerNumber ?? entry.address ?? `row-${index}`,
+  ].join("__");
+}
+
 type Tab = "kuehler" | "mhd";
 const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
@@ -138,6 +161,7 @@ export function KuehlerInventurCard({
   const [marketDetailLoading, setMarketDetailLoading] = useState(false);
   const [marketDetailError, setMarketDetailError] = useState<string | null>(null);
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
+  const [selectedKuehlerUnitId, setSelectedKuehlerUnitId] = useState<string | null>(null);
   const [dayStarted, setDayStarted] = useState(false);
   const [dayGateLoading, setDayGateLoading] = useState(true);
   const [isLaunching, setIsLaunching] = useState(false);
@@ -266,6 +290,8 @@ export function KuehlerInventurCard({
     marketId: entry.marketId,
     campaignId: entry.campaignId,
     campaignName: entry.campaignName,
+    kuehlerUnitId: entry.kuehlerUnitId ?? null,
+    kuehlerNumber: entry.kuehlerNumber ?? null,
     chain: entry.chain,
     address: entry.address,
     stammnr: entry.stammnr,
@@ -276,6 +302,8 @@ export function KuehlerInventurCard({
     marketId: entry.marketId,
     campaignId: entry.campaignId,
     campaignName: entry.campaignName,
+    kuehlerUnitId: entry.kuehlerUnitId ?? null,
+    kuehlerNumber: entry.kuehlerNumber ?? null,
     chain: entry.chain,
     address: entry.address,
     stammnr: entry.stammnr,
@@ -319,7 +347,10 @@ export function KuehlerInventurCard({
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
-        (m) => m.chain.toLowerCase().includes(q) || m.address.toLowerCase().includes(q)
+        (m) =>
+          m.chain.toLowerCase().includes(q) ||
+          m.address.toLowerCase().includes(q) ||
+          String(m.kuehlerNumber ?? "").toLowerCase().includes(q),
       );
     }
     const pending = list.filter((m) => !m.done);
@@ -327,12 +358,44 @@ export function KuehlerInventurCard({
     return { pending, done };
   }, [search, activeMarkets]);
 
+  const kuehlerCampaignChoices = useMemo<GmMarketDetailCampaignChoice[]>(() => {
+    if (activeTab !== "kuehler" || !selectedMarket) return [];
+    return mappedKuehlerMarkets
+      .filter((entry) => entry.marketId === selectedMarket.id && Boolean(entry.campaignId))
+      .map((entry, index) => ({
+        key: getKuehlerChoiceKey(entry, index),
+        campaignId: entry.campaignId ?? "",
+        campaignName: entry.campaignName || "Kühlerinventur",
+        section: "kuehler" as const,
+        kuehlerUnitId: entry.kuehlerUnitId ?? null,
+        kuehlerNumber: entry.kuehlerNumber ?? entry.stammnr ?? null,
+        done: entry.done,
+        doneDate: entry.doneDate,
+        isStartable: !entry.done,
+      }));
+  }, [activeTab, mappedKuehlerMarkets, selectedMarket]);
+
+  const selectedKuehlerChoiceKey =
+    activeTab === "kuehler" && selectedCampaignIds[0]
+      ? kuehlerCampaignChoices.find(
+          (choice) =>
+            choice.campaignId === selectedCampaignIds[0] &&
+            (choice.kuehlerUnitId ?? null) === (selectedKuehlerUnitId ?? null),
+        )?.key ?? null
+      : null;
+
+  const selectKuehlerChoice = useCallback((choice: GmMarketDetailCampaignChoice) => {
+    setSelectedCampaignIds([choice.campaignId]);
+    setSelectedKuehlerUnitId(choice.kuehlerUnitId ?? null);
+  }, []);
+
   const closeMarketDetail = useCallback(() => {
     if (isLaunching) return;
     setSelectedMarket(null);
     setMarketDetail(null);
     setMarketDetailError(null);
     setSelectedCampaignIds([]);
+    setSelectedKuehlerUnitId(null);
     setLaunchError(null);
   }, [isLaunching]);
 
@@ -341,6 +404,7 @@ export function KuehlerInventurCard({
     setMarketDetail(null);
     setSelectedMarket(null);
     setSelectedCampaignIds([]);
+    setSelectedKuehlerUnitId(activeTab === "kuehler" ? market.kuehlerUnitId ?? null : null);
     setMarketDetailError(null);
     setLaunchError(null);
     setMarketDetailLoading(true);
@@ -430,7 +494,7 @@ export function KuehlerInventurCard({
   }, [blockedActiveOpening, blockedActiveVisit, router]);
 
   const launchVisit = useCallback(
-    async (market: GmDashboardMarket, campaignIds: string[], sessionId?: string) => {
+    async (market: GmDashboardMarket, campaignIds: string[], sessionId?: string, kuehlerUnitId?: string | null) => {
       if (!dayStarted) {
         setLaunchError("Bitte zuerst den Arbeitstag starten.");
         return;
@@ -453,6 +517,7 @@ export function KuehlerInventurCard({
           const activeVisit = await fetchActiveGmVisitSession({
             marketId: market.id,
             campaignIds,
+            kuehlerUnitId,
           });
           if (activeVisit.session?.id) {
             const payload = await fetchGmVisitSession(activeVisit.session.id);
@@ -465,17 +530,19 @@ export function KuehlerInventurCard({
               setBlockedActiveVisit(latestActiveVisit as GmVisitSessionPayload);
               return;
             }
-            const payload = await fetchGmVisitStartPayload(market.id, campaignIds);
+            const payload = await fetchGmVisitStartPayload(market.id, campaignIds, { kuehlerUnitId });
             setGmVisitStartPreloadCache({
               marketId: market.id,
               campaignIds,
+              kuehlerUnitId,
               payload,
             });
           }
         }
 
+        const kuehlerUnitParam = kuehlerUnitId ? `&kuehlerUnitId=${encodeURIComponent(kuehlerUnitId)}` : "";
         router.push(
-          `/gm/marktbesuch?chain=${encodeURIComponent(market.chain)}&address=${encodeURIComponent(market.address)}&marketId=${encodeURIComponent(market.id)}&campaignIds=${encodeURIComponent(campaignIds.join(","))}${sessionParam}`,
+          `/gm/marktbesuch?chain=${encodeURIComponent(market.chain)}&address=${encodeURIComponent(market.address)}&marketId=${encodeURIComponent(market.id)}&campaignIds=${encodeURIComponent(campaignIds.join(","))}${sessionParam}${kuehlerUnitParam}`,
         );
       } catch {
         setIsLaunching(false);
@@ -487,8 +554,8 @@ export function KuehlerInventurCard({
 
   const handleStartSelected = useCallback(() => {
     if (!selectedMarket) return;
-    void launchVisit(selectedMarket, selectedCampaignIds);
-  }, [launchVisit, selectedCampaignIds, selectedMarket]);
+    void launchVisit(selectedMarket, selectedCampaignIds, undefined, activeTab === "kuehler" ? selectedKuehlerUnitId : null);
+  }, [activeTab, launchVisit, selectedCampaignIds, selectedKuehlerUnitId, selectedMarket]);
 
   const handleContinueDraft = useCallback(
     (sessionId: string, campaignIds: string[]) => {
@@ -744,7 +811,10 @@ export function KuehlerInventurCard({
                         </span>
                         <span className="text-[9px] font-medium text-gray-500 truncate">{m.address}</span>
                       </div>
-                      <StammnrValue value={m.stammnr} />
+                      <div className="flex items-center shrink-0">
+                        <KuehlerNumberValue value={activeTab === "kuehler" ? m.kuehlerNumber : null} />
+                        <StammnrValue value={m.stammnr} />
+                      </div>
                     </div>
                   );
                 })}
@@ -790,6 +860,7 @@ export function KuehlerInventurCard({
                         <span className="text-[9px] font-medium text-gray-500 truncate">{m.address}</span>
                       </div>
                       <div className="flex items-center shrink-0">
+                        <KuehlerNumberValue value={activeTab === "kuehler" ? m.kuehlerNumber : null} />
                         <StammnrValue value={m.stammnr} />
                         <span className="text-[8px] tabular-nums shrink-0 ml-2" style={{ color: "rgba(5,150,105,0.72)", fontWeight: 650 }}>{m.doneDate}</span>
                       </div>
@@ -821,11 +892,14 @@ export function KuehlerInventurCard({
           error={marketDetailError}
           sectionFilter={[activeTab]}
           selectedCampaignIds={selectedCampaignIds}
+          campaignChoices={activeTab === "kuehler" ? kuehlerCampaignChoices : undefined}
+          selectedCampaignChoiceKey={activeTab === "kuehler" ? selectedKuehlerChoiceKey : undefined}
           isLaunching={isLaunching}
           dayStarted={dayStarted}
           dayGateLoading={dayGateLoading}
           launchError={launchError}
           onToggleCampaign={toggleCampaign}
+          onSelectCampaignChoice={selectKuehlerChoice}
           onStart={handleStartSelected}
           onContinueDraft={handleContinueDraft}
           onClose={closeMarketDetail}

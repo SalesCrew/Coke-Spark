@@ -80,7 +80,14 @@ export function FuellstandCard() {
   const [intervalMode, setIntervalMode] = useState<IntervalMode>("redmonth");
   const [selectedIntervalId, setSelectedIntervalId] = useState<string | null>(null);
   const [highlightedTypeKey, setHighlightedTypeKey] = useState<FuellstandTypeKey | null>(null);
-  const [filters, setFilters] = useState<IppFilterState>({
+  const [inventoryFilters, setInventoryFilters] = useState<IppFilterState>({
+    region: null,
+    gmId: null,
+    chain: null,
+    marketId: null,
+    stc: null,
+  });
+  const [chartFilters, setChartFilters] = useState<IppFilterState>({
     region: null,
     gmId: null,
     chain: null,
@@ -161,30 +168,44 @@ export function FuellstandCard() {
     return Array.from(unique).sort((left, right) => left.localeCompare(right, "de"));
   }, [markets]);
 
-  const filterScope: FuellstandFilterScope = {
-    region: filters.region,
-    gmId: filters.gmId,
-    chain: filters.chain,
-    marketId: filters.marketId,
-    stc: filters.stc,
-  };
+  const inventoryFilterScope = useMemo<FuellstandFilterScope>(
+    () => ({
+      region: inventoryFilters.region,
+      gmId: inventoryFilters.gmId,
+      chain: inventoryFilters.chain,
+      marketId: inventoryFilters.marketId,
+      stc: inventoryFilters.stc,
+    }),
+    [inventoryFilters.chain, inventoryFilters.gmId, inventoryFilters.marketId, inventoryFilters.region, inventoryFilters.stc],
+  );
+
+  const chartFilterScope = useMemo<FuellstandFilterScope>(
+    () => ({
+      region: chartFilters.region,
+      gmId: chartFilters.gmId,
+      chain: chartFilters.chain,
+      marketId: chartFilters.marketId,
+      stc: chartFilters.stc,
+    }),
+    [chartFilters.chain, chartFilters.gmId, chartFilters.marketId, chartFilters.region, chartFilters.stc],
+  );
 
   const series = useMemo(
     () =>
       buildFuellstandSeries({
         intervals,
-        filters: filterScope,
+        filters: chartFilterScope,
       }),
-    [filterScope, intervals],
+    [chartFilterScope, intervals],
   );
 
   const doneProgress = useMemo(
     () =>
       buildDoneProgress({
         selectedIntervalId,
-        filters: filterScope,
+        filters: inventoryFilterScope,
       }),
-    [filterScope, selectedIntervalId],
+    [inventoryFilterScope, selectedIntervalId],
   );
   const distributionSeries = useMemo(
     () =>
@@ -226,43 +247,66 @@ export function FuellstandCard() {
   );
 
   return (
-    <section
+    <div
       style={{
-        background: "rgba(0,0,0,0.025)",
-        border: "1px solid rgba(0,0,0,0.07)",
-        borderRadius: 14,
-        padding: 10,
         display: "flex",
         flexDirection: "column",
         gap: 10,
-        minHeight: 460,
       }}
     >
-      <header
+      <section
         style={{
-          background: "#fff",
-          borderRadius: 12,
-          border: "1px solid rgba(0,0,0,0.06)",
-          boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
-          padding: "10px 12px",
+          background: "rgba(0,0,0,0.025)",
+          borderRadius: 14,
+          border: "1px solid rgba(0,0,0,0.07)",
+          padding: 10,
           display: "flex",
           flexDirection: "column",
-          gap: 8,
         }}
       >
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div>
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: 12,
+            border: "1px solid rgba(0,0,0,0.06)",
+            boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
+            padding: "12px 14px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(220px,0.48fr) minmax(0,2.35fr) minmax(130px,max-content)",
+            alignItems: "start",
+            justifyContent: "stretch",
+            gap: 12,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
               Kühler- und Füllstand auswerten.
             </div>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
-              Füllstand Auswertung
+              Kühlerinventur
             </div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", marginTop: 2 }}>
               {formatAvailabilityLabel("Voll")} · {formatAvailabilityLabel("Mittel")} · {formatAvailabilityLabel("Leer")} zwischen 0% und 100% pro Intervall
             </div>
           </div>
-          <div style={{ textAlign: "right" }}>
+          <div style={{ minWidth: 0, width: "100%", alignSelf: "center", paddingTop: 2 }}>
+            <IppFilterBar
+              filters={inventoryFilters}
+              regions={regionOptions}
+              gms={gms}
+              markets={markets}
+              onChange={setInventoryFilters}
+              compact
+            />
+          </div>
+          <div style={{ textAlign: "right", minWidth: 120 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
               Fokus Intervall
             </div>
@@ -270,6 +314,12 @@ export function FuellstandCard() {
             <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}>{getIntervalDisplayRange(selectedInterval)}</div>
           </div>
         </div>
+
+        {loadError && (
+          <div style={{ borderRadius: 9, border: "1px solid rgba(185,28,28,0.26)", background: "rgba(185,28,28,0.08)", color: "#991b1b", padding: "8px 10px", fontSize: 11, fontWeight: 700 }}>
+            {loadError}
+          </div>
+        )}
 
         <div>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 5 }}>
@@ -294,15 +344,15 @@ export function FuellstandCard() {
             {doneProgress.donePercent}% done · {doneProgress.openCount} offen
           </div>
         </div>
-      </header>
+        </div>
+      </section>
 
-      <div
+      <section
         style={{
-          background: "#fff",
-          borderRadius: 12,
-          border: "1px solid rgba(0,0,0,0.06)",
-          boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
-          padding: 10,
+          background: "rgba(0,0,0,0.025)",
+          borderRadius: 14,
+          border: "1px solid rgba(0,0,0,0.07)",
+          padding: "13px 10px 10px",
           display: "flex",
           flexDirection: "column",
           gap: 10,
@@ -310,27 +360,50 @@ export function FuellstandCard() {
           minHeight: 0,
         }}
       >
-        {loadError && (
-          <div style={{ borderRadius: 9, border: "1px solid rgba(185,28,28,0.26)", background: "rgba(185,28,28,0.08)", color: "#991b1b", padding: "8px 10px", fontSize: 11, fontWeight: 700 }}>
-            {loadError}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 2px 2px" }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              Auswertung
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
+              Füllstand
+            </div>
           </div>
-        )}
+        </div>
 
-        <IppFilterBar
-          filters={filters}
-          regions={regionOptions}
-          gms={gms}
-          markets={markets}
-          onChange={setFilters}
-        />
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: 12,
+            border: "1px solid rgba(0,0,0,0.06)",
+            boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
+            padding: 10,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+          }}
+        >
+          {loadError && (
+            <div style={{ borderRadius: 9, border: "1px solid rgba(185,28,28,0.26)", background: "rgba(185,28,28,0.08)", color: "#991b1b", padding: "8px 10px", fontSize: 11, fontWeight: 700 }}>
+              {loadError}
+            </div>
+          )}
 
-        <IppIntervalToolbar
-          mode={intervalMode}
-          onModeChange={setIntervalMode}
-          intervals={intervals}
-          selectedIntervalId={selectedIntervalId}
-          onSelectInterval={setSelectedIntervalId}
-        />
+          <IppFilterBar
+            filters={chartFilters}
+            regions={regionOptions}
+            gms={gms}
+            markets={markets}
+            onChange={setChartFilters}
+          />
+
+          <IppIntervalToolbar
+            mode={intervalMode}
+            onModeChange={setIntervalMode}
+            intervals={intervals}
+            selectedIntervalId={selectedIntervalId}
+            onSelectInterval={setSelectedIntervalId}
+          />
 
         <section
           style={{
@@ -452,7 +525,8 @@ export function FuellstandCard() {
             Filterquellen werden geladen...
           </div>
         )}
-      </div>
-    </section>
+        </div>
+      </section>
+    </div>
   );
 }

@@ -20,6 +20,7 @@ import { QuestionTypeContextMenu } from "@/components/admin/QuestionTypeContextM
 import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
 import { ExistingQuestionPreviewModal } from "@/components/admin/ExistingQuestionPreviewModal";
 import { cloneQuestionForModuleInsert, hasQuestionInModule } from "@/utils/existingQuestionPicker";
+import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 
 // Yellow accent colours — zero red anywhere in this file
 const Y = "#F59E0B";
@@ -195,7 +196,7 @@ function ConditionalLogicEditor({ rules, onChange, allQuestions, currentIndex }:
         const isBetween = rule.operator === "between";
         const triggerOptions = triggerCandidates.map((q) => ({ value: q.id, label: `Frage ${allQuestions.indexOf(q) + 1}: ${q.text || typeLabel(q.type)}` }));
         const operatorOptions = ops.map((op) => ({ value: op.value, label: op.label }));
-        const answerOptions = valueOpts ? valueOpts.map((v) => ({ value: v, label: v })) : null;
+        const answerOptions = valueOpts ? valueOpts.map((v) => ({ value: v, label: triggerQ?.singleChoiceAvailability ? formatAvailabilityLabel(v) : v })) : null;
         const actionOptions = [{ value: "hide", label: "Verstecke Fragen" }, { value: "show", label: "Zeige Fragen" }];
         return (
           <div key={rule.id} style={{ border: "1px solid rgba(0,0,0,0.05)", borderRadius: 10, padding: "12px 14px 14px", marginBottom: 8, backgroundColor: "#fff" }}>
@@ -310,7 +311,7 @@ function ChoiceConfig({
         {options.map((opt, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             <input
-              type="text" value={opt}
+              type="text" value={disabled ? formatAvailabilityLabel(opt) : opt}
               disabled={disabled}
               onChange={(e) => { const next = [...options]; next[i] = e.target.value; onChange(next); }}
               placeholder={`Option ${i + 1}`}

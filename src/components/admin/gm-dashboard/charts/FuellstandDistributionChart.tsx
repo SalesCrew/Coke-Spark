@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FuellstandTypeKey } from "@/lib/fuellstand-dashboard/mock-data";
+import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 
 type FuellstandDistributionPoint = {
   intervalId: string;
@@ -351,15 +352,15 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
           </div>
           <div style={{ height: tooltipHeight - 19, padding: "7px 10px 6px", display: "grid", gap: 3 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>Voll</span>
+              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>{formatAvailabilityLabel("Voll")}</span>
               <span style={{ fontSize: 11, fontWeight: 800, color: linePalette.voll }}>{hoveredPoint.raw.vollPct.toFixed(1)}%</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>Mittel</span>
+              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>{formatAvailabilityLabel("Mittel")}</span>
               <span style={{ fontSize: 11, fontWeight: 800, color: linePalette.mittel }}>{hoveredPoint.raw.mittelPct.toFixed(1)}%</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>Leer</span>
+              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>{formatAvailabilityLabel("Leer")}</span>
               <span style={{ fontSize: 11, fontWeight: 800, color: linePalette.leer }}>{hoveredPoint.raw.leerPct.toFixed(1)}%</span>
             </div>
             <div style={{ marginTop: 1, fontSize: 8.3, fontWeight: 700, color: "rgba(15,23,42,0.42)", textAlign: "right" }}>

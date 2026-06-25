@@ -29,6 +29,7 @@ import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
 import { ExistingQuestionPreviewModal } from "@/components/admin/ExistingQuestionPreviewModal";
 import { cloneQuestionForModuleInsert, hasQuestionInModule } from "@/utils/existingQuestionPicker";
 import { AvailabilityTypeModal } from "@/components/admin/AvailabilityTypeModal";
+import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 
 // Lime green accent colours
 const G = "#84CC16";
@@ -198,7 +199,7 @@ function FlexConditionalLogicEditor({ rules, onChange, allQuestions, currentInde
         const isBetween = rule.operator === "between";
         const triggerOptions = triggerCandidates.map((q) => ({ value: q.id, label: `Frage ${allQuestions.indexOf(q) + 1}: ${q.text || typeLabel(q.type)}` }));
         const operatorOptions = ops.map((op) => ({ value: op.value, label: op.label }));
-        const answerOptions = valueOpts ? valueOpts.map((v) => ({ value: v, label: v })) : null;
+        const answerOptions = valueOpts ? valueOpts.map((v) => ({ value: v, label: triggerQ?.singleChoiceAvailability ? formatAvailabilityLabel(v) : v })) : null;
         const actionOptions = [{ value: "hide", label: "Verstecke Fragen" }, { value: "show", label: "Zeige Fragen" }];
         return (
           <div key={rule.id} style={{ border: "1px solid rgba(0,0,0,0.05)", borderRadius: 10, padding: "12px 14px 14px", marginBottom: 8, backgroundColor: "#fff" }}>
@@ -307,7 +308,7 @@ function FlexChoiceConfig({
         {options.map((opt, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             <input
-              type="text" value={opt}
+              type="text" value={disabled ? formatAvailabilityLabel(opt) : opt}
               disabled={disabled}
               onChange={(e) => { const next = [...options]; next[i] = e.target.value; onChange(next); }}
               placeholder={`Option ${i + 1}`}
@@ -682,10 +683,11 @@ function FlexScoringEditor({ question, onUpdate }: { question: Question; onUpdat
               {scoringOptions.map((opt, i) => {
                 const key = opt || `__opt_${i}__`;
                 const w = scoring[key] ?? {};
+                const optionLabel = question.singleChoiceAvailability ? formatAvailabilityLabel(opt) : opt;
                 return (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                     <span style={{ flex: 1, fontSize: 11, color: opt ? "#374151" : "rgba(0,0,0,0.28)", fontStyle: opt ? "normal" : "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {opt || `Option ${i + 1}`}
+                      {optionLabel || `Option ${i + 1}`}
                     </span>
                     <input type="number" step="0.1" value={w.ipp !== undefined ? String(w.ipp) : ""} onChange={(e) => setWeight(key, "ipp", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
                     <span style={{ width: 8 }} />

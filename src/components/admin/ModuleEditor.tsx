@@ -29,6 +29,7 @@ import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
 import { ExistingQuestionPreviewModal } from "@/components/admin/ExistingQuestionPreviewModal";
 import { cloneQuestionForModuleInsert, hasQuestionInModule } from "@/utils/existingQuestionPicker";
 import { AvailabilityTypeModal } from "@/components/admin/AvailabilityTypeModal";
+import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 
 let _qid = 0;
 function nextId(): string {
@@ -457,7 +458,7 @@ function ConditionalLogicEditor({
         }));
 
         const answerOptions = valueOpts
-          ? valueOpts.map((v) => ({ value: v, label: v }))
+          ? valueOpts.map((v) => ({ value: v, label: triggerQ?.singleChoiceAvailability ? formatAvailabilityLabel(v) : v }))
           : null;
 
         const actionOptions = [
@@ -809,7 +810,7 @@ function ChoiceConfig({
           >
             <input
               type="text"
-              value={opt}
+              value={disabled ? formatAvailabilityLabel(opt) : opt}
               disabled={disabled}
               onChange={(e) => {
                 const next = [...options];
@@ -1455,6 +1456,7 @@ function ScoringEditor({
               {scoringOptions.map((opt, i) => {
                 const key = opt || `__opt_${i}__`;
                 const w = scoring[key] ?? {};
+                const optionLabel = question.singleChoiceAvailability ? formatAvailabilityLabel(opt) : opt;
                 return (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                     <span style={{
@@ -1463,7 +1465,7 @@ function ScoringEditor({
                       fontStyle: opt ? "normal" : "italic",
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     }}>
-                      {opt || `Option ${i + 1}`}
+                      {optionLabel || `Option ${i + 1}`}
                     </span>
                     <input
                       type="number"

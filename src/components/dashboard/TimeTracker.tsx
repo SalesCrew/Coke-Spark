@@ -9,7 +9,6 @@ import {
   endDaySession,
   fetchTodaySubmissions,
   fetchCurrentDaySession,
-  patchDaySessionReviewEdits,
   readAuthSession,
   setDaySessionEndKm,
   setDaySessionStartKm,
@@ -806,10 +805,7 @@ export function TimeTracker(_: TimeTrackerProps) {
         });
       }
 
-      if (edits.length > 0) {
-        await patchDaySessionReviewEdits({ sessionId: daySession.id, edits });
-      }
-      const submitResult = await submitDaySession();
+      const submitResult = await submitDaySession({ reviewEdits: edits });
       persistLocalDaySessionFromBackend(submitResult.session);
       setDaySession(submitResult.session);
       notifyDaySessionUpdated();

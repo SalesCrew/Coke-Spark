@@ -19,6 +19,7 @@ import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalT
 import { FuellstandLineChart } from "@/components/admin/gm-dashboard/charts/FuellstandLineChart";
 import { FuellstandDistributionChart } from "@/components/admin/gm-dashboard/charts/FuellstandDistributionChart";
 import { FUELLSTAND_TYPE_CONFIG } from "@/components/admin/gm-dashboard/fuellstand-type-config";
+import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 import {
   buildDoneProgress,
   buildFuellstandSeries,
@@ -258,7 +259,7 @@ export function FuellstandCard() {
               Füllstand Auswertung
             </div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", marginTop: 2 }}>
-              Voll · Mittel · Leer zwischen 0% und 100% pro Intervall
+              {formatAvailabilityLabel("Voll")} · {formatAvailabilityLabel("Mittel")} · {formatAvailabilityLabel("Leer")} zwischen 0% und 100% pro Intervall
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -407,7 +408,7 @@ export function FuellstandCard() {
                   Score
                 </span>
                 <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.52)" }}>
-                  Voll 100 · Mittel 50 · Leer 0
+                  {formatAvailabilityLabel("Voll")} 100 · {formatAvailabilityLabel("Mittel")} 50 · {formatAvailabilityLabel("Leer")} 0
                 </span>
               </div>
             </div>

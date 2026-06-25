@@ -25,6 +25,7 @@ import {
   type FuellstandFilterScope,
   type FuellstandTypeKey,
 } from "@/lib/fuellstand-dashboard/mock-data";
+import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 import {
   buildPlatzierungenSeries,
   type PlatzierungenFilterScope,
@@ -736,9 +737,9 @@ export async function exportGmDashboardExcel(input?: { exportedBy?: string }) {
           { header: "Label", width: 34, value: (row) => row.point.label },
           { header: "Typ", width: 16, value: (row) => row.typeKey },
           { header: "Score", width: 10, value: (row) => row.score, align: "right", numberFormat: "0.0" },
-          { header: "Voll", width: 10, value: (row) => row.counts.voll, align: "right" },
-          { header: "Mittel", width: 10, value: (row) => row.counts.mittel, align: "right" },
-          { header: "Leer", width: 10, value: (row) => row.counts.leer, align: "right" },
+          { header: formatAvailabilityLabel("Voll"), width: 10, value: (row) => row.counts.voll, align: "right" },
+          { header: formatAvailabilityLabel("Mittel"), width: 12, value: (row) => row.counts.mittel, align: "right" },
+          { header: formatAvailabilityLabel("Leer"), width: 10, value: (row) => row.counts.leer, align: "right" },
           { header: "Gesamt", width: 10, value: (row) => row.counts.total, align: "right" },
         ],
       });

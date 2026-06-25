@@ -13,8 +13,10 @@ import {
   Clock,
   FileText,
   ImageOff,
+  Inbox,
   Loader2,
   MapPin,
+  RefreshCcw,
   Send,
   Search,
   Store,
@@ -24,6 +26,7 @@ import Aurora from "@/components/ui/Aurora";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import {
+  fetchGmAnswerChangeRequests,
   fetchGmCompletedVisitSessions,
   fetchGmVisitSession,
   commitGmVisitPhotos,
@@ -31,6 +34,7 @@ import {
   presignGmVisitPhoto,
   requestGmVisitAnswerChange,
   saveGmVisitAnswer,
+  type GmAnswerChangeRequest,
   type GmCompletedVisitSummary,
   type GmVisitSessionReadPayload,
 } from "@/lib/api/backend";
@@ -183,6 +187,124 @@ function questionTypeLabel(type: VisitQuestion["type"]): string {
   if (type === "photo") return "Foto-Frage";
   if (type === "matrix") return "Matrix";
   return "Frage";
+}
+
+type RequestStatusKind = "empty" | "pending" | "approved" | "rejected" | "mixed" | "cancelled";
+type RequestHistoryGroup = {
+  id: string;
+  marketTitle: string;
+  campaignTitle: string;
+  section: GmAnswerChangeRequest["section"]["section"];
+  createdAt: string;
+  updatedAt: string;
+  status: RequestStatusKind;
+  requests: GmAnswerChangeRequest[];
+};
+
+function requestDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "-";
+  return date.toLocaleString("de-AT", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function requestStatusLabel(status: RequestStatusKind): string {
+  if (status === "pending") return "Ausstehend";
+  if (status === "approved") return "Angenommen";
+  if (status === "rejected") return "Abgelehnt";
+  if (status === "mixed") return "Teilweise angenommen";
+  if (status === "cancelled") return "Zurückgezogen";
+  return "Keine Anfrage";
+}
+
+function answerSnapshotPreview(snapshot: Record<string, unknown>): string {
+  const options = Array.isArray(snapshot.options)
+    ? snapshot.options
+        .map((entry) => {
+          if (isPlainRecord(entry) && "optionValue" in entry) return String(entry.optionValue ?? "").trim();
+          return String(entry ?? "").trim();
+        })
+        .filter(Boolean)
+    : [];
+  if (options.length > 0) return options.join(", ");
+
+  const text = typeof snapshot.valueText === "string" ? snapshot.valueText.trim() : "";
+  if (text) return text;
+  if (snapshot.valueNumber !== null && snapshot.valueNumber !== undefined) return String(snapshot.valueNumber);
+
+  const photos = Array.isArray(snapshot.photos) ? snapshot.photos : [];
+  if (photos.length > 0) return `${photos.length} Foto${photos.length === 1 ? "" : "s"}`;
+
+  const matrixCells = Array.isArray(snapshot.matrixCells) ? snapshot.matrixCells : [];
+  if (matrixCells.length > 0) return `${matrixCells.length} Matrixwerte`;
+
+  const json = jsonValuePreview(snapshot.valueJson);
+  return json || "Keine Antwort";
+}
+
+function deriveRequestGroupStatus(requests: GmAnswerChangeRequest[]): RequestStatusKind {
+  if (requests.some((request) => request.status === "pending")) return "pending";
+  const hasApproved = requests.some((request) => request.status === "approved");
+  const hasRejected = requests.some((request) => request.status === "rejected");
+  if (hasApproved && hasRejected) return "mixed";
+  if (hasApproved) return "approved";
+  if (hasRejected) return "rejected";
+  if (requests.some((request) => request.status === "cancelled")) return "cancelled";
+  return "empty";
+}
+
+function buildRequestHistoryGroups(requests: GmAnswerChangeRequest[]): RequestHistoryGroup[] {
+  const bySession = new Map<string, GmAnswerChangeRequest[]>();
+  for (const request of requests) {
+    const key = request.visitSessionId;
+    bySession.set(key, [...(bySession.get(key) ?? []), request]);
+  }
+  return Array.from(bySession.entries())
+    .map(([sessionId, groupRequests]) => {
+      const sorted = [...groupRequests].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      const first = sorted[0];
+      return {
+        id: sessionId,
+        marketTitle: first ? marketTitle(first.market) : "Markt",
+        campaignTitle: first?.section.campaignName || first?.section.fragebogenName || "Fragebogen",
+        section: first?.section.section ?? "standard",
+        createdAt: sorted[sorted.length - 1]?.createdAt ?? first?.createdAt ?? "",
+        updatedAt: first?.updatedAt ?? "",
+        status: deriveRequestGroupStatus(sorted),
+        requests: sorted,
+      };
+    })
+    .sort((a, b) => {
+      if (a.status === "pending" && b.status !== "pending") return -1;
+      if (a.status !== "pending" && b.status === "pending") return 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+}
+
+function RequestStatusIcon({ status, size = 18 }: { status: RequestStatusKind; size?: number }) {
+  if (status === "pending") {
+    return <span className="gm-activity-request-spinner" style={{ width: size, height: size }} aria-hidden="true" />;
+  }
+  if (status === "mixed") {
+    return (
+      <span className="gm-activity-request-icon-pair" aria-hidden="true">
+        <span className="gm-activity-request-icon is-approved"><Check size={size - 8} strokeWidth={3} /></span>
+        <span className="gm-activity-request-icon is-rejected"><X size={size - 8} strokeWidth={3} /></span>
+      </span>
+    );
+  }
+  if (status === "approved") {
+    return <span className="gm-activity-request-icon is-approved" aria-hidden="true"><Check size={size - 7} strokeWidth={3} /></span>;
+  }
+  if (status === "rejected" || status === "cancelled") {
+    return <span className="gm-activity-request-icon is-rejected" aria-hidden="true"><X size={size - 7} strokeWidth={3} /></span>;
+  }
+  return <span className="gm-activity-request-icon is-empty" aria-hidden="true"><Clock size={size - 7} strokeWidth={2.4} /></span>;
 }
 
 function CardShell({ children, style }: { children: ReactNode; style?: CSSProperties }) {
@@ -1191,10 +1313,12 @@ function ReadOnlyVisitViewer({
   payload,
   onClose,
   onPayloadUpdated,
+  onChangeRequestSubmitted,
 }: {
   payload: GmVisitSessionReadPayload;
   onClose: () => void;
   onPayloadUpdated: (payload: GmVisitSessionReadPayload) => void;
+  onChangeRequestSubmitted: () => void;
 }) {
   const questions = useMemo(() => (
     payload.sections
@@ -1323,6 +1447,7 @@ function ReadOnlyVisitViewer({
                   onSubmitted={(message) => {
                     setRequestSuccessByQuestionId((currentMap) => ({ ...currentMap, [current.question.id]: message }));
                     setChangeRequestQuestionId(null);
+                    onChangeRequestSubmitted();
                   }}
                 />
               ) : (
@@ -1386,6 +1511,98 @@ function ReadOnlyVisitViewer({
   );
 }
 
+function ChangeRequestHistoryModal({
+  groups,
+  loading,
+  error,
+  onClose,
+  onRefresh,
+}: {
+  groups: RequestHistoryGroup[];
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="gm-activity-history-backdrop" role="presentation">
+      <section className="gm-activity-history-modal" role="dialog" aria-modal="true" aria-labelledby="gm-request-history-title">
+        <header className="gm-activity-history-head">
+          <div>
+            <span>Änderungen</span>
+            <h2 id="gm-request-history-title">Anfragehistorie</h2>
+            <p>Deine vorgeschlagenen Korrekturen und der aktuelle Prüfstatus.</p>
+          </div>
+          <div className="gm-activity-history-actions">
+            <button type="button" onClick={onRefresh} disabled={loading} aria-label="Anfragen aktualisieren">
+              {loading ? <Loader2 size={14} className="gm-activity-spin" /> : <RefreshCcw size={14} />}
+            </button>
+            <button type="button" onClick={onClose} aria-label="Schließen">
+              <X size={14} />
+            </button>
+          </div>
+        </header>
+
+        {error ? <div className="gm-activity-history-error">{error}</div> : null}
+
+        <div className="gm-activity-history-list">
+          {loading && groups.length === 0 ? (
+            [0, 1, 2].map((item) => (
+              <div key={item} className="gm-activity-history-skeleton gm-activity-skeleton" />
+            ))
+          ) : groups.length === 0 ? (
+            <div className="gm-activity-history-empty">
+              <Inbox size={22} strokeWidth={1.9} />
+              <strong>Noch keine Anfragen</strong>
+              <span>Wenn du eine Änderung vorschlägst, erscheint sie hier.</span>
+            </div>
+          ) : (
+            groups.map((group) => {
+              const accent = sectionColor(group.section);
+              return (
+                <article key={group.id} className="gm-activity-history-group" style={{ "--gm-history-accent": accent } as CSSProperties}>
+                  <div className="gm-activity-history-group-head">
+                    <RequestStatusIcon status={group.status} />
+                    <div>
+                      <strong>{group.marketTitle}</strong>
+                      <span>{sectionLabel(group.section)} · {group.campaignTitle}</span>
+                    </div>
+                    <small>{requestDate(group.updatedAt)}</small>
+                  </div>
+                  <div className="gm-activity-history-status-line">
+                    <span>{requestStatusLabel(group.status)}</span>
+                    <i />
+                    <span>{group.requests.length} Änderung{group.requests.length === 1 ? "" : "en"}</span>
+                  </div>
+                  <div className="gm-activity-history-items">
+                    {group.requests.map((request) => (
+                      <div key={request.id} className="gm-activity-history-item">
+                        <div className="gm-activity-history-item-top">
+                          <RequestStatusIcon status={request.status as RequestStatusKind} size={16} />
+                          <span>{questionTypeLabel(request.questionType)}</span>
+                          <small>{request.status === "pending" ? requestDate(request.createdAt) : requestDate(request.reviewedAt ?? request.updatedAt)}</small>
+                        </div>
+                        <strong>{request.questionText}</strong>
+                        <div className="gm-activity-history-diff">
+                          <span>{answerSnapshotPreview(request.currentAnswerSnapshot)}</span>
+                          <ChevronRight size={12} strokeWidth={2.3} />
+                          <b>{request.requestedAnswerSummary || "Neue Antwort"}</b>
+                        </div>
+                        {request.requestNote ? <p>{request.requestNote}</p> : null}
+                        {request.adminNote ? <p className="gm-activity-history-admin-note">{request.adminNote}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function GmActivityPage() {
   const router = useRouter();
   const [visits, setVisits] = useState<GmCompletedVisitSummary[]>([]);
@@ -1395,6 +1612,10 @@ export default function GmActivityPage() {
   const [sectionFilter, setSectionFilter] = useState<"all" | VisitSection["section"]>("all");
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [viewerPayload, setViewerPayload] = useState<GmVisitSessionReadPayload | null>(null);
+  const [changeRequests, setChangeRequests] = useState<GmAnswerChangeRequest[]>([]);
+  const [changeRequestsLoading, setChangeRequestsLoading] = useState(true);
+  const [changeRequestsError, setChangeRequestsError] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1416,6 +1637,22 @@ export default function GmActivityPage() {
       cancelled = true;
     };
   }, []);
+
+  const loadChangeRequests = useCallback(async () => {
+    setChangeRequestsLoading(true);
+    setChangeRequestsError(null);
+    try {
+      setChangeRequests(await fetchGmAnswerChangeRequests());
+    } catch (err) {
+      setChangeRequestsError(err instanceof Error ? err.message : "Anfragen konnten nicht geladen werden.");
+    } finally {
+      setChangeRequestsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadChangeRequests();
+  }, [loadChangeRequests]);
 
   const stats = useMemo(() => {
     const questionCount = visits.reduce((sum, visit) => sum + visit.totals.questionCount, 0);
@@ -1457,11 +1694,26 @@ export default function GmActivityPage() {
   }, [openingId]);
 
   const sectionOptions: Array<"all" | VisitSection["section"]> = ["all", "standard", "flex", "billa", "kuehler", "mhd"];
+  const requestGroups = useMemo(() => buildRequestHistoryGroups(changeRequests), [changeRequests]);
+  const pendingRequestCount = useMemo(() => changeRequests.filter((request) => request.status === "pending").length, [changeRequests]);
+  const featuredRequestGroup = requestGroups[0] ?? null;
+  const featuredRequestStatus: RequestStatusKind = pendingRequestCount > 0 ? "pending" : featuredRequestGroup?.status ?? "empty";
+  const featuredRequestTitle = changeRequestsLoading && changeRequests.length === 0
+    ? "Anfragen werden geladen"
+    : pendingRequestCount > 0
+      ? `${pendingRequestCount} Anfrage${pendingRequestCount === 1 ? "" : "n"} offen`
+      : featuredRequestGroup
+        ? `Letzte Anfrage: ${requestStatusLabel(featuredRequestGroup.status)}`
+        : "Keine Anfragen";
+  const featuredRequestSubtitle = featuredRequestGroup
+    ? `${featuredRequestGroup.marketTitle} · ${requestDate(featuredRequestGroup.updatedAt)}`
+    : "Historie anzeigen";
 
   return (
     <main className="gm-activity-page">
       <style>{`
         @keyframes gmActivityShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+        @keyframes gmActivitySpin { to { transform: rotate(360deg); } }
         .gm-activity-page {
           min-height: 100vh;
           background: #f5f5f7;
@@ -1491,7 +1743,7 @@ export default function GmActivityPage() {
         }
         .gm-activity-toolbar {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-columns: minmax(190px, 0.72fr) minmax(220px, 0.5fr) auto;
           gap: 12px;
           align-items: center;
           margin-bottom: 14px;
@@ -1516,6 +1768,98 @@ export default function GmActivityPage() {
           font-size: 12px;
           font-weight: 650;
           color: rgba(15,23,42,0.74);
+        }
+        .gm-activity-request-status-card {
+          height: 38px;
+          min-width: 0;
+          border: 0;
+          border-radius: 12px;
+          padding: 0 12px;
+          background: rgba(255,255,255,0.94);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.06), 0 2px 8px rgba(15,23,42,0.035);
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: center;
+          gap: 9px;
+          font-family: inherit;
+          text-align: left;
+          cursor: pointer;
+          transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+        }
+        .gm-activity-request-status-card:hover {
+          transform: translateY(-1px);
+          background: #fff;
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.07), 0 7px 18px rgba(15,23,42,0.065);
+        }
+        .gm-activity-request-status-text {
+          min-width: 0;
+          display: grid;
+          gap: 1px;
+        }
+        .gm-activity-request-status-text strong {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 11px;
+          line-height: 1.1;
+          font-weight: 790;
+          letter-spacing: -0.01em;
+          color: rgba(15,23,42,0.78);
+        }
+        .gm-activity-request-status-text span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 9px;
+          line-height: 1.15;
+          font-weight: 680;
+          color: rgba(15,23,42,0.38);
+        }
+        .gm-activity-request-spinner {
+          display: inline-block;
+          border-radius: 999px;
+          border: 2px solid rgba(217,119,6,0.18);
+          border-top-color: #d97706;
+          animation: gmActivitySpin 0.8s linear infinite;
+        }
+        .gm-activity-spin {
+          animation: gmActivitySpin 0.8s linear infinite;
+        }
+        .gm-activity-request-icon,
+        .gm-activity-request-icon-pair {
+          width: 18px;
+          height: 18px;
+          display: inline-grid;
+          place-items: center;
+          border-radius: 999px;
+          flex: 0 0 auto;
+        }
+        .gm-activity-request-icon.is-approved {
+          color: #059669;
+          background: rgba(5,150,105,0.1);
+          box-shadow: inset 0 0 0 1px rgba(5,150,105,0.16);
+        }
+        .gm-activity-request-icon.is-rejected {
+          color: #dc2626;
+          background: rgba(220,38,38,0.09);
+          box-shadow: inset 0 0 0 1px rgba(220,38,38,0.14);
+        }
+        .gm-activity-request-icon.is-empty {
+          color: rgba(15,23,42,0.35);
+          background: rgba(15,23,42,0.035);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.055);
+        }
+        .gm-activity-request-icon-pair {
+          width: 32px;
+          grid-template-columns: 1fr 1fr;
+          gap: 3px;
+          background: transparent;
+        }
+        .gm-activity-request-icon-pair .gm-activity-request-icon {
+          width: 15px;
+          height: 15px;
         }
         .gm-activity-filter {
           display: inline-flex;
@@ -2852,6 +3196,251 @@ export default function GmActivityPage() {
           flex: 0 0 auto;
           cursor: pointer;
         }
+        .gm-activity-history-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 128;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+          background: rgba(244,244,246,0.56);
+          backdrop-filter: blur(16px);
+        }
+        .gm-activity-history-modal {
+          width: min(660px, 100%);
+          max-height: min(760px, calc(100vh - 44px));
+          border-radius: 24px;
+          border: 1px solid rgba(15,23,42,0.075);
+          background:
+            radial-gradient(circle at 18% 0%, rgba(220,38,38,0.07), transparent 30%),
+            linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.94));
+          box-shadow: 0 28px 80px rgba(15,23,42,0.18), 0 2px 8px rgba(15,23,42,0.055), inset 0 1px 0 rgba(255,255,255,0.86);
+          padding: 16px;
+          display: grid;
+          grid-template-rows: auto auto minmax(0, 1fr);
+          gap: 13px;
+          overflow: hidden;
+        }
+        .gm-activity-history-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 16px;
+          padding: 4px 2px 0;
+        }
+        .gm-activity-history-head span {
+          display: block;
+          margin-bottom: 4px;
+          font-size: 9px;
+          font-weight: 830;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: rgba(220,38,38,0.58);
+        }
+        .gm-activity-history-head h2 {
+          margin: 0;
+          font-size: 22px;
+          line-height: 1.05;
+          font-weight: 790;
+          letter-spacing: -0.03em;
+          color: rgba(15,23,42,0.93);
+        }
+        .gm-activity-history-head p {
+          margin: 6px 0 0;
+          max-width: 430px;
+          font-size: 11px;
+          line-height: 1.45;
+          font-weight: 590;
+          color: rgba(15,23,42,0.46);
+        }
+        .gm-activity-history-actions {
+          display: inline-flex;
+          gap: 7px;
+        }
+        .gm-activity-history-actions button {
+          width: 30px;
+          height: 30px;
+          border: 0;
+          border-radius: 11px;
+          background: rgba(255,255,255,0.9);
+          color: rgba(15,23,42,0.48);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.065), 0 2px 6px rgba(15,23,42,0.045);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        }
+        .gm-activity-history-actions button:disabled {
+          opacity: 0.55;
+          cursor: wait;
+        }
+        .gm-activity-history-error {
+          min-height: 34px;
+          border-radius: 12px;
+          padding: 10px 12px;
+          background: rgba(255,245,245,0.94);
+          box-shadow: inset 0 0 0 1px rgba(220,38,38,0.18);
+          color: #dc2626;
+          font-size: 10px;
+          font-weight: 760;
+        }
+        .gm-activity-history-list {
+          min-height: 0;
+          overflow: auto;
+          display: grid;
+          gap: 10px;
+          padding: 1px 2px 2px;
+          scrollbar-width: none;
+        }
+        .gm-activity-history-list::-webkit-scrollbar {
+          display: none;
+        }
+        .gm-activity-history-empty {
+          min-height: 238px;
+          border-radius: 18px;
+          display: grid;
+          place-items: center;
+          align-content: center;
+          gap: 7px;
+          background: rgba(15,23,42,0.025);
+          color: rgba(15,23,42,0.38);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.055);
+          text-align: center;
+        }
+        .gm-activity-history-empty strong {
+          font-size: 13px;
+          font-weight: 790;
+          color: rgba(15,23,42,0.62);
+        }
+        .gm-activity-history-empty span {
+          max-width: 260px;
+          font-size: 11px;
+          font-weight: 570;
+          line-height: 1.45;
+        }
+        .gm-activity-history-skeleton {
+          height: 112px;
+          border-radius: 17px;
+        }
+        .gm-activity-history-group {
+          border-radius: 18px;
+          padding: 12px;
+          background: rgba(255,255,255,0.78);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.065), 0 2px 8px rgba(15,23,42,0.035);
+          display: grid;
+          gap: 10px;
+        }
+        .gm-activity-history-group-head {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 10px;
+        }
+        .gm-activity-history-group-head strong {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 13px;
+          font-weight: 800;
+          letter-spacing: -0.01em;
+          color: rgba(15,23,42,0.82);
+        }
+        .gm-activity-history-group-head span,
+        .gm-activity-history-group-head small {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 10px;
+          font-weight: 650;
+          color: rgba(15,23,42,0.4);
+        }
+        .gm-activity-history-status-line {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: rgba(15,23,42,0.42);
+          font-size: 9px;
+          font-weight: 780;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .gm-activity-history-status-line i {
+          height: 1px;
+          flex: 1;
+          background: linear-gradient(90deg, color-mix(in srgb, var(--gm-history-accent) 24%, transparent), rgba(15,23,42,0.055));
+        }
+        .gm-activity-history-items {
+          display: grid;
+          gap: 7px;
+        }
+        .gm-activity-history-item {
+          border-radius: 14px;
+          padding: 10px;
+          background: rgba(15,23,42,0.024);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.045);
+          display: grid;
+          gap: 7px;
+        }
+        .gm-activity-history-item-top {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          color: rgba(15,23,42,0.38);
+          font-size: 9px;
+          font-weight: 760;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .gm-activity-history-item-top small {
+          margin-left: auto;
+          font-size: 9px;
+          font-weight: 680;
+          letter-spacing: 0;
+          text-transform: none;
+          color: rgba(15,23,42,0.36);
+        }
+        .gm-activity-history-item > strong {
+          font-size: 12px;
+          line-height: 1.35;
+          font-weight: 760;
+          color: rgba(15,23,42,0.78);
+        }
+        .gm-activity-history-diff {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+          align-items: center;
+          gap: 7px;
+          font-size: 10px;
+          line-height: 1.35;
+          color: rgba(15,23,42,0.44);
+        }
+        .gm-activity-history-diff span,
+        .gm-activity-history-diff b {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .gm-activity-history-diff b {
+          color: rgba(15,23,42,0.78);
+          font-weight: 790;
+        }
+        .gm-activity-history-item p {
+          margin: 0;
+          border-radius: 10px;
+          padding: 8px 9px;
+          background: rgba(255,255,255,0.58);
+          color: rgba(15,23,42,0.48);
+          font-size: 10px;
+          line-height: 1.45;
+          font-weight: 590;
+        }
+        .gm-activity-history-admin-note {
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.055);
+        }
         @media (max-width: 840px) {
           .gm-activity-stat-grid,
           .gm-activity-list {
@@ -2922,6 +3511,13 @@ export default function GmActivityPage() {
               placeholder="Markt, Adresse oder Kampagne suchen..."
             />
           </label>
+          <button type="button" className="gm-activity-request-status-card" onClick={() => setHistoryOpen(true)}>
+            <RequestStatusIcon status={featuredRequestStatus} />
+            <span className="gm-activity-request-status-text">
+              <strong>{featuredRequestTitle}</strong>
+              <span>{featuredRequestSubtitle}</span>
+            </span>
+          </button>
           <div className="gm-activity-filter">
             {sectionOptions.map((option) => (
               <button
@@ -2988,6 +3584,17 @@ export default function GmActivityPage() {
           payload={viewerPayload}
           onClose={() => setViewerPayload(null)}
           onPayloadUpdated={setViewerPayload}
+          onChangeRequestSubmitted={() => void loadChangeRequests()}
+        />
+      ) : null}
+
+      {historyOpen ? (
+        <ChangeRequestHistoryModal
+          groups={requestGroups}
+          loading={changeRequestsLoading}
+          error={changeRequestsError}
+          onClose={() => setHistoryOpen(false)}
+          onRefresh={() => void loadChangeRequests()}
         />
       ) : null}
     </main>

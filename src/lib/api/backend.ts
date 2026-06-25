@@ -2151,6 +2151,7 @@ export type AdminAnswerChangeRequest = {
     fragebogenName: string;
   };
 };
+export type GmAnswerChangeRequest = AdminAnswerChangeRequest;
 
 export type CampaignMarketVisitSummary = BackendCampaignMarketVisitSummary;
 export type CampaignMarketVisitStatus = {
@@ -2950,6 +2951,13 @@ export async function requestGmVisitAnswerChange(input: {
       ...(input.requestNote?.trim() ? { requestNote: input.requestNote.trim() } : {}),
     }),
   })) as GmVisitAnswerChangeRequestResult;
+}
+
+export async function fetchGmAnswerChangeRequests(): Promise<GmAnswerChangeRequest[]> {
+  const response = (await authedFetch("/markets/gm/visit-sessions/change-requests", {
+    cache: "no-store",
+  })) as { requests?: GmAnswerChangeRequest[] };
+  return response.requests ?? [];
 }
 
 export async function fetchAdminAnswerChangeRequests(): Promise<AdminAnswerChangeRequest[]> {

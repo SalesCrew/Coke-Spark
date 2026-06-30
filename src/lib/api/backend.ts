@@ -66,6 +66,7 @@ type BackendUser = {
   updatedAt?: string;
   isActive?: boolean;
   deletedAt?: string | null;
+  anonymizedAt?: string | null;
   permissions?: KundePagePermissions | null;
 };
 
@@ -433,6 +434,46 @@ export async function fetchCurrentAuthUser(): Promise<AuthSessionPayload["user"]
   return data.user;
 }
 
+export type EmployeeAgreementSection = {
+  title: string;
+  body: string[];
+};
+
+export type EmployeeAgreementPayload = {
+  agreement: {
+    key: string;
+    version: string;
+    title: string;
+    hash: string;
+    effectiveDate: string;
+    sections: EmployeeAgreementSection[];
+  };
+  accepted: boolean;
+  acceptance: {
+    acceptedAt: string;
+    version: string;
+    hash: string;
+  } | null;
+};
+
+export async function fetchCurrentEmployeeAgreement(): Promise<EmployeeAgreementPayload> {
+  return (await authedFetch("/employee-agreement/current", { cache: "no-store" })) as EmployeeAgreementPayload;
+}
+
+export async function acceptCurrentEmployeeAgreement(version: string): Promise<EmployeeAgreementPayload["acceptance"]> {
+  const data = (await authedFetch("/employee-agreement/accept", {
+    method: "POST",
+    body: JSON.stringify({ version }),
+  })) as {
+    accepted?: boolean;
+    acceptance?: EmployeeAgreementPayload["acceptance"];
+  };
+  if (!data.accepted || !data.acceptance) {
+    throw new Error("Vereinbarung konnte nicht gespeichert werden.");
+  }
+  return data.acceptance;
+}
+
 function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): GMRecord {
   const ippValue = Number(user.ipp ?? 0);
   const ippSampleCountValue = Number(user.ippSampleCount ?? 0);
@@ -447,6 +488,9 @@ function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): 
     postalCode: user.postalCode ?? "",
     region: user.region ?? "",
     isBillaGm: Boolean(user.isBillaGm ?? false),
+    isActive: Boolean(user.isActive ?? true),
+    deletedAt: user.deletedAt ?? null,
+    anonymizedAt: user.anonymizedAt ?? null,
     ipp: Number.isFinite(ippValue) ? ippValue : 0,
     ippSampleCount: Number.isFinite(ippSampleCountValue) && ippSampleCountValue > 0 ? Math.trunc(ippSampleCountValue) : 0,
     createdAt: user.createdAt ?? new Date().toISOString(),
@@ -1598,6 +1642,19 @@ export async function deactivateAdminUser(userId: string): Promise<{ ok: boolean
   })) as { ok: boolean; alreadyInactive?: boolean };
 }
 
+export async function anonymizeGmUser(userId: string): Promise<{ ok: boolean; alreadyAnonymized?: boolean; authDeleted?: boolean; authDeleteError?: string | null; user: GMRecord | null }> {
+  const data = (await authedFetch(`/admin/users/${userId}/anonymize`, {
+    method: "PATCH",
+  })) as { ok: boolean; alreadyAnonymized?: boolean; authDeleted?: boolean; authDeleteError?: string | null; user?: BackendUser };
+  return {
+    ok: data.ok,
+    alreadyAnonymized: data.alreadyAnonymized,
+    authDeleted: data.authDeleted,
+    authDeleteError: data.authDeleteError,
+    user: data.user ? mapBackendUserToGmRecord(data.user) : null,
+  };
+}
+
 export async function updateOwnAdminPassword(userId: string, newPassword: string): Promise<void> {
   await authedFetch(`/admin/users/${userId}/password`, {
     method: "PATCH",
@@ -2152,6 +2209,43 @@ export type AdminAnswerChangeRequest = {
   };
 };
 export type GmAnswerChangeRequest = AdminAnswerChangeRequest;
+
+export type TimeEntryChangeRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+export type TimeEntryChangeRequestSourceKind = "marktbesuch" | "pause" | "zusatzzeit";
+export type TimeEntryChangeRequest = {
+  id: string;
+  daySessionId: string;
+  gmUserId: string;
+  sourceKind: TimeEntryChangeRequestSourceKind;
+  sourceId: string;
+  workDate: string;
+  timezone: string;
+  title: string;
+  subtitle: string | null;
+  originalStartAt: string;
+  originalEndAt: string;
+  requestedStartAt: string;
+  requestedEndAt: string;
+  requestNote: string | null;
+  status: TimeEntryChangeRequestStatus;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
+  appliedAt: string | null;
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+  gm: {
+    id: string;
+    name: string;
+    email: string;
+    region: string | null;
+  } | null;
+};
+
+export type GmTimeEntryChangeRequestResult = {
+  ok: boolean;
+  request: TimeEntryChangeRequest | null;
+};
 
 export type CampaignMarketVisitSummary = BackendCampaignMarketVisitSummary;
 export type CampaignMarketVisitStatus = {
@@ -2960,10 +3054,49 @@ export async function fetchGmAnswerChangeRequests(): Promise<GmAnswerChangeReque
   return response.requests ?? [];
 }
 
+export async function fetchGmTimeEntryChangeRequests(input: { from?: string; to?: string } = {}): Promise<TimeEntryChangeRequest[]> {
+  const params = new URLSearchParams();
+  if (input.from) params.set("from", input.from);
+  if (input.to) params.set("to", input.to);
+  const query = params.toString();
+  const response = (await authedFetch(`/day-session/time-change-requests${query ? `?${query}` : ""}`, {
+    cache: "no-store",
+  })) as { requests?: TimeEntryChangeRequest[] };
+  return response.requests ?? [];
+}
+
+export async function requestGmTimeEntryChange(input: {
+  sessionId: string;
+  kind: TimeEntryChangeRequestSourceKind;
+  segmentId: string;
+  requestedStartTime: string;
+  requestedEndTime: string;
+  requestNote?: string;
+}): Promise<GmTimeEntryChangeRequestResult> {
+  return (await authedFetch("/day-session/time-change-requests", {
+    method: "POST",
+    body: JSON.stringify({
+      sessionId: input.sessionId,
+      kind: input.kind,
+      segmentId: input.segmentId,
+      requestedStartTime: input.requestedStartTime,
+      requestedEndTime: input.requestedEndTime,
+      ...(input.requestNote?.trim() ? { requestNote: input.requestNote.trim() } : {}),
+    }),
+  })) as GmTimeEntryChangeRequestResult;
+}
+
 export async function fetchAdminAnswerChangeRequests(): Promise<AdminAnswerChangeRequest[]> {
   const response = (await authedFetch("/admin/campaigns/answer-change-requests", {
     cache: "no-store",
   })) as { requests?: AdminAnswerChangeRequest[] };
+  return response.requests ?? [];
+}
+
+export async function fetchAdminTimeEntryChangeRequests(): Promise<TimeEntryChangeRequest[]> {
+  const response = (await authedFetch("/admin/time-change-requests", {
+    cache: "no-store",
+  })) as { requests?: TimeEntryChangeRequest[] };
   return response.requests ?? [];
 }
 
@@ -2985,6 +3118,26 @@ export async function rejectAdminAnswerChangeRequest(
     method: "PATCH",
     body: JSON.stringify(input),
   })) as { ok: boolean; request: { id: string; status: "rejected"; updatedAt?: string } };
+}
+
+export async function approveAdminTimeEntryChangeRequest(
+  requestId: string,
+  input: { adminNote?: string } = {},
+): Promise<{ ok: boolean; request: TimeEntryChangeRequest | null }> {
+  return (await authedFetch(`/admin/time-change-requests/${requestId}/approve`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { ok: boolean; request: TimeEntryChangeRequest | null };
+}
+
+export async function rejectAdminTimeEntryChangeRequest(
+  requestId: string,
+  input: { adminNote?: string } = {},
+): Promise<{ ok: boolean; request: TimeEntryChangeRequest | null }> {
+  return (await authedFetch(`/admin/time-change-requests/${requestId}/reject`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { ok: boolean; request: TimeEntryChangeRequest | null };
 }
 
 export async function fetchActiveGmVisitSession(input: {

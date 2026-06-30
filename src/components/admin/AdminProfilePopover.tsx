@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Building2, KeyRound, Loader2, LogOut, Users } from "lucide-react";
+import { ArrowLeft, Building2, KeyRound, Loader2, LogOut, ShieldCheck, Users } from "lucide-react";
 import { BackendApiError, updateOwnAdminPassword } from "@/lib/api/backend";
 
 type PopoverMode = "profile" | "password";
@@ -84,6 +84,8 @@ export function AdminProfilePopover({
   const isPasswordValid = newPassword.trim().length >= minLength;
   const passwordsMatch = newPassword.trim().length > 0 && newPassword === confirmPassword;
   const canSubmit = Boolean(userId && isPasswordValid && passwordsMatch && !isSubmitting);
+  const profileActionCount = 3 + (onOpenManager ? 1 : 0) + (onOpenCustomerAccess ? 1 : 0);
+  const profilePaneHeight = profileActionCount * 34 + Math.max(0, profileActionCount - 1) * 8 + 14;
 
   const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -145,7 +147,7 @@ export function AdminProfilePopover({
           style={{
             marginTop: 10,
             overflow: "hidden",
-            height: mode === "profile" ? (onOpenManager || onOpenCustomerAccess ? 176 : 84) : 212,
+            height: mode === "profile" ? profilePaneHeight : 212,
             transition: "height 240ms cubic-bezier(0.2, 0.8, 0.2, 1)",
           }}
         >
@@ -179,6 +181,31 @@ export function AdminProfilePopover({
               >
                 <KeyRound size={13} />
                 Passwort ändern
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  window.location.assign("/datenschutz/admin");
+                }}
+                style={{
+                  height: 34,
+                  borderRadius: 10,
+                  border: "1px solid rgba(15,23,42,0.1)",
+                  background: "linear-gradient(180deg, #ffffff, #f8fafc)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#0f172a",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 7,
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.06)",
+                }}
+              >
+                <ShieldCheck size={13} />
+                Datenschutzinformation
               </button>
               <button
                 type="button"

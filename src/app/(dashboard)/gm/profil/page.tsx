@@ -8,6 +8,7 @@ import {
   Check,
   Eye,
   EyeOff,
+  FileCheck2,
   ImagePlus,
   KeyRound,
   Loader2,
@@ -716,10 +717,28 @@ export default function GmProfilPage() {
               Persönliche Daten, Kennzahlen und Sicherheit an einem Ort.
             </p>
           </div>
-          <span style={{ height: 28, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 10px", borderRadius: 999, background: "#ffffff", boxShadow: "0 1px 5px rgba(15,23,42,0.06), inset 0 0 0 1px rgba(15,23,42,0.06)", fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.48)", whiteSpace: "nowrap" }}>
-            <ShieldCheck size={12} strokeWidth={2} />
-            Aktiver Account
-          </span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => router.push("/datenschutz/gm")}
+              style={{ height: 28, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 10px", borderRadius: 999, border: "1px solid rgba(15,23,42,0.06)", background: "#ffffff", boxShadow: "0 1px 5px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.9)", fontSize: 10, fontWeight: 760, color: "rgba(15,23,42,0.62)", whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit" }}
+            >
+              <ShieldCheck size={12} strokeWidth={2} />
+              Datenschutz
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/vereinbarung")}
+              style={{ height: 28, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 10px", borderRadius: 999, border: "1px solid rgba(15,23,42,0.06)", background: "#ffffff", boxShadow: "0 1px 5px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.9)", fontSize: 10, fontWeight: 760, color: "rgba(15,23,42,0.62)", whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit" }}
+            >
+              <FileCheck2 size={12} strokeWidth={2} />
+              Vereinbarung
+            </button>
+            <span style={{ height: 28, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 10px", borderRadius: 999, background: "#ffffff", boxShadow: "0 1px 5px rgba(15,23,42,0.06), inset 0 0 0 1px rgba(15,23,42,0.06)", fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.48)", whiteSpace: "nowrap" }}>
+              <ShieldCheck size={12} strokeWidth={2} />
+              Aktiver Account
+            </span>
+          </div>
         </header>
 
         {loading ? (

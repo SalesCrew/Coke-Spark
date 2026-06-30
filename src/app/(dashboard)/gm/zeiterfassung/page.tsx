@@ -9,19 +9,25 @@ import {
   Clock,
   Coffee,
   Home,
+  Loader2,
   Route,
   Store,
   Warehouse,
+  X,
 } from "lucide-react";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import Aurora from "@/components/ui/Aurora";
 import {
   fetchGmZeiterfassung,
+  fetchGmTimeEntryChangeRequests,
   logoutCurrentUser,
+  requestGmTimeEntryChange,
   type AdminZeiterfassungSession,
   type AdminZeiterfassungTimelineSegment,
   type GmZeiterfassungPayload,
+  type TimeEntryChangeRequest,
+  type TimeEntryChangeRequestSourceKind,
 } from "@/lib/api/backend";
 
 const R = "#DC2626";
@@ -37,6 +43,14 @@ type GmZeitSegment = {
   durationMin: number;
   title: string;
   subtitle?: string;
+  timeChange?: {
+    status: "pending" | "approved" | "rejected" | "cancelled";
+    originalStart: string;
+    originalEnd: string;
+    requestedStart: string;
+    requestedEnd: string;
+    reviewedAt: string | null;
+  };
 };
 
 type GmZeitDay = {
@@ -51,6 +65,16 @@ type GmZeitDay = {
   km: number | null;
   visits: number;
   segments: GmZeitSegment[];
+};
+
+type EditableTimeSegmentKind = Extract<SegmentKind, "marktbesuch" | "pause" | "zusatzzeit">;
+
+type TimeChangeDraft = {
+  day: GmZeitDay;
+  segment: GmZeitSegment & { kind: EditableTimeSegmentKind };
+  startTime: string;
+  endTime: string;
+  note: string;
 };
 
 function fmtDur(min: number): string {
@@ -129,7 +153,53 @@ function mapTimelineSegment(segment: AdminZeiterfassungTimelineSegment): GmZeitS
   };
 }
 
-function mapSessionToDay(session: AdminZeiterfassungSession): GmZeitDay {
+function fmtRequestHm(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("de-AT", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function isEditableTimeSegmentKind(kind: SegmentKind): kind is EditableTimeSegmentKind {
+  return kind === "marktbesuch" || kind === "pause" || kind === "zusatzzeit";
+}
+
+function buildTimeChangeMap(requests: TimeEntryChangeRequest[]): Map<string, TimeEntryChangeRequest> {
+  const sorted = [...requests].sort((a, b) => {
+    const statusRank = (value: TimeEntryChangeRequest["status"]) => value === "pending" ? 0 : value === "approved" ? 1 : 2;
+    const rankDiff = statusRank(a.status) - statusRank(b.status);
+    if (rankDiff !== 0) return rankDiff;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+  const map = new Map<string, TimeEntryChangeRequest>();
+  for (const request of sorted) {
+    const key = `${request.daySessionId}:${request.sourceKind}:${request.sourceId}`;
+    if (!map.has(key)) map.set(key, request);
+  }
+  return map;
+}
+
+function mapSessionToDay(session: AdminZeiterfassungSession, timeChangeMap: Map<string, TimeEntryChangeRequest>): GmZeitDay {
+  const segments = session.timeline.map((segment) => {
+    const mapped = mapTimelineSegment(segment);
+    if (!isEditableTimeSegmentKind(mapped.kind)) return mapped;
+    const request = timeChangeMap.get(`${session.id}:${mapped.kind}:${mapped.id}`);
+    if (!request || request.status === "rejected" || request.status === "cancelled") return mapped;
+    return {
+      ...mapped,
+      timeChange: {
+        status: request.status,
+        originalStart: fmtRequestHm(request.originalStartAt),
+        originalEnd: fmtRequestHm(request.originalEndAt),
+        requestedStart: fmtRequestHm(request.requestedStartAt),
+        requestedEnd: fmtRequestHm(request.requestedEndAt),
+        reviewedAt: request.reviewedAt,
+      },
+    };
+  });
   return {
     id: session.id,
     dateLabel: fmtDateLabel(session.date),
@@ -141,7 +211,7 @@ function mapSessionToDay(session: AdminZeiterfassungSession): GmZeitDay {
     pauseMin: session.stats.pauseMin,
     km: session.stats.kmGefahren,
     visits: session.stats.marktbesuche,
-    segments: session.timeline.map(mapTimelineSegment),
+    segments,
   };
 }
 
@@ -439,11 +509,24 @@ function MetricCell({ label, value, accent }: { label: string; value: string; ac
   );
 }
 
-function GmZeitTimelineRow({ segment, first, last }: { segment: GmZeitSegment; first: boolean; last: boolean }) {
+function GmZeitTimelineRow({ segment, first, last, onRequestChange }: {
+  segment: GmZeitSegment;
+  first: boolean;
+  last: boolean;
+  onRequestChange?: (segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => void;
+}) {
   const meta = segmentMeta(segment.kind);
   const Icon = meta.icon;
+  const editable = isEditableTimeSegmentKind(segment.kind) && Boolean(onRequestChange);
   return (
-    <div className="gm-zeit-timeline-row">
+    <button
+      type="button"
+      className={`gm-zeit-timeline-row ${editable ? "is-editable" : ""}`}
+      onClick={() => {
+        if (editable) onRequestChange?.(segment as GmZeitSegment & { kind: EditableTimeSegmentKind });
+      }}
+      disabled={!editable}
+    >
       <div style={{ position: "relative", width: 28, alignSelf: "stretch", display: "flex", justifyContent: "center" }}>
         {!first && <span style={{ position: "absolute", top: 0, bottom: "calc(50% + 9px)", width: 1, background: "rgba(15,23,42,0.08)" }} />}
         {!last && <span style={{ position: "absolute", top: "calc(50% + 9px)", bottom: 0, width: 1, background: "rgba(15,23,42,0.08)" }} />}
@@ -463,6 +546,15 @@ function GmZeitTimelineRow({ segment, first, last }: { segment: GmZeitSegment; f
             {segment.subtitle}
           </div>
         )}
+        {segment.timeChange?.status === "approved" ? (
+          <div style={{ marginTop: 3, fontSize: 9, fontWeight: 700, color: "rgba(15,23,42,0.34)" }}>
+            Original {segment.timeChange.originalStart} - {segment.timeChange.originalEnd}
+          </div>
+        ) : segment.timeChange?.status === "pending" ? (
+          <div style={{ marginTop: 3, fontSize: 9, fontWeight: 760, color: "#D97706" }}>
+            Änderung angefragt: {segment.timeChange.requestedStart} - {segment.timeChange.requestedEnd}
+          </div>
+        ) : null}
       </div>
       <div style={{ padding: "9px 0", textAlign: "right", flexShrink: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(15,23,42,0.86)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
@@ -472,11 +564,15 @@ function GmZeitTimelineRow({ segment, first, last }: { segment: GmZeitSegment; f
           {segment.durationMin} Min
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
-function GmZeitDayRow({ day, defaultExpanded = false }: { day: GmZeitDay; defaultExpanded?: boolean }) {
+function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange }: {
+  day: GmZeitDay;
+  defaultExpanded?: boolean;
+  onRequestChange?: (day: GmZeitDay, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => void;
+}) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   return (
     <div style={{ borderBottom: "1px solid rgba(15,23,42,0.045)" }}>
@@ -516,6 +612,7 @@ function GmZeitDayRow({ day, defaultExpanded = false }: { day: GmZeitDay; defaul
                 segment={segment}
                 first={index === 0}
                 last={index === day.segments.length - 1}
+                onRequestChange={isEditableTimeSegmentKind(segment.kind) ? (selected) => onRequestChange?.(day, selected) : undefined}
               />
             ))}
           </div>
@@ -529,10 +626,15 @@ export default function GmZeiterfassungPage() {
   const router = useRouter();
   const [range, setRange] = useState<"week" | "month" | "all">("month");
   const [payload, setPayload] = useState<GmZeiterfassungPayload | null>(null);
+  const [timeRequests, setTimeRequests] = useState<TimeEntryChangeRequest[]>([]);
+  const [changeDraft, setChangeDraft] = useState<TimeChangeDraft | null>(null);
+  const [changeSubmitting, setChangeSubmitting] = useState(false);
+  const [changeError, setChangeError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const selectedRange = useMemo(() => getDateRange(range), [range]);
-  const days = useMemo(() => (payload?.sessions ?? []).map(mapSessionToDay), [payload?.sessions]);
+  const timeChangeMap = useMemo(() => buildTimeChangeMap(timeRequests), [timeRequests]);
+  const days = useMemo(() => (payload?.sessions ?? []).map((session) => mapSessionToDay(session, timeChangeMap)), [payload?.sessions, timeChangeMap]);
   const currentWeekNumber = getIsoWeek(new Date());
   const weeklySessions = useMemo(
     () => (payload?.sessions ?? []).filter((session) => getIsoWeek(new Date(`${session.date}T12:00:00`)) === currentWeekNumber),
@@ -551,15 +653,22 @@ export default function GmZeiterfassungPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchGmZeiterfassung({
-      from: selectedRange.from,
-      to: selectedRange.to,
-      includeLive: true,
-      timezone: "Europe/Vienna",
-    })
-      .then((result) => {
+    Promise.all([
+      fetchGmZeiterfassung({
+        from: selectedRange.from,
+        to: selectedRange.to,
+        includeLive: true,
+        timezone: "Europe/Vienna",
+      }),
+      fetchGmTimeEntryChangeRequests({
+        from: selectedRange.from,
+        to: selectedRange.to,
+      }),
+    ])
+      .then(([result, requestRows]) => {
         if (cancelled) return;
         setPayload(result);
+        setTimeRequests(requestRows);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -572,6 +681,44 @@ export default function GmZeiterfassungPage() {
       cancelled = true;
     };
   }, [selectedRange.from, selectedRange.to]);
+
+  const openTimeChangeRequest = (day: GmZeitDay, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => {
+    setChangeError(null);
+    setChangeDraft({
+      day,
+      segment,
+      startTime: segment.start,
+      endTime: segment.end,
+      note: "",
+    });
+  };
+
+  const submitTimeChangeRequest = async () => {
+    if (!changeDraft) return;
+    setChangeSubmitting(true);
+    setChangeError(null);
+    try {
+      const result = await requestGmTimeEntryChange({
+        sessionId: changeDraft.day.id,
+        kind: changeDraft.segment.kind as TimeEntryChangeRequestSourceKind,
+        segmentId: changeDraft.segment.id,
+        requestedStartTime: changeDraft.startTime,
+        requestedEndTime: changeDraft.endTime,
+        requestNote: changeDraft.note,
+      });
+      if (result.request) {
+        setTimeRequests((current) => {
+          const withoutCurrent = current.filter((request) => request.id !== result.request?.id);
+          return [result.request as TimeEntryChangeRequest, ...withoutCurrent];
+        });
+      }
+      setChangeDraft(null);
+    } catch (err) {
+      setChangeError(err instanceof Error ? err.message : "Änderungsanfrage konnte nicht gesendet werden.");
+    } finally {
+      setChangeSubmitting(false);
+    }
+  };
 
   return (
     <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7", fontFamily: "var(--font-inter), Inter, system-ui, sans-serif", paddingBottom: 112 }}>
@@ -664,14 +811,32 @@ export default function GmZeiterfassungPage() {
           min-width: 0;
         }
         .gm-zeit-timeline-row {
+          width: 100%;
           min-height: 58px;
           display: flex;
           align-items: stretch;
           gap: 10px;
           border-bottom: 1px solid rgba(15,23,42,0.04);
+          border-left: none;
+          border-right: none;
+          border-top: none;
+          background: transparent;
+          padding: 0;
+          text-align: left;
+          font-family: inherit;
+          color: inherit;
         }
         .gm-zeit-timeline-row:last-child {
           border-bottom: none;
+        }
+        .gm-zeit-timeline-row:disabled {
+          cursor: default;
+        }
+        .gm-zeit-timeline-row.is-editable {
+          cursor: pointer;
+        }
+        .gm-zeit-timeline-row.is-editable:hover {
+          background: rgba(15,23,42,0.016);
         }
         @media (max-width: 780px) {
           .gm-zeit-stats-panel,
@@ -758,7 +923,12 @@ export default function GmZeiterfassungPage() {
               ) : days.length > 0 ? (
                 <div>
                   {days.map((day, index) => (
-                    <GmZeitDayRow key={day.id} day={day} defaultExpanded={index === 0} />
+                    <GmZeitDayRow
+                      key={day.id}
+                      day={day}
+                      defaultExpanded={index === 0}
+                      onRequestChange={openTimeChangeRequest}
+                    />
                   ))}
                 </div>
               ) : (
@@ -773,6 +943,139 @@ export default function GmZeiterfassungPage() {
           </>
         )}
       </div>
+
+      {changeDraft ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            background: "rgba(15,23,42,0.22)",
+            backdropFilter: "blur(12px)",
+          }}
+        >
+          <section
+            style={{
+              width: "min(430px, 100%)",
+              borderRadius: 20,
+              border: "1px solid rgba(15,23,42,0.08)",
+              background: "#fff",
+              boxShadow: "0 24px 70px rgba(15,23,42,0.22), inset 0 1px 0 rgba(255,255,255,0.9)",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid rgba(15,23,42,0.055)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>
+                  Zeitanfrage
+                </div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 760, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.92)" }}>
+                  Zeit korrigieren
+                </h2>
+                <p style={{ margin: "6px 0 0", fontSize: 11, lineHeight: 1.5, fontWeight: 600, color: "rgba(15,23,42,0.45)" }}>
+                  Deine Änderung wird geprüft. Bis zur Freigabe bleibt der bestehende Eintrag gültig.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChangeDraft(null)}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 10,
+                  border: "1px solid rgba(15,23,42,0.06)",
+                  background: "rgba(15,23,42,0.025)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "rgba(15,23,42,0.48)",
+                  cursor: "pointer",
+                }}
+                aria-label="Schließen"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div style={{ padding: 18 }}>
+              <div style={{ borderRadius: 14, border: "1px solid rgba(15,23,42,0.06)", background: "rgba(15,23,42,0.018)", padding: 13, marginBottom: 14 }}>
+                <div style={{ fontSize: 8, fontWeight: 780, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)", marginBottom: 4 }}>
+                  {segmentMeta(changeDraft.segment.kind).label} · {changeDraft.day.dateShort}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 760, color: "rgba(15,23,42,0.88)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {changeDraft.segment.title}
+                </div>
+                <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11, fontWeight: 760, color: "rgba(15,23,42,0.54)", fontVariantNumeric: "tabular-nums" }}>
+                  <span>Aktuell</span>
+                  <span>{changeDraft.segment.start} - {changeDraft.segment.end}</span>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Start</span>
+                  <input
+                    type="time"
+                    value={changeDraft.startTime}
+                    onChange={(event) => setChangeDraft((current) => current ? { ...current, startTime: event.target.value } : current)}
+                    style={{ height: 42, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.025)", padding: "0 12px", fontSize: 14, fontWeight: 760, color: "rgba(15,23,42,0.9)", fontFamily: "inherit" }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Ende</span>
+                  <input
+                    type="time"
+                    value={changeDraft.endTime}
+                    onChange={(event) => setChangeDraft((current) => current ? { ...current, endTime: event.target.value } : current)}
+                    style={{ height: 42, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.025)", padding: "0 12px", fontSize: 14, fontWeight: 760, color: "rgba(15,23,42,0.9)", fontFamily: "inherit" }}
+                  />
+                </label>
+              </div>
+
+              <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
+                <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Notiz optional</span>
+                <textarea
+                  value={changeDraft.note}
+                  onChange={(event) => setChangeDraft((current) => current ? { ...current, note: event.target.value } : current)}
+                  rows={3}
+                  placeholder="Warum soll diese Zeit geändert werden?"
+                  style={{ resize: "none", borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.02)", padding: "11px 12px", fontSize: 12, lineHeight: 1.45, fontWeight: 620, color: "rgba(15,23,42,0.86)", fontFamily: "inherit" }}
+                />
+              </label>
+
+              {changeError ? (
+                <div style={{ marginTop: 12, borderRadius: 12, border: "1px solid rgba(220,38,38,0.16)", background: "rgba(220,38,38,0.055)", padding: "10px 12px", color: R, fontSize: 11, fontWeight: 760, lineHeight: 1.45 }}>
+                  {changeError}
+                </div>
+              ) : null}
+            </div>
+
+            <div style={{ padding: "0 18px 18px", display: "grid", gridTemplateColumns: "1fr 1.35fr", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setChangeDraft(null)}
+                disabled={changeSubmitting}
+                style={{ height: 40, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", color: "rgba(15,23,42,0.55)", fontSize: 12, fontWeight: 780, fontFamily: "inherit", cursor: "pointer" }}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitTimeChangeRequest()}
+                disabled={changeSubmitting}
+                style={{ height: 40, borderRadius: 12, border: "1px solid rgba(255,255,255,0.34)", background: "linear-gradient(180deg, #f43f46, #d71920)", color: "#fff", fontSize: 12, fontWeight: 820, fontFamily: "inherit", cursor: "pointer", boxShadow: "0 10px 18px rgba(215,25,32,0.22), inset 0 1px 0 rgba(255,255,255,0.25)" }}
+              >
+                {changeSubmitting ? <Loader2 size={14} className="animate-spin" style={{ display: "inline", marginRight: 6 }} /> : null}
+                Anfrage senden
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <div className="fixed bottom-6 left-0 right-0 z-50">
         <CollapsibleMenu

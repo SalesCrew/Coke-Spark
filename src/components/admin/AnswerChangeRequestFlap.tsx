@@ -16,9 +16,13 @@ import {
 } from "lucide-react";
 import {
   approveAdminAnswerChangeRequest,
+  approveAdminTimeEntryChangeRequest,
   fetchAdminAnswerChangeRequests,
+  fetchAdminTimeEntryChangeRequests,
   rejectAdminAnswerChangeRequest,
+  rejectAdminTimeEntryChangeRequest,
   type AdminAnswerChangeRequest,
+  type TimeEntryChangeRequest,
 } from "@/lib/api/backend";
 
 type RequestAction = "approve" | "reject";
@@ -33,6 +37,20 @@ function formatDateTime(value: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("de-AT", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatTimeRange(start: string, end: string): string {
+  return `${formatTime(start)} - ${formatTime(end)}`;
 }
 
 function initials(name: string): string {
@@ -106,10 +124,25 @@ function sortRequests(input: AdminAnswerChangeRequest[]): AdminAnswerChangeReque
   });
 }
 
+function sortTimeRequests(input: TimeEntryChangeRequest[]): TimeEntryChangeRequest[] {
+  return [...input].sort((a, b) => {
+    if (a.status === "pending" && b.status !== "pending") return -1;
+    if (a.status !== "pending" && b.status === "pending") return 1;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
+
+function timeKindLabel(kind: TimeEntryChangeRequest["sourceKind"]): string {
+  if (kind === "marktbesuch") return "Marktbesuch";
+  if (kind === "pause") return "Pause";
+  return "Zusatz";
+}
+
 export function AnswerChangeRequestFlap() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [requests, setRequests] = useState<AdminAnswerChangeRequest[]>([]);
+  const [timeRequests, setTimeRequests] = useState<TimeEntryChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -120,8 +153,12 @@ export function AnswerChangeRequestFlap() {
     setLoading(true);
     setError(null);
     try {
-      const next = sortRequests(await fetchAdminAnswerChangeRequests());
-      setRequests(next);
+      const [nextAnswerRequests, nextTimeRequests] = await Promise.all([
+        fetchAdminAnswerChangeRequests(),
+        fetchAdminTimeEntryChangeRequests(),
+      ]);
+      setRequests(sortRequests(nextAnswerRequests));
+      setTimeRequests(sortTimeRequests(nextTimeRequests));
     } catch (err) {
       setError(err instanceof Error ? err.message : "?nderungsanfragen konnten nicht geladen werden.");
     } finally {
@@ -134,10 +171,20 @@ export function AnswerChangeRequestFlap() {
   }, [loadRequests]);
 
   const pendingRequests = useMemo(() => requests.filter((request) => request.status === "pending"), [requests]);
+  const pendingTimeRequests = useMemo(() => timeRequests.filter((request) => request.status === "pending"), [timeRequests]);
   const recentRequests = useMemo(() => requests.slice(0, 12), [requests]);
+  const recentTimeRequests = useMemo(() => timeRequests.slice(0, 8), [timeRequests]);
+  const totalPendingCount = pendingRequests.length + pendingTimeRequests.length;
 
   const people = useMemo(() => {
-    const byGm = new Map<string, { id: string; name: string; email: string; region: string | null; requests: AdminAnswerChangeRequest[] }>();
+    const byGm = new Map<string, {
+      id: string;
+      name: string;
+      email: string;
+      region: string | null;
+      requests: AdminAnswerChangeRequest[];
+      timeRequests: TimeEntryChangeRequest[];
+    }>();
     for (const request of pendingRequests) {
       const entry = byGm.get(request.gm.id) ?? {
         id: request.gm.id,
@@ -145,12 +192,31 @@ export function AnswerChangeRequestFlap() {
         email: request.gm.email,
         region: request.gm.region,
         requests: [],
+        timeRequests: [],
       };
       entry.requests.push(request);
       byGm.set(request.gm.id, entry);
     }
-    return Array.from(byGm.values()).sort((a, b) => b.requests.length - a.requests.length || a.name.localeCompare(b.name));
-  }, [pendingRequests]);
+    for (const request of pendingTimeRequests) {
+      const gm = request.gm;
+      if (!gm) continue;
+      const entry = byGm.get(gm.id) ?? {
+        id: gm.id,
+        name: gm.name,
+        email: gm.email,
+        region: gm.region,
+        requests: [],
+        timeRequests: [],
+      };
+      entry.timeRequests.push(request);
+      byGm.set(gm.id, entry);
+    }
+    return Array.from(byGm.values()).sort((a, b) => {
+      const countDiff = (b.requests.length + b.timeRequests.length) - (a.requests.length + a.timeRequests.length);
+      if (countDiff !== 0) return countDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [pendingRequests, pendingTimeRequests]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -164,6 +230,7 @@ export function AnswerChangeRequestFlap() {
   );
 
   const selectedPersonRequests = selectedPerson?.requests ?? [];
+  const selectedPersonTimeRequests = selectedPerson?.timeRequests ?? [];
   const selectedApplicableIds = selectedPersonRequests
     .filter((request) => selectedIds.has(request.id) && request.autoApplicable)
     .map((request) => request.id);
@@ -210,6 +277,30 @@ export function AnswerChangeRequestFlap() {
     }
   };
 
+  const runTimeAction = async (ids: string[], action: RequestAction) => {
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+    if (uniqueIds.length === 0) return;
+    setBusy(uniqueIds, true);
+    setError(null);
+    try {
+      const results = await Promise.allSettled(
+        uniqueIds.map((id) =>
+          action === "approve"
+            ? approveAdminTimeEntryChangeRequest(id)
+            : rejectAdminTimeEntryChangeRequest(id),
+        ),
+      );
+      const failed = results.filter((result) => result.status === "rejected");
+      if (failed.length > 0) {
+        const reason = failed[0] as PromiseRejectedResult;
+        setError(reason.reason instanceof Error ? reason.reason.message : "Ein Teil der Zeitanfragen konnte nicht verarbeitet werden.");
+      }
+      await loadRequests();
+    } finally {
+      setBusy(uniqueIds, false);
+    }
+  };
+
   const toggleSelected = (requestId: string) => {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -227,16 +318,16 @@ export function AnswerChangeRequestFlap() {
         onClick={() => setOpen((value) => !value)}
         aria-label={open ? "?nderungsanfragen schließen" : "?nderungsanfragen ?ffnen"}
       >
-        {!open ? <span className={`answer-flap-tab-dot ${pendingRequests.length > 0 ? "is-hot" : ""}`} /> : null}
+        {!open ? <span className={`answer-flap-tab-dot ${totalPendingCount > 0 ? "is-hot" : ""}`} /> : null}
         <span className="answer-flap-tab-label">{open ? "Schließen" : "Anfragen"}</span>
-        {!open ? <span className="answer-flap-tab-count">{pendingRequests.length}</span> : null}
+        {!open ? <span className="answer-flap-tab-count">{totalPendingCount}</span> : null}
       </button>
         <section className="answer-flap-panel" aria-label="?nderungsanfragen">
           <header className="answer-flap-header">
             <div className="answer-flap-title">
               <div className="answer-flap-eyebrow">Pruefung</div>
               <h2>Antwortprüfung</h2>
-              <p>Korrekturen aus fertigen Marktbesuchen.</p>
+              <p>Korrekturen aus Fragebögen und Zeiterfassung.</p>
             </div>
             <div className="answer-flap-header-actions">
               <button type="button" className="answer-icon-button" onClick={() => void loadRequests()} aria-label="Aktualisieren" disabled={loading}>
@@ -255,59 +346,93 @@ export function AnswerChangeRequestFlap() {
 
           {!expanded ? (
             <div className="answer-compact">
-              {loading && requests.length === 0 ? (
+              {loading && requests.length === 0 && timeRequests.length === 0 ? (
                 <div className="answer-empty">
                   <Loader2 className="answer-spin" size={18} />
                   <strong>Anfragen werden geladen</strong>
                   <span>Die neuesten Korrekturen werden abgeglichen.</span>
                 </div>
-              ) : recentRequests.length === 0 ? (
+              ) : recentRequests.length === 0 && recentTimeRequests.length === 0 ? (
                 <div className="answer-empty">
                   <Inbox size={20} />
                   <strong>Keine offenen Anfragen</strong>
                   <span>Neue Korrekturen erscheinen automatisch in dieser Liste.</span>
                 </div>
               ) : (
-                recentRequests.map((request) => (
-                  <article key={request.id} className={`answer-request-card ${request.status !== "pending" ? "is-muted" : ""}`}>
-                    <div className="answer-card-top">
-                      <div className="answer-avatar">{initials(request.gm.name)}</div>
-                      <div className="answer-card-title">
-                        <strong>{request.gm.name}</strong>
-                        <span>{marketLabel(request)}</span>
+                <>
+                  {recentRequests.length > 0 ? <div className="answer-section-heading">Fragebogen</div> : null}
+                  {recentRequests.map((request) => (
+                    <article key={request.id} className={`answer-request-card ${request.status !== "pending" ? "is-muted" : ""}`}>
+                      <div className="answer-card-top">
+                        <div className="answer-avatar">{initials(request.gm.name)}</div>
+                        <div className="answer-card-title">
+                          <strong>{request.gm.name}</strong>
+                          <span>{marketLabel(request)}</span>
+                        </div>
+                        <span className={`answer-status is-${request.status}`}>{request.status}</span>
                       </div>
-                      <span className={`answer-status is-${request.status}`}>{request.status}</span>
-                    </div>
-                    <p className="answer-question">{request.questionText}</p>
-                    <div className="answer-diff-mini">
-                      <span>{currentAnswerLabel(request.currentAnswerSnapshot)}</span>
-                      <ChevronRight size={13} />
-                      <strong>{request.requestedAnswerSummary}</strong>
-                    </div>
-                    {request.autoApplicabilityError ? <div className="answer-card-note">{request.autoApplicabilityError}</div> : null}
-                    {request.status === "pending" ? (
-                      <div className="answer-card-actions">
-                        <button
-                          type="button"
-                          className="answer-secondary-button"
-                          onClick={() => void runAction([request.id], "reject")}
-                          disabled={busyIds.has(request.id)}
-                        >
-                          Ablehnen
-                        </button>
-                        <button
-                          type="button"
-                          className="answer-primary-button"
-                          onClick={() => void runAction([request.id], "approve")}
-                          disabled={busyIds.has(request.id) || !request.autoApplicable}
-                        >
-                          {busyIds.has(request.id) ? <Loader2 size={13} className="answer-spin" /> : <Check size={13} />}
-                          Annehmen
-                        </button>
+                      <p className="answer-question">{request.questionText}</p>
+                      <div className="answer-diff-mini">
+                        <span>{currentAnswerLabel(request.currentAnswerSnapshot)}</span>
+                        <ChevronRight size={13} />
+                        <strong>{request.requestedAnswerSummary}</strong>
                       </div>
-                    ) : null}
-                  </article>
-                ))
+                      {request.autoApplicabilityError ? <div className="answer-card-note">{request.autoApplicabilityError}</div> : null}
+                      {request.status === "pending" ? (
+                        <div className="answer-card-actions">
+                          <button
+                            type="button"
+                            className="answer-secondary-button"
+                            onClick={() => void runAction([request.id], "reject")}
+                            disabled={busyIds.has(request.id)}
+                          >
+                            Ablehnen
+                          </button>
+                          <button
+                            type="button"
+                            className="answer-primary-button"
+                            onClick={() => void runAction([request.id], "approve")}
+                            disabled={busyIds.has(request.id) || !request.autoApplicable}
+                          >
+                            {busyIds.has(request.id) ? <Loader2 size={13} className="answer-spin" /> : <Check size={13} />}
+                            Annehmen
+                          </button>
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                  {recentTimeRequests.length > 0 ? <div className="answer-section-heading">Zeiterfassung</div> : null}
+                  {recentTimeRequests.map((request) => (
+                    <article key={request.id} className={`answer-request-card is-time ${request.status !== "pending" ? "is-muted" : ""}`}>
+                      <div className="answer-card-top">
+                        <div className="answer-avatar">{initials(request.gm?.name ?? "GM")}</div>
+                        <div className="answer-card-title">
+                          <strong>{request.gm?.name ?? "Gebietsmanager"}</strong>
+                          <span>{request.workDate} · {timeKindLabel(request.sourceKind)}</span>
+                        </div>
+                        <span className={`answer-status is-${request.status}`}>{request.status}</span>
+                      </div>
+                      <p className="answer-question">{request.title}</p>
+                      <div className="answer-diff-mini">
+                        <span>{formatTimeRange(request.originalStartAt, request.originalEndAt)}</span>
+                        <ChevronRight size={13} />
+                        <strong>{formatTimeRange(request.requestedStartAt, request.requestedEndAt)}</strong>
+                      </div>
+                      {request.requestNote ? <div className="answer-card-note">{request.requestNote}</div> : null}
+                      {request.status === "pending" ? (
+                        <div className="answer-card-actions">
+                          <button type="button" className="answer-secondary-button" onClick={() => void runTimeAction([request.id], "reject")} disabled={busyIds.has(request.id)}>
+                            Ablehnen
+                          </button>
+                          <button type="button" className="answer-primary-button" onClick={() => void runTimeAction([request.id], "approve")} disabled={busyIds.has(request.id)}>
+                            {busyIds.has(request.id) ? <Loader2 size={13} className="answer-spin" /> : <Check size={13} />}
+                            Annehmen
+                          </button>
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </>
               )}
             </div>
           ) : (
@@ -332,7 +457,7 @@ export function AnswerChangeRequestFlap() {
                         <strong>{person.name}</strong>
                         <small>{person.region ?? person.email}</small>
                       </span>
-                      <span className="answer-person-count">{person.requests.length}</span>
+                      <span className="answer-person-count">{person.requests.length + person.timeRequests.length}</span>
                     </button>
                   ))
                 )}
@@ -345,7 +470,7 @@ export function AnswerChangeRequestFlap() {
                       <div>
                         <div className="answer-pane-title">Pruefung pro GM</div>
                         <h3>{selectedPerson.name}</h3>
-                        <p>{selectedPerson.requests.length} offene Anfrage{selectedPerson.requests.length === 1 ? "" : "n"}</p>
+                        <p>{selectedPerson.requests.length + selectedPerson.timeRequests.length} offene Anfrage{selectedPerson.requests.length + selectedPerson.timeRequests.length === 1 ? "" : "n"}</p>
                       </div>
                       <div className="answer-bulk-actions">
                         <button
@@ -377,7 +502,11 @@ export function AnswerChangeRequestFlap() {
                       </div>
                     </div>
 
+                    <div className="answer-section-heading is-expanded">Fragebogen</div>
                     <div className="answer-detail-list">
+                      {selectedPersonRequests.length === 0 ? (
+                        <div className="answer-empty is-small">Keine offenen Fragebogen-Anfragen.</div>
+                      ) : null}
                       {selectedPersonRequests.map((request) => {
                         const checked = selectedIds.has(request.id);
                         return (
@@ -416,6 +545,50 @@ export function AnswerChangeRequestFlap() {
                           </article>
                         );
                       })}
+                    </div>
+                    <div className="answer-section-heading is-expanded">Zeiterfassung</div>
+                    <div className="answer-detail-list">
+                      {selectedPersonTimeRequests.length === 0 ? (
+                        <div className="answer-empty is-small">Keine offenen Zeiterfassungs-Anfragen.</div>
+                      ) : null}
+                      {selectedPersonTimeRequests.map((request) => (
+                        <article key={request.id} className="answer-detail-card is-time">
+                          <div className="answer-select-row">
+                            <span>
+                              <strong>{request.title}</strong>
+                              <small>
+                                {request.workDate} · {timeKindLabel(request.sourceKind)}
+                                {request.subtitle ? ` · ${request.subtitle}` : ""}
+                              </small>
+                            </span>
+                            <span className="answer-time">
+                              <Clock3 size={12} />
+                              {formatDateTime(request.createdAt)}
+                            </span>
+                          </div>
+
+                          <div className="answer-diff-grid">
+                            <div>
+                              <span>Original</span>
+                              <strong>{formatTimeRange(request.originalStartAt, request.originalEndAt)}</strong>
+                            </div>
+                            <div>
+                              <span>Angefragt</span>
+                              <strong>{formatTimeRange(request.requestedStartAt, request.requestedEndAt)}</strong>
+                            </div>
+                          </div>
+                          {request.requestNote ? <p className="answer-note">{request.requestNote}</p> : null}
+                          <div className="answer-card-actions">
+                            <button type="button" className="answer-secondary-button" onClick={() => void runTimeAction([request.id], "reject")} disabled={busyIds.has(request.id)}>
+                              Ablehnen
+                            </button>
+                            <button type="button" className="answer-primary-button" onClick={() => void runTimeAction([request.id], "approve")} disabled={busyIds.has(request.id)}>
+                              {busyIds.has(request.id) ? <Loader2 size={13} className="answer-spin" /> : <Check size={13} />}
+                              Annehmen
+                            </button>
+                          </div>
+                        </article>
+                      ))}
                     </div>
                   </>
                 ) : (
@@ -673,6 +846,19 @@ export function AnswerChangeRequestFlap() {
           overflow-y: auto;
         }
 
+        .answer-section-heading {
+          margin: 4px 2px 0;
+          font-size: 9px;
+          font-weight: 820;
+          letter-spacing: 0.11em;
+          text-transform: uppercase;
+          color: rgba(16, 24, 40, 0.38);
+        }
+
+        .answer-section-heading.is-expanded {
+          margin: 16px 0 9px;
+        }
+
         .answer-empty {
           min-height: 170px;
           border-radius: 18px;
@@ -725,6 +911,12 @@ export function AnswerChangeRequestFlap() {
 
         .answer-request-card.is-muted {
           opacity: 0.58;
+        }
+
+        .answer-request-card.is-time,
+        .answer-detail-card.is-time {
+          border-color: rgba(59, 130, 246, 0.12);
+          background: linear-gradient(180deg, #ffffff, rgba(248, 250, 252, 0.9));
         }
 
         .answer-card-top,

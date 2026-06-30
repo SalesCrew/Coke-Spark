@@ -50,6 +50,11 @@ export default function Home() {
             return;
           }
 
+          if (result.user.role === "kunde") {
+            router.push("/datenschutz/admin");
+            return;
+          }
+
           router.push("/admin");
         }}
         onForgot={(email) => {

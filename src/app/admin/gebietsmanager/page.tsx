@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { MarketVisitLog } from "@/types/markets";
-import { createGmUser, fetchGmUsers, readAuthSession, updateGmUser } from "@/lib/api/backend";
+import { anonymizeGmUser, createGmUser, fetchGmUsers, readAuthSession, updateGmUser } from "@/lib/api/backend";
 import { exportGebietsmanagerExcel } from "@/lib/exports/masterDataExports";
 
 // ── Constants ─────────────────────────────────────────────────
@@ -833,6 +833,7 @@ export default function GebietsmanagerPage() {
   const [isExportingGms, setIsExportingGms] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ gmId: string; x: number; y: number } | null>(null);
   const [billaToggleBusyId, setBillaToggleBusyId] = useState<string | null>(null);
+  const [anonymizeBusyId, setAnonymizeBusyId] = useState<string | null>(null);
   const selectedGm = gms.find(g => g.id === selectedId) ?? null;
   const contextMenuGm = contextMenu ? gms.find((gm) => gm.id === contextMenu.gmId) ?? null : null;
 
@@ -935,6 +936,46 @@ export default function GebietsmanagerPage() {
     }
   }, [billaToggleBusyId]);
 
+  const handleAnonymizeGm = useCallback(async (gm: GMRecord) => {
+    if (anonymizeBusyId) return;
+    setContextMenu(null);
+    const confirmed = window.confirm(
+      `Mitarbeiter anonymisieren?\n\n${gm.firstName} ${gm.lastName} wird in Spark anonymisiert. Name, E-Mail, Telefon, Adresse, PLZ/Ort, Region und Profilfoto werden entfernt/ersetzt. Historische Besuche, Antworten, Fotos, Zeit- und KM-Daten bleiben für Statistiken erhalten, aber nur noch unter anonymen Mitarbeiterdaten.`,
+    );
+    if (!confirmed) return;
+    setAnonymizeBusyId(gm.id);
+    try {
+      const result = await anonymizeGmUser(gm.id);
+      if (result.user) {
+        setGms((prev) => prev.map((entry) => (entry.id === gm.id ? { ...result.user!, password: undefined } : entry)));
+      } else {
+        setGms((prev) => prev.map((entry) => entry.id === gm.id ? {
+          ...entry,
+          firstName: "Mitarbeiter",
+          lastName: "1",
+          email: `mitarbeiter-${gm.id.replace(/-/g, "").slice(0, 12)}@anonymisiert.coke-spark.local`,
+          phone: "1",
+          address: "Adresse 1",
+          city: "Ort 1",
+          postalCode: "1",
+          region: "1",
+          isBillaGm: false,
+          isActive: false,
+          deletedAt: new Date().toISOString(),
+          anonymizedAt: new Date().toISOString(),
+          password: undefined,
+        } : entry));
+      }
+      if (selectedId === gm.id) setSelectedId(null);
+      setBackendError(result.authDeleteError ? `Mitarbeiter anonymisiert. Hinweis: Auth-User konnte nicht gelöscht werden (${result.authDeleteError}). Login bleibt backendseitig gesperrt.` : null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Mitarbeiter konnte nicht anonymisiert werden.";
+      setBackendError(msg);
+    } finally {
+      setAnonymizeBusyId(null);
+    }
+  }, [anonymizeBusyId, selectedId]);
+
   const handleExportGms = useCallback(async () => {
     if (isExportingGms) return;
     setExportError(null);
@@ -1024,7 +1065,7 @@ export default function GebietsmanagerPage() {
           style={{
             position: "fixed",
             left: Math.min(contextMenu.x, Math.max(12, window.innerWidth - 210)),
-            top: Math.min(contextMenu.y, Math.max(12, window.innerHeight - 64)),
+            top: Math.min(contextMenu.y, Math.max(12, window.innerHeight - 108)),
             zIndex: 9999,
             width: 198,
             borderRadius: 11,
@@ -1070,6 +1111,44 @@ export default function GebietsmanagerPage() {
               }}
             />
             {contextMenuGm.isBillaGm ? "Billa-Filter entfernen" : "Billa-Filter setzen"}
+          </button>
+          <div style={{ height: 1, background: "rgba(15,23,42,0.06)", margin: "4px 3px" }} />
+          <button
+            type="button"
+            onClick={() => { void handleAnonymizeGm(contextMenuGm); }}
+            disabled={anonymizeBusyId === contextMenuGm.id || Boolean(contextMenuGm.anonymizedAt)}
+            style={{
+              width: "100%",
+              height: 34,
+              border: "none",
+              borderRadius: 8,
+              background: "transparent",
+              color: contextMenuGm.anonymizedAt ? "rgba(15,23,42,0.32)" : "#b91c1c",
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              padding: "0 9px",
+              cursor: anonymizeBusyId === contextMenuGm.id ? "wait" : contextMenuGm.anonymizedAt ? "default" : "pointer",
+              fontFamily: "inherit",
+              fontSize: 11,
+              fontWeight: 750,
+              textAlign: "left",
+            }}
+            onMouseEnter={(event) => {
+              if (!contextMenuGm.anonymizedAt) event.currentTarget.style.background = "rgba(185,28,28,0.06)";
+            }}
+            onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: contextMenuGm.anonymizedAt ? "rgba(15,23,42,0.22)" : "#b91c1c",
+                flexShrink: 0,
+              }}
+            />
+            {contextMenuGm.anonymizedAt ? "Bereits anonymisiert" : "Mitarbeiter anonymisieren"}
           </button>
         </div>,
         document.body,

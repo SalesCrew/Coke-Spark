@@ -3,6 +3,10 @@ import Link from "next/link";
 export type PrivacyNoticeSection = {
   title: string;
   body: string[];
+  table?: {
+    columns: string[];
+    rows: string[][];
+  };
 };
 
 type PrivacyNoticeProps = {
@@ -84,7 +88,7 @@ export function PrivacyNotice({
             </span>
           </div>
           <p style={{ margin: 0, fontSize: 13, lineHeight: 1.65, color: "rgba(15,23,42,0.68)", fontWeight: 560 }}>
-            Verantwortlicher, Datenschutzkontakt, konkrete Empfängerlisten und finale Aufbewahrungsfristen müssen mit den tatsächlichen Unternehmens- und Vertragsdaten ergänzt werden. Die folgende Information ist dafür vorbereitet und auf den aktuellen Coke-Spark-Einsatz zugeschnitten.
+            Diese Information nennt die verantwortliche Stelle, die Datenschutz-Anlaufstelle, Zwecke, Empfängergruppen, Rechtsgrundlagen und Aufbewahrungsregeln für den aktuellen Coke-Spark-Einsatz.
           </p>
         </section>
 
@@ -110,16 +114,83 @@ export function PrivacyNotice({
                   </p>
                 ))}
               </div>
+              {section.table ? (
+                <div
+                  style={{
+                    marginTop: 14,
+                    overflowX: "auto",
+                    border: "1px solid rgba(15,23,42,0.08)",
+                    borderRadius: 12,
+                    background: "rgba(248,250,252,0.72)",
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      minWidth: 720,
+                      borderCollapse: "separate",
+                      borderSpacing: 0,
+                      fontSize: 12,
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    <thead>
+                      <tr>
+                        {section.table.columns.map((column) => (
+                          <th
+                            key={column}
+                            scope="col"
+                            style={{
+                              padding: "10px 12px",
+                              textAlign: "left",
+                              fontSize: 10,
+                              letterSpacing: "0.11em",
+                              textTransform: "uppercase",
+                              color: "rgba(15,23,42,0.44)",
+                              fontWeight: 820,
+                              borderBottom: "1px solid rgba(15,23,42,0.08)",
+                              background: "rgba(255,255,255,0.78)",
+                            }}
+                          >
+                            {column}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.table.rows.map((row, rowIndex) => (
+                        <tr key={`${section.title}-row-${rowIndex}`}>
+                          {row.map((cell, cellIndex) => (
+                            <td
+                              key={`${section.title}-row-${rowIndex}-cell-${cellIndex}`}
+                              style={{
+                                padding: "10px 12px",
+                                verticalAlign: "top",
+                                color: cellIndex === 0 ? "rgba(15,23,42,0.86)" : "rgba(15,23,42,0.62)",
+                                fontWeight: cellIndex === 0 ? 720 : 520,
+                                borderBottom: rowIndex === section.table!.rows.length - 1 ? "none" : "1px solid rgba(15,23,42,0.06)",
+                              }}
+                            >
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </section>
           ))}
         </div>
 
         <footer style={{ marginTop: 24, borderTop: "1px solid rgba(15,23,42,0.08)", paddingTop: 18, color: "rgba(15,23,42,0.46)", fontSize: 12, lineHeight: 1.7 }}>
           <p style={{ margin: 0 }}>
-            Stand: 29.06.2026. Diese Information orientiert sich an den Transparenzpflichten nach Art. 13 und 14 DSGVO sowie am Beschäftigtendatenkontext nach Art. 88 DSGVO.
+            Stand: 30.06.2026. Diese Information orientiert sich an den Transparenzpflichten nach Art. 13 und 14 DSGVO sowie am Beschäftigtendatenkontext nach Art. 88 DSGVO.
           </p>
         </footer>
       </article>
     </main>
   );
 }
+

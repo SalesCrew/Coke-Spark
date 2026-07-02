@@ -6,12 +6,25 @@ export const metadata: Metadata = {
   description: "Datenschutzinformation für Admins, verantwortliche Manager und Kunden-Zugänge in Coke Spark.",
 };
 
+const retentionRows = [
+  ["Admin-/Kunde-Account, Rollen und Rechte", "Für die Dauer des aktiven Zugangs. Nach Wegfall des Zwecks wird der Zugang sofort deaktiviert; Stammdaten werden grundsätzlich innerhalb von 30 Tagen nach Abschluss der Übergabe gelöscht oder anonymisiert, sofern keine Prüfung oder gesetzliche Pflicht entgegensteht."],
+  ["Marktbesuche, Fragebogenantworten, Kommentare, Tags und Status", "3 Jahre nach Ende des betreffenden Kampagnen- oder RED-Jahres. Danach werden personenbezogene Bezüge gelöscht/anonymisiert, soweit nur noch aggregierte Statistik benötigt wird."],
+  ["Besuchsfotos, Fotometadaten und Foto-Tags", "3 Jahre nach Ende des betreffenden Kampagnen- oder RED-Jahres. Danach werden Storage-Datei und Metadaten gelöscht, sofern keine Reklamation, Nachweispflicht oder Legal Hold besteht. Offensichtlich private oder sensible Fehlfotos werden nach Prüfung früher entfernt."],
+  ["Arbeitszeit, Pausen, Zusatzzeit, Tagesstart/-ende und Kilometerstände", "7 Jahre nach Ende des Kalenderjahres, wenn die Daten für Abrechnung, Diäten, Payroll, Aufwandsersatz oder buchhalterische Nachweise verwendet werden. Diese Daten gehören nicht in Coca-Cola Kundenansichten oder Kundenexporte."],
+  ["Zeit- und Antwort-Korrekturanfragen", "Zeitanfragen 7 Jahre, wenn sie Arbeitszeit/KM/Abrechnung betreffen. Antwort-/Fragebogenänderungen 3 Jahre gemeinsam mit der jeweiligen Kampagnenhistorie."],
+  ["IPP-, KPI-, Bonus- und Prämienwerte", "7 Jahre, soweit Auszahlung, Abrechnung oder buchhalterische Nachweise betroffen sind; sonst 3 Jahre für Qualitätssicherung und Reporting. Kunden sehen nur freigegebene Reportingwerte, keine internen HR-/Payrolldetails."],
+  ["Login-, Auth-, Audit- und Sicherheitslogs", "24 Monate. Incident-relevante Logs werden bis zum Abschluss der Untersuchung und danach bis zu 3 Jahre oder im Legal Hold aufbewahrt."],
+  ["Technische Telemetrie und Fehlerlogs", "Detaildaten grundsätzlich 90 Tage. Aggregierte technische Statistiken höchstens 12 Monate."],
+  ["Excel-, Foto- und sonstige Exporte", "Arbeitskopien sind nach Zweckerfüllung zu löschen, grundsätzlich innerhalb von 30 Tagen, außer sie werden in einem freigegebenen geschützten Ablageort als Nachweis mit eigener Frist gespeichert."],
+  ["Akzeptanz- und Datenschutz-Nachweise", "Für die Dauer des Zugangs plus 3 Jahre als Nachweis der Information, länger nur bei Streitfall, Prüfung oder Legal Hold."],
+];
+
 const sections: PrivacyNoticeSection[] = [
   {
     title: "1. Verantwortlicher und Kontakt",
     body: [
-      "Verantwortlicher: [rechtlichen Namen, Anschrift und Kontakt der betreibenden Gesellschaft final eintragen].",
-      "Datenschutzkontakt: [E-Mail-Adresse final eintragen]. Falls ein Datenschutzbeauftragter bestellt ist, sind dessen Kontaktdaten hier zu ergänzen.",
+      "Verantwortlicher: Institut für Verkaufsförderung GmbH, Wagenseilgasse 5, 1120 Wien.",
+      "Datenschutz-Anlaufstelle: datenschutz@merch.at.",
       "Diese Information gilt für interne Admins, verantwortliche Manager, Kunden-/Coca-Cola-Zugänge und sonstige berechtigte Nutzerinnen und Nutzer der Admin- oder Reporting-Oberflächen von Coke Spark.",
     ],
   },
@@ -74,6 +87,7 @@ const sections: PrivacyNoticeSection[] = [
     body: [
       "Exporte können personenbezogene und operative Daten enthalten. Sie dürfen nur für den jeweils vorgesehenen Zweck verwendet, geschützt abgelegt und nicht unberechtigt weitergegeben werden.",
       "Coca-Cola Kunden-Exporte sind auf Reportingdaten zu beschränken, insbesondere Markt-/Kampagnendaten, Antworten, Fotos, Tags, Status und benötigte Nachweise. Interne Arbeitszeit-, KM-, HR-, Sicherheits- und Bonusdetails gehören nicht in Kundenexporte.",
+      "Exportdateien dürfen nicht dauerhaft auf privaten Geräten, in ungeschützten Chatverläufen oder unfreigegebenen Ablagen gespeichert werden. Arbeitskopien sind grundsätzlich innerhalb von 30 Tagen zu löschen, sobald der Zweck erfüllt ist.",
       "Exportaktionen können protokolliert werden, um Missbrauch, versehentliche Offenlegung und unberechtigte Weitergabe nachvollziehen zu können.",
     ],
   },
@@ -88,13 +102,14 @@ const sections: PrivacyNoticeSection[] = [
   {
     title: "10. Speicherdauer",
     body: [
-      "Account-, Rechte- und Auditdaten werden so lange gespeichert, wie der Zugang aktiv ist und danach so lange, wie Nachweis-, Sicherheits-, Compliance- oder gesetzliche Aufbewahrungspflichten dies erfordern.",
-      "Reporting-, Kampagnen-, Antwort-, Foto- und Exportdaten werden so lange gespeichert, wie sie für Kundenreporting, Qualitätssicherung, Nachweise, Kampagnenhistorie, Reklamationen oder rechtliche/vertragliche Ansprüche erforderlich sind.",
-      "Technische Logs und Telemetrie werden grundsätzlich kürzer gespeichert und nur so lange, wie sie für Betrieb, Sicherheit, Fehleranalyse und Missbrauchsvermeidung erforderlich sind.",
-      "Exports sind Arbeitskopien und dürfen nur zweckgebunden abgelegt werden. Sie sind zu löschen, sobald der Exportzweck erfüllt ist oder die jeweils festgelegte Aufbewahrungsfrist endet.",
-      "Inaktive GM-/SM-Nutzer können nach Offboarding in Spark anonymisiert werden. Dabei werden personenbezogene Stammdaten und Loginbezug entfernt oder durch neutrale Platzhalter ersetzt; historische operative Einträge bleiben für Statistiken, Nachweise und Reporting erhalten.",
-      "Die finalen konkreten Fristen für Löschung, Sperrung, Exportablage und Anonymisierung sind im internen Lösch- und Aufbewahrungskonzept zu dokumentieren und regelmäßig zu prüfen.",
+      "Die folgenden Fristen sind die Coke-Spark-Regel für operative App-Daten. Längere Speicherung ist nur zulässig, wenn gesetzliche Aufbewahrungspflichten, offene Ansprüche, Prüfungen, Sicherheitsvorfälle oder ein dokumentierter Legal Hold dies erfordern.",
+      "Inaktive GM-/SM-Nutzer werden nach Offboarding in Spark anonymisiert. Dabei werden personenbezogene Stammdaten und Loginbezug entfernt oder durch neutrale Platzhalter ersetzt; historische operative Einträge bleiben nur im zulässigen Umfang für Statistiken, Nachweise und Reporting erhalten.",
+      "Coca-Cola Kunden-Zugänge dürfen keine Arbeitszeit-, KM-, Payroll-, HR- oder internen Bonus-/Sicherheitsdetails erhalten. Exporte sind Arbeitskopien und müssen nach Zweckerfüllung gelöscht oder in einem freigegebenen geschützten Ablageort verwaltet werden.",
     ],
+    table: {
+      columns: ["Datenkategorie", "Regel / Frist in Spark"],
+      rows: retentionRows,
+    },
   },
   {
     title: "11. Drittlandübermittlung",
@@ -115,14 +130,19 @@ const sections: PrivacyNoticeSection[] = [
     body: [
       "Betroffene Personen können Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch verlangen, soweit die gesetzlichen Voraussetzungen vorliegen.",
       "Bestimmte Daten können wegen gesetzlicher Aufbewahrungspflichten, Auditpflichten, Nachweisinteressen oder Sicherheitserfordernissen nicht sofort gelöscht werden; in solchen Fällen kann eine Einschränkung oder Sperrung geprüft werden.",
+      "Anfragen werden intern dokumentiert, die Identität und Berechtigung wird geprüft und die Antwort erfolgt grundsätzlich innerhalb eines Monats. Bei komplexen Anfragen kann die Frist nach DSGVO verlängert werden; die betroffene Person erhält dann eine Begründung.",
+      "Die interne Bearbeitung erfolgt über die Datenschutzanfragen-Übersicht: Eingang, Frist, verantwortliche Person, Identitätsprüfung, Datenpaket, Entscheidung und Antwort werden dort nachvollziehbar dokumentiert.",
+      "Berichtigungen, Löschungen oder Einschränkungen werden nur soweit umgesetzt, wie gesetzliche Arbeitszeit-, Abrechnungs-, Audit-, Reporting- oder Nachweispflichten nicht entgegenstehen.",
       "Es besteht das Recht auf Beschwerde bei der österreichischen Datenschutzbehörde: dsb.gv.at.",
     ],
   },
   {
-    title: "14. Sicherheit",
+    title: "14. Sicherheit und Datenschutzvorfälle",
     body: [
       "Coke Spark nutzt rollenbasierte Berechtigungen, serverseitige Zugriffsprüfungen, Backend-only Datenbankzugriffe, private Speicherbereiche, signierte Datei-URLs, Protokollierung und Auditmechanismen.",
       "Direkte anonyme oder normale Client-Zugriffe auf die Datenbanktabellen sind nicht vorgesehen. Geschäftsdaten werden über die autorisierte Backend-API verarbeitet.",
+      "Mögliche Datenschutz- oder Sicherheitsvorfälle müssen sofort intern gemeldet werden. Das zuständige Team sichert Logs und Beweise, bewertet Risiko und Umfang, begrenzt den Vorfall und entscheidet über Meldepflichten.",
+      "Wenn nach DSGVO erforderlich, wird die österreichische Datenschutzbehörde grundsätzlich binnen 72 Stunden ab Bekanntwerden informiert. Betroffene Personen werden informiert, wenn voraussichtlich ein hohes Risiko für ihre Rechte und Freiheiten besteht.",
     ],
   },
 ];

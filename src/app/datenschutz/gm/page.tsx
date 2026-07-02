@@ -6,12 +6,25 @@ export const metadata: Metadata = {
   description: "Datenschutzinformation für Gebietsmanager, Shelf Merchandiser und Field Force in Coke Spark.",
 };
 
+const retentionRows = [
+  ["GM-/SM-Account und Profil", "Für die Dauer des aktiven Einsatzes. Nach Offboarding wird der Login sofort deaktiviert; Spark-Stammdaten werden grundsätzlich innerhalb von 30 Tagen nach Abschluss der operativen Übergabe anonymisiert, sofern keine offene Prüfung oder gesetzliche Pflicht entgegensteht."],
+  ["Marktbesuche, Fragebogenantworten, Kommentare, Tags und Status", "3 Jahre nach Ende des betreffenden Kampagnen- oder RED-Jahres. Danach werden personenbezogene Bezüge gelöscht/anonymisiert, soweit nur noch aggregierte Statistik benötigt wird."],
+  ["Besuchsfotos, Fotometadaten und Foto-Tags", "3 Jahre nach Ende des betreffenden Kampagnen- oder RED-Jahres. Danach werden Storage-Datei und Metadaten gelöscht, sofern keine Reklamation, Nachweispflicht oder Legal Hold besteht. Offensichtlich private oder sensible Fehlfotos werden nach Prüfung früher entfernt."],
+  ["Arbeitszeit, Pausen, Zusatzzeit, Tagesstart/-ende und Kilometerstände", "7 Jahre nach Ende des Kalenderjahres, wenn die Daten für Abrechnung, Diäten, Payroll, Aufwandsersatz oder buchhalterische Nachweise verwendet werden. Rein technische Entwürfe ohne Nachweisfunktion werden früher bereinigt."],
+  ["Zeit- und Antwort-Korrekturanfragen", "Zeitanfragen 7 Jahre, wenn sie Arbeitszeit/KM/Abrechnung betreffen. Antwort-/Fragebogenänderungen 3 Jahre gemeinsam mit der jeweiligen Kampagnenhistorie."],
+  ["IPP-, KPI-, Bonus- und Prämienwerte", "7 Jahre, soweit Auszahlung, Abrechnung oder buchhalterische Nachweise betroffen sind; sonst 3 Jahre für Qualitätssicherung und Reporting."],
+  ["Login-, Auth-, Audit- und Sicherheitslogs", "24 Monate. Incident-relevante Logs werden bis zum Abschluss der Untersuchung und danach bis zu 3 Jahre oder im Legal Hold aufbewahrt."],
+  ["Technische Telemetrie und Fehlerlogs", "Detaildaten grundsätzlich 90 Tage. Aggregierte technische Statistiken höchstens 12 Monate."],
+  ["Excel-, Foto- und sonstige Exporte", "Arbeitskopien sind nach Zweckerfüllung zu löschen, grundsätzlich innerhalb von 30 Tagen, außer sie werden in einem freigegebenen geschützten Ablageort als Nachweis mit eigener Frist gespeichert."],
+  ["Akzeptanz der Nutzungs-/Kontrollvereinbarung", "Für die Dauer des Einsatzes plus 3 Jahre als Nachweis der Information und Zustimmung, länger nur bei Streitfall, Prüfung oder Legal Hold."],
+];
+
 const sections: PrivacyNoticeSection[] = [
   {
     title: "1. Verantwortlicher und Kontakt",
     body: [
-      "Verantwortlicher: [rechtlichen Namen, Anschrift und Kontakt des Arbeitgebers bzw. der betreibenden Gesellschaft final eintragen].",
-      "Datenschutzkontakt: [E-Mail-Adresse final eintragen]. Falls ein Datenschutzbeauftragter bestellt ist, sind dessen Kontaktdaten hier zu ergänzen.",
+      "Verantwortlicher: Institut für Verkaufsförderung GmbH, Wagenseilgasse 5, 1120 Wien.",
+      "Datenschutz-Anlaufstelle: datenschutz@merch.at.",
       "Diese Information gilt für Gebietsmanager, Shelf Merchandiser und Field-Force-Mitarbeitende, die Coke Spark zur Arbeitsausführung und zum Coca-Cola Reporting verwenden.",
     ],
   },
@@ -64,13 +77,14 @@ const sections: PrivacyNoticeSection[] = [
   {
     title: "7. Speicherdauer",
     body: [
-      "Arbeitszeit- und Kilometerdaten werden so lange gespeichert, wie gesetzliche Aufbewahrungs-, Nachweis-, Abrechnungs- oder arbeitsrechtliche Pflichten dies erfordern.",
-      "Besuchs-, Fragebogen-, Foto- und Reportingdaten werden so lange gespeichert, wie sie für Coca-Cola Reporting, Qualitätsnachweise, Reklamationen, Kampagnenhistorie, Prämienprüfung oder interne Nachvollziehbarkeit erforderlich sind.",
-      "Audit-, Login-, Sicherheits- und Telemetriedaten werden grundsätzlich kürzer gespeichert und nur so lange, wie sie für Sicherheit, Fehleranalyse, Missbrauchsvermeidung und Nachweiszwecke erforderlich sind.",
-      "Exports sind Arbeitskopien und dürfen nur zweckgebunden abgelegt werden. Sie sind zu löschen, sobald der Exportzweck erfüllt ist oder die jeweils festgelegte Aufbewahrungsfrist endet.",
-      "Wenn dein aktiver Einsatz endet und deine operative Spark-Identität nicht mehr benötigt wird, kann dein Spark-Nutzerstammdatensatz anonymisiert werden. Name, E-Mail-Adresse, Telefon, Adresse, PLZ/Ort, Region, Profilfoto und Loginbezug werden dann entfernt oder durch neutrale Platzhalter ersetzt.",
-      "Historische Marktbesuche, Antworten, Fotos, Zeit- und Kilometerdaten bleiben für Statistiken, Nachweise, Reporting und Abrechnung erhalten, werden in Spark aber nur noch mit anonymisierten Mitarbeiterdaten angezeigt. Separate HR-/Payroll-Unterlagen außerhalb von Spark können aufgrund gesetzlicher Pflichten länger personenbezogen aufbewahrt werden.",
+      "Die folgenden Fristen sind die Coke-Spark-Regel für operative App-Daten. Längere Speicherung ist nur zulässig, wenn gesetzliche Aufbewahrungspflichten, offene Ansprüche, Prüfungen, Sicherheitsvorfälle oder ein dokumentierter Legal Hold dies erfordern.",
+      "Wenn dein aktiver Einsatz endet und deine operative Spark-Identität nicht mehr benötigt wird, wird dein Spark-Nutzerstammdatensatz anonymisiert. Name, E-Mail-Adresse, Telefon, Adresse, PLZ/Ort, Region, Profilfoto und Loginbezug werden entfernt oder durch neutrale Platzhalter ersetzt.",
+      "Historische Marktbesuche, Antworten, Fotos, Zeit- und Kilometerdaten bleiben nur so lange personenbezogen, wie dies nach der folgenden Tabelle nötig ist. Danach werden sie gelöscht oder anonymisiert; separate HR-/Payroll-Unterlagen außerhalb von Spark können aufgrund gesetzlicher Pflichten länger personenbezogen aufbewahrt werden.",
     ],
+    table: {
+      columns: ["Datenkategorie", "Regel / Frist in Spark"],
+      rows: retentionRows,
+    },
   },
   {
     title: "8. Arbeitszeitaufzeichnung, Einsicht und Korrektur",
@@ -102,14 +116,19 @@ const sections: PrivacyNoticeSection[] = [
     body: [
       "Betroffene Personen können Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch verlangen, soweit die gesetzlichen Voraussetzungen vorliegen.",
       "Bestimmte Daten können wegen gesetzlicher Aufbewahrungspflichten, Arbeitszeitnachweisen, Nachweisinteressen oder berechtigter Dokumentation nicht sofort gelöscht werden; in solchen Fällen kann eine Einschränkung oder Sperrung geprüft werden.",
+      "Anfragen werden intern dokumentiert, die Identität wird geprüft und die Antwort erfolgt grundsätzlich innerhalb eines Monats. Wenn eine Anfrage besonders komplex ist, kann die Frist nach DSGVO verlängert werden; du erhältst dann eine Begründung.",
+      "Die interne Bearbeitung erfolgt über die Datenschutzanfragen-Übersicht: Eingang, Frist, verantwortliche Person, Identitätsprüfung, Datenpaket, Entscheidung und Antwort werden dort nachvollziehbar dokumentiert.",
+      "Berichtigungen sind über die vorgesehenen Korrekturprozesse möglich. Bei Löschung oder Einschränkung wird geprüft, ob gesetzliche Arbeitszeit-, Abrechnungs-, Nachweis- oder Reportingpflichten entgegenstehen.",
       "Es besteht das Recht auf Beschwerde bei der österreichischen Datenschutzbehörde: dsb.gv.at.",
     ],
   },
   {
-    title: "12. Sicherheit",
+    title: "12. Sicherheit und Datenschutzvorfälle",
     body: [
       "Coke Spark nutzt rollenbasierte Zugriffe, serverseitige Berechtigungsprüfungen, private Speicherbereiche, signierte Datei-URLs, Protokollierung und eine backend-only Datenbankzugriffsarchitektur.",
       "Direkte anonyme oder normale Client-Zugriffe auf die Datenbanktabellen sind nicht vorgesehen. Geschäftsdaten werden über die autorisierte Backend-API verarbeitet.",
+      "Wenn ein möglicher Datenschutz- oder Sicherheitsvorfall auffällt, muss er sofort intern gemeldet werden. Das zuständige Team sichert Logs und Beweise, bewertet Risiko und Umfang, begrenzt den Vorfall und entscheidet über Meldepflichten.",
+      "Wenn nach DSGVO erforderlich, wird die österreichische Datenschutzbehörde grundsätzlich binnen 72 Stunden ab Bekanntwerden informiert. Betroffene Personen werden informiert, wenn voraussichtlich ein hohes Risiko für ihre Rechte und Freiheiten besteht.",
     ],
   },
 ];

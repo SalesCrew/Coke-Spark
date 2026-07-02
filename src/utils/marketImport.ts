@@ -136,7 +136,8 @@ export const UNIVERSUM_FIELD_SPECS: FieldSpec[] = [
 ];
 
 export const KUEHLER_FIELD_SPECS: FieldSpec[] = [
-  { key: "kuehlerStammnr",            label: "Stammnr",               required: true,  isIdentity: true  },
+  { key: "kuehlerStammnr",            label: "Stammnr",               required: false, isIdentity: true  },
+  { key: "flexNumber",                label: "Flex-Nummer",           required: false, isIdentity: true  },
   { key: "kuehlerInternalId",         label: "internal_id",           required: false, isIdentity: false },
   { key: "kuehlerBd",                 label: "BD",                    required: false, isIdentity: false },
   { key: "kuehlerAnzahlKsAmStandort", label: "Anzahl KS am Standort", required: false, isIdentity: false },

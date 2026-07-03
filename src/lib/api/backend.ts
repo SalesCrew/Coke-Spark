@@ -1747,6 +1747,30 @@ export async function updateGmUser(payload: GMRecord): Promise<GMRecord> {
   return next;
 }
 
+export interface SpecialArthurFilterEntry {
+  id: string;
+  matchValue: string;
+  createdAt?: string;
+}
+
+export async function fetchSpecialArthurFilter(gmUserId: string): Promise<SpecialArthurFilterEntry[]> {
+  const data = (await authedFetch(`/admin/users/${gmUserId}/special-arthur-filter`, {
+    cache: "no-store",
+  })) as { entries?: SpecialArthurFilterEntry[] };
+  return data.entries ?? [];
+}
+
+export async function replaceSpecialArthurFilter(
+  gmUserId: string,
+  matchValues: string[],
+): Promise<SpecialArthurFilterEntry[]> {
+  const data = (await authedFetch(`/admin/users/${gmUserId}/special-arthur-filter`, {
+    method: "PUT",
+    body: JSON.stringify({ matchValues }),
+  })) as { entries?: SpecialArthurFilterEntry[] };
+  return data.entries ?? [];
+}
+
 export async function createSmUser(payload: Omit<SMRecord, "id" | "createdAt" | "password" | "visitCount">): Promise<SMRecord> {
   const data = (await authedFetch("/admin/users", {
     method: "POST",

@@ -2,11 +2,21 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
+import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, ChevronDown, Upload, FileSpreadsheet } from "lucide-react";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { MarketVisitLog } from "@/types/markets";
-import { anonymizeGmUser, createGmUser, fetchGmUsers, readAuthSession, updateGmUser } from "@/lib/api/backend";
+import {
+  anonymizeGmUser,
+  createGmUser,
+  fetchGmUsers,
+  fetchSpecialArthurFilter,
+  readAuthSession,
+  replaceSpecialArthurFilter,
+  updateGmUser,
+  type SpecialArthurFilterEntry,
+} from "@/lib/api/backend";
 import { exportGebietsmanagerExcel } from "@/lib/exports/masterDataExports";
+import { buildPreviewGrid, readWorkbook, type WorkbookResult } from "@/utils/marketImport";
 
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
@@ -821,6 +831,261 @@ function CreateModal({
 }
 
 // ── Page ─────────────────────────────────────────────────────
+type SpecialArthurFilterModalProps = {
+  gm: GMRecord;
+  onClose: () => void;
+};
+
+function normalizeSpecialArthurImportValue(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
+
+function SpecialArthurFilterModal({ gm, onClose }: SpecialArthurFilterModalProps) {
+  const [existingEntries, setExistingEntries] = useState<SpecialArthurFilterEntry[]>([]);
+  const [loadingExisting, setLoadingExisting] = useState(true);
+  const [workbook, setWorkbook] = useState<WorkbookResult | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [stammnrColumn, setStammnrColumn] = useState<string>("");
+  const [flexColumn, setFlexColumn] = useState<string>("");
+  const [dragging, setDragging] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resultCount, setResultCount] = useState<number | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingExisting(true);
+    fetchSpecialArthurFilter(gm.id)
+      .then((entries) => {
+        if (!cancelled) setExistingEntries(entries);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Filter konnte nicht geladen werden.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingExisting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [gm.id]);
+
+  const parseFile = useCallback(async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
+      setError("Bitte eine Excel-Datei (.xlsx oder .xls) hochladen.");
+      return;
+    }
+    setParsing(true);
+    setError(null);
+    setResultCount(null);
+    try {
+      const parsed = await readWorkbook(file);
+      setWorkbook(parsed);
+      setFileName(file.name);
+      setStammnrColumn("");
+      setFlexColumn("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Excel konnte nicht gelesen werden.");
+    } finally {
+      setParsing(false);
+    }
+  }, []);
+
+  const preview = workbook ? buildPreviewGrid(workbook.rows) : null;
+  const headerOptions = workbook
+    ? Array.from({ length: workbook.colCount }, (_, index) => ({
+        value: String(index),
+        label: `${preview?.colLetters[index] ?? ""} · ${workbook.rows[0]?.[index] || "Ohne Header"}`,
+      }))
+    : [];
+
+  const buildValues = useCallback(() => {
+    if (!workbook) return [];
+    const stammIndex = stammnrColumn === "" ? -1 : Number(stammnrColumn);
+    const flexIndex = flexColumn === "" ? -1 : Number(flexColumn);
+    if (stammIndex < 0 && flexIndex < 0) return [];
+    const values: string[] = [];
+    for (const row of workbook.rows.slice(1)) {
+      const stammnr = stammIndex >= 0 ? normalizeSpecialArthurImportValue(row[stammIndex]) : "";
+      const flex = flexIndex >= 0 ? normalizeSpecialArthurImportValue(row[flexIndex]) : "";
+      const matchValue = stammnr || flex;
+      if (matchValue) values.push(matchValue);
+    }
+    return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right, "de"));
+  }, [workbook, stammnrColumn, flexColumn]);
+
+  const derivedValues = buildValues();
+  const canSave = Boolean(workbook) && derivedValues.length > 0 && !saving;
+
+  const handleSave = useCallback(async () => {
+    if (!canSave) {
+      setError("Bitte Stammnr. oder Flex-Nr. zuordnen. Pro Zeile wird Stammnr. bevorzugt, sonst Flex-Nr.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await replaceSpecialArthurFilter(gm.id, derivedValues);
+      setExistingEntries(saved);
+      setResultCount(saved.length);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Märktefilter konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }, [canSave, derivedValues, gm.id]);
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(15,23,42,0.22)", backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 22 }}
+    >
+      <style>{`
+        .saf-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+        .saf-scroll::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.13); border-radius: 999px; }
+      `}</style>
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{ width: "min(920px, calc(100vw - 44px))", maxHeight: "min(760px, calc(100vh - 44px))", overflow: "hidden", borderRadius: 18, background: "#fff", border: "1px solid rgba(15,23,42,0.08)", boxShadow: "0 24px 70px rgba(15,23,42,0.22)", display: "flex", flexDirection: "column", fontFamily: "inherit" }}
+      >
+        <div style={{ padding: "18px 20px 15px", borderBottom: "1px solid rgba(15,23,42,0.07)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 18 }}>
+          <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 12, background: "rgba(37,99,235,0.08)", color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <FileSpreadsheet size={17} strokeWidth={2.2} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)", marginBottom: 4 }}>Spezialfilter</div>
+              <div style={{ fontSize: 18, fontWeight: 850, letterSpacing: "-0.035em", color: "#111827" }}>Märktefilter importieren</div>
+              <div style={{ marginTop: 3, fontSize: 11, color: "rgba(15,23,42,0.48)", lineHeight: 1.45 }}>
+                {gm.firstName} {gm.lastName} sieht als Billa-GM nur Märkte, deren Stammnr. oder Flex-Nr. in dieser Liste steht.
+              </div>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} style={{ width: 30, height: 30, border: "1px solid rgba(15,23,42,0.08)", borderRadius: 9, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(15,23,42,0.48)", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+            <X size={13} strokeWidth={2.4} />
+          </button>
+        </div>
+
+        <div className="saf-scroll" style={{ overflow: "auto", padding: 20, display: "grid", gridTemplateColumns: workbook ? "330px 1fr" : "1fr", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragging(false);
+                void parseFile(event.dataTransfer.files);
+              }}
+              style={{ borderRadius: 14, border: dragging ? "1px solid rgba(37,99,235,0.45)" : "1px dashed rgba(15,23,42,0.18)", background: dragging ? "rgba(37,99,235,0.045)" : "rgba(248,250,252,0.82)", padding: "26px 18px", minHeight: 182, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", cursor: "pointer", transition: "all 0.14s ease" }}
+            >
+              <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(event) => void parseFile(event.target.files)} />
+              <div style={{ width: 42, height: 42, borderRadius: 14, background: "#fff", border: "1px solid rgba(15,23,42,0.08)", boxShadow: "0 5px 18px rgba(15,23,42,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: parsing ? "#94a3b8" : "#2563eb", marginBottom: 12 }}>
+                <Upload size={18} strokeWidth={2.2} />
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#111827", letterSpacing: "-0.01em" }}>{parsing ? "Excel wird gelesen..." : "Excel hier ablegen"}</div>
+              <div style={{ marginTop: 5, fontSize: 10, color: "rgba(15,23,42,0.42)" }}>oder klicken zum Auswählen · .xlsx, .xls</div>
+              {fileName ? <div style={{ marginTop: 12, fontSize: 10, fontWeight: 700, color: "#2563eb" }}>{fileName}</div> : null}
+            </div>
+
+            <div style={{ borderRadius: 13, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", padding: 13 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "rgba(15,23,42,0.35)", marginBottom: 7 }}>Aktueller Filter</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+                <span style={{ fontSize: 24, fontWeight: 900, letterSpacing: "-0.05em", color: "#111827" }}>{loadingExisting ? "..." : existingEntries.length}</span>
+                <span style={{ fontSize: 10, color: "rgba(15,23,42,0.45)", fontWeight: 650 }}>Nummern gespeichert</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 10, color: "rgba(15,23,42,0.46)", lineHeight: 1.55 }}>
+                Eine leere Liste deaktiviert nur den Spezialfilter. Der normale Billa-Filter bleibt davon getrennt.
+              </div>
+            </div>
+          </div>
+
+          {workbook ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+              <div style={{ borderRadius: 14, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", padding: 14 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "rgba(15,23,42,0.36)" }}>Stammnr.</span>
+                    <select value={stammnrColumn} onChange={(event) => setStammnrColumn(event.target.value)} style={{ height: 36, borderRadius: 9, border: "1px solid rgba(15,23,42,0.12)", background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#111827", outline: "none", fontFamily: "inherit" }}>
+                      <option value="">Nicht zugeordnet</option>
+                      {headerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "rgba(15,23,42,0.36)" }}>Flex-Nr.</span>
+                    <select value={flexColumn} onChange={(event) => setFlexColumn(event.target.value)} style={{ height: 36, borderRadius: 9, border: "1px solid rgba(15,23,42,0.12)", background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#111827", outline: "none", fontFamily: "inherit" }}>
+                      <option value="">Nicht zugeordnet</option>
+                      {headerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div style={{ marginTop: 10, borderRadius: 10, background: "rgba(37,99,235,0.045)", border: "1px solid rgba(37,99,235,0.10)", padding: "9px 10px", fontSize: 10, lineHeight: 1.55, color: "rgba(15,23,42,0.58)" }}>
+                  Pro Zeile wird zuerst die Stammnr. genommen. Ist sie leer, wird wie beim Excel-XVERWEIS auf die Flex-Nr. zurückgefallen.
+                </div>
+              </div>
+
+              <div style={{ borderRadius: 14, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", overflow: "hidden" }}>
+                <div style={{ padding: "10px 12px", borderBottom: "1px solid rgba(15,23,42,0.06)", display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "rgba(15,23,42,0.35)" }}>Vorschau</div>
+                    <div style={{ marginTop: 2, fontSize: 11, color: "rgba(15,23,42,0.48)" }}>{workbook.sheetName} · {Math.max(0, workbook.rows.length - 1)} Zeilen</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: derivedValues.length > 0 ? "#16a34a" : "#94a3b8", letterSpacing: "-0.05em" }}>{derivedValues.length}</div>
+                    <div style={{ fontSize: 9, color: "rgba(15,23,42,0.42)", fontWeight: 700 }}>gültig</div>
+                  </div>
+                </div>
+                <div className="saf-scroll" style={{ maxHeight: 260, overflow: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                    <thead>
+                      <tr>
+                        {preview?.colLetters.map((letter, index) => (
+                          <th key={letter} style={{ position: "sticky", top: 0, background: "#f8fafc", borderBottom: "1px solid rgba(15,23,42,0.06)", padding: "8px 9px", textAlign: "left", fontSize: 8, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>{letter} · {workbook.rows[0]?.[index] || "-"}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview?.previewRows.slice(0, 8).map((row, rowIndex) => (
+                        <tr key={preview.rowNumbers[rowIndex]} style={{ borderBottom: "1px solid rgba(15,23,42,0.045)" }}>
+                          {preview.colLetters.map((letter, index) => (
+                            <td key={letter} style={{ padding: "7px 9px", color: "rgba(15,23,42,0.68)", maxWidth: 150, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row[index] || "—"}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div style={{ padding: "14px 20px", borderTop: "1px solid rgba(15,23,42,0.07)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ minHeight: 16, fontSize: 10, fontWeight: 700, color: error ? "#b91c1c" : resultCount != null ? "#16a34a" : "rgba(15,23,42,0.42)" }}>
+            {error ?? (resultCount != null ? `${resultCount} Nummern gespeichert.` : "Stammnr. und Flex-Nr. können beide gemappt werden.")}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={onClose} style={{ height: 34, padding: "0 14px", borderRadius: 9, border: "1px solid rgba(15,23,42,0.10)", background: "#fff", color: "rgba(15,23,42,0.58)", fontSize: 11, fontWeight: 750, fontFamily: "inherit", cursor: "pointer", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 4px rgba(15,23,42,0.05)" }}>
+              Schließen
+            </button>
+            <button type="button" onClick={handleSave} disabled={!canSave} style={{ height: 34, padding: "0 16px", borderRadius: 9, border: "none", background: canSave ? `linear-gradient(to bottom,${R},${RD})` : "rgba(15,23,42,0.12)", color: "#fff", fontSize: 11, fontWeight: 850, fontFamily: "inherit", cursor: canSave ? "pointer" : "not-allowed", boxShadow: canSave ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none" }}>
+              {saving ? "Speichert..." : "Filter speichern"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function GebietsmanagerPage() {
   const [gms, setGms] = useState<GMRecord[]>([]);
   const [visits, setVisits] = useState<MarketVisitLog[]>([]);
@@ -834,6 +1099,7 @@ export default function GebietsmanagerPage() {
   const [contextMenu, setContextMenu] = useState<{ gmId: string; x: number; y: number } | null>(null);
   const [billaToggleBusyId, setBillaToggleBusyId] = useState<string | null>(null);
   const [anonymizeBusyId, setAnonymizeBusyId] = useState<string | null>(null);
+  const [specialFilterGm, setSpecialFilterGm] = useState<GMRecord | null>(null);
   const selectedGm = gms.find(g => g.id === selectedId) ?? null;
   const contextMenuGm = contextMenu ? gms.find((gm) => gm.id === contextMenu.gmId) ?? null : null;
 
@@ -1059,13 +1325,14 @@ export default function GebietsmanagerPage() {
 
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
       {selectedGm && <GMDetailDrawer gm={selectedGm} onClose={() => setSelectedId(null)} onSave={handleSave} visits={visits} />}
+      {specialFilterGm && <SpecialArthurFilterModal gm={specialFilterGm} onClose={() => setSpecialFilterGm(null)} />}
       {contextMenu && contextMenuGm && createPortal(
         <div
           onClick={(event) => event.stopPropagation()}
           style={{
             position: "fixed",
             left: Math.min(contextMenu.x, Math.max(12, window.innerWidth - 210)),
-            top: Math.min(contextMenu.y, Math.max(12, window.innerHeight - 108)),
+            top: Math.min(contextMenu.y, Math.max(12, window.innerHeight - 150)),
             zIndex: 9999,
             width: 198,
             borderRadius: 11,
@@ -1111,6 +1378,43 @@ export default function GebietsmanagerPage() {
               }}
             />
             {contextMenuGm.isBillaGm ? "Billa-Filter entfernen" : "Billa-Filter setzen"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSpecialFilterGm(contextMenuGm);
+              setContextMenu(null);
+            }}
+            style={{
+              width: "100%",
+              height: 34,
+              border: "none",
+              borderRadius: 8,
+              background: "transparent",
+              color: "#111827",
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              padding: "0 9px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 11,
+              fontWeight: 700,
+              textAlign: "left",
+            }}
+            onMouseEnter={(event) => { event.currentTarget.style.background = "rgba(37,99,235,0.06)"; }}
+            onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: "#0ea5e9",
+                flexShrink: 0,
+              }}
+            />
+            Märktefilter importieren
           </button>
           <div style={{ height: 1, background: "rgba(15,23,42,0.06)", margin: "4px 3px" }} />
           <button

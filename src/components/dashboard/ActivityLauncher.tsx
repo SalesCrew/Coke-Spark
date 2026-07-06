@@ -173,6 +173,31 @@ function toIsoForLocalTime(baseDate: Date, hm: string): string {
   return local.toISOString();
 }
 
+function formatHm(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatHmWithSeconds(date: Date): string {
+  return `${formatHm(date)}:${String(date.getSeconds()).padStart(2, "0")}`;
+}
+
+function firstMinuteAfter(date: Date): string {
+  const next = new Date(date);
+  if (next.getSeconds() > 0 || next.getMilliseconds() > 0) {
+    next.setMinutes(next.getMinutes() + 1);
+  }
+  next.setSeconds(0, 0);
+  return formatHm(next);
+}
+
+function manualStartBeforeDayStart(dayStartedAt: string | null | undefined, hm: string): boolean {
+  if (!dayStartedAt || !isValidHm(hm)) return false;
+  const dayStart = new Date(dayStartedAt);
+  if (!Number.isFinite(dayStart.getTime())) return false;
+  const manualStart = new Date(toIsoForLocalTime(dayStart, hm));
+  return manualStart.getTime() < dayStart.getTime();
+}
+
 // ── Clock Picker ──────────────────────────────────────────────
 
 interface ClockPickerProps {
@@ -360,6 +385,7 @@ interface AccordionRowProps {
   onRequestClock: (target: "von" | "bis", onSelect: (h: number, m: number) => void) => void;
   onManualSave: (input: { activityType: ZusatzActivityKey; fromHm: string; toHm: string }) => Promise<void>;
   dayStarted: boolean;
+  dayStartedAt?: string | null;
   initialDraft?: TimeTrackingEntry | null;
   onRunningLockChange?: (activityKey: TimeTrackingActivityType, locked: boolean) => void;
 }
@@ -372,6 +398,7 @@ function AccordionRow({
   onRequestClock,
   onManualSave,
   dayStarted,
+  dayStartedAt,
   initialDraft,
   onRunningLockChange,
 }: AccordionRowProps) {
@@ -394,6 +421,13 @@ function AccordionRow({
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaved, setManualSaved] = useState(false);
+  const [manualStartConflict, setManualStartConflict] = useState<{
+    fromHm: string;
+    toHm: string;
+    actualStartLabel: string;
+    minimumHm: string;
+    error: string | null;
+  } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentH, setContentH] = useState(0);
 
@@ -427,6 +461,7 @@ function AccordionRow({
       setLiveError(null);
       setManualError(null);
       setManualSaved(false);
+      setManualStartConflict(null);
     }
   }, [isManualOnly, isOpen]);
 
@@ -475,10 +510,29 @@ function AccordionRow({
     });
   }
 
+  function buildManualStartConflict(fromHm: string, toHm: string) {
+    if (!dayStartedAt || !manualStartBeforeDayStart(dayStartedAt, fromHm)) return null;
+    const dayStart = new Date(dayStartedAt);
+    return {
+      fromHm: firstMinuteAfter(dayStart),
+      toHm,
+      actualStartLabel: formatHmWithSeconds(dayStart),
+      minimumHm: firstMinuteAfter(dayStart),
+      error: null,
+    };
+  }
+
   async function handleManualSave() {
     if (manualSaving) return;
     if (!isValidHm(vonVal) || !isValidHm(bisVal)) {
       setManualError("Bitte gültige Zeiten im Format HH:MM eingeben.");
+      return;
+    }
+    const conflict = buildManualStartConflict(vonVal, bisVal);
+    if (conflict) {
+      setManualError(null);
+      setManualSaved(false);
+      setManualStartConflict(conflict);
       return;
     }
     setManualSaving(true);
@@ -489,6 +543,53 @@ function AccordionRow({
         activityType: activity.key,
         fromHm: vonVal,
         toHm: bisVal,
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
+      }
+      setManualSaved(true);
+      setVonVal("");
+      setBisVal("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Speichern fehlgeschlagen.";
+      setManualError(message || "Speichern fehlgeschlagen.");
+    } finally {
+      setManualSaving(false);
+    }
+  }
+
+  async function handleManualConflictSave() {
+    if (!manualStartConflict || manualSaving) return;
+    if (!isValidHm(manualStartConflict.fromHm) || !isValidHm(manualStartConflict.toHm)) {
+      setManualStartConflict((current) =>
+        current ? { ...current, error: "Bitte gueltige Zeiten im Format HH:MM eingeben." } : current,
+      );
+      return;
+    }
+    if (dayStartedAt && manualStartBeforeDayStart(dayStartedAt, manualStartConflict.fromHm)) {
+      setManualStartConflict((current) =>
+        current
+          ? {
+              ...current,
+              error: `Die Von-Zeit muss nach dem Arbeitstagsstart ${current.actualStartLabel} liegen.`,
+            }
+          : current,
+      );
+      return;
+    }
+    const nextFrom = manualStartConflict.fromHm;
+    const nextTo = manualStartConflict.toHm;
+    setManualStartConflict(null);
+    setVonVal(nextFrom);
+    setBisVal(nextTo);
+    setManualSaving(true);
+    setManualError(null);
+    setManualSaved(false);
+    try {
+      await onManualSave({
+        activityType: activity.key,
+        fromHm: nextFrom,
+        toHm: nextTo,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
@@ -955,6 +1056,194 @@ function AccordionRow({
         </div>
       </div>
 
+      {manualStartConflict &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            onClick={() => setManualStartConflict(null)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 10000,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "0 18px",
+              backgroundColor: "rgba(15,23,42,0.22)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              fontFamily: "var(--font-inter), Inter, system-ui, sans-serif",
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "100%",
+                maxWidth: 370,
+                borderRadius: 20,
+                background: "#ffffff",
+                border: "1px solid rgba(15,23,42,0.08)",
+                boxShadow: "0 24px 70px rgba(15,23,42,0.22), 0 2px 10px rgba(15,23,42,0.06)",
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ padding: "22px 22px 18px" }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "5px 8px",
+                    borderRadius: 999,
+                    backgroundColor: "rgba(220,38,38,0.08)",
+                    color: "#DC2626",
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Zeit prüfen
+                </div>
+                <h3 style={{ margin: "12px 0 6px", fontSize: 18, lineHeight: 1.15, fontWeight: 800, color: "#111827" }}>
+                  Startzeit liegt vor dem Arbeitstag
+                </h3>
+                <p style={{ margin: 0, fontSize: 11, lineHeight: 1.6, color: "rgba(17,24,39,0.55)", fontWeight: 500 }}>
+                  Der Arbeitstag wurde um <strong style={{ color: "#111827" }}>{manualStartConflict.actualStartLabel} Uhr</strong> gestartet.
+                  Deine manuelle Von-Zeit muss danach liegen.
+                </p>
+
+                <div
+                  style={{
+                    marginTop: 16,
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 10,
+                  }}
+                >
+                  {(["fromHm", "toHm"] as const).map((field) => (
+                    <label
+                      key={field}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 7,
+                        padding: "10px 11px",
+                        borderRadius: 13,
+                        backgroundColor: "#f8fafc",
+                        border: "1px solid rgba(15,23,42,0.07)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 8,
+                          fontWeight: 800,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          color: field === "fromHm" ? "#DC2626" : "rgba(15,23,42,0.38)",
+                        }}
+                      >
+                        {field === "fromHm" ? "Von" : "Bis"}
+                      </span>
+                      <input
+                        value={manualStartConflict[field]}
+                        onChange={(event) => {
+                          const value = formatTimeInput(event.target.value);
+                          setManualStartConflict((current) =>
+                            current ? { ...current, [field]: value, error: null } : current,
+                          );
+                        }}
+                        maxLength={5}
+                        inputMode="numeric"
+                        style={{
+                          width: "100%",
+                          border: "none",
+                          outline: "none",
+                          background: "transparent",
+                          fontSize: 20,
+                          lineHeight: 1,
+                          fontWeight: 800,
+                          color: "#111827",
+                          letterSpacing: "0",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: "9px 11px",
+                    borderRadius: 12,
+                    backgroundColor: "rgba(220,38,38,0.05)",
+                    color: "rgba(127,29,29,0.72)",
+                    fontSize: 10,
+                    lineHeight: 1.45,
+                    fontWeight: 600,
+                  }}
+                >
+                  Früheste auswählbare Von-Zeit: {manualStartConflict.minimumHm} Uhr.
+                </div>
+                {manualStartConflict.error && (
+                  <div style={{ marginTop: 8, color: "#b91c1c", fontSize: 10, fontWeight: 700 }}>
+                    {manualStartConflict.error}
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  padding: "12px",
+                  backgroundColor: "#f8fafc",
+                  borderTop: "1px solid rgba(15,23,42,0.06)",
+                }}
+              >
+                <button
+                  onClick={() => setManualStartConflict(null)}
+                  style={{
+                    flex: 1,
+                    height: 36,
+                    borderRadius: 10,
+                    border: "1px solid rgba(15,23,42,0.08)",
+                    background: "#ffffff",
+                    color: "rgba(15,23,42,0.58)",
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={() => void handleManualConflictSave()}
+                  disabled={manualSaving}
+                  style={{
+                    flex: 1.35,
+                    height: 36,
+                    borderRadius: 10,
+                    border: "none",
+                    background: "linear-gradient(to bottom, #DC2626, #e84040)",
+                    color: "#ffffff",
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: manualSaving ? "not-allowed" : "pointer",
+                    opacity: manualSaving ? 0.72 : 1,
+                    boxShadow:
+                      "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
+                  }}
+                >
+                  {manualSaving ? "Speichern..." : "Korrigiert speichern"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
       {isLiveCommentOpen &&
         awaitingLiveDecision &&
         typeof document !== "undefined" &&
@@ -1085,6 +1374,7 @@ export function ActivityLauncher() {
   const [clockHandler, setClockHandler] = useState<((h: number, m: number) => void) | null>(null);
   const [marketSearch, setMarketSearch] = useState("");
   const [dayStarted, setDayStarted] = useState(true);
+  const [currentDayStartedAt, setCurrentDayStartedAt] = useState<string | null>(null);
   const [dayGateLoading, setDayGateLoading] = useState(true);
   const [activeDraftsByActivity, setActiveDraftsByActivity] = useState<Partial<Record<TimeTrackingActivityType, TimeTrackingEntry>>>({});
   const [lockedRunningActivity, setLockedRunningActivity] = useState<TimeTrackingActivityType | null>(null);
@@ -1107,9 +1397,18 @@ export function ActivityLauncher() {
     if (!silent) setDayGateLoading(true);
     try {
       const payload = await fetchCurrentDaySession();
-      setDayStarted(Boolean(payload.gate?.dayStarted) || Boolean(readLatestLocalDaySessionSnapshot()));
+      const localSnapshot = readLatestLocalDaySessionSnapshot();
+      setDayStarted(Boolean(payload.gate?.dayStarted) || Boolean(localSnapshot));
+      setCurrentDayStartedAt(
+        payload.session?.dayStartedAt ??
+          localSnapshot?.session?.dayStartedAt ??
+          localSnapshot?.clientStartedAt ??
+          null,
+      );
     } catch {
       setDayStarted(true);
+      const localSnapshot = readLatestLocalDaySessionSnapshot();
+      setCurrentDayStartedAt(localSnapshot?.session?.dayStartedAt ?? localSnapshot?.clientStartedAt ?? null);
     } finally {
       if (!silent) setDayGateLoading(false);
     }
@@ -1248,11 +1547,15 @@ export function ActivityLauncher() {
     if (!dayStarted) {
       throw new Error("Bitte zuerst den Arbeitstag starten.");
     }
-    const now = new Date();
-    const startIso = toIsoForLocalTime(now, input.fromHm);
-    let endIso = toIsoForLocalTime(now, input.toHm);
+    const dayStartDate = currentDayStartedAt ? new Date(currentDayStartedAt) : null;
+    const baseDate = dayStartDate && Number.isFinite(dayStartDate.getTime()) ? dayStartDate : new Date();
+    const startIso = toIsoForLocalTime(baseDate, input.fromHm);
+    if (currentDayStartedAt && new Date(startIso).getTime() < new Date(currentDayStartedAt).getTime()) {
+      throw new Error(`Startzeit liegt vor dem Arbeitstagsstart ${formatHmWithSeconds(new Date(currentDayStartedAt))}.`);
+    }
+    let endIso = toIsoForLocalTime(baseDate, input.toHm);
     if (new Date(endIso).getTime() <= new Date(startIso).getTime()) {
-      const nextDay = new Date(now);
+      const nextDay = new Date(baseDate);
       nextDay.setDate(nextDay.getDate() + 1);
       endIso = toIsoForLocalTime(nextDay, input.toHm);
     }
@@ -1264,11 +1567,12 @@ export function ActivityLauncher() {
     const started = await startTimeTrackingDraft({
       activityType: input.activityType,
       startAt: startIso,
+      endAt: endIso,
       clientEntryToken: token,
     });
     await endTimeTrackingDraft(started.entry.id, { endAt: endIso });
     await submitTimeTrackingEntry(started.entry.id);
-  }, [dayStarted]);
+  }, [currentDayStartedAt, dayStarted]);
 
   const handleMarketSelect = useCallback((market: Market) => {
     if (isLaunching) return;
@@ -1489,6 +1793,7 @@ export function ActivityLauncher() {
                 onRequestClock={handleRequestClock}
                 onManualSave={handleManualSave}
                 dayStarted={dayStarted}
+                dayStartedAt={currentDayStartedAt}
                 initialDraft={a.key === "pause" ? null : activeDraftsByActivity[a.key] ?? null}
                 onRunningLockChange={
                   a.key === "pause"

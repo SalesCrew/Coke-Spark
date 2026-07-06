@@ -4057,6 +4057,7 @@ export async function updateRedMonthConfig(input: {
 export async function startTimeTrackingDraft(input: {
   activityType: TimeTrackingActivityType;
   startAt: string;
+  endAt?: string;
   marketId?: string | null;
   clientEntryToken?: string;
 }): Promise<{ entry: TimeTrackingEntry }> {
@@ -4065,6 +4066,7 @@ export async function startTimeTrackingDraft(input: {
     body: JSON.stringify({
       activityType: input.activityType,
       startAt: input.startAt,
+      endAt: input.endAt,
       marketId: input.marketId ?? null,
       clientEntryToken: input.clientEntryToken,
     }),

@@ -361,13 +361,8 @@ export function FuellstandCard() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 2px 2px" }}>
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              Auswertung
-            </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
-              Füllstand
-            </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
+            Verfügbarkeitsabfrage
           </div>
         </div>
 

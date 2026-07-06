@@ -59,13 +59,15 @@ const PERMISSION_ACTIONS: Array<{ label: string; value: PermissionAction; icon: 
 const ADMIN_FONT_STACK = "var(--font-inter), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 const PAGE_CATALOG = ADMIN_NAV_GROUPS.flatMap((group) =>
-  group.items.map((item) => ({
-    pageKey: item.pageKey,
-    groupLabel: group.label,
-    label: item.label,
-    route: item.href,
-    icon: item.icon,
-  })),
+  group.items
+    .filter((item) => !item.adminOnly)
+    .map((item) => ({
+      pageKey: item.pageKey,
+      groupLabel: group.label,
+      label: item.label,
+      route: item.href,
+      icon: item.icon,
+    })),
 );
 
 const CUSTOMER_IMPORT_FIELDS: Array<{ key: CustomerImportMappingKey; label: string; required: boolean; hint: string }> = [
@@ -124,6 +126,8 @@ export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAcces
   const [oneTimePassword, setOneTimePassword] = useState<string | null>(null);
   const [passwordCopied, setPasswordCopied] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [isExportingCustomers, setIsExportingCustomers] = useState(false);
+  const [exportCustomersError, setExportCustomersError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || hasLoaded) return;
@@ -202,6 +206,22 @@ export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAcces
   const permissionCount = Object.keys(form.permissions).length;
   const actionCount = Object.values(form.permissions).reduce((sum, actions) => sum + actions.length, 0);
   const canSave = form.firstName.trim().length > 0 && form.lastName.trim().length > 0 && form.email.trim().length > 0 && !isSaving;
+
+  const handleExportCustomers = useCallback(async () => {
+    if (customers.length === 0 || isExportingCustomers) return;
+    setIsExportingCustomers(true);
+    setExportCustomersError(null);
+    try {
+      await exportCustomerAccessUsers(
+        customers,
+        oneTimePassword && selectedCustomer ? { userId: selectedCustomer.id, password: oneTimePassword } : null,
+      );
+    } catch {
+      setExportCustomersError("Loginliste konnte nicht exportiert werden.");
+    } finally {
+      setIsExportingCustomers(false);
+    }
+  }, [customers, isExportingCustomers, oneTimePassword, selectedCustomer]);
 
   const togglePageAccess = useCallback((pageKey: string) => {
     setForm((prev) => {
@@ -399,6 +419,29 @@ export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAcces
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <button
                   type="button"
+                  onClick={handleExportCustomers}
+                  disabled={customers.length === 0 || isExportingCustomers}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 9,
+                    border: "1px solid rgba(15,23,42,0.08)",
+                    background: customers.length === 0 ? "rgba(248,250,252,0.78)" : "linear-gradient(180deg, #ffffff, #f8fafc)",
+                    cursor: customers.length === 0 || isExportingCustomers ? "not-allowed" : "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: customers.length === 0 ? "rgba(15,23,42,0.28)" : "#0f172a",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.08)",
+                    opacity: customers.length === 0 ? 0.72 : 1,
+                  }}
+                  aria-label="Loginliste exportieren"
+                  title="Loginliste exportieren"
+                >
+                  {isExportingCustomers ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                </button>
+                <button
+                  type="button"
                   onClick={() => setImportOpen(true)}
                   style={{
                     width: 30,
@@ -471,6 +514,23 @@ export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAcces
                 }}
               />
             </div>
+
+            {exportCustomersError ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  borderRadius: 10,
+                  border: "1px solid rgba(220,38,38,0.18)",
+                  background: "rgba(254,242,242,0.82)",
+                  padding: "8px 10px",
+                  fontSize: 10,
+                  fontWeight: 750,
+                  color: "#dc2626",
+                }}
+              >
+                {exportCustomersError}
+              </div>
+            ) : null}
 
             <div className="customer-access-scroll" style={{ marginTop: 12, maxHeight: 430, overflowY: "auto", paddingRight: 4 }}>
               {isLoading ? (
@@ -866,7 +926,7 @@ export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAcces
                       {group.label}
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      {group.items.map((item) => {
+                      {group.items.filter((item) => !item.adminOnly).map((item) => {
                         const page = PAGE_CATALOG.find((entry) => entry.route === item.href);
                         if (!page) return null;
                         const Icon = page.icon;
@@ -1150,6 +1210,47 @@ async function exportCustomerImportRows(rows: CustomerImportResultRow[]) {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Kundenzugaenge");
   XLSX.writeFile(workbook, `kundenzugaenge-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+async function exportCustomerAccessUsers(
+  rows: CustomerAccessUser[],
+  latestPassword: { userId: string; password: string } | null,
+) {
+  const XLSX = await import("xlsx");
+  const exportRows = rows
+    .slice()
+    .sort((a, b) => formatName(a).localeCompare(formatName(b), "de"))
+    .map((row) => ({
+      Name: formatName(row),
+      Vorname: row.firstName,
+      Nachname: row.lastName,
+      Email: row.email,
+      Login: row.email,
+      Passwort:
+        latestPassword?.userId === row.id
+          ? latestPassword.password
+          : "Nicht verfuegbar - nur beim Erstellen oder Import sichtbar",
+      Status: row.isActive ? "Aktiv" : "Inaktiv",
+      Seiten: Object.keys(row.permissions).length,
+      Rechte: countPermissionActions(row.permissions),
+      Zugriffe: describePermissions(row.permissions),
+    }));
+  const worksheet = XLSX.utils.json_to_sheet(exportRows);
+  worksheet["!cols"] = [
+    { wch: 24 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 34 },
+    { wch: 34 },
+    { wch: 48 },
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 86 },
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Kundenzugaenge");
+  XLSX.writeFile(workbook, `kundenzugaenge-loginliste-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 function CustomerAccessImportModal({ onClose, onImported }: { onClose: () => void; onImported: (createdUsers: CustomerAccessUser[]) => void }) {
@@ -1638,7 +1739,7 @@ function CustomerAccessImportModal({ onClose, onImported }: { onClose: () => voi
                               <section key={`${row.id}-${group.label}`} style={{ minWidth: 0 }}>
                                 <div style={{ marginBottom: 7, fontSize: 9, fontWeight: 900, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>{group.label}</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                                  {group.items.map((item) => {
+                                  {group.items.filter((item) => !item.adminOnly).map((item) => {
                                     const currentActions = row.permissions[item.pageKey] ?? [];
                                     const enabled = currentActions.length > 0;
                                     const Icon = item.icon;

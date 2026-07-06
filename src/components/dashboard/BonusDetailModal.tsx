@@ -317,7 +317,7 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
           </div>
           {pendingGoalNames.length > 0 && (
             <div style={{ marginTop: 10, borderRadius: 10, background: "rgba(217,119,6,0.06)", border: "1px solid rgba(217,119,6,0.16)", padding: "9px 11px", fontSize: 10, fontWeight: 600, lineHeight: 1.45, color: "#92400e" }}>
-              {pendingGoalNames.join(" und ")} {pendingGoalNames.length === 1 ? "wird" : "werden"} spÃ¤ter ergÃ¤nzt und bis dahin nicht in deinen Fortschritt eingerechnet.
+              {pendingGoalNames.join(" und ")} {pendingGoalNames.length === 1 ? "wird" : "werden"} später ergänzt und bis dahin nicht in deinen Fortschritt eingerechnet.
             </div>
           )}
         </div>

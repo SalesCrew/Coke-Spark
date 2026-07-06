@@ -13,11 +13,13 @@ import {
   Warehouse,
   Gauge,
   Images,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
 export type AdminPageKey =
   | "gm_dashboard"
+  | "datenschutzanfragen"
   | "ipp_berechnung"
   | "praemien"
   | "fragebogen"
@@ -38,6 +40,7 @@ export type AdminNavItem = {
   icon: LucideIcon;
   href: string;
   pageKey: AdminPageKey;
+  adminOnly?: boolean;
   color: {
     bg: string;
     ring: string;
@@ -94,6 +97,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { label: "Lager", icon: Warehouse, href: "/admin/lager", pageKey: "lager", color: cokeRed },
       { label: "Gebietsmanager", icon: UserCheck, href: "/admin/gebietsmanager", pageKey: "gebietsmanager", color: cokeRed },
       { label: "Shelf Merchandiser", icon: UserCheck, href: "/admin/shelfmerchandiser", pageKey: "shelfmerchandiser", color: cokeRed },
+      { label: "Datenschutz", icon: ShieldCheck, href: "/admin/datenschutzanfragen", pageKey: "datenschutzanfragen", adminOnly: true, color: cokeRed },
     ],
   },
 ];

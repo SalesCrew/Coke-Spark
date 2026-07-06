@@ -33,6 +33,7 @@ import {
 } from "@/lib/api/backend";
 import { useRedMonth } from "@/context/RedMonthContext";
 import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
+import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import type { MarketRecord } from "@/types/markets";
 
@@ -76,20 +77,6 @@ function chainColors(chain: string): { bg: string; text: string } {
   return { bg: "rgba(0,0,0,0.04)", text: "#6b7280" };
 }
 
-function deriveChainLabel(record: MarketRecord): string {
-  const dbName = record.dbName?.trim();
-  if (dbName) return dbName.toUpperCase();
-  const source = `${record.name} ${record.dbName}`.toUpperCase();
-  if (source.includes("BILLA+")) return "BILLA+";
-  if (source.includes("BILLA")) return "BILLA";
-  if (source.includes("SPAR")) return "SPAR";
-  if (source.includes("ADEG")) return "ADEG";
-  if (source.includes("PENNY")) return "PENNY";
-  if (source.includes("HOFER")) return "HOFER";
-  if (source.includes("MERKUR")) return "MERKUR";
-  return record.name.split(" ")[0]?.toUpperCase() || "MARKT";
-}
-
 function formatMarketName(record: MarketRecord): string {
   const name = record.name?.trim() || record.dbName?.trim();
   if (name) return name;
@@ -108,7 +95,7 @@ export function toMarketListEntry(record: MarketRecord, activeNowCampaigns: Mark
   return {
     id: record.id,
     name: formatMarketName(record),
-    chain: deriveChainLabel(record),
+    chain: getMarketChainLabel(record),
     address: formatAddress(record),
     visited: 0,
     frequency: Math.max(1, record.visitFrequencyPerYear || activeNowCampaigns.length || 1),

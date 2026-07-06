@@ -561,6 +561,112 @@ export type UpdateCustomerAccessUserInput = CreateCustomerAccessUserInput & {
   id: string;
 };
 
+export type DsarRequestType =
+  | "access"
+  | "rectification"
+  | "erasure"
+  | "restriction"
+  | "portability"
+  | "objection"
+  | "mixed";
+
+export type DsarRequestStatus =
+  | "open"
+  | "identity_check"
+  | "collecting"
+  | "decision"
+  | "responded"
+  | "closed"
+  | "cancelled";
+
+export type DsarRequestRecord = {
+  id: string;
+  requestType: DsarRequestType;
+  status: DsarRequestStatus;
+  intakeChannel: string;
+  requesterName: string;
+  requesterEmail: string;
+  requesterUserId: string | null;
+  subjectUserId: string | null;
+  subjectNameSnapshot: string;
+  subjectEmailSnapshot: string;
+  subjectRoleSnapshot: string | null;
+  requestSummary: string;
+  assignedToUserId: string | null;
+  receivedAt: string;
+  dueAt: string;
+  extendedUntil: string | null;
+  extensionReason: string | null;
+  identityVerifiedAt: string | null;
+  identityVerifiedByUserId: string | null;
+  decisionSummary: string | null;
+  legalBlockers: string | null;
+  responseChannel: string | null;
+  responseSentAt: string | null;
+  responseSentByUserId: string | null;
+  exportPackageSummary: Record<string, unknown> | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DsarDataPackageCategory = {
+  key: string;
+  label: string;
+  count: number;
+  retention: string;
+  actionHint: string;
+};
+
+export type DsarDataPackage = {
+  generatedAt: string;
+  subject: {
+    id: string;
+    role: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    address: string | null;
+    postalCode: string | null;
+    city: string | null;
+    region: string | null;
+    isActive: boolean;
+    deletedAt: string | null;
+    anonymizedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+  categories: DsarDataPackageCategory[];
+  limitations: string[];
+};
+
+export type CreateDsarRequestInput = {
+  requestType: DsarRequestType;
+  intakeChannel?: string;
+  requesterName: string;
+  requesterEmail: string;
+  requesterUserId?: string | null;
+  subjectUserId?: string | null;
+  subjectName?: string;
+  subjectEmail?: string;
+  subjectRole?: string | null;
+  requestSummary?: string;
+  assignedToUserId?: string | null;
+};
+
+export type UpdateDsarRequestInput = {
+  status?: DsarRequestStatus;
+  assignedToUserId?: string | null;
+  identityVerified?: boolean;
+  extendedUntil?: string | null;
+  extensionReason?: string | null;
+  decisionSummary?: string | null;
+  legalBlockers?: string | null;
+  responseChannel?: string | null;
+  responseSentAt?: string | null;
+  exportPackageSummary?: Record<string, unknown> | null;
+};
+
 function mapBackendUserToAdminRecord(user: BackendUser): AdminUserRecord {
   return {
     id: user.id,
@@ -786,6 +892,7 @@ function handleAuthExpired(reason: string): void {
 
 function resolveAdminPageKeyForPath(pathname: string): string | null {
   if (pathname.startsWith("/admin/gm-dashboard")) return "gm_dashboard";
+  if (pathname.startsWith("/admin/datenschutzanfragen")) return "datenschutzanfragen";
   if (pathname.startsWith("/admin/ipp-berechnung")) return "ipp_berechnung";
   if (pathname.startsWith("/admin/praemien")) return "praemien";
   if (pathname.startsWith("/admin/flexbesuche")) return "flexbesuche";
@@ -1700,6 +1807,36 @@ export async function deactivateCustomerAccessUser(userId: string): Promise<{ ok
   return (await authedFetch(`/admin/kunden-users/${userId}/deactivate`, {
     method: "PATCH",
   })) as { ok: boolean };
+}
+
+export async function fetchDsarRequests(params: { status?: DsarRequestStatus; search?: string } = {}): Promise<DsarRequestRecord[]> {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.search?.trim()) query.set("search", params.search.trim());
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const data = (await authedFetch(`/admin/dsar${suffix}`, { cache: "no-store" })) as { requests?: DsarRequestRecord[] };
+  return data.requests ?? [];
+}
+
+export async function createDsarRequest(payload: CreateDsarRequestInput): Promise<DsarRequestRecord> {
+  const data = (await authedFetch("/admin/dsar", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })) as { request: DsarRequestRecord };
+  return data.request;
+}
+
+export async function updateDsarRequest(id: string, payload: UpdateDsarRequestInput): Promise<DsarRequestRecord> {
+  const data = (await authedFetch(`/admin/dsar/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })) as { request: DsarRequestRecord };
+  return data.request;
+}
+
+export async function fetchDsarDataPackage(id: string): Promise<DsarDataPackage> {
+  const data = (await authedFetch(`/admin/dsar/${id}/package`, { cache: "no-store" })) as { package: DsarDataPackage };
+  return data.package;
 }
 
 export async function createGmUser(

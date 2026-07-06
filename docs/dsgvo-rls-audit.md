@@ -184,13 +184,14 @@ Verified on 2026-06-25:
 
 RLS does not by itself make the whole product DSGVO/DSG compliant. Remaining items that need organisational/legal/process confirmation:
 
-- Employee transparency notice for time tracking, visits, photos, IPP, bonus, and exports.
-- Works-council / employee-consent review under ArbVG for monitoring/performance-related processing.
-- Retention schedule for visit photos, answer history, time entries, audit logs, exports, and telemetry.
-- DSAR process for access, rectification, erasure/restriction where legally possible.
+- Employee transparency notices for GM/SM and Admin/Kunde are implemented in the app under `/datenschutz/gm` and `/datenschutz/admin`.
+- Individual employee agreement flow is implemented for GM/SM users. Current agreement text documents the work execution, reporting, time tracking, control and retention rules.
+- Retention schedule, DSAR process, breach runbook and export governance are documented in `docs/dsgvo-retention-dsar-breach-export-policy.md`.
+- Works-council / employee-consent review under ArbVG remains an organisational requirement. In the current setup, the app uses an individual employee agreement flow for GM/SM users.
 - Data processing agreements and transfer assessment for Supabase, Railway, Vercel, and any email provider.
 - Supabase Auth leaked-password protection is currently disabled and should be enabled.
 - Storage bucket policies and file retention should be reviewed separately; private buckets and signed URLs are in use, but storage is not covered by public-table RLS.
+- Automated retention/anonymisation jobs and a dedicated export-access log table are still recommended follow-up work once the business confirms the final periods with counsel/accounting.
 
 ## Future Rule
 

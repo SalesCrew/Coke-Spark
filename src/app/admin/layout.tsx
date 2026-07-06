@@ -130,6 +130,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isZeiterfassung  = pathname.startsWith("/admin/zeiterfassung");
   const isIppBerechnung  = pathname.startsWith("/admin/ipp-berechnung");
   const isGmDashboard    = pathname.startsWith("/admin/gm-dashboard");
+  const isDatenschutzAnfragen = pathname.startsWith("/admin/datenschutzanfragen");
 
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [availableMarketChains, setAvailableMarketChains] = useState<string[]>([]);
@@ -635,7 +636,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : "Standardbesuch";
+  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
   const exportEventName =
     isMhd ? "admin:mhd:export"
     : isKuehler ? "admin:kuehlerinventur:export"
@@ -686,7 +687,11 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           <header style={{ height: 80, backgroundColor: "#ffffff", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", flexShrink: 0, position: "relative" }}>
             <div>
               <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", margin: 0 }}>{pageTitle}</h1>
-              {!isGmDashboard ? <RedMonthHeaderControl /> : null}
+              {isDatenschutzAnfragen ? (
+                <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", letterSpacing: "0.01em" }}>
+                  DSGVO-Prozess, Fristen und Datenpakete
+                </p>
+              ) : !isGmDashboard ? <RedMonthHeaderControl /> : null}
             </div>
 
             {/* Centered import notice */}
@@ -797,7 +802,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Neue Kampagne
                   </button>
                 </Link>
-              ) : isFotoarchiv ? null : isPraemien ? null : isGmDashboard ? null : isZeiterfassung ? (
+              ) : isFotoarchiv ? null : isPraemien ? null : isGmDashboard ? null : isDatenschutzAnfragen ? null : isZeiterfassung ? (
                 <button
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
                   onClick={() => window.dispatchEvent(new CustomEvent("zeiterfassung:openExport"))}

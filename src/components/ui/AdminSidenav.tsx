@@ -100,7 +100,7 @@ export function AdminSidenav() {
     () =>
       ADMIN_NAV_GROUPS.map((group) => ({
         ...group,
-        items: group.items.filter((item) => adminAccess.canRead(item.pageKey)),
+        items: group.items.filter((item) => (!item.adminOnly || adminAccess.isAdmin) && adminAccess.canRead(item.pageKey)),
       })).filter((group) => group.items.length > 0),
     [adminAccess],
   );

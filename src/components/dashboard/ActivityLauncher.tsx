@@ -44,6 +44,7 @@ import {
   type TimeTrackingEntry,
 } from "@/lib/api/backend";
 import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
+import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import type { MarketRecord } from "@/types/markets";
 
@@ -51,6 +52,7 @@ const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
 const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const CARD_MENU_SPACE = 80;
 const MIN_CARD_HEIGHT = 260;
+const LIVE_STOP_CONFIRM_AFTER_MS = 10 * 60 * 1000;
 
 type ZusatzActivityKey = TimeTrackingActivityType | "pause";
 type ZusatzActivity = {
@@ -82,22 +84,10 @@ function chainColor(chain: string): { bg: string; text: string } {
   return { bg: "rgba(0,0,0,0.04)", text: "#6b7280" };
 }
 
-function deriveChainLabel(record: MarketRecord): string {
-  const source = `${record.name} ${record.dbName}`.toUpperCase();
-  if (source.includes("BILLA+")) return "BILLA+";
-  if (source.includes("BILLA")) return "BILLA";
-  if (source.includes("SPAR")) return "SPAR";
-  if (source.includes("ADEG")) return "ADEG";
-  if (source.includes("PENNY")) return "PENNY";
-  if (source.includes("HOFER")) return "HOFER";
-  if (source.includes("MERKUR")) return "MERKUR";
-  return record.name.split(" ")[0]?.toUpperCase() || "MARKT";
-}
-
 function mapRecordToLauncherMarket(record: MarketRecord): Market {
   return {
     id: record.id,
-    chain: deriveChainLabel(record),
+    chain: getMarketChainLabel(record),
     address: `${record.address}, ${record.postalCode} ${record.city}`.trim(),
     stammnr: record.cokeMasterNumber?.trim() || record.kuehlerStammnr?.trim() || "",
     activeNowCampaigns: [],
@@ -147,6 +137,14 @@ function fmtTimer(s: number): string {
   const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
   const sec = String(s % 60).padStart(2, "0");
   return `${h}:${m}:${sec}`;
+}
+
+function fmtDurationCompact(ms: number): string {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60_000));
+  if (totalMinutes < 60) return `${totalMinutes} Min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
 }
 
 function isValidHm(value: string): boolean {
@@ -412,6 +410,13 @@ function AccordionRow({
   const [isPersistingLive, setIsPersistingLive] = useState(false);
   const [isPersistingPause, setIsPersistingPause] = useState(false);
   const [awaitingLiveDecision, setAwaitingLiveDecision] = useState(false);
+  const [liveStoppedAtIso, setLiveStoppedAtIso] = useState<string | null>(null);
+  const [staleStopConfirmation, setStaleStopConfirmation] = useState<{
+    comment: string;
+    stoppedAtIso: string;
+    nowIso: string;
+    delayMs: number;
+  } | null>(null);
   const [liveComment, setLiveComment] = useState("");
   const [liveCommentDraft, setLiveCommentDraft] = useState("");
   const [isLiveCommentOpen, setIsLiveCommentOpen] = useState(false);
@@ -455,6 +460,8 @@ function AccordionRow({
       setIsPersistingLive(false);
       setIsPersistingPause(false);
       setAwaitingLiveDecision(false);
+      setLiveStoppedAtIso(null);
+      setStaleStopConfirmation(null);
       setLiveComment("");
       setLiveCommentDraft("");
       setIsLiveCommentOpen(false);
@@ -475,6 +482,7 @@ function AccordionRow({
       setRunning(false);
       setPaused(false);
       setAwaitingLiveDecision(true);
+      setLiveStoppedAtIso(initialDraft.endAt ?? null);
       const startMs = initialDraft.startAt ? new Date(initialDraft.startAt).getTime() : Date.now();
       const endMs = initialDraft.endAt ? new Date(initialDraft.endAt).getTime() : Date.now();
       setSeconds(Math.max(0, Math.floor((endMs - startMs) / 1000)));
@@ -487,6 +495,7 @@ function AccordionRow({
     setRunning(true);
     setPaused(false);
     setAwaitingLiveDecision(false);
+    setLiveStoppedAtIso(null);
     setLiveComment(initialDraft.comment ?? "");
     setLiveCommentDraft(initialDraft.comment ?? "");
   }, [initialDraft, isManualOnly]);
@@ -642,7 +651,9 @@ function AccordionRow({
       if (paused) {
         await endDayPause();
       }
-      await endTimeTrackingDraft(activeDraftId, { endAt: new Date().toISOString() });
+      const stopIso = new Date().toISOString();
+      const result = await endTimeTrackingDraft(activeDraftId, { endAt: stopIso });
+      setLiveStoppedAtIso(result.entry.endAt ?? stopIso);
       setRunning(false);
       setPaused(false);
       setAwaitingLiveDecision(true);
@@ -680,12 +691,39 @@ function AccordionRow({
     }
   }
 
-  async function handleLiveSubmit(commentOverride?: string) {
+  function getStaleStopConfirmation(comment: string) {
+    if (!liveStoppedAtIso) return null;
+    const stoppedMs = new Date(liveStoppedAtIso).getTime();
+    if (!Number.isFinite(stoppedMs)) return null;
+    const nowMs = Date.now();
+    const delayMs = nowMs - stoppedMs;
+    if (delayMs < LIVE_STOP_CONFIRM_AFTER_MS) return null;
+    return {
+      comment,
+      stoppedAtIso: liveStoppedAtIso,
+      nowIso: new Date(nowMs).toISOString(),
+      delayMs,
+    };
+  }
+
+  async function persistLiveSubmit(comment: string, options?: { updateEndToNow?: boolean }) {
     if (!activeDraftId || isPersistingLive) return;
     setIsPersistingLive(true);
     setLiveError(null);
     try {
-      const trimmedComment = (commentOverride ?? liveComment).trim();
+      if (options?.updateEndToNow) {
+        const nowIso = new Date().toISOString();
+        const result = await endTimeTrackingDraft(activeDraftId, { endAt: nowIso });
+        setLiveStoppedAtIso(result.entry.endAt ?? nowIso);
+        if (result.entry.startAt && result.entry.endAt) {
+          const startMs = new Date(result.entry.startAt).getTime();
+          const endMs = new Date(result.entry.endAt).getTime();
+          if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
+            setSeconds(Math.max(0, Math.floor((endMs - startMs) / 1000)));
+          }
+        }
+      }
+      const trimmedComment = comment.trim();
       if (trimmedComment.length > 0) {
         await commentTimeTrackingDraft(activeDraftId, { comment: trimmedComment });
       }
@@ -695,6 +733,8 @@ function AccordionRow({
       }
       setActiveDraftId(null);
       setAwaitingLiveDecision(false);
+      setLiveStoppedAtIso(null);
+      setStaleStopConfirmation(null);
       setLiveComment("");
       setLiveCommentDraft("");
       setIsLiveCommentOpen(false);
@@ -705,6 +745,24 @@ function AccordionRow({
     } finally {
       setIsPersistingLive(false);
     }
+  }
+
+  async function handleLiveSubmit(commentOverride?: string) {
+    if (!activeDraftId || isPersistingLive) return;
+    const nextComment = (commentOverride ?? liveComment).trim();
+    const confirmation = getStaleStopConfirmation(nextComment);
+    if (confirmation) {
+      setStaleStopConfirmation(confirmation);
+      return;
+    }
+    await persistLiveSubmit(nextComment);
+  }
+
+  async function handleStaleStopConfirm(updateEndToNow: boolean) {
+    const pending = staleStopConfirmation;
+    if (!pending || !activeDraftId || isPersistingLive) return;
+    setStaleStopConfirmation(null);
+    await persistLiveSubmit(pending.comment, { updateEndToNow });
   }
 
   async function handleLiveCancel() {
@@ -718,6 +776,8 @@ function AccordionRow({
       }
       setActiveDraftId(null);
       setAwaitingLiveDecision(false);
+      setLiveStoppedAtIso(null);
+      setStaleStopConfirmation(null);
       setLiveComment("");
       setLiveCommentDraft("");
       setIsLiveCommentOpen(false);
@@ -1237,6 +1297,188 @@ function AccordionRow({
                   }}
                 >
                   {manualSaving ? "Speichern..." : "Korrigiert speichern"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {staleStopConfirmation &&
+        awaitingLiveDecision &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 9999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "0 18px",
+              backgroundColor: "rgba(15,23,42,0.22)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                maxWidth: 382,
+                backgroundColor: "rgba(255,255,255,0.98)",
+                borderRadius: 18,
+                boxShadow: "0 14px 50px rgba(15,23,42,0.18), 0 2px 8px rgba(15,23,42,0.08)",
+                overflow: "hidden",
+                border: "1px solid rgba(255,255,255,0.8)",
+              }}
+            >
+              <div
+                style={{
+                  padding: "17px 18px 12px",
+                  borderBottom: "1px solid rgba(15,23,42,0.06)",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.92))",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: "0.11em",
+                    textTransform: "uppercase",
+                    color: "rgba(220,38,38,0.62)",
+                  }}
+                >
+                  Endzeit prüfen
+                </div>
+                <div
+                  style={{
+                    marginTop: 5,
+                    fontSize: 18,
+                    lineHeight: 1.15,
+                    fontWeight: 850,
+                    color: "#111827",
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  Stimmt diese Dauer?
+                </div>
+                <div style={{ marginTop: 7, fontSize: 11, lineHeight: 1.45, color: "rgba(15,23,42,0.58)", fontWeight: 600 }}>
+                  Der Eintrag wurde vor {fmtDurationCompact(staleStopConfirmation.delayMs)} gestoppt. Bitte prüfe, ob die gespeicherte Endzeit richtig ist.
+                </div>
+              </div>
+
+              <div style={{ padding: 16, backgroundColor: "#ffffff" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div
+                    style={{
+                      padding: "10px 11px",
+                      borderRadius: 13,
+                      backgroundColor: "rgba(15,23,42,0.035)",
+                      border: "1px solid rgba(15,23,42,0.06)",
+                    }}
+                  >
+                    <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>
+                      Gestoppt
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 20, fontWeight: 850, color: "#111827", letterSpacing: "-0.02em" }}>
+                      {formatHm(new Date(staleStopConfirmation.stoppedAtIso))}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "10px 11px",
+                      borderRadius: 13,
+                      backgroundColor: "rgba(5,150,105,0.06)",
+                      border: "1px solid rgba(5,150,105,0.14)",
+                    }}
+                  >
+                    <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(5,95,70,0.48)" }}>
+                      Jetzt
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 20, fontWeight: 850, color: "#047857", letterSpacing: "-0.02em" }}>
+                      {formatHm(new Date(staleStopConfirmation.nowIso))}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 11,
+                    padding: "10px 12px",
+                    borderRadius: 13,
+                    backgroundColor: "rgba(245,158,11,0.08)",
+                    border: "1px solid rgba(245,158,11,0.14)",
+                    color: "rgba(120,53,15,0.74)",
+                    fontSize: 10,
+                    lineHeight: 1.45,
+                    fontWeight: 700,
+                  }}
+                >
+                  Wenn die Tätigkeit weitergelaufen ist, setze die Endzeit auf jetzt. Wenn wirklich früher gestoppt wurde, speichere die bestehende Endzeit.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "0.85fr 1fr 1.45fr",
+                  gap: 7,
+                  padding: "12px",
+                  backgroundColor: "#f8fafc",
+                  borderTop: "1px solid rgba(15,23,42,0.06)",
+                }}
+              >
+                <button
+                  onClick={() => setStaleStopConfirmation(null)}
+                  disabled={isPersistingLive}
+                  style={{
+                    height: 36,
+                    borderRadius: 10,
+                    border: "1px solid rgba(15,23,42,0.08)",
+                    background: "#ffffff",
+                    color: "rgba(15,23,42,0.54)",
+                    fontSize: 10,
+                    fontWeight: 850,
+                    cursor: isPersistingLive ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={() => void handleStaleStopConfirm(false)}
+                  disabled={isPersistingLive}
+                  style={{
+                    height: 36,
+                    borderRadius: 10,
+                    border: "1px solid rgba(15,23,42,0.08)",
+                    background: "#ffffff",
+                    color: "#111827",
+                    fontSize: 10,
+                    fontWeight: 850,
+                    cursor: isPersistingLive ? "not-allowed" : "pointer",
+                    boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
+                  }}
+                >
+                  So speichern
+                </button>
+                <button
+                  onClick={() => void handleStaleStopConfirm(true)}
+                  disabled={isPersistingLive}
+                  style={{
+                    height: 36,
+                    borderRadius: 10,
+                    border: "none",
+                    background: "linear-gradient(to bottom, #059669, #0cb880)",
+                    color: "#ffffff",
+                    fontSize: 10,
+                    fontWeight: 850,
+                    cursor: isPersistingLive ? "not-allowed" : "pointer",
+                    boxShadow:
+                      "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #048560, 0 1px 6px rgba(5,80,50,0.14)",
+                  }}
+                >
+                  Endzeit auf jetzt
                 </button>
               </div>
             </div>

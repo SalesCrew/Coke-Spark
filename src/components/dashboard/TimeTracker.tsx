@@ -662,11 +662,12 @@ export function TimeTracker(_: TimeTrackerProps) {
     const sourceStats = submissionsOverride?.stats ?? todayStats;
     const marketCount = sourceStats?.marktbesuche ?? sourceItems.filter((item) => item.kind === "markt").length;
     const zusatzCount = sourceStats?.zusatz ?? sourceItems.filter((item) => item.kind === "zusatz").length;
+    const trackedSeconds = sourceStats?.arbeitstag != null ? sourceStats.arbeitstag * 60 : seconds;
     const snapshot: DaySummarySnapshot = {
       startKm, endKm, deltaKm: endKm - startKm,
       marketCount,
       zusatzCount,
-      trackedSeconds: seconds,
+      trackedSeconds,
     };
     setDaySummarySnapshot(snapshot);
     setSummaryProgress(1);

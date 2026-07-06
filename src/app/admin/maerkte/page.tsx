@@ -120,6 +120,23 @@ type MarketContextMenuState = {
   y: number;
 };
 
+type ManualMarketType = "universum" | "kuehler" | "both";
+
+type ManualMarketCreateInput = {
+  market: MarketRecord;
+  kuehlerUnit?: {
+    name?: string;
+    employee?: string;
+    kuehlerInternalId?: string | null;
+    kuehlerBd?: string | null;
+    kuehlerAnzahlKsAmStandort?: number | null;
+    kuehlerSerialNumber?: string | null;
+    kuehlerModel?: string | null;
+    importSourceFileName?: string;
+    importedAt?: string;
+  };
+};
+
 // ── Frequency circle ──────────────────────────────────────────
 
 const FrequencyCircle = React.memo(function FrequencyCircle({ visited, frequency, visitedThisMonth, size = 36 }: {
@@ -1194,6 +1211,350 @@ function InfoRow({ label, value, edit, editValue, onEdit }: {
 
 // ── Visit session card ────────────────────────────────────────
 
+function ManualMarketField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  type?: "text" | "number";
+}) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>
+        {label}{required ? " *" : ""}
+      </span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        type={type}
+        inputMode={type === "number" ? "numeric" : undefined}
+        style={{
+          height: 36,
+          width: "100%",
+          boxSizing: "border-box",
+          border: "1px solid rgba(15,23,42,0.08)",
+          borderRadius: 9,
+          background: "#fff",
+          padding: "0 11px",
+          outline: "none",
+          color: "#111827",
+          fontSize: 11,
+          fontWeight: 650,
+          fontFamily: "inherit",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 3px rgba(15,23,42,0.035)",
+        }}
+      />
+    </label>
+  );
+}
+
+function ManualMarketCreateModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (input: ManualMarketCreateInput) => Promise<MarketRecord>;
+}) {
+  const [marketType, setMarketType] = useState<ManualMarketType>("universum");
+  const [name, setName] = useState("");
+  const [dbName, setDbName] = useState("");
+  const [address, setAddress] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("Ost");
+  const [emEh, setEmEh] = useState("");
+  const [employee, setEmployee] = useState("");
+  const [currentGmName, setCurrentGmName] = useState("");
+  const [flexNumber, setFlexNumber] = useState("");
+  const [cokeMasterNumber, setCokeMasterNumber] = useState("");
+  const [standardMarketNumber, setStandardMarketNumber] = useState("");
+  const [visitFrequencyPerYear, setVisitFrequencyPerYear] = useState("");
+  const [infoNote, setInfoNote] = useState("");
+  const [isActive, setIsActive] = useState(true);
+  const [createKuehlerUnitNow, setCreateKuehlerUnitNow] = useState(false);
+  const [kuehlerInternalId, setKuehlerInternalId] = useState("");
+  const [kuehlerSerialNumber, setKuehlerSerialNumber] = useState("");
+  const [kuehlerModel, setKuehlerModel] = useState("");
+  const [kuehlerBd, setKuehlerBd] = useState("");
+  const [kuehlerAnzahlKsAmStandort, setKuehlerAnzahlKsAmStandort] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hasKuehler = marketType !== "universum";
+  const effectiveCreateUnit = hasKuehler && createKuehlerUnitNow;
+
+  const setType = (nextType: ManualMarketType) => {
+    setMarketType(nextType);
+    setCreateKuehlerUnitNow(nextType !== "universum");
+  };
+
+  const submit = async () => {
+    if (submitting) return;
+    setError(null);
+    const trimmedName = name.trim();
+    const trimmedAddress = address.trim();
+    const trimmedPostalCode = postalCode.trim();
+    const trimmedCity = city.trim();
+    const trimmedRegion = region.trim();
+    const stammnr = cokeMasterNumber.trim();
+    if (!trimmedName || !trimmedAddress || !trimmedPostalCode || !trimmedCity || !trimmedRegion) {
+      setError("Bitte Name, Adresse, PLZ, Ort und Region ausfüllen.");
+      return;
+    }
+    if (hasKuehler && !stammnr) {
+      setError("Für Kühler oder Beides ist eine Stammnr. erforderlich.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const now = new Date().toISOString();
+      const market: MarketRecord = {
+        id: "manual-new",
+        name: trimmedName,
+        dbName: dbName.trim(),
+        address: trimmedAddress,
+        postalCode: trimmedPostalCode,
+        city: trimmedCity,
+        region: trimmedRegion,
+        emEh: emEh.trim(),
+        currentGmName: currentGmName.trim(),
+        plannedByActiveStandardGmName: null,
+        visitFrequencyPerYear: Math.max(0, parseInt(visitFrequencyPerYear, 10) || 0),
+        infoFlag: infoNote.trim().length > 0,
+        flexNumber: flexNumber.trim(),
+        cokeMasterNumber: stammnr,
+        standardMarketNumber: standardMarketNumber.trim(),
+        employee: employee.trim(),
+        universeMarket: marketType !== "kuehler",
+        marketType,
+        kuehlerStammnr: hasKuehler ? stammnr : "",
+        isActive,
+        infoNote: infoNote.trim(),
+        ipp: null,
+        importSourceFileName: "Manuell",
+        importedAt: now,
+        plannedToId: null,
+        isDeleted: false,
+      };
+      await onCreate({
+        market,
+        kuehlerUnit: effectiveCreateUnit
+          ? {
+              name: trimmedName,
+              employee: employee.trim(),
+              kuehlerInternalId: kuehlerInternalId.trim() || null,
+              kuehlerBd: kuehlerBd.trim() || null,
+              kuehlerAnzahlKsAmStandort: kuehlerAnzahlKsAmStandort.trim()
+                ? Math.max(0, parseInt(kuehlerAnzahlKsAmStandort, 10) || 0)
+                : null,
+              kuehlerSerialNumber: kuehlerSerialNumber.trim() || null,
+              kuehlerModel: kuehlerModel.trim() || null,
+              importSourceFileName: "Manuell",
+              importedAt: now,
+            }
+          : undefined,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Markt konnte nicht angelegt werden.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return createPortal(
+    <div
+      onClick={() => {
+        if (!submitting) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9900,
+        background: "rgba(15,23,42,0.24)",
+        backdropFilter: "blur(5px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: 720,
+          maxWidth: "calc(100vw - 32px)",
+          maxHeight: "calc(100vh - 48px)",
+          overflow: "hidden",
+          borderRadius: 16,
+          background: "#fff",
+          border: "1px solid rgba(15,23,42,0.08)",
+          boxShadow: "0 18px 60px rgba(15,23,42,0.18), 0 1px 0 rgba(255,255,255,0.8) inset",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid rgba(15,23,42,0.06)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(15,23,42,0.35)", marginBottom: 5 }}>
+              Marktverwaltung
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 850, letterSpacing: "-0.03em", color: "#111827" }}>Markt manuell anlegen</div>
+            <div style={{ marginTop: 4, fontSize: 11, fontWeight: 550, color: "rgba(15,23,42,0.48)" }}>
+              Normalen Markt anlegen oder direkt als Kühler/Beides mit erstem Gerät speichern.
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            style={{ width: 30, height: 30, border: "none", borderRadius: 9, background: "rgba(15,23,42,0.045)", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(15,23,42,0.48)" }}
+          >
+            <X size={14} strokeWidth={2.2} />
+          </button>
+        </div>
+
+        <div className="map-scroll" style={{ padding: 20, overflowY: "auto", display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+            {([
+              ["universum", "Normaler Markt", "Universum / Standard"],
+              ["kuehler", "Kühler Markt", "nur Kühler"],
+              ["both", "Beides", "Universum + Kühler"],
+            ] as Array<[ManualMarketType, string, string]>).map(([type, label, sub]) => {
+              const active = marketType === type;
+              return (
+                <button
+                  key={type}
+                  onClick={() => setType(type)}
+                  style={{
+                    border: active ? "1px solid rgba(220,38,38,0.32)" : "1px solid rgba(15,23,42,0.08)",
+                    background: active ? "rgba(220,38,38,0.045)" : "#fff",
+                    borderRadius: 11,
+                    padding: "11px 12px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    boxShadow: active ? "0 8px 18px rgba(220,38,38,0.07)" : "0 1px 4px rgba(15,23,42,0.035)",
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 800, color: active ? R : "#111827" }}>{label}</div>
+                  <div style={{ marginTop: 2, fontSize: 9.5, fontWeight: 600, color: "rgba(15,23,42,0.42)" }}>{sub}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {error && (
+            <div style={{ padding: "9px 11px", borderRadius: 9, border: "1px solid rgba(220,38,38,0.16)", background: "rgba(220,38,38,0.055)", color: R, fontSize: 11, fontWeight: 700 }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 16 }}>
+            <div style={{ border: "1px solid rgba(15,23,42,0.07)", borderRadius: 13, padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <ManualMarketField label="Name" value={name} onChange={setName} placeholder="z.B. BILLA Plus" required />
+              <ManualMarketField label="Name f. DB" value={dbName} onChange={setDbName} placeholder="Handelskette" />
+              <ManualMarketField label="Adresse" value={address} onChange={setAddress} placeholder="Straße 001" required />
+              <div style={{ display: "grid", gridTemplateColumns: "0.7fr 1.3fr", gap: 10 }}>
+                <ManualMarketField label="PLZ" value={postalCode} onChange={setPostalCode} placeholder="1010" required />
+                <ManualMarketField label="Ort" value={city} onChange={setCity} placeholder="Wien" required />
+              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>Region *</span>
+                <select
+                  value={region}
+                  onChange={(event) => setRegion(event.target.value)}
+                  style={{ height: 36, border: "1px solid rgba(15,23,42,0.08)", borderRadius: 9, background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#111827", fontFamily: "inherit" }}
+                >
+                  {["Nord", "Ost", "Süd", "West"].map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                </select>
+              </label>
+              <ManualMarketField label="EM/EH" value={emEh} onChange={setEmEh} placeholder="EM oder EH" />
+              <ManualMarketField label="Mitarbeiter" value={employee} onChange={setEmployee} placeholder="optional" />
+              <ManualMarketField label="GM" value={currentGmName} onChange={setCurrentGmName} placeholder="optional" />
+            </div>
+
+            <div style={{ border: "1px solid rgba(15,23,42,0.07)", borderRadius: 13, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+              <ManualMarketField label="Flex-Nr." value={flexNumber} onChange={setFlexNumber} placeholder="optional" />
+              <ManualMarketField label="Stammnr. Coke" value={cokeMasterNumber} onChange={setCokeMasterNumber} placeholder={hasKuehler ? "für Kühler erforderlich" : "optional"} required={hasKuehler} />
+              <ManualMarketField label="Standardmarkt Nr" value={standardMarketNumber} onChange={setStandardMarketNumber} placeholder="optional" />
+              <ManualMarketField label="Besuchsfrequenz / Jahr" value={visitFrequencyPerYear} onChange={setVisitFrequencyPerYear} placeholder="0" type="number" />
+              <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>Info-Notiz</span>
+                <textarea
+                  value={infoNote}
+                  onChange={(event) => setInfoNote(event.target.value)}
+                  placeholder="optional"
+                  style={{ minHeight: 64, resize: "vertical", border: "1px solid rgba(15,23,42,0.08)", borderRadius: 9, padding: "9px 11px", fontSize: 11, fontWeight: 600, color: "#111827", fontFamily: "inherit", outline: "none" }}
+                />
+              </label>
+              <button
+                onClick={() => setIsActive((value) => !value)}
+                style={{ alignSelf: "flex-start", height: 30, padding: "0 10px", borderRadius: 8, border: "1px solid rgba(15,23,42,0.08)", background: isActive ? "rgba(22,163,74,0.08)" : "rgba(220,38,38,0.06)", color: isActive ? "#059669" : R, fontSize: 10, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                {isActive ? "Aktiv" : "Inaktiv"}
+              </button>
+            </div>
+          </div>
+
+          {hasKuehler && (
+            <div style={{ border: "1px solid rgba(217,119,6,0.15)", background: "rgba(245,158,11,0.035)", borderRadius: 13, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 850, color: "#92400e" }}>Ersten Kühler direkt anlegen</div>
+                  <div style={{ marginTop: 2, fontSize: 9.5, fontWeight: 600, color: "rgba(146,64,14,0.56)" }}>Optional, aber hilfreich für Inventur und spätere Auswahl.</div>
+                </div>
+                <button
+                  onClick={() => setCreateKuehlerUnitNow((value) => !value)}
+                  style={{ width: 40, height: 22, borderRadius: 999, border: "none", background: createKuehlerUnitNow ? "#DC2626" : "rgba(15,23,42,0.12)", cursor: "pointer", position: "relative" }}
+                >
+                  <span style={{ position: "absolute", width: 18, height: 18, borderRadius: "50%", background: "#fff", top: 2, left: createKuehlerUnitNow ? 20 : 2, transition: "left 0.16s ease", boxShadow: "0 1px 4px rgba(0,0,0,0.18)" }} />
+                </button>
+              </div>
+              {createKuehlerUnitNow && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+                  <ManualMarketField label="Kühlernummer" value={kuehlerInternalId} onChange={setKuehlerInternalId} placeholder="internal_id" />
+                  <ManualMarketField label="Serial Number" value={kuehlerSerialNumber} onChange={setKuehlerSerialNumber} placeholder="optional" />
+                  <ManualMarketField label="Model" value={kuehlerModel} onChange={setKuehlerModel} placeholder="optional" />
+                  <ManualMarketField label="BD" value={kuehlerBd} onChange={setKuehlerBd} placeholder="optional" />
+                  <ManualMarketField label="Anzahl KS" value={kuehlerAnzahlKsAmStandort} onChange={setKuehlerAnzahlKsAmStandort} placeholder="optional" type="number" />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: "14px 20px", borderTop: "1px solid rgba(15,23,42,0.06)", display: "flex", justifyContent: "space-between", gap: 10, background: "#fff" }}>
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            style={{ height: 34, padding: "0 16px", borderRadius: 9, border: "none", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.06)", color: "rgba(15,23,42,0.48)", fontSize: 11, fontWeight: 750, cursor: submitting ? "not-allowed" : "pointer", fontFamily: "inherit" }}
+          >
+            Abbrechen
+          </button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            style={{ height: 34, padding: "0 18px", borderRadius: 9, border: "none", background: `linear-gradient(to bottom,${R},${RD})`, boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 8px rgba(180,20,20,0.18)", color: "#fff", fontSize: 11, fontWeight: 850, cursor: submitting ? "not-allowed" : "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 7 }}
+          >
+            <Plus size={12} strokeWidth={2.4} />
+            {submitting ? "Wird angelegt..." : "Markt anlegen"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function VisitCard({ logs }: { logs: MarketVisitLog[] }) {
   const [expanded, setExpanded] = useState(false);
   const sorted = [...logs].sort((a, b) => new Date(a.visitedAt).getTime() - new Date(b.visitedAt).getTime());
@@ -1364,6 +1725,8 @@ function MarketDetailDrawer({
   const visitCount = marketVisits.length;
   const ci = chainInitials(market.name);
   const hasKuehlerDataset = market.marketType === "kuehler" || market.marketType === "both";
+  const promotionStammnr = (market.kuehlerStammnr || market.cokeMasterNumber || "").trim();
+  const showKuehlerUnitSection = hasKuehlerDataset || unitEditorId === "new" || unitsError !== null;
   const marketTypeMeta =
     market.marketType === "both"
       ? { label: "Beides", color: "#7c3aed", bg: "rgba(124,58,237,0.1)" }
@@ -1449,6 +1812,15 @@ function MarketDetailDrawer({
           importedAt: new Date().toISOString(),
         });
         setKuehlerUnits((prev) => [created, ...prev]);
+        if (!hasKuehlerDataset && promotionStammnr) {
+          await onSave({
+            ...market,
+            marketType: "both",
+            universeMarket: true,
+            kuehlerStammnr: promotionStammnr,
+            cokeMasterNumber: market.cokeMasterNumber || promotionStammnr,
+          });
+        }
       } else {
         const updated = await onUpdateKuehlerUnit({
           marketId: market.id,
@@ -1474,8 +1846,12 @@ function MarketDetailDrawer({
   }, [
     market.id,
     market.importSourceFileName,
+    market,
     onCreateKuehlerUnit,
     onUpdateKuehlerUnit,
+    onSave,
+    promotionStammnr,
+    hasKuehlerDataset,
     unitEditorDraft.employee,
     unitEditorDraft.kuehlerAnzahlKsAmStandort,
     unitEditorDraft.kuehlerBd,
@@ -1592,6 +1968,24 @@ function MarketDetailDrawer({
                 <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
                 <InfoRow label="Aktuell verplant an" value={market.currentGmName} edit={editing} editValue={draft.currentGmName} onEdit={v => set({ currentGmName: v })} />
                 <InfoRow label="Markt-Typ" value={marketTypeMeta.label} />
+                {!hasKuehlerDataset && (
+                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Kühler</span>
+                    <button
+                      onClick={() => {
+                        if (!promotionStammnr) {
+                          setUnitsError("Bitte zuerst eine Stammnr. am Markt speichern, dann kann ein Kühler angelegt werden.");
+                          return;
+                        }
+                        setUnitsError(null);
+                        startUnitEdit();
+                      }}
+                      style={{ justifySelf: "start", fontSize: 10, fontWeight: 650, padding: "5px 9px", borderRadius: 7, border: "1px solid rgba(217,119,6,0.18)", background: "rgba(245,158,11,0.06)", color: "#92400e", cursor: "pointer", fontFamily: "inherit" }}
+                    >
+                      Kühler hinzufügen
+                    </button>
+                  </div>
+                )}
                 <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
                   <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Status</span>
                   {editing ? (
@@ -1639,7 +2033,7 @@ function MarketDetailDrawer({
                 <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v, 10) || market.visitFrequencyPerYear })} />
               </InfoSection>
 
-              {hasKuehlerDataset && (
+              {showKuehlerUnitSection && (
                 <>
                   <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
                   <InfoSection label="Kühler Geräte">
@@ -1804,6 +2198,7 @@ export default function MaerktePage() {
   const [marketContextMenu, setMarketContextMenu] = useState<MarketContextMenuState | null>(null);
   const [deleteTargetMarketId, setDeleteTargetMarketId] = useState<string | null>(null);
   const [isDeletingMarket, setIsDeletingMarket] = useState(false);
+  const [showManualCreate, setShowManualCreate] = useState(false);
   const marketContextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const reloadMarkets = useCallback(async () => {
@@ -1899,6 +2294,36 @@ export default function MaerktePage() {
       throw new Error(message);
     }
   }, []);
+
+  const handleCreateManualMarket = useCallback(async (input: ManualMarketCreateInput) => {
+    setSaveError(null);
+    try {
+      const created = await createMarket(input.market);
+      let nextMarket = created;
+      if (input.kuehlerUnit) {
+        await createMarketKuehlerUnit({
+          ...input.kuehlerUnit,
+          marketId: created.id,
+        });
+        const stammnr = created.kuehlerStammnr || created.cokeMasterNumber;
+        nextMarket = {
+          ...created,
+          marketType: created.marketType === "universum" ? "both" : created.marketType,
+          universeMarket: created.marketType !== "kuehler",
+          kuehlerStammnr: stammnr,
+          cokeMasterNumber: created.cokeMasterNumber || stammnr,
+        };
+      }
+      setMarkets((prev) => [nextMarket, ...prev.filter((market) => market.id !== nextMarket.id)]);
+      setSelectedId(nextMarket.id);
+      void reloadMarkets();
+      return nextMarket;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Markt konnte nicht angelegt werden.";
+      setSaveError(message);
+      throw new Error(message);
+    }
+  }, [reloadMarkets]);
 
   const handleNormalizeRegions = useCallback(async () => {
     if (isNormalizingRegions) return;
@@ -2009,13 +2434,16 @@ export default function MaerktePage() {
       const storedV = scoped ?? legacy;
       setVisits(storedV ? JSON.parse(storedV) : []);
     } catch { /* start empty */ }
-    // Listen for import trigger from header button
+    // Listen for page header actions
     const handler = () => setShowImport(true);
+    const manualCreateHandler = () => setShowManualCreate(true);
     const normalizeHandler = () => { void handleNormalizeRegions(); };
     window.addEventListener("maerkte:openImport", handler);
+    window.addEventListener("maerkte:openManualCreate", manualCreateHandler);
     window.addEventListener("maerkte:normalizeRegions", normalizeHandler);
     return () => {
       window.removeEventListener("maerkte:openImport", handler);
+      window.removeEventListener("maerkte:openManualCreate", manualCreateHandler);
       window.removeEventListener("maerkte:normalizeRegions", normalizeHandler);
     };
   }, [handleNormalizeRegions, reloadMarkets]);
@@ -2602,6 +3030,13 @@ export default function MaerktePage() {
           onImport={handleImport}
           onSaveFixedRow={handleSaveFixedRow}
           onClose={() => setShowImport(false)}
+        />
+      )}
+
+      {showManualCreate && (
+        <ManualMarketCreateModal
+          onCreate={handleCreateManualMarket}
+          onClose={() => setShowManualCreate(false)}
         />
       )}
     </div>

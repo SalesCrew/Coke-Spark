@@ -11,17 +11,22 @@ import {
   Maximize2,
   Minimize2,
   RefreshCcw,
+  Trash2,
   UserRound,
   X,
 } from "lucide-react";
 import {
   approveAdminAnswerChangeRequest,
   approveAdminTimeEntryChangeRequest,
+  approveAdminVisitSessionDeleteRequest,
   fetchAdminAnswerChangeRequests,
   fetchAdminTimeEntryChangeRequests,
+  fetchAdminVisitSessionDeleteRequests,
   rejectAdminAnswerChangeRequest,
   rejectAdminTimeEntryChangeRequest,
+  rejectAdminVisitSessionDeleteRequest,
   type AdminAnswerChangeRequest,
+  type AdminVisitSessionDeleteRequest,
   type TimeEntryChangeRequest,
 } from "@/lib/api/backend";
 
@@ -79,6 +84,11 @@ function marketLabel(request: AdminAnswerChangeRequest): string {
   return request.market.name?.trim() || fallback || "Markt";
 }
 
+function deleteRequestMarketLabel(request: AdminVisitSessionDeleteRequest): string {
+  const fallback = [request.market.address, request.market.postalCode, request.market.city].filter(Boolean).join(", ");
+  return request.market.name?.trim() || fallback || "Markt";
+}
+
 function currentAnswerLabel(snapshot: Record<string, unknown>): string {
   const options = Array.isArray(snapshot.options)
     ? snapshot.options
@@ -132,6 +142,14 @@ function sortTimeRequests(input: TimeEntryChangeRequest[]): TimeEntryChangeReque
   });
 }
 
+function sortDeleteRequests(input: AdminVisitSessionDeleteRequest[]): AdminVisitSessionDeleteRequest[] {
+  return [...input].sort((a, b) => {
+    if (a.status === "pending" && b.status !== "pending") return -1;
+    if (a.status !== "pending" && b.status === "pending") return 1;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
+
 function timeKindLabel(kind: TimeEntryChangeRequest["sourceKind"]): string {
   if (kind === "marktbesuch") return "Marktbesuch";
   if (kind === "pause") return "Pause";
@@ -143,6 +161,7 @@ export function AnswerChangeRequestFlap() {
   const [expanded, setExpanded] = useState(false);
   const [requests, setRequests] = useState<AdminAnswerChangeRequest[]>([]);
   const [timeRequests, setTimeRequests] = useState<TimeEntryChangeRequest[]>([]);
+  const [deleteRequests, setDeleteRequests] = useState<AdminVisitSessionDeleteRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -153,12 +172,14 @@ export function AnswerChangeRequestFlap() {
     setLoading(true);
     setError(null);
     try {
-      const [nextAnswerRequests, nextTimeRequests] = await Promise.all([
+      const [nextAnswerRequests, nextTimeRequests, nextDeleteRequests] = await Promise.all([
         fetchAdminAnswerChangeRequests(),
         fetchAdminTimeEntryChangeRequests(),
+        fetchAdminVisitSessionDeleteRequests(),
       ]);
       setRequests(sortRequests(nextAnswerRequests));
       setTimeRequests(sortTimeRequests(nextTimeRequests));
+      setDeleteRequests(sortDeleteRequests(nextDeleteRequests));
     } catch (err) {
       setError(err instanceof Error ? err.message : "?nderungsanfragen konnten nicht geladen werden.");
     } finally {
@@ -172,9 +193,11 @@ export function AnswerChangeRequestFlap() {
 
   const pendingRequests = useMemo(() => requests.filter((request) => request.status === "pending"), [requests]);
   const pendingTimeRequests = useMemo(() => timeRequests.filter((request) => request.status === "pending"), [timeRequests]);
+  const pendingDeleteRequests = useMemo(() => deleteRequests.filter((request) => request.status === "pending"), [deleteRequests]);
   const recentRequests = useMemo(() => requests.slice(0, 12), [requests]);
   const recentTimeRequests = useMemo(() => timeRequests.slice(0, 8), [timeRequests]);
-  const totalPendingCount = pendingRequests.length + pendingTimeRequests.length;
+  const recentDeleteRequests = useMemo(() => deleteRequests.slice(0, 8), [deleteRequests]);
+  const totalPendingCount = pendingRequests.length + pendingTimeRequests.length + pendingDeleteRequests.length;
 
   const people = useMemo(() => {
     const byGm = new Map<string, {
@@ -184,6 +207,7 @@ export function AnswerChangeRequestFlap() {
       region: string | null;
       requests: AdminAnswerChangeRequest[];
       timeRequests: TimeEntryChangeRequest[];
+      deleteRequests: AdminVisitSessionDeleteRequest[];
     }>();
     for (const request of pendingRequests) {
       const entry = byGm.get(request.gm.id) ?? {
@@ -193,6 +217,7 @@ export function AnswerChangeRequestFlap() {
         region: request.gm.region,
         requests: [],
         timeRequests: [],
+        deleteRequests: [],
       };
       entry.requests.push(request);
       byGm.set(request.gm.id, entry);
@@ -207,16 +232,30 @@ export function AnswerChangeRequestFlap() {
         region: gm.region,
         requests: [],
         timeRequests: [],
+        deleteRequests: [],
       };
       entry.timeRequests.push(request);
       byGm.set(gm.id, entry);
     }
+    for (const request of pendingDeleteRequests) {
+      const entry = byGm.get(request.gm.id) ?? {
+        id: request.gm.id,
+        name: request.gm.name,
+        email: request.gm.email,
+        region: request.gm.region,
+        requests: [],
+        timeRequests: [],
+        deleteRequests: [],
+      };
+      entry.deleteRequests.push(request);
+      byGm.set(request.gm.id, entry);
+    }
     return Array.from(byGm.values()).sort((a, b) => {
-      const countDiff = (b.requests.length + b.timeRequests.length) - (a.requests.length + a.timeRequests.length);
+      const countDiff = (b.requests.length + b.timeRequests.length + b.deleteRequests.length) - (a.requests.length + a.timeRequests.length + a.deleteRequests.length);
       if (countDiff !== 0) return countDiff;
       return a.name.localeCompare(b.name);
     });
-  }, [pendingRequests, pendingTimeRequests]);
+  }, [pendingRequests, pendingTimeRequests, pendingDeleteRequests]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -231,6 +270,7 @@ export function AnswerChangeRequestFlap() {
 
   const selectedPersonRequests = selectedPerson?.requests ?? [];
   const selectedPersonTimeRequests = selectedPerson?.timeRequests ?? [];
+  const selectedPersonDeleteRequests = selectedPerson?.deleteRequests ?? [];
   const selectedApplicableIds = selectedPersonRequests
     .filter((request) => selectedIds.has(request.id) && request.autoApplicable)
     .map((request) => request.id);
@@ -301,6 +341,30 @@ export function AnswerChangeRequestFlap() {
     }
   };
 
+  const runDeleteAction = async (ids: string[], action: RequestAction) => {
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+    if (uniqueIds.length === 0) return;
+    setBusy(uniqueIds, true);
+    setError(null);
+    try {
+      const results = await Promise.allSettled(
+        uniqueIds.map((id) =>
+          action === "approve"
+            ? approveAdminVisitSessionDeleteRequest(id)
+            : rejectAdminVisitSessionDeleteRequest(id),
+        ),
+      );
+      const failed = results.filter((result) => result.status === "rejected");
+      if (failed.length > 0) {
+        const reason = failed[0] as PromiseRejectedResult;
+        setError(reason.reason instanceof Error ? reason.reason.message : "Ein Teil der Loeschanfragen konnte nicht verarbeitet werden.");
+      }
+      await loadRequests();
+    } finally {
+      setBusy(uniqueIds, false);
+    }
+  };
+
   const toggleSelected = (requestId: string) => {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -346,13 +410,13 @@ export function AnswerChangeRequestFlap() {
 
           {!expanded ? (
             <div className="answer-compact">
-              {loading && requests.length === 0 && timeRequests.length === 0 ? (
+              {loading && requests.length === 0 && timeRequests.length === 0 && deleteRequests.length === 0 ? (
                 <div className="answer-empty">
                   <Loader2 className="answer-spin" size={18} />
                   <strong>Anfragen werden geladen</strong>
                   <span>Die neuesten Korrekturen werden abgeglichen.</span>
                 </div>
-              ) : recentRequests.length === 0 && recentTimeRequests.length === 0 ? (
+              ) : recentRequests.length === 0 && recentTimeRequests.length === 0 && recentDeleteRequests.length === 0 ? (
                 <div className="answer-empty">
                   <Inbox size={20} />
                   <strong>Keine offenen Anfragen</strong>
@@ -432,6 +496,37 @@ export function AnswerChangeRequestFlap() {
                       ) : null}
                     </article>
                   ))}
+                  {recentDeleteRequests.length > 0 ? <div className="answer-section-heading">Fragebogen loeschen</div> : null}
+                  {recentDeleteRequests.map((request) => (
+                    <article key={request.id} className={`answer-request-card is-delete ${request.status !== "pending" ? "is-muted" : ""}`}>
+                      <div className="answer-card-top">
+                        <div className="answer-avatar">{initials(request.gm.name)}</div>
+                        <div className="answer-card-title">
+                          <strong>{request.gm.name}</strong>
+                          <span>{deleteRequestMarketLabel(request)}</span>
+                        </div>
+                        <span className={`answer-status is-${request.status}`}>{request.status}</span>
+                      </div>
+                      <p className="answer-question">Fragebogen aus Auswertungen entfernen</p>
+                      <div className="answer-diff-mini">
+                        <span>{request.campaignSummary || "Fragebogen"}</span>
+                        <ChevronRight size={13} />
+                        <strong>Soft delete</strong>
+                      </div>
+                      {request.requestNote ? <div className="answer-card-note">{request.requestNote}</div> : null}
+                      {request.status === "pending" ? (
+                        <div className="answer-card-actions">
+                          <button type="button" className="answer-secondary-button" onClick={() => void runDeleteAction([request.id], "reject")} disabled={busyIds.has(request.id)}>
+                            Ablehnen
+                          </button>
+                          <button type="button" className="answer-primary-button is-danger" onClick={() => void runDeleteAction([request.id], "approve")} disabled={busyIds.has(request.id)}>
+                            {busyIds.has(request.id) ? <Loader2 size={13} className="answer-spin" /> : <Trash2 size={13} />}
+                            Loeschen
+                          </button>
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
                 </>
               )}
             </div>
@@ -457,7 +552,7 @@ export function AnswerChangeRequestFlap() {
                         <strong>{person.name}</strong>
                         <small>{person.region ?? person.email}</small>
                       </span>
-                      <span className="answer-person-count">{person.requests.length + person.timeRequests.length}</span>
+                      <span className="answer-person-count">{person.requests.length + person.timeRequests.length + person.deleteRequests.length}</span>
                     </button>
                   ))
                 )}
@@ -470,7 +565,7 @@ export function AnswerChangeRequestFlap() {
                       <div>
                         <div className="answer-pane-title">Pruefung pro GM</div>
                         <h3>{selectedPerson.name}</h3>
-                        <p>{selectedPerson.requests.length + selectedPerson.timeRequests.length} offene Anfrage{selectedPerson.requests.length + selectedPerson.timeRequests.length === 1 ? "" : "n"}</p>
+                        <p>{selectedPerson.requests.length + selectedPerson.timeRequests.length + selectedPerson.deleteRequests.length} offene Anfrage{selectedPerson.requests.length + selectedPerson.timeRequests.length + selectedPerson.deleteRequests.length === 1 ? "" : "n"}</p>
                       </div>
                       <div className="answer-bulk-actions">
                         <button
@@ -585,6 +680,49 @@ export function AnswerChangeRequestFlap() {
                             <button type="button" className="answer-primary-button" onClick={() => void runTimeAction([request.id], "approve")} disabled={busyIds.has(request.id)}>
                               {busyIds.has(request.id) ? <Loader2 size={13} className="answer-spin" /> : <Check size={13} />}
                               Annehmen
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="answer-section-heading is-expanded">Fragebogen loeschen</div>
+                    <div className="answer-detail-list">
+                      {selectedPersonDeleteRequests.length === 0 ? (
+                        <div className="answer-empty is-small">Keine offenen Loeschanfragen.</div>
+                      ) : null}
+                      {selectedPersonDeleteRequests.map((request) => (
+                        <article key={request.id} className="answer-detail-card is-delete">
+                          <div className="answer-select-row">
+                            <span>
+                              <strong>{deleteRequestMarketLabel(request)}</strong>
+                              <small>
+                                {request.campaignSummary || "Fragebogen"} Â· {formatDateTime(request.session.submittedAt)}
+                              </small>
+                            </span>
+                            <span className="answer-time">
+                              <Clock3 size={12} />
+                              {formatDateTime(request.createdAt)}
+                            </span>
+                          </div>
+
+                          <div className="answer-diff-grid">
+                            <div>
+                              <span>Aktuell</span>
+                              <strong>In Auswertungen enthalten</strong>
+                            </div>
+                            <div>
+                              <span>Angefragt</span>
+                              <strong>Besuch entfernen</strong>
+                            </div>
+                          </div>
+                          {request.requestNote ? <p className="answer-note">{request.requestNote}</p> : null}
+                          <div className="answer-card-actions">
+                            <button type="button" className="answer-secondary-button" onClick={() => void runDeleteAction([request.id], "reject")} disabled={busyIds.has(request.id)}>
+                              Ablehnen
+                            </button>
+                            <button type="button" className="answer-primary-button is-danger" onClick={() => void runDeleteAction([request.id], "approve")} disabled={busyIds.has(request.id)}>
+                              {busyIds.has(request.id) ? <Loader2 size={13} className="answer-spin" /> : <Trash2 size={13} />}
+                              Loeschen
                             </button>
                           </div>
                         </article>
@@ -919,6 +1057,12 @@ export function AnswerChangeRequestFlap() {
           background: linear-gradient(180deg, #ffffff, rgba(248, 250, 252, 0.9));
         }
 
+        .answer-request-card.is-delete,
+        .answer-detail-card.is-delete {
+          border-color: rgba(215, 25, 32, 0.14);
+          background: linear-gradient(180deg, #ffffff, rgba(255, 245, 245, 0.72));
+        }
+
         .answer-card-top,
         .answer-select-row {
           display: flex;
@@ -1049,6 +1193,12 @@ export function AnswerChangeRequestFlap() {
           border-color: rgba(16, 24, 40, 0.18);
           background: linear-gradient(180deg, #111827 0%, #060b16 100%);
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 20px rgba(16, 24, 40, 0.14);
+        }
+
+        .answer-primary-button.is-danger {
+          border-color: rgba(188, 16, 24, 0.3);
+          background: linear-gradient(180deg, #ee3436 0%, #c91820 100%);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 10px 22px rgba(215, 25, 32, 0.2);
         }
 
         .answer-secondary-button {

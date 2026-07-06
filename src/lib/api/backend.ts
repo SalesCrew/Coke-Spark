@@ -2324,6 +2324,49 @@ export type GmVisitAnswerChangeRequestResult = {
     updatedAt: string;
   } | null;
 };
+export type VisitSessionDeleteRequest = {
+  id: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  createdAt: string;
+  updatedAt: string;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
+  adminNote: string | null;
+  visitSessionId: string;
+  requestNote: string | null;
+  campaignSummary: string;
+  sectionSummary: string;
+  gm: {
+    id: string;
+    name: string;
+    email: string;
+    region: string | null;
+  };
+  market: {
+    id: string;
+    name: string;
+    address: string;
+    postalCode: string;
+    city: string;
+    region: string | null;
+  };
+  session: {
+    id: string;
+    startedAt: string | null;
+    submittedAt: string | null;
+  };
+};
+export type GmVisitSessionDeleteRequest = VisitSessionDeleteRequest;
+export type AdminVisitSessionDeleteRequest = VisitSessionDeleteRequest;
+export type GmVisitSessionDeleteRequestResult = {
+  ok: boolean;
+  request: {
+    id: string;
+    status: "pending" | "approved" | "rejected" | "cancelled";
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+};
 export type AdminAnswerChangeRequest = {
   id: string;
   status: "pending" | "approved" | "rejected" | "cancelled";
@@ -3215,6 +3258,25 @@ export async function fetchGmAnswerChangeRequests(): Promise<GmAnswerChangeReque
   return response.requests ?? [];
 }
 
+export async function requestGmVisitSessionDelete(input: {
+  sessionId: string;
+  requestNote?: string;
+}): Promise<GmVisitSessionDeleteRequestResult> {
+  return (await authedFetch(`/markets/gm/visit-sessions/${input.sessionId}/delete-request`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...(input.requestNote?.trim() ? { requestNote: input.requestNote.trim() } : {}),
+    }),
+  })) as GmVisitSessionDeleteRequestResult;
+}
+
+export async function fetchGmVisitSessionDeleteRequests(): Promise<GmVisitSessionDeleteRequest[]> {
+  const response = (await authedFetch("/markets/gm/visit-sessions/delete-requests", {
+    cache: "no-store",
+  })) as { requests?: GmVisitSessionDeleteRequest[] };
+  return response.requests ?? [];
+}
+
 export async function fetchGmTimeEntryChangeRequests(input: { from?: string; to?: string } = {}): Promise<TimeEntryChangeRequest[]> {
   const params = new URLSearchParams();
   if (input.from) params.set("from", input.from);
@@ -3254,6 +3316,13 @@ export async function fetchAdminAnswerChangeRequests(): Promise<AdminAnswerChang
   return response.requests ?? [];
 }
 
+export async function fetchAdminVisitSessionDeleteRequests(): Promise<AdminVisitSessionDeleteRequest[]> {
+  const response = (await authedFetch("/admin/campaigns/visit-session-delete-requests", {
+    cache: "no-store",
+  })) as { requests?: AdminVisitSessionDeleteRequest[] };
+  return response.requests ?? [];
+}
+
 export async function fetchAdminTimeEntryChangeRequests(): Promise<TimeEntryChangeRequest[]> {
   const response = (await authedFetch("/admin/time-change-requests", {
     cache: "no-store",
@@ -3276,6 +3345,26 @@ export async function rejectAdminAnswerChangeRequest(
   input: { adminNote?: string } = {},
 ): Promise<{ ok: boolean; request: { id: string; status: "rejected"; updatedAt?: string } }> {
   return (await authedFetch(`/admin/campaigns/answer-change-requests/${requestId}/reject`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { ok: boolean; request: { id: string; status: "rejected"; updatedAt?: string } };
+}
+
+export async function approveAdminVisitSessionDeleteRequest(
+  requestId: string,
+  input: { adminNote?: string } = {},
+): Promise<{ ok: boolean; request: { id: string; status: "approved" }; sessionId?: string }> {
+  return (await authedFetch(`/admin/campaigns/visit-session-delete-requests/${requestId}/approve`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { ok: boolean; request: { id: string; status: "approved" }; sessionId?: string };
+}
+
+export async function rejectAdminVisitSessionDeleteRequest(
+  requestId: string,
+  input: { adminNote?: string } = {},
+): Promise<{ ok: boolean; request: { id: string; status: "rejected"; updatedAt?: string } }> {
+  return (await authedFetch(`/admin/campaigns/visit-session-delete-requests/${requestId}/reject`, {
     method: "PATCH",
     body: JSON.stringify(input),
   })) as { ok: boolean; request: { id: string; status: "rejected"; updatedAt?: string } };

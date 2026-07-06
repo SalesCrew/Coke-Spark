@@ -20,6 +20,7 @@ import {
   Send,
   Search,
   Store,
+  Trash2,
   X,
 } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
@@ -29,13 +30,16 @@ import {
   fetchGmAnswerChangeRequests,
   fetchGmCompletedVisitSessions,
   fetchGmVisitSession,
+  fetchGmVisitSessionDeleteRequests,
   commitGmVisitPhotos,
   logoutCurrentUser,
   presignGmVisitPhoto,
   requestGmVisitAnswerChange,
+  requestGmVisitSessionDelete,
   saveGmVisitAnswer,
   type GmAnswerChangeRequest,
   type GmCompletedVisitSummary,
+  type GmVisitSessionDeleteRequest,
   type GmVisitSessionReadPayload,
 } from "@/lib/api/backend";
 
@@ -199,6 +203,7 @@ type RequestHistoryGroup = {
   updatedAt: string;
   status: RequestStatusKind;
   requests: GmAnswerChangeRequest[];
+  deleteRequests: GmVisitSessionDeleteRequest[];
 };
 
 function requestDate(value: string | null | undefined): string {
@@ -247,7 +252,7 @@ function answerSnapshotPreview(snapshot: Record<string, unknown>): string {
   return json || "Keine Antwort";
 }
 
-function deriveRequestGroupStatus(requests: GmAnswerChangeRequest[]): RequestStatusKind {
+function deriveRequestGroupStatus(requests: Array<{ status: GmAnswerChangeRequest["status"] }>): RequestStatusKind {
   if (requests.some((request) => request.status === "pending")) return "pending";
   const hasApproved = requests.some((request) => request.status === "approved");
   const hasRejected = requests.some((request) => request.status === "rejected");
@@ -258,25 +263,55 @@ function deriveRequestGroupStatus(requests: GmAnswerChangeRequest[]): RequestSta
   return "empty";
 }
 
-function buildRequestHistoryGroups(requests: GmAnswerChangeRequest[]): RequestHistoryGroup[] {
+function deleteRequestSection(request: GmVisitSessionDeleteRequest): GmAnswerChangeRequest["section"]["section"] {
+  const summary = `${request.sectionSummary} ${request.campaignSummary}`.toLowerCase();
+  if (summary.includes("kühler") || summary.includes("kuehler")) return "kuehler";
+  if (summary.includes("mhd")) return "mhd";
+  if (summary.includes("billa")) return "billa";
+  if (summary.includes("flex")) return "flex";
+  return "standard";
+}
+
+function buildRequestHistoryGroups(
+  requests: GmAnswerChangeRequest[],
+  deleteRequests: GmVisitSessionDeleteRequest[] = [],
+): RequestHistoryGroup[] {
   const bySession = new Map<string, GmAnswerChangeRequest[]>();
   for (const request of requests) {
     const key = request.visitSessionId;
     bySession.set(key, [...(bySession.get(key) ?? []), request]);
   }
-  return Array.from(bySession.entries())
-    .map(([sessionId, groupRequests]) => {
+  const deleteBySession = new Map<string, GmVisitSessionDeleteRequest[]>();
+  for (const request of deleteRequests) {
+    const key = request.visitSessionId;
+    deleteBySession.set(key, [...(deleteBySession.get(key) ?? []), request]);
+  }
+  const sessionIds = new Set([...bySession.keys(), ...deleteBySession.keys()]);
+  return Array.from(sessionIds)
+    .map((sessionId) => {
+      const groupRequests = bySession.get(sessionId) ?? [];
+      const groupDeleteRequests = deleteBySession.get(sessionId) ?? [];
       const sorted = [...groupRequests].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      const sortedDeleteRequests = [...groupDeleteRequests].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       const first = sorted[0];
+      const firstDelete = sortedDeleteRequests[0];
+      const allDates = [...sorted, ...sortedDeleteRequests];
+      const newest = allDates
+        .slice()
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+      const oldest = allDates
+        .slice()
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
       return {
         id: sessionId,
-        marketTitle: first ? marketTitle(first.market) : "Markt",
-        campaignTitle: first?.section.campaignName || first?.section.fragebogenName || "Fragebogen",
-        section: first?.section.section ?? "standard",
-        createdAt: sorted[sorted.length - 1]?.createdAt ?? first?.createdAt ?? "",
-        updatedAt: first?.updatedAt ?? "",
-        status: deriveRequestGroupStatus(sorted),
+        marketTitle: first ? marketTitle(first.market) : firstDelete ? marketTitle(firstDelete.market) : "Markt",
+        campaignTitle: first?.section.campaignName || first?.section.fragebogenName || firstDelete?.campaignSummary || "Fragebogen",
+        section: first?.section.section ?? (firstDelete ? deleteRequestSection(firstDelete) : "standard"),
+        createdAt: oldest?.createdAt ?? "",
+        updatedAt: newest?.updatedAt ?? "",
+        status: deriveRequestGroupStatus([...sorted, ...sortedDeleteRequests]),
         requests: sorted,
+        deleteRequests: sortedDeleteRequests,
       };
     })
     .sort((a, b) => {
@@ -1309,16 +1344,98 @@ function ChangeRequestForm({
   );
 }
 
+function DeleteVisitRequestModal({
+  sessionId,
+  accent,
+  onClose,
+  onSubmitted,
+}: {
+  sessionId: string;
+  accent: string;
+  onClose: () => void;
+  onSubmitted: (message: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await requestGmVisitSessionDelete({
+        sessionId,
+        requestNote: note.trim() || undefined,
+      });
+      onSubmitted("Löschanfrage gespeichert. Ein Admin prüft den Fragebogen.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Löschanfrage konnte nicht gesendet werden.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="gm-activity-request-modal-backdrop" role="presentation">
+      <div className="gm-activity-request-modal is-delete" role="dialog" aria-modal="true" aria-labelledby="gm-delete-request-title">
+        <header className="gm-activity-request-head">
+          <span className="gm-activity-request-mark is-delete" style={{ color: accent }}>
+            <Trash2 size={17} strokeWidth={2.2} />
+          </span>
+          <div>
+            <span>Fragebogen löschen</span>
+            <h3 id="gm-delete-request-title">Löschung anfragen</h3>
+            <p>
+              Der Besuch wird erst nach Admin-Freigabe entfernt. Andere Fragebögen und Antworten aus anderen Besuchen bleiben erhalten.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Schließen" disabled={submitting}>
+            <X size={14} strokeWidth={2.3} />
+          </button>
+        </header>
+        <div className="gm-activity-delete-request-warning">
+          <strong>Wichtig</strong>
+          <span>Nach Freigabe zählt dieser Marktbesuch nicht mehr in Auswertungen, Zeiterfassung, IPP oder Bonusdaten.</span>
+        </div>
+        <label className="gm-activity-request-field">
+          <span>Grund / Hinweis optional</span>
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            maxLength={700}
+            placeholder="Warum soll dieser Fragebogen gelöscht werden?"
+          />
+        </label>
+        {error ? <div className="gm-activity-request-error">{error}</div> : null}
+        <div className="gm-activity-request-actions">
+          <button type="button" onClick={onClose} disabled={submitting}>
+            Abbrechen
+          </button>
+          <button type="button" className="is-danger" onClick={() => { void submit(); }} disabled={submitting}>
+            {submitting ? <Loader2 size={14} strokeWidth={2.2} className="animate-spin" /> : <Trash2 size={14} strokeWidth={2.2} />}
+            Anfrage senden
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReadOnlyVisitViewer({
   payload,
   onClose,
   onPayloadUpdated,
   onChangeRequestSubmitted,
+  deleteRequest,
+  onDeleteRequestSubmitted,
 }: {
   payload: GmVisitSessionReadPayload;
   onClose: () => void;
   onPayloadUpdated: (payload: GmVisitSessionReadPayload) => void;
   onChangeRequestSubmitted: () => void;
+  deleteRequest: GmVisitSessionDeleteRequest | null;
+  onDeleteRequestSubmitted: () => void;
 }) {
   const questions = useMemo(() => (
     payload.sections
@@ -1330,12 +1447,16 @@ function ReadOnlyVisitViewer({
   const [changeRequestQuestionId, setChangeRequestQuestionId] = useState<string | null>(null);
   const [photoEditQuestionId, setPhotoEditQuestionId] = useState<string | null>(null);
   const [requestSuccessByQuestionId, setRequestSuccessByQuestionId] = useState<Record<string, string>>({});
+  const [deleteRequestOpen, setDeleteRequestOpen] = useState(false);
+  const [deleteRequestSuccess, setDeleteRequestSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     setIndex(0);
     setChangeRequestQuestionId(null);
     setPhotoEditQuestionId(null);
     setRequestSuccessByQuestionId({});
+    setDeleteRequestOpen(false);
+    setDeleteRequestSuccess(null);
   }, [payload.session.id]);
 
   const current = questions[index] ?? null;
@@ -1362,6 +1483,37 @@ function ReadOnlyVisitViewer({
             <X size={16} strokeWidth={2.2} />
           </button>
         </header>
+
+        <div className="gm-activity-delete-request-bar">
+          <div>
+            <strong>Fragebogen entfernen</strong>
+            <span>Nur mit Admin-Freigabe. Andere Besuche und gleiche Fragen in anderen Fragebögen bleiben erhalten.</span>
+          </div>
+          {deleteRequest?.status === "pending" ? (
+            <button type="button" className="gm-activity-delete-request-open is-pending" disabled>
+              <Clock size={13} strokeWidth={2.2} />
+              Löschung offen
+            </button>
+          ) : deleteRequest?.status === "approved" ? (
+            <button type="button" className="gm-activity-delete-request-open is-approved" disabled>
+              <Check size={13} strokeWidth={2.4} />
+              Löschung bestätigt
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="gm-activity-delete-request-open"
+              onClick={() => setDeleteRequestOpen(true)}
+            >
+              <Trash2 size={13} strokeWidth={2.2} />
+              Löschung anfragen
+            </button>
+          )}
+        </div>
+
+        {deleteRequestSuccess ? (
+          <div className="gm-activity-delete-request-success">{deleteRequestSuccess}</div>
+        ) : null}
 
         <div className="gm-activity-viewer-strip">
           <div>
@@ -1507,6 +1659,18 @@ function ReadOnlyVisitViewer({
           </button>
         </footer>
       </div>
+      {deleteRequestOpen ? (
+        <DeleteVisitRequestModal
+          sessionId={payload.session.id}
+          accent={accent}
+          onClose={() => setDeleteRequestOpen(false)}
+          onSubmitted={(message) => {
+            setDeleteRequestSuccess(message);
+            setDeleteRequestOpen(false);
+            onDeleteRequestSubmitted();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1572,9 +1736,30 @@ function ChangeRequestHistoryModal({
                   <div className="gm-activity-history-status-line">
                     <span>{requestStatusLabel(group.status)}</span>
                     <i />
-                    <span>{group.requests.length} Änderung{group.requests.length === 1 ? "" : "en"}</span>
+                    <span>
+                      {group.requests.length + group.deleteRequests.length} Anfrage
+                      {group.requests.length + group.deleteRequests.length === 1 ? "" : "n"}
+                    </span>
                   </div>
                   <div className="gm-activity-history-items">
+                    {group.deleteRequests.map((request) => (
+                      <div key={request.id} className="gm-activity-history-item is-delete">
+                        <div className="gm-activity-history-item-top">
+                          <RequestStatusIcon status={request.status as RequestStatusKind} size={16} />
+                          <span>Fragebogen löschen</span>
+                          <small>{request.status === "pending" ? requestDate(request.createdAt) : requestDate(request.reviewedAt ?? request.updatedAt)}</small>
+                        </div>
+                        <strong>{request.campaignSummary || "Fragebogen"}</strong>
+                        <div className="gm-activity-history-diff">
+                          <span>Aktiv in Auswertungen</span>
+                          <ChevronRight size={12} strokeWidth={2.3} />
+                          <b>Ausblenden / löschen</b>
+                        </div>
+                        {request.sectionSummary ? <p>{request.sectionSummary}</p> : null}
+                        {request.requestNote ? <p>{request.requestNote}</p> : null}
+                        {request.adminNote ? <p className="gm-activity-history-admin-note">{request.adminNote}</p> : null}
+                      </div>
+                    ))}
                     {group.requests.map((request) => (
                       <div key={request.id} className="gm-activity-history-item">
                         <div className="gm-activity-history-item-top">
@@ -1613,6 +1798,7 @@ export default function GmActivityPage() {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [viewerPayload, setViewerPayload] = useState<GmVisitSessionReadPayload | null>(null);
   const [changeRequests, setChangeRequests] = useState<GmAnswerChangeRequest[]>([]);
+  const [deleteRequests, setDeleteRequests] = useState<GmVisitSessionDeleteRequest[]>([]);
   const [changeRequestsLoading, setChangeRequestsLoading] = useState(true);
   const [changeRequestsError, setChangeRequestsError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1642,7 +1828,12 @@ export default function GmActivityPage() {
     setChangeRequestsLoading(true);
     setChangeRequestsError(null);
     try {
-      setChangeRequests(await fetchGmAnswerChangeRequests());
+      const [answerResult, deleteResult] = await Promise.all([
+        fetchGmAnswerChangeRequests(),
+        fetchGmVisitSessionDeleteRequests(),
+      ]);
+      setChangeRequests(answerResult);
+      setDeleteRequests(deleteResult);
     } catch (err) {
       setChangeRequestsError(err instanceof Error ? err.message : "Anfragen konnten nicht geladen werden.");
     } finally {
@@ -1694,11 +1885,22 @@ export default function GmActivityPage() {
   }, [openingId]);
 
   const sectionOptions: Array<"all" | VisitSection["section"]> = ["all", "standard", "flex", "billa", "kuehler", "mhd"];
-  const requestGroups = useMemo(() => buildRequestHistoryGroups(changeRequests), [changeRequests]);
-  const pendingRequestCount = useMemo(() => changeRequests.filter((request) => request.status === "pending").length, [changeRequests]);
+  const requestGroups = useMemo(() => buildRequestHistoryGroups(changeRequests, deleteRequests), [changeRequests, deleteRequests]);
+  const pendingRequestCount = useMemo(
+    () => changeRequests.filter((request) => request.status === "pending").length
+      + deleteRequests.filter((request) => request.status === "pending").length,
+    [changeRequests, deleteRequests],
+  );
+  const deleteRequestBySessionId = useMemo(() => {
+    const map = new Map<string, GmVisitSessionDeleteRequest>();
+    for (const request of [...deleteRequests].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())) {
+      map.set(request.visitSessionId, request);
+    }
+    return map;
+  }, [deleteRequests]);
   const featuredRequestGroup = requestGroups[0] ?? null;
   const featuredRequestStatus: RequestStatusKind = pendingRequestCount > 0 ? "pending" : featuredRequestGroup?.status ?? "empty";
-  const featuredRequestTitle = changeRequestsLoading && changeRequests.length === 0
+  const featuredRequestTitle = changeRequestsLoading && changeRequests.length + deleteRequests.length === 0
     ? "Anfragen werden geladen"
     : pendingRequestCount > 0
       ? `${pendingRequestCount} Anfrage${pendingRequestCount === 1 ? "" : "n"} offen`
@@ -2625,6 +2827,107 @@ export default function GmActivityPage() {
         .gm-activity-request-open:active {
           transform: translateY(1px);
         }
+        .gm-activity-delete-request-bar {
+          margin-top: 12px;
+          border-radius: 15px;
+          padding: 11px 12px;
+          background: rgba(255,255,255,0.88);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.065);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+        .gm-activity-delete-request-bar > div {
+          min-width: 0;
+          display: grid;
+          gap: 2px;
+        }
+        .gm-activity-delete-request-bar strong {
+          font-size: 11px;
+          font-weight: 820;
+          color: rgba(15,23,42,0.82);
+        }
+        .gm-activity-delete-request-bar span {
+          font-size: 10px;
+          line-height: 1.35;
+          font-weight: 650;
+          color: rgba(15,23,42,0.42);
+        }
+        .gm-activity-delete-request-open {
+          height: 32px;
+          border: 0;
+          border-radius: 10px;
+          padding: 0 11px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          flex: 0 0 auto;
+          font-family: inherit;
+          font-size: 10px;
+          font-weight: 820;
+          color: #fff;
+          background: linear-gradient(180deg, #ef4444 0%, #dc2626 55%, #b91c1c 100%);
+          box-shadow: inset 0 1px 0.8px rgba(255,255,255,0.34), inset 0 -1px 0 rgba(0,0,0,0.12), 0 0 0 1px rgba(185,28,28,0.72), 0 8px 18px rgba(220,38,38,0.15);
+          cursor: pointer;
+        }
+        .gm-activity-delete-request-open:disabled {
+          cursor: default;
+          opacity: 0.78;
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.08);
+        }
+        .gm-activity-delete-request-open.is-pending {
+          color: #92400e;
+          background: rgba(245,158,11,0.12);
+        }
+        .gm-activity-delete-request-open.is-approved {
+          color: #047857;
+          background: rgba(5,150,105,0.10);
+        }
+        .gm-activity-delete-request-success {
+          margin-top: 10px;
+          border-radius: 12px;
+          padding: 9px 11px;
+          background: rgba(5,150,105,0.08);
+          box-shadow: inset 0 0 0 1px rgba(5,150,105,0.14);
+          color: #047857;
+          font-size: 10px;
+          font-weight: 780;
+        }
+        .gm-activity-request-modal.is-delete {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.95)),
+            radial-gradient(circle at 18% 0%, rgba(220,38,38,0.10), transparent 34%);
+        }
+        .gm-activity-request-mark.is-delete {
+          background: linear-gradient(180deg, rgba(220,38,38,0.10), rgba(220,38,38,0.045));
+          box-shadow: inset 0 0 0 1px rgba(220,38,38,0.14);
+        }
+        .gm-activity-delete-request-warning {
+          border-radius: 14px;
+          padding: 10px 11px;
+          background: rgba(245,158,11,0.08);
+          box-shadow: inset 0 0 0 1px rgba(245,158,11,0.16);
+          display: grid;
+          gap: 2px;
+        }
+        .gm-activity-delete-request-warning strong {
+          font-size: 10px;
+          font-weight: 840;
+          color: #92400e;
+        }
+        .gm-activity-delete-request-warning span {
+          font-size: 10px;
+          line-height: 1.45;
+          font-weight: 650;
+          color: rgba(120,53,15,0.72);
+        }
+        .gm-activity-request-actions button.is-danger {
+          color: #fff;
+          background: linear-gradient(180deg, #ef4444 0%, #dc2626 55%, #b91c1c 100%);
+          box-shadow: inset 0 1px 0.8px rgba(255,255,255,0.34), inset 0 -1px 0 rgba(0,0,0,0.12), 0 0 0 1px rgba(185,28,28,0.72), 0 8px 18px rgba(220,38,38,0.15);
+        }
         .gm-activity-request-success {
           width: fit-content;
           min-height: 28px;
@@ -3384,6 +3687,10 @@ export default function GmActivityPage() {
           display: grid;
           gap: 7px;
         }
+        .gm-activity-history-item.is-delete {
+          background: rgba(220,38,38,0.035);
+          box-shadow: inset 0 0 0 1px rgba(220,38,38,0.08);
+        }
         .gm-activity-history-item-top {
           display: flex;
           align-items: center;
@@ -3585,6 +3892,8 @@ export default function GmActivityPage() {
           onClose={() => setViewerPayload(null)}
           onPayloadUpdated={setViewerPayload}
           onChangeRequestSubmitted={() => void loadChangeRequests()}
+          deleteRequest={deleteRequestBySessionId.get(viewerPayload.session.id) ?? null}
+          onDeleteRequestSubmitted={() => void loadChangeRequests()}
         />
       ) : null}
 

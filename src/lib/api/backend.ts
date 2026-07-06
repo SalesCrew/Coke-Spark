@@ -1984,6 +1984,7 @@ export async function updateAdminLager(input: UpdateLagerInput): Promise<LagerRe
 
 type ImportMarketsInput = {
   importType: ImportDatasetType;
+  allowMissingCokeMasterNumber?: boolean;
   fileName: string;
   sheetName: string;
   rows: string[][];

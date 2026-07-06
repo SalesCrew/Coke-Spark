@@ -341,6 +341,7 @@ function ImportModal({
 }: {
   onImport: (payload: {
     importType: ImportDatasetType;
+    allowMissingCokeMasterNumber?: boolean;
     fileName: string;
     sheetName: string;
     rows: string[][];
@@ -361,9 +362,13 @@ function ImportModal({
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [allowMissingCokeMasterNumber, setAllowMissingCokeMasterNumber] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    if (selectedImportType !== "universum") setAllowMissingCokeMasterNumber(false);
+  }, [selectedImportType]);
 
   const handleFile = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -392,6 +397,7 @@ function ImportModal({
     try {
       const result = await onImport({
         importType: selectedImportType,
+        allowMissingCokeMasterNumber: selectedImportType === "universum" ? allowMissingCokeMasterNumber : false,
         fileName,
         sheetName: wb.sheetName,
         rows: wb.rows,
@@ -404,7 +410,7 @@ function ImportModal({
     } finally {
       setIsSubmitting(false);
     }
-  }, [wb, mapping, fileName, onImport, isSubmitting, selectedImportType]);
+  }, [wb, mapping, fileName, onImport, isSubmitting, selectedImportType, allowMissingCokeMasterNumber]);
 
   // Called from summary when user manually fills a skipped row and presses save
   const handleSaveFixedRow = useCallback(async (market: MarketRecord) => {
@@ -593,6 +599,21 @@ function ImportModal({
                   <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>oder klicken zum Auswählen · .xlsx, .xls</div>
                 </div>
               </div>
+              {selectedImportType === "universum" && (
+                <button
+                  type="button"
+                  onClick={() => setAllowMissingCokeMasterNumber((value) => !value)}
+                  style={{ width: "100%", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 9, background: allowMissingCokeMasterNumber ? "rgba(8,145,178,0.06)" : "#fff", padding: "9px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}
+                >
+                  <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: "#111827", letterSpacing: "0.01em" }}>ohne Stammnr</span>
+                    <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.38)" }}>Nur Flex-Nummer als Pflicht-ID verwenden.</span>
+                  </span>
+                  <span style={{ width: 30, height: 16, borderRadius: 99, background: allowMissingCokeMasterNumber ? "#0891b2" : "rgba(0,0,0,0.14)", padding: 2, boxSizing: "border-box", transition: "background 0.14s ease", flexShrink: 0 }}>
+                    <span style={{ display: "block", width: 12, height: 12, borderRadius: "50%", background: "#fff", transform: allowMissingCokeMasterNumber ? "translateX(14px)" : "translateX(0)", transition: "transform 0.14s ease" }} />
+                  </span>
+                </button>
+              )}
               {parseError && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 8, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)" }}>
                   <AlertTriangle size={13} strokeWidth={2} color={R} />
@@ -2218,6 +2239,7 @@ export default function MaerktePage() {
 
   const handleImport = useCallback(async (payload: {
     importType: ImportDatasetType;
+    allowMissingCokeMasterNumber?: boolean;
     fileName: string;
     sheetName: string;
     rows: string[][];

@@ -83,6 +83,12 @@ function isFreshSnapshot(snapshot: LocalDaySessionSnapshot): boolean {
   return Date.now() - startedAtMs <= MAX_LOCAL_START_AGE_MS;
 }
 
+export function isLocalDaySessionSnapshotUsableForStartGate(snapshot: LocalDaySessionSnapshot | null): boolean {
+  if (!snapshot || snapshot.status !== "started") return false;
+  const today = toYmdInTimezone(new Date(), snapshot.timezone || DEFAULT_TIMEZONE);
+  return snapshot.workDate >= today;
+}
+
 export function saveLocalDaySessionStartSnapshot(input: {
   startedAt: string;
   timezone?: string;
@@ -156,4 +162,3 @@ export function readLatestLocalDaySessionSnapshot(): LocalDaySessionSnapshot | n
   }
   return latest;
 }
-

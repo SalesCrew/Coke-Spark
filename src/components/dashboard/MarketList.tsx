@@ -32,7 +32,10 @@ import {
   type GmVisitSessionPayload,
 } from "@/lib/api/backend";
 import { useRedMonth } from "@/context/RedMonthContext";
-import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
+import {
+  isLocalDaySessionSnapshotUsableForStartGate,
+  readLatestLocalDaySessionSnapshot,
+} from "@/lib/gm/daySessionPersistence";
 import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import type { MarketRecord } from "@/types/markets";
@@ -726,9 +729,12 @@ export function MarketList({ visited, total }: MarketListProps) {
     if (!silent) setDayGateLoading(true);
     try {
       const payload = await fetchCurrentDaySession();
-      setDayStarted(Boolean(payload.gate?.dayStarted) || Boolean(readLatestLocalDaySessionSnapshot()));
+      setDayStarted(
+        Boolean(payload.gate?.dayStarted) ||
+          isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()),
+      );
     } catch {
-      setDayStarted(Boolean(readLatestLocalDaySessionSnapshot()));
+      setDayStarted(isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()));
     } finally {
       if (!silent) setDayGateLoading(false);
     }
@@ -771,7 +777,7 @@ export function MarketList({ visited, total }: MarketListProps) {
 
   useEffect(() => {
     const handleDaySessionUpdated = () => {
-      if (readLatestLocalDaySessionSnapshot()) {
+      if (isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot())) {
         setDayStarted(true);
         setDayGateLoading(false);
       }

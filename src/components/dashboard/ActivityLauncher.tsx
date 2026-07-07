@@ -43,7 +43,10 @@ import {
   type TimeTrackingActivityType,
   type TimeTrackingEntry,
 } from "@/lib/api/backend";
-import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
+import {
+  isLocalDaySessionSnapshotUsableForStartGate,
+  readLatestLocalDaySessionSnapshot,
+} from "@/lib/gm/daySessionPersistence";
 import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import type { MarketRecord } from "@/types/markets";
@@ -1679,17 +1682,18 @@ export function ActivityLauncher() {
     try {
       const payload = await fetchCurrentDaySession();
       const localSnapshot = readLatestLocalDaySessionSnapshot();
-      setDayStarted(Boolean(payload.gate?.dayStarted) || Boolean(localSnapshot));
+      const localDayStarted = isLocalDaySessionSnapshotUsableForStartGate(localSnapshot);
+      setDayStarted(Boolean(payload.gate?.dayStarted) || localDayStarted);
       setCurrentDayStartedAt(
         payload.session?.dayStartedAt ??
-          localSnapshot?.session?.dayStartedAt ??
-          localSnapshot?.clientStartedAt ??
+          (localDayStarted ? (localSnapshot?.session?.dayStartedAt ?? localSnapshot?.clientStartedAt) : null) ??
           null,
       );
     } catch {
-      setDayStarted(true);
       const localSnapshot = readLatestLocalDaySessionSnapshot();
-      setCurrentDayStartedAt(localSnapshot?.session?.dayStartedAt ?? localSnapshot?.clientStartedAt ?? null);
+      const localDayStarted = isLocalDaySessionSnapshotUsableForStartGate(localSnapshot);
+      setDayStarted(localDayStarted);
+      setCurrentDayStartedAt(localDayStarted ? (localSnapshot?.session?.dayStartedAt ?? localSnapshot?.clientStartedAt ?? null) : null);
     } finally {
       if (!silent) setDayGateLoading(false);
     }

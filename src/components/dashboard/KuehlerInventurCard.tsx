@@ -17,7 +17,10 @@ import {
   type GmMarketDetailPayload,
   type GmVisitSessionPayload,
 } from "@/lib/api/backend";
-import { readLatestLocalDaySessionSnapshot } from "@/lib/gm/daySessionPersistence";
+import {
+  isLocalDaySessionSnapshotUsableForStartGate,
+  readLatestLocalDaySessionSnapshot,
+} from "@/lib/gm/daySessionPersistence";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import {
   GmMarketDetailModal,
@@ -215,9 +218,12 @@ export function KuehlerInventurCard({
     if (!silent) setDayGateLoading(true);
     try {
       const payload = await fetchCurrentDaySession();
-      setDayStarted(Boolean(payload.gate?.dayStarted) || Boolean(readLatestLocalDaySessionSnapshot()));
+      setDayStarted(
+        Boolean(payload.gate?.dayStarted) ||
+          isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()),
+      );
     } catch {
-      setDayStarted(Boolean(readLatestLocalDaySessionSnapshot()));
+      setDayStarted(isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()));
     } finally {
       if (!silent) setDayGateLoading(false);
     }
@@ -254,7 +260,7 @@ export function KuehlerInventurCard({
 
   useEffect(() => {
     const handleDaySessionUpdated = () => {
-      if (readLatestLocalDaySessionSnapshot()) {
+      if (isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot())) {
         setDayStarted(true);
         setDayGateLoading(false);
       }

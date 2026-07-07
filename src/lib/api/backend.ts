@@ -2639,6 +2639,7 @@ export type DaySessionCurrentPayload = {
     startKmPending: boolean;
     endKmPending: boolean;
     pauseOpen: boolean;
+    staleDayOpen?: boolean;
   };
 };
 

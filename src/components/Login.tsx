@@ -105,21 +105,23 @@ export default function Login({
               <>
                 Coke Spark
                 <em>
-                  Every{" "}
-                  <RotatingText
-                    texts={["shelf.", "visit."]}
-                    rotationInterval={3000}
-                    staggerFrom="last"
-                    initial={{ y: "100%" }}
-                    animate={{ y: 0 }}
-                    exit={{ y: "-120%" }}
-                    staggerDuration={0.025}
-                    transition={{ type: "spring", damping: 30, stiffness: 400 }}
-                    mainClassName="cs-switch-wrap accent"
-                    splitLevelClassName="cs-switch-word"
-                    elementLevelClassName="cs-switch-element"
-                    aria-live="polite"
-                  />
+                  <span className="cs-headline-phrase">
+                    Every{" "}
+                    <RotatingText
+                      texts={["shelf.", "visit."]}
+                      rotationInterval={3000}
+                      staggerFrom="last"
+                      initial={{ y: "100%" }}
+                      animate={{ y: 0 }}
+                      exit={{ y: "-120%" }}
+                      staggerDuration={0.025}
+                      transition={{ type: "spring", damping: 30, stiffness: 400 }}
+                      mainClassName="cs-switch-wrap accent"
+                      splitLevelClassName="cs-switch-word"
+                      elementLevelClassName="cs-switch-element"
+                      aria-live="polite"
+                    />
+                  </span>
                 </em>
               </>
             )}

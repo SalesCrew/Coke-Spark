@@ -170,6 +170,13 @@
   white-space: nowrap;
 }
 
+.cs-headline-phrase {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
 .cs-headline .accent {
   font-style: normal;
   color: #fff;
@@ -183,6 +190,12 @@
   vertical-align: baseline;
   line-height: inherit;
   align-items: baseline;
+}
+
+.cs-switch-wrap > .text-rotate {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .cs-switch-word {

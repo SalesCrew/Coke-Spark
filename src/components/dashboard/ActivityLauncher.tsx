@@ -65,6 +65,7 @@ type ZusatzActivity = {
 interface Market {
   id: string;
   chain: string;
+  name: string;
   address: string;
   stammnr: string;
   activeNowCampaigns: Array<{
@@ -88,8 +89,9 @@ function mapRecordToLauncherMarket(record: MarketRecord): Market {
   return {
     id: record.id,
     chain: getMarketChainLabel(record),
+    name: record.name?.trim() || record.dbName?.trim() || "",
     address: `${record.address}, ${record.postalCode} ${record.city}`.trim(),
-    stammnr: record.cokeMasterNumber?.trim() || record.kuehlerStammnr?.trim() || "",
+    stammnr: record.cokeMasterNumber?.trim() || record.kuehlerStammnr?.trim() || record.flexNumber?.trim() || "",
     activeNowCampaigns: [],
   };
 }
@@ -1630,7 +1632,11 @@ export function ActivityLauncher() {
     if (!marketSearch.trim()) return markets;
     const q = marketSearch.toLowerCase();
     return markets.filter(
-      (m) => m.chain.toLowerCase().includes(q) || m.address.toLowerCase().includes(q)
+      (m) =>
+        m.chain.toLowerCase().includes(q) ||
+        m.name.toLowerCase().includes(q) ||
+        m.address.toLowerCase().includes(q) ||
+        m.stammnr.toLowerCase().includes(q)
     );
   }, [marketSearch, markets]);
 

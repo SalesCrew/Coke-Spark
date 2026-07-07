@@ -1487,9 +1487,9 @@ export function TimeTracker(_: TimeTrackerProps) {
                               <div style={{ fontSize: 12, fontWeight: 750, color: "rgba(15,23,42,0.92)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {segment.title}
                               </div>
-                              {segment.subtitle && (
+                              {(segment.subtitle ?? segment.comment) && (
                                 <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.38)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {segment.subtitle}
+                                  {segment.subtitle ?? segment.comment}
                                 </div>
                               )}
                             </div>

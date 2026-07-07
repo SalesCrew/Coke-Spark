@@ -383,7 +383,7 @@ interface AccordionRowProps {
   onToggle: () => void;
   isLast: boolean;
   onRequestClock: (target: "von" | "bis", onSelect: (h: number, m: number) => void) => void;
-  onManualSave: (input: { activityType: ZusatzActivityKey; fromHm: string; toHm: string }) => Promise<void>;
+  onManualSave: (input: { activityType: ZusatzActivityKey; fromHm: string; toHm: string; comment?: string }) => Promise<void>;
   dayStarted: boolean;
   dayStartedAt?: string | null;
   initialDraft?: TimeTrackingEntry | null;
@@ -425,6 +425,7 @@ function AccordionRow({
   const [liveError, setLiveError] = useState<string | null>(null);
   const [vonVal, setVonVal] = useState("");
   const [bisVal, setBisVal] = useState("");
+  const [manualComment, setManualComment] = useState("");
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaved, setManualSaved] = useState(false);
@@ -470,6 +471,7 @@ function AccordionRow({
       setLiveError(null);
       setManualError(null);
       setManualSaved(false);
+      setManualComment("");
       setManualStartConflict(null);
     }
   }, [isManualOnly, isOpen]);
@@ -554,6 +556,7 @@ function AccordionRow({
         activityType: activity.key,
         fromHm: vonVal,
         toHm: bisVal,
+        comment: activity.key === "sonderaufgabe" ? manualComment.trim() : undefined,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
@@ -561,6 +564,7 @@ function AccordionRow({
       setManualSaved(true);
       setVonVal("");
       setBisVal("");
+      setManualComment("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Speichern fehlgeschlagen.";
       setManualError(message || "Speichern fehlgeschlagen.");
@@ -601,6 +605,7 @@ function AccordionRow({
         activityType: activity.key,
         fromHm: nextFrom,
         toHm: nextTo,
+        comment: activity.key === "sonderaufgabe" ? manualComment.trim() : undefined,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
@@ -608,6 +613,7 @@ function AccordionRow({
       setManualSaved(true);
       setVonVal("");
       setBisVal("");
+      setManualComment("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Speichern fehlgeschlagen.";
       setManualError(message || "Speichern fehlgeschlagen.");
@@ -1076,6 +1082,33 @@ function AccordionRow({
                   </button>
                 </div>
               </div>
+
+              {activity.key === "sonderaufgabe" && (
+                <textarea
+                  value={manualComment}
+                  onChange={(e) => setManualComment(e.target.value.slice(0, 2000))}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="Kommentar zum Sondereinsatz..."
+                  maxLength={2000}
+                  style={{
+                    marginTop: 8,
+                    width: "100%",
+                    minHeight: 58,
+                    padding: "8px 9px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(15,23,42,0.07)",
+                    background: "rgba(15,23,42,0.025)",
+                    color: "rgba(15,23,42,0.86)",
+                    outline: "none",
+                    resize: "none",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    lineHeight: 1.5,
+                    fontFamily: "inherit",
+                    boxShadow: "inset 0 1px 2px rgba(15,23,42,0.03)",
+                  }}
+                />
+              )}
 
               <button
                 onClick={(e) => {
@@ -1791,6 +1824,7 @@ export function ActivityLauncher() {
     activityType: ZusatzActivityKey;
     fromHm: string;
     toHm: string;
+    comment?: string;
   }) => {
     if (!dayStarted) {
       throw new Error("Bitte zuerst den Arbeitstag starten.");
@@ -1818,6 +1852,10 @@ export function ActivityLauncher() {
       endAt: endIso,
       clientEntryToken: token,
     });
+    const trimmedComment = input.comment?.trim();
+    if (trimmedComment) {
+      await commentTimeTrackingDraft(started.entry.id, { comment: trimmedComment });
+    }
     await endTimeTrackingDraft(started.entry.id, { endAt: endIso });
     await submitTimeTrackingEntry(started.entry.id);
   }, [currentDayStartedAt, dayStarted]);

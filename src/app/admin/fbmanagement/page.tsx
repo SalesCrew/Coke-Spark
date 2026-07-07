@@ -172,7 +172,7 @@ function applyMarketFilters(
     m.address.toLowerCase().includes(q) ||
     (m.stammnr ?? "").toLowerCase().includes(q) ||
     (m.kuehlerNumber ?? "").toLowerCase().includes(q) ||
-    m.gm.toLowerCase().includes(q) ||
+    (m.gm ? m.gm.toLowerCase().includes(q) : false) ||
     m.city.toLowerCase().includes(q) ||
     m.chain.toLowerCase().includes(q)
   );
@@ -4876,7 +4876,7 @@ function MarketVisitDetail({
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 1 }}>GM</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{visitSummary.gmName ?? market.gm}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a" }}>{visitSummary.gmName ?? "—"}</div>
             </div>
           </div>
         )}
@@ -5813,18 +5813,32 @@ function MarketEditMenu({
 // ── Market add panel (large anchored popover) ─────────────────
 
 function MarketAddPanel({
-  pos, availableMarkets, onAdd, onUndoAdd, onClose, isPending = false,
+  pos,
+  availableMarkets,
+  onAdd,
+  onUndoAdd,
+  onClose,
+  isPending = false,
+  campaignSection,
+  gmUsers = [],
+  gmUsersLoading = false,
+  gmUsersError = null,
 }: {
   pos: { x: number; y: number };
   availableMarkets: MarketCatalogItem[];
-  onAdd: (id: string) => void;
+  onAdd: (id: string, gmUserId?: string | null) => void;
   onUndoAdd: (id: string) => void;
   onClose: () => void;
   isPending?: boolean;
+  campaignSection?: CampaignSection;
+  gmUsers?: GMRecord[];
+  gmUsersLoading?: boolean;
+  gmUsersError?: string | null;
 }) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
   const [addedIds, setAddedIds] = useState<string[]>([]);
+  const [gmSelectionByMarketId, setGmSelectionByMarketId] = useState<Record<string, string>>({});
   const [expandedAdded, setExpandedAdded] = useState(false);
   const [undoMenu, setUndoMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [candidateLimit, setCandidateLimit] = useState(ADD_PANEL_INITIAL_LIMIT);
@@ -5903,9 +5917,14 @@ function MarketAddPanel({
   const hasMoreCandidates = visibleCandidates.length < candidates.length;
 
   const chains  = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.chain))).sort(), [availableMarkets]);
-  const gms     = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.gm))).sort(), [availableMarkets]);
+  const gms     = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.gm).filter(Boolean))).sort(), [availableMarkets]);
   const cities  = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.city))).sort(), [availableMarkets]);
   const regions = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.region))).sort(), [availableMarkets]);
+  const requiresGmAssignment = campaignSection !== undefined && campaignSection !== "flex";
+  const sortedGmUsers = useMemo(
+    () => [...gmUsers].sort((a, b) => getGmDisplayName(a).localeCompare(getGmDisplayName(b), "de")),
+    [gmUsers],
+  );
 
   useEffect(() => {
     setCandidateLimit(ADD_PANEL_INITIAL_LIMIT);
@@ -5913,8 +5932,10 @@ function MarketAddPanel({
 
   const handleAdd = (id: string) => {
     if (isPending) return;
+    const selectedGmUserId = gmSelectionByMarketId[id] ?? "";
+    if (requiresGmAssignment && !selectedGmUserId) return;
     setAddedIds((p) => [...p, id]);
-    onAdd(id);
+    onAdd(id, requiresGmAssignment ? selectedGmUserId : null);
   };
 
   const handleUndoSingle = (id: string) => {
@@ -6051,7 +6072,6 @@ function MarketAddPanel({
                 <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.address}</div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.55)" }}>{m.gm}</span>
                 <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 20, background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.35)" }}>{m.region}</span>
               </div>
             </div>
@@ -6065,12 +6085,13 @@ function MarketAddPanel({
           <div style={{ padding: "32px 20px", textAlign: "center" }}>
             <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>Keine Märkte gefunden</span>
           </div>
-        ) : visibleCandidates.map((m) => (
-          <button
+        ) : visibleCandidates.map((m) => {
+          const selectedGmUserId = gmSelectionByMarketId[m.id] ?? "";
+          const addDisabled = isPending || (requiresGmAssignment && !selectedGmUserId);
+          return (
+          <div
             key={m.id}
-            onClick={() => handleAdd(m.id)}
-            disabled={isPending}
-            style={{ display: "flex", alignItems: "center", width: "100%", padding: "11px 16px", gap: 10, border: "none", cursor: isPending ? "not-allowed" : "pointer", borderBottom: "1px solid rgba(0,0,0,0.04)", background: "transparent", textAlign: "left", transition: "background 0.12s ease", opacity: isPending ? 0.6 : 1 }}
+            style={{ display: "flex", alignItems: "center", width: "100%", padding: "11px 16px", gap: 10, borderBottom: "1px solid rgba(0,0,0,0.04)", background: "transparent", textAlign: "left", transition: "background 0.12s ease", opacity: isPending ? 0.6 : 1 }}
             onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
           >
@@ -6081,15 +6102,64 @@ function MarketAddPanel({
             </div>
             {/* Meta */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
-              <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.55)" }}>{m.gm}</span>
               <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 20, background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.35)" }}>{m.region}</span>
             </div>
+            {requiresGmAssignment && (
+              <select
+                value={selectedGmUserId}
+                disabled={isPending || gmUsersLoading}
+                onChange={(event) =>
+                  setGmSelectionByMarketId((current) => ({ ...current, [m.id]: event.target.value }))
+                }
+                style={{
+                  width: 138,
+                  height: 28,
+                  borderRadius: 7,
+                  border: "1px solid rgba(0,0,0,0.10)",
+                  background: "#fff",
+                  color: selectedGmUserId ? "#111827" : "rgba(0,0,0,0.42)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  outline: "none",
+                  padding: "0 8px",
+                  cursor: isPending || gmUsersLoading ? "not-allowed" : "pointer",
+                  flexShrink: 0,
+                }}
+                title={gmUsersError ?? undefined}
+              >
+                <option value="">{gmUsersLoading ? "GM lädt..." : "GM wählen"}</option>
+                {sortedGmUsers.map((gm) => (
+                  <option key={gm.id} value={gm.id}>
+                    {getGmDisplayName(gm)}
+                  </option>
+                ))}
+              </select>
+            )}
             {/* Add icon */}
-            <div style={{ width: 24, height: 24, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(22,163,74,0.07)", color: "#16a34a", flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => handleAdd(m.id)}
+              disabled={addDisabled}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 7,
+                border: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: addDisabled ? "rgba(0,0,0,0.045)" : "rgba(22,163,74,0.07)",
+                color: addDisabled ? "rgba(0,0,0,0.28)" : "#16a34a",
+                cursor: addDisabled ? "not-allowed" : "pointer",
+                flexShrink: 0,
+              }}
+              title={requiresGmAssignment && !selectedGmUserId ? "Bitte zuerst einen GM auswählen." : "Markt hinzufügen"}
+            >
               {isPending ? "..." : <Plus size={12} strokeWidth={2.5} />}
-            </div>
-          </button>
-        ))}
+            </button>
+          </div>
+          );
+        })}
         {hasMoreCandidates && (
           <div style={{ padding: "10px 16px", borderTop: "1px solid rgba(0,0,0,0.05)", background: "#fff", position: "sticky", bottom: 0 }}>
             <button
@@ -6273,7 +6343,7 @@ export default function FbManagementPage() {
             region: market.region,
             address: market.address,
             stammnr: String(market.kuehlerStammnr || market.cokeMasterNumber || market.standardMarketNumber || "").trim(),
-            gm: market.currentGmName || market.employee || "Unbekannt",
+            gm: "",
             finished: Boolean(market.infoFlag),
           };
         };
@@ -6478,6 +6548,19 @@ export default function FbManagementPage() {
     const byCampaign = new Map<string, MarketCatalogItem[]>();
     for (const campaignEntry of campaignsData) {
       const visitStatusByMarket = visitStatusByCampaignId[campaignEntry.id] ?? {};
+      const assignmentGmByMarketId = new Map<string, string>();
+      for (const assignment of campaignEntry.assignments ?? []) {
+        const gmName = assignment.gmName?.trim();
+        if (!gmName) continue;
+        const current = assignmentGmByMarketId.get(assignment.marketId);
+        if (!current) {
+          assignmentGmByMarketId.set(assignment.marketId, gmName);
+          continue;
+        }
+        const names = new Set(current.split(",").map((entry) => entry.trim()).filter(Boolean));
+        names.add(gmName);
+        assignmentGmByMarketId.set(assignment.marketId, Array.from(names).join(", "));
+      }
       const assigned: MarketCatalogItem[] = [];
       const statusRows = Object.values(visitStatusByMarket);
       if (campaignEntry.section === "kuehler" && statusRows.length > 0) {
@@ -6491,7 +6574,7 @@ export default function FbManagementPage() {
             marketId: market.id,
             name: kuehlerNumber ? `Kühler ${kuehlerNumber}` : "Kühler",
             address: [market.name, market.address].filter(Boolean).join(" · "),
-            gm: status.gmName ?? market.gm,
+            gm: status.gmName ?? assignmentGmByMarketId.get(status.marketId) ?? "",
             finished: status.isComplete,
             isKuehlerUnitRow: true,
             kuehlerNumber,
@@ -6506,6 +6589,7 @@ export default function FbManagementPage() {
         const visitStatus = visitStatusByMarket[marketId] ?? null;
         assigned.push({
           ...market,
+          gm: assignmentGmByMarketId.get(marketId) ?? "",
           finished: visitStatus ? visitStatus.isComplete : false,
         });
       }
@@ -6814,8 +6898,10 @@ export default function FbManagementPage() {
     setGmUsersError(null);
   }, [isReassigningCampaign]);
 
+  const addPanelNeedsGmUsers = marketEditMode === "add" && campaign?.section !== "flex";
+
   useEffect(() => {
-    if (!campaignReassignDialog || gmUsers.length > 0 || gmUsersLoading) return;
+    if ((!campaignReassignDialog && !addPanelNeedsGmUsers) || gmUsers.length > 0 || gmUsersLoading) return;
     setGmUsersLoading(true);
     setGmUsersError(null);
     fetchGmUsers()
@@ -6828,7 +6914,7 @@ export default function FbManagementPage() {
       .finally(() => {
         setGmUsersLoading(false);
       });
-  }, [campaignReassignDialog, gmUsers.length, gmUsersLoading]);
+  }, [addPanelNeedsGmUsers, campaignReassignDialog, gmUsers.length, gmUsersLoading]);
 
   useEffect(() => {
     if (!campaignReassignDialog) return;
@@ -7007,7 +7093,7 @@ export default function FbManagementPage() {
 
   // Derive filter option lists from the full assigned set
   const mfChains = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.chain))).sort(), [assignedMarkets]);
-  const mfGms = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.gm))).sort(), [assignedMarkets]);
+  const mfGms = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.gm).filter(Boolean))).sort(), [assignedMarkets]);
   const mfCities = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.city))).sort(), [assignedMarkets]);
   const mfRegions = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.region))).sort(), [assignedMarkets]);
   const exportSectionOptions = useMemo(
@@ -7050,14 +7136,11 @@ export default function FbManagementPage() {
         addName(status.gmName);
       }
     }
-    for (const market of marketsData) {
-      addName(market.gm);
-    }
     const q = exportGmSearch.trim().toLocaleLowerCase("de");
     return Array.from(namesByDisplay.values())
       .sort((a, b) => a.localeCompare(b, "de"))
       .filter((name) => !q || name.toLocaleLowerCase("de").includes(q));
-  }, [campaignsData, exportGmSearch, marketsData, visitStatusByCampaignId]);
+  }, [campaignsData, exportGmSearch, visitStatusByCampaignId]);
   const exportRegionOptions = useMemo(
     () => Array.from(new Set(marketsData.map((market) => market.region).filter(Boolean))).sort((a, b) => a.localeCompare(b, "de")),
     [marketsData],
@@ -7084,7 +7167,6 @@ export default function FbManagementPage() {
         const gmCandidates = [
           normalizeExportFilterValue(assignment.gmName),
           normalizeExportFilterValue(status?.gmName),
-          normalizeExportFilterValue(market?.gm),
         ];
         const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
         const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
@@ -7118,18 +7200,6 @@ export default function FbManagementPage() {
       const market = marketById.get(assignment.marketId);
       if (!market) continue;
       const current = ensure(assignment.gmName?.trim() ?? "");
-      if (!current) continue;
-      current.total += 1;
-      if (market.finished) current.filled += 1;
-    }
-
-    // Fallback for rows that have no explicit assignment but do carry market GM metadata.
-    for (const market of marketsInRegion) {
-      const gmName = market.gm?.trim() ?? "";
-      if (!gmName) continue;
-      const sourceMarketId = market.marketId ?? market.id;
-      if (campaign.assignments?.some((assignment) => assignment.marketId === sourceMarketId)) continue;
-      const current = ensure(gmName);
       if (!current) continue;
       current.total += 1;
       if (market.finished) current.filled += 1;
@@ -7243,8 +7313,13 @@ export default function FbManagementPage() {
     }, 320);
   }, [campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
-  const handleAddMarket = useCallback((id: string) => {
+  const handleAddMarket = useCallback((id: string, gmUserId?: string | null) => {
     if (!campaignId || isCampaignBusy(campaignId)) return;
+    const requiresGmAssignment = campaign?.section !== "flex";
+    if (requiresGmAssignment && !gmUserId) {
+      setMutationError("Bitte einen GM auswählen. Ohne GM ist der Markt für die GM-App nicht sichtbar.");
+      return;
+    }
     setMutationError(null);
     const previousMarketIds = campaignMarketIds;
     setCampaignsData((current) =>
@@ -7255,7 +7330,10 @@ export default function FbManagementPage() {
       ),
     );
     setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
-    void assignCampaignMarkets(campaignId, [id])
+    const request = requiresGmAssignment
+      ? assignCampaignMarketAssignments(campaignId, [{ marketId: id, gmUserId: gmUserId ?? null }])
+      : assignCampaignMarkets(campaignId, [id]);
+    void request
       .then((updated) => {
         setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
         invalidateCampaignVisitStatus(updated.id);
@@ -7278,10 +7356,10 @@ export default function FbManagementPage() {
           const next = Math.max(0, (current[campaignId] ?? 0) - 1);
           return { ...current, [campaignId]: next };
         });
-      });
+    });
     setEnteringIds((p) => [...p, id]);
     setTimeout(() => setEnteringIds((p) => p.filter((eid) => eid !== id)), 320);
-  }, [campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
+  }, [campaign?.section, campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
   const handleUndoAddMarket = useCallback((id: string) => {
     if (!campaignId || isCampaignBusy(campaignId)) return;
@@ -7428,7 +7506,6 @@ export default function FbManagementPage() {
             const gmCandidates = [
               normalizeExportFilterValue(assignment.gmName),
               normalizeExportFilterValue(status?.gmName),
-              normalizeExportFilterValue(market?.gm),
             ];
             const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
             const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
@@ -8915,6 +8992,10 @@ export default function FbManagementPage() {
           onUndoAdd={handleUndoAddMarket}
           onClose={exitEditMode}
           isPending={campaignBusy}
+          campaignSection={campaign?.section}
+          gmUsers={gmUsers}
+          gmUsersLoading={gmUsersLoading}
+          gmUsersError={gmUsersError}
         />
       )}
       {campaignContextMenu && contextMenuCampaign && createPortal(

@@ -10,6 +10,7 @@ import {
   clearGmVisitPreloadCache,
   commitGmVisitPhotos,
   createGmVisitSession,
+  deleteGmVisitPhoto,
   fetchActiveGmVisitSession,
   fetchGmVisitSession,
   fetchGmVisitStartPayload,
@@ -1224,6 +1225,12 @@ interface QuestionCardProps {
     photoState: PhotoAnswerState;
     photoKeys: string[];
   }) => Promise<void>;
+  onPhotoDelete?: (payload: {
+    questionId: string;
+    storagePath?: string;
+    photoState: PhotoAnswerState;
+    photoKeys: string[];
+  }) => Promise<void>;
   photoCommittedMeta?: UploadedPhotoMeta[];
   photoSyncBusy?: boolean;
   photoSyncError?: string | null;
@@ -1786,6 +1793,7 @@ function QuestionCard({
   answer,
   onAnswer,
   onPhotoSync,
+  onPhotoDelete,
   photoCommittedMeta = [],
   photoSyncBusy = false,
   photoSyncError = null,
@@ -2303,8 +2311,6 @@ function QuestionCard({
         const photoState = decodePhotoAnswer(answer);
         const photos = photoState.photos;
         const previewPhotos = photos.filter(isPreviewablePhotoSrc);
-        const fallbackArtifacts = photos.filter((value) => !isPreviewablePhotoSrc(value));
-        const fallbackLabels = Array.from(new Set(fallbackArtifacts.map(photoArtifactLabel)));
         const tagsEnabled = Boolean(cfg?.tagsEnabled) && Array.isArray(cfg?.tagIds) && (cfg.tagIds as string[]).length > 0;
         const configuredTagIds: string[] = tagsEnabled ? (cfg.tagIds as string[]) : [];
 
@@ -2366,6 +2372,43 @@ function QuestionCard({
 
         const handlePhotoAnswerState = (next: PhotoAnswerState) => {
           onAnswer(encodePhotoAnswer(next));
+        };
+        const handleRemovePhoto = async (removeIndex: number) => {
+          if (photoSyncBusy) return;
+          const removedSrc = photos[removeIndex];
+          if (!removedSrc) return;
+          const removedMeta = photoCommittedMeta[removeIndex] ?? photoCommittedMeta.find((meta) => meta.storagePath === removedSrc);
+          const removedKeys = new Set(
+            [photoKeys[removeIndex], removedSrc, removedMeta?.storagePath]
+              .filter((entry): entry is string => typeof entry === "string" && entry.length > 0),
+          );
+          const nextPhotos = photos.filter((_, index) => index !== removeIndex);
+          const nextPhotoKeys = nextPhotos.map((_, index) => resolvePhotoUiKey(nextPhotos, index));
+          const nextMap = Object.fromEntries(
+            Object.entries(photoState.photoTagIdsByPhotoKey ?? {}).filter(([key]) => !removedKeys.has(key)),
+          );
+          const nextState: PhotoAnswerState = {
+            ...photoState,
+            photos: nextPhotos,
+            selectedTagIds:
+              tagMode === "perPhoto"
+                ? unionPhotoTagIds(nextPhotoKeys.map((key) => normalizePhotoTagIds(nextMap[key] ?? [])))
+                : normalizePhotoTagIds(photoState.selectedTagIds),
+            ...(Object.keys(nextMap).length > 0 ? { photoTagIdsByPhotoKey: nextMap } : { photoTagIdsByPhotoKey: {} }),
+          };
+          if (onPhotoDelete) {
+            await onPhotoDelete({
+              questionId: question.id,
+              storagePath: removedMeta?.storagePath ?? (!isPreviewablePhotoSrc(removedSrc) ? removedSrc : undefined),
+              photoState: nextState,
+              photoKeys: nextPhotoKeys,
+            });
+          }
+          if (removedSrc.startsWith("blob:")) {
+            URL.revokeObjectURL(removedSrc);
+          }
+          handlePhotoAnswerState(nextState);
+          setActivePhotoIndex((prev) => Math.min(Math.max(0, prev), Math.max(0, nextPhotos.length - 1)));
         };
         const handleTagModeChange = async (nextMode: PhotoTagMode) => {
           if (nextMode === tagMode) return;
@@ -2546,18 +2589,19 @@ function QuestionCard({
             {previewPhotos.length > 0 && (
               <PhotoLightbox photos={previewPhotos} />
             )}
-            {fallbackLabels.length > 0 && (
+            {photos.length > 0 && (
               <div style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", marginBottom: 6 }}>
                   Gespeicherte Fotos
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {fallbackLabels.map((label) => (
+                  {photos.map((src, index) => (
                     <span
-                      key={label}
+                      key={`${photoKeys[index] ?? src}-${index}`}
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
+                        gap: 6,
                         padding: "4px 8px",
                         borderRadius: 999,
                         fontSize: 10,
@@ -2566,7 +2610,34 @@ function QuestionCard({
                         background: "rgba(0,0,0,0.05)",
                       }}
                     >
-                      {label}
+                      {isPreviewablePhotoSrc(src) ? `Foto ${index + 1}` : photoArtifactLabel(src)}
+                      <button
+                        type="button"
+                        disabled={photoSyncBusy}
+                        onClick={() => {
+                          void handleRemovePhoto(index);
+                        }}
+                        aria-label={`Foto ${index + 1} entfernen`}
+                        style={{
+                          width: 16,
+                          height: 16,
+                          borderRadius: 999,
+                          border: "1px solid rgba(220,38,38,0.18)",
+                          background: photoSyncBusy ? "rgba(0,0,0,0.04)" : "rgba(220,38,38,0.08)",
+                          color: photoSyncBusy ? "rgba(0,0,0,0.25)" : "rgba(220,38,38,0.82)",
+                          cursor: photoSyncBusy ? "not-allowed" : "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 12,
+                          lineHeight: 1,
+                          fontWeight: 800,
+                          fontFamily: "inherit",
+                          padding: 0,
+                        }}
+                      >
+                        ×
+                      </button>
                     </span>
                   ))}
                 </div>
@@ -3796,6 +3867,38 @@ function MarktbesuchInner() {
       }
     },
     [photoAnswerIdByQuestionId, photoMetaByQuestionId, visitSessionId],
+  );
+
+  const handlePhotoDelete = useCallback(
+    async (payload: { questionId: string; storagePath?: string; photoState: PhotoAnswerState; photoKeys: string[] }) => {
+      const answerId = photoAnswerIdByQuestionId[payload.questionId] ?? null;
+      if (!payload.storagePath || !answerId) return;
+      if (!visitSessionId) {
+        const message = "Foto konnte nicht gelöscht werden, weil der Fragebogen noch nicht gespeichert ist.";
+        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: message }));
+        throw new Error(message);
+      }
+      setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: true }));
+      setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: null }));
+      try {
+        await deleteGmVisitPhoto({
+          sessionId: visitSessionId,
+          visitAnswerId: answerId,
+          storagePath: payload.storagePath,
+        });
+        setPhotoMetaByQuestionId((prev) => ({
+          ...prev,
+          [payload.questionId]: (prev[payload.questionId] ?? []).filter((meta) => meta.storagePath !== payload.storagePath),
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Foto konnte nicht gelöscht werden.";
+        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: message }));
+        throw error;
+      } finally {
+        setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: false }));
+      }
+    },
+    [photoAnswerIdByQuestionId, visitSessionId],
   );
 
   useEffect(() => {
@@ -5381,6 +5484,7 @@ function MarktbesuchInner() {
                       answer={currentAnswer}
                       onAnswer={(val) => setAnswers((prev) => ({ ...prev, [currentQ.id]: val }))}
                       onPhotoSync={handlePhotoSync}
+                      onPhotoDelete={handlePhotoDelete}
                       photoCommittedMeta={photoMetaByQuestionId[currentQ.id] ?? []}
                       photoSyncBusy={Boolean(photoSyncBusyByQuestionId[currentQ.id])}
                       photoSyncError={photoSyncErrorByQuestionId[currentQ.id] ?? null}
@@ -5470,6 +5574,7 @@ function MarktbesuchInner() {
                           answer={kAns}
                           onAnswer={(val) => setKuehlerAnswers((prev) => ({ ...prev, [kQ.id]: val }))}
                           onPhotoSync={handlePhotoSync}
+                          onPhotoDelete={handlePhotoDelete}
                           photoCommittedMeta={photoMetaByQuestionId[kQ.id] ?? []}
                           photoSyncBusy={Boolean(photoSyncBusyByQuestionId[kQ.id])}
                           photoSyncError={photoSyncErrorByQuestionId[kQ.id] ?? null}
@@ -5568,6 +5673,7 @@ function MarktbesuchInner() {
                           answer={mhdAns}
                           onAnswer={(val) => setMhdAnswers((prev) => ({ ...prev, [mhdQ.id]: val }))}
                           onPhotoSync={handlePhotoSync}
+                          onPhotoDelete={handlePhotoDelete}
                           photoCommittedMeta={photoMetaByQuestionId[mhdQ.id] ?? []}
                           photoSyncBusy={Boolean(photoSyncBusyByQuestionId[mhdQ.id])}
                           photoSyncError={photoSyncErrorByQuestionId[mhdQ.id] ?? null}

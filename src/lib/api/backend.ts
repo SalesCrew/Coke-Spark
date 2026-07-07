@@ -3501,6 +3501,18 @@ export async function commitGmVisitPhotos(input: {
   })) as { ok: boolean };
 }
 
+export async function deleteGmVisitPhoto(input: {
+  sessionId: string;
+  visitAnswerId: string;
+  storagePath: string;
+}): Promise<{ ok: boolean }> {
+  const { sessionId, visitAnswerId, storagePath } = input;
+  return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}/photos/delete`, {
+    method: "POST",
+    body: JSON.stringify({ visitAnswerId, storagePath }),
+  })) as { ok: boolean };
+}
+
 export async function importMarkets(input: ImportMarketsInput): Promise<{ markets: MarketRecord[]; summary: ImportSummary }> {
   const data = (await authedFetch("/admin/markets/import", {
     method: "POST",

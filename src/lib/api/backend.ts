@@ -3546,6 +3546,20 @@ export async function patchAdminZeiterfassungSegment(input: {
   })) as { ok: boolean };
 }
 
+export async function patchAdminZeiterfassungDaySession(input: {
+  sessionId: string;
+  startTime?: string;
+  endTime?: string;
+}): Promise<{ ok: boolean }> {
+  return (await authedFetch(`/admin/zeiterfassung/day-sessions/${encodeURIComponent(input.sessionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...(input.startTime !== undefined ? { startTime: input.startTime } : {}),
+      ...(input.endTime !== undefined ? { endTime: input.endTime } : {}),
+    }),
+  })) as { ok: boolean };
+}
+
 export async function normalizeAllMarketRegions(input?: {
   batchSize?: number;
   reportLimit?: number;

@@ -11,6 +11,7 @@ import {
   fetchAdminDiaetenExport,
   fetchAdminZeiterfassungDays,
   fetchAdminZeiterfassungGmAggregates,
+  patchAdminZeiterfassungDaySession,
   patchAdminZeiterfassungSegment,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
@@ -286,9 +287,11 @@ interface AggregatedGmRow {
 // ── Current date marker ───────────────────────────────────────
 const TODAY = todayISO();
 
-type EditableSegmentKind = "marktbesuch" | "pause" | "zusatzzeit";
+type EditableSegmentKind = "day_start" | "day_end" | "marktbesuch" | "pause" | "zusatzzeit";
 
 function resolveEditableSegmentKind(seg: DisplaySegment): EditableSegmentKind | null {
+  if (seg.kind === "anfahrt") return "day_start";
+  if (seg.kind === "heimfahrt") return "day_end";
   if (seg.kind !== "marktbesuch" && seg.kind !== "pause" && seg.kind !== "zusatzzeit") return null;
   if (!seg.id || seg.id.includes("::seg:") || !isUuid(seg.id)) return null;
   return seg.kind;
@@ -327,6 +330,9 @@ function ActionRow({
   const typeLabel = isFahrtzeit ? "Fahrtzeit" : isAnfahrt ? "Anfahrt" : isHeimfahrt ? "Heimfahrt" : isPause ? "Pause" : isMarkt ? "Markt" : "Zusatz";
   const zusatzComment = isZusatz ? seg.comment?.trim() : "";
   const editableKind = resolveEditableSegmentKind(seg);
+  const isDayStartEdit = editableKind === "day_start";
+  const isDayEndEdit = editableKind === "day_end";
+  const isDayWrapperEdit = isDayStartEdit || isDayEndEdit;
 
   useEffect(() => {
     setDraftStart(seg.start);
@@ -379,24 +385,41 @@ function ActionRow({
 
   async function saveTimeEdit() {
     if (!editableKind || saving) return;
-    if (!isValidHm(draftStart) || !isValidHm(draftEnd)) {
+    if (isDayStartEdit && !isValidHm(draftStart)) {
+      setEditError("Bitte gültige Uhrzeit im Format HH:MM eingeben.");
+      return;
+    }
+    if (isDayEndEdit && !isValidHm(draftEnd)) {
+      setEditError("Bitte gültige Uhrzeit im Format HH:MM eingeben.");
+      return;
+    }
+    if (!isDayWrapperEdit && (!isValidHm(draftStart) || !isValidHm(draftEnd))) {
       setEditError("Bitte gültige Uhrzeiten im Format HH:MM eingeben.");
       return;
     }
-    if (toMin(draftEnd) <= toMin(draftStart)) {
+    if (!isDayWrapperEdit && toMin(draftEnd) <= toMin(draftStart)) {
       setEditError("Endzeit muss nach Startzeit liegen.");
       return;
     }
     setSaving(true);
     setEditError(null);
     try {
-      await patchAdminZeiterfassungSegment({
-        sessionId: session.id,
-        segmentKind: editableKind,
-        segmentId: seg.id,
-        startTime: draftStart,
-        endTime: draftEnd,
-      });
+      if (isDayWrapperEdit) {
+        await patchAdminZeiterfassungDaySession({
+          sessionId: session.id,
+          ...(isDayStartEdit ? { startTime: draftStart } : {}),
+          ...(isDayEndEdit ? { endTime: draftEnd } : {}),
+        });
+      } else {
+        const segmentKind = editableKind as Exclude<EditableSegmentKind, "day_start" | "day_end">;
+        await patchAdminZeiterfassungSegment({
+          sessionId: session.id,
+          segmentKind,
+          segmentId: seg.id,
+          startTime: draftStart,
+          endTime: draftEnd,
+        });
+      }
       setEditingMode(null);
       await onSegmentPatched();
     } catch (error) {
@@ -542,15 +565,19 @@ function ActionRow({
               <input
                 value={draftStart}
                 onChange={(event) => setDraftStart(event.target.value.slice(0, 5))}
+                disabled={isDayEndEdit || saving}
                 inputMode="numeric"
-                style={{ width: 42, border: "1px solid rgba(0,0,0,0.18)", borderRadius: 5, background: "#fff", fontSize: 10, fontWeight: 600, color: "#374151", textAlign: "center", padding: "2px 3px", fontVariantNumeric: "tabular-nums", outline: "none" }}
+                title={isDayEndEdit ? "Wird vom letzten Eintrag berechnet" : "Arbeitsbeginn"}
+                style={{ width: 42, border: "1px solid rgba(0,0,0,0.18)", borderRadius: 5, background: isDayEndEdit ? "rgba(0,0,0,0.035)" : "#fff", fontSize: 10, fontWeight: 600, color: isDayEndEdit ? "rgba(0,0,0,0.35)" : "#374151", textAlign: "center", padding: "2px 3px", fontVariantNumeric: "tabular-nums", outline: "none", cursor: isDayEndEdit ? "not-allowed" : "text" }}
               />
               <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)" }}>-</span>
               <input
                 value={draftEnd}
                 onChange={(event) => setDraftEnd(event.target.value.slice(0, 5))}
+                disabled={isDayStartEdit || saving}
                 inputMode="numeric"
-                style={{ width: 42, border: "1px solid rgba(0,0,0,0.18)", borderRadius: 5, background: "#fff", fontSize: 10, fontWeight: 600, color: "#374151", textAlign: "center", padding: "2px 3px", fontVariantNumeric: "tabular-nums", outline: "none" }}
+                title={isDayStartEdit ? "Wird vom ersten Eintrag berechnet" : "Arbeitsende"}
+                style={{ width: 42, border: "1px solid rgba(0,0,0,0.18)", borderRadius: 5, background: isDayStartEdit ? "rgba(0,0,0,0.035)" : "#fff", fontSize: 10, fontWeight: 600, color: isDayStartEdit ? "rgba(0,0,0,0.35)" : "#374151", textAlign: "center", padding: "2px 3px", fontVariantNumeric: "tabular-nums", outline: "none", cursor: isDayStartEdit ? "not-allowed" : "text" }}
               />
             </div>
             <div style={{ marginTop: 3, display: "flex", gap: 4, justifyContent: "flex-end" }}>
@@ -617,7 +644,7 @@ function ActionRow({
                   event.currentTarget.style.backgroundColor = "transparent";
                 }}
               >
-                ✏ Zeit bearbeiten
+                {isDayStartEdit ? "Arbeitsbeginn bearbeiten" : isDayEndEdit ? "Arbeitsende bearbeiten" : "Zeit bearbeiten"}
               </button>
               {isZusatz && (
                 <button
@@ -647,7 +674,7 @@ function ActionRow({
               }}
               style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", borderRadius: 6, background: "transparent", padding: "7px 10px", fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.45)", cursor: "default", fontFamily: "inherit" }}
             >
-              Nicht bearbeitbar (Anfahrt/Fahrtzeit/Heimfahrt)
+              Fahrtzeit wird automatisch berechnet
             </button>
           )}
         </div>,

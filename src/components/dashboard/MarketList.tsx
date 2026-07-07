@@ -92,14 +92,22 @@ function formatStammnr(record: MarketRecord): string {
 }
 
 export function toMarketListEntry(record: MarketRecord, activeNowCampaigns: MarketCampaignSummary[] = []): Market {
+  const submittedVisitCount = activeNowCampaigns.reduce(
+    (sum, campaign) => sum + Math.max(0, Number(campaign.submittedVisitCount ?? 0)),
+    0,
+  );
+  const targetVisitCount = activeNowCampaigns.reduce(
+    (sum, campaign) => sum + Math.max(1, Number(campaign.targetVisitCount ?? 1)),
+    0,
+  );
   return {
     id: record.id,
     name: formatMarketName(record),
     chain: getMarketChainLabel(record),
     address: formatAddress(record),
-    visited: 0,
-    frequency: Math.max(1, record.visitFrequencyPerYear || activeNowCampaigns.length || 1),
-    visitedThisMonth: false,
+    visited: submittedVisitCount,
+    frequency: Math.max(1, targetVisitCount || record.visitFrequencyPerYear || activeNowCampaigns.length || 1),
+    visitedThisMonth: submittedVisitCount > 0,
     record,
     activeNowCampaigns,
   };
@@ -686,7 +694,7 @@ export function GmMarketDetailModal({
   );
 }
 
-export function MarketList({ visited = 0, total }: MarketListProps) {
+export function MarketList({ visited, total }: MarketListProps) {
   const router = useRouter();
   const { current } = useRedMonth();
   const [search, setSearch] = useState("");
@@ -711,6 +719,7 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const daysLeft = current?.daysUntilEnd ?? 0;
   const totalMarkets = total ?? markets.length;
+  const visitedMarkets = visited ?? markets.filter((market) => market.visitedThisMonth || market.visited > 0).length;
 
   const refreshDayGate = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
@@ -972,7 +981,7 @@ export function MarketList({ visited = 0, total }: MarketListProps) {
           RED Monat endet in {daysLeft} Tagen
         </span>
         <span className="text-[11px] font-medium text-gray-500">
-          Märkte besucht <span className="font-semibold text-gray-700">{visited}/{totalMarkets}</span>
+          Märkte besucht <span className="font-semibold text-gray-700">{visitedMarkets}/{totalMarkets}</span>
         </span>
       </div>
 

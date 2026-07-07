@@ -99,6 +99,9 @@ type BackendMarket = {
     campaignId: string;
     campaignName: string;
     section: "standard" | "flex" | "kuehler" | "mhd" | "billa";
+    targetVisitCount?: number | null;
+    submittedVisitCount?: number | null;
+    isComplete?: boolean | null;
   }>;
   isDeleted?: boolean | null;
 };
@@ -2050,6 +2053,9 @@ export type GmStartMarket = {
     campaignId: string;
     campaignName: string;
     section: "standard" | "flex" | "kuehler" | "mhd" | "billa";
+    targetVisitCount?: number | null;
+    submittedVisitCount?: number | null;
+    isComplete?: boolean | null;
   }>;
 };
 

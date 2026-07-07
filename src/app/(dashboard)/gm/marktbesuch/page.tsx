@@ -4251,6 +4251,12 @@ function MarktbesuchInner() {
       setSubmittedVisitTimeSummary(submittedSummary);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
+        try {
+          window.localStorage.setItem("gm:completed-visits-updated", String(Date.now()));
+        } catch {
+          // Local storage is only a cross-tab refresh hint; same-tab event below is enough.
+        }
+        window.dispatchEvent(new Event("gm:completed-visits-updated"));
       }
       transitionTo("confirm");
     } catch (error) {
@@ -5299,6 +5305,45 @@ function MarktbesuchInner() {
 
               {/* CTA */}
               <div style={{ animation: "fadeUp 0.4s 0.6s cubic-bezier(0.4,0,0.2,1) both" }}>
+                {visitSessionId ? (
+                  <button
+                    onClick={() => {
+                      if (typeof window !== "undefined") {
+                        try {
+                          window.localStorage.setItem("gm:completed-visits-updated", String(Date.now()));
+                        } catch {
+                          // Local storage is only a cross-tab refresh hint; same-tab event below is enough.
+                        }
+                        window.dispatchEvent(new Event("gm:completed-visits-updated"));
+                      }
+                      router.push(`/gm/aktivitaet?openSessionId=${encodeURIComponent(visitSessionId)}`);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "10px 0",
+                      marginBottom: 8,
+                      fontSize: 12,
+                      fontWeight: 760,
+                      letterSpacing: "0.01em",
+                      color: "#DC2626",
+                      border: "1px solid rgba(220,38,38,0.24)",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      background: "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,245,245,0.96))",
+                      boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.72), 0 1px 4px rgba(15,23,42,0.04)",
+                      transition: "opacity 0.15s ease",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
+                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  >
+                    <FileText size={14} strokeWidth={2.4} color="rgba(220,38,38,0.82)" />
+                    Änderung anfragen
+                  </button>
+                ) : null}
                 <button
                   onClick={() => router.push("/gm")}
                   style={{

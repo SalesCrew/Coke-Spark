@@ -1802,6 +1802,8 @@ export default function GmActivityPage() {
   const [changeRequestsLoading, setChangeRequestsLoading] = useState(true);
   const [changeRequestsError, setChangeRequestsError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const openingIdRef = useRef<string | null>(null);
+  const initialOpenSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1823,6 +1825,39 @@ export default function GmActivityPage() {
       cancelled = true;
     };
   }, []);
+
+  const refreshCompletedVisits = useCallback(async () => {
+    setError(null);
+    try {
+      const result = await fetchGmCompletedVisitSessions({ limit: 100 });
+      setVisits(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AktivitÃ¤ten konnten nicht geladen werden.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const refresh = () => {
+      void refreshCompletedVisits();
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const refreshFromStorage = (event: StorageEvent) => {
+      if (event.key === "gm:completed-visits-updated") refresh();
+    };
+    window.addEventListener("gm:completed-visits-updated", refresh);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refreshFromStorage);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("gm:completed-visits-updated", refresh);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refreshFromStorage);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshCompletedVisits]);
 
   const loadChangeRequests = useCallback(async () => {
     setChangeRequestsLoading(true);
@@ -1870,6 +1905,22 @@ export default function GmActivityPage() {
     });
   }, [search, sectionFilter, visits]);
 
+  const openVisitById = useCallback(async (sessionId: string) => {
+    if (openingIdRef.current) return;
+    openingIdRef.current = sessionId;
+    setOpeningId(sessionId);
+    setError(null);
+    try {
+      const payload = await fetchGmVisitSession(sessionId);
+      setViewerPayload(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fragebogen konnte nicht geÃ¶ffnet werden.");
+    } finally {
+      openingIdRef.current = null;
+      setOpeningId(null);
+    }
+  }, []);
+
   const openVisit = useCallback(async (visit: GmCompletedVisitSummary) => {
     if (openingId) return;
     setOpeningId(visit.id);
@@ -1883,6 +1934,21 @@ export default function GmActivityPage() {
       setOpeningId(null);
     }
   }, [openingId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("openSessionId") ?? params.get("sessionId");
+    if (!sessionId || initialOpenSessionIdRef.current === sessionId) return;
+    initialOpenSessionIdRef.current = sessionId;
+    void openVisitById(sessionId).finally(() => {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete("openSessionId");
+      nextUrl.searchParams.delete("sessionId");
+      window.history.replaceState(null, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+      void refreshCompletedVisits();
+    });
+  }, [openVisitById, refreshCompletedVisits]);
 
   const sectionOptions: Array<"all" | VisitSection["section"]> = ["all", "standard", "flex", "billa", "kuehler", "mhd"];
   const requestGroups = useMemo(() => buildRequestHistoryGroups(changeRequests, deleteRequests), [changeRequests, deleteRequests]);

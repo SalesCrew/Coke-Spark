@@ -13,6 +13,7 @@ import {
   assignCampaignMarketAssignments,
   assignCampaignMarkets,
   deleteCampaign,
+  fetchCampaignAssignedMarkets,
   fetchCampaignMarketVisitDetail,
   fetchCampaignMarketVisitStatuses,
   fetchCampaigns,
@@ -54,7 +55,8 @@ const ADD_PANEL_INITIAL_LIMIT = 80;
 const ADD_PANEL_LOAD_STEP = 80;
 const VISIT_STATUS_BATCH_SIZE = 50;
 const VISIT_STATUS_MAX_CONCURRENT_BATCHES = 2;
-const VISIT_DETAIL_PREFETCH_MAX_CONCURRENT = 1;
+const VISIT_STATUS_BACKGROUND_BATCH_SIZE = 2;
+const VISIT_STATUS_BACKGROUND_BATCH_DELAY_MS = 120;
 const VISIT_DETAIL_EXPORT_MAX_CONCURRENT = 3;
 const HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT = "Ich bin mir sicher, dass ich alle Daten zu dieser Kampagne Löschen will!";
 
@@ -261,6 +263,34 @@ function getMarketDisplayName(input: {
   const place = [input.postalCode?.trim(), input.city?.trim()].filter(Boolean).join(" ");
   const fallback = [address, place].filter(Boolean).join(", ");
   return fallback || "Unbenannter Markt";
+}
+
+function toMarketCatalogItem(market: {
+  id: string;
+  name?: string | null;
+  dbName?: string | null;
+  address?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  region?: string | null;
+  kuehlerStammnr?: string | null;
+  cokeMasterNumber?: string | null;
+  standardMarketNumber?: string | null;
+  infoFlag?: boolean | null;
+}): MarketCatalogItem {
+  const chainSource = (market.dbName || market.name || "").trim();
+  const chain = chainSource ? chainSource.split(/\s+/)[0] : "Unbekannt";
+  return {
+    id: market.id,
+    name: getMarketDisplayName(market),
+    chain,
+    city: market.city ?? "",
+    region: market.region ?? "",
+    address: market.address ?? "",
+    stammnr: String(market.kuehlerStammnr || market.cokeMasterNumber || market.standardMarketNumber || "").trim(),
+    gm: "",
+    finished: Boolean(market.infoFlag),
+  };
 }
 
 function getGmDisplayName(gm: Pick<GMRecord, "firstName" | "lastName" | "email">): string {
@@ -5823,6 +5853,8 @@ function MarketAddPanel({
   gmUsers = [],
   gmUsersLoading = false,
   gmUsersError = null,
+  directoryLoading = false,
+  directoryError = null,
 }: {
   pos: { x: number; y: number };
   availableMarkets: MarketCatalogItem[];
@@ -5834,6 +5866,8 @@ function MarketAddPanel({
   gmUsers?: GMRecord[];
   gmUsersLoading?: boolean;
   gmUsersError?: string | null;
+  directoryLoading?: boolean;
+  directoryError?: string | null;
 }) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
@@ -6028,7 +6062,7 @@ function MarketAddPanel({
       {/* Count row — doubles as expansion trigger */}
       <div style={{ padding: "8px 16px", borderBottom: expandedAdded ? "none" : "1px solid rgba(0,0,0,0.05)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", fontWeight: 500, flex: 1 }}>
-          {candidates.length} {candidates.length === 1 ? "Markt verfügbar" : "Märkte verfügbar"}
+          {directoryLoading ? "Märkte werden geladen..." : `${candidates.length} ${candidates.length === 1 ? "Markt verfügbar" : "Märkte verfügbar"}`}
         </span>
         {addedIds.length > 0 && (
           <>
@@ -6081,7 +6115,15 @@ function MarketAddPanel({
 
       {/* Candidate list */}
       <div className="map-scroll" style={{ overflowY: "auto", flex: 1 }}>
-        {candidates.length === 0 ? (
+        {directoryLoading ? (
+          <div style={{ padding: "32px 20px", textAlign: "center" }}>
+            <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>Marktverzeichnis wird geladen...</span>
+          </div>
+        ) : directoryError ? (
+          <div style={{ padding: "32px 20px", textAlign: "center" }}>
+            <span style={{ fontSize: 12, color: "#DC2626", fontWeight: 700 }}>{directoryError}</span>
+          </div>
+        ) : candidates.length === 0 ? (
           <div style={{ padding: "32px 20px", textAlign: "center" }}>
             <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>Keine Märkte gefunden</span>
           </div>
@@ -6211,6 +6253,10 @@ export default function FbManagementPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [campaignsData, setCampaignsData] = useState<Campaign[]>([]);
   const [marketsData, setMarketsData] = useState<MarketCatalogItem[]>([]);
+  const [marketDirectoryLoaded, setMarketDirectoryLoaded] = useState(false);
+  const [marketDirectoryLoading, setMarketDirectoryLoading] = useState(false);
+  const [marketDirectoryError, setMarketDirectoryError] = useState<string | null>(null);
+  const [campaignMarketMetaLoadingByCampaignId, setCampaignMarketMetaLoadingByCampaignId] = useState<Record<string, boolean>>({});
   const [fragebogenOptions, setFragebogenOptions] = useState<Record<CampaignSection, FragebogenOption[]>>({
     standard: [],
     flex: [],
@@ -6267,7 +6313,8 @@ export default function FbManagementPage() {
   const campaignContextMenuRef = useRef<HTMLDivElement | null>(null);
   const visitStatusInFlightRef = useRef<Record<string, Promise<void>>>({});
   const visitDetailInFlightRef = useRef<Record<string, Promise<void>>>({});
-  const visitDetailPrefetchStartedRef = useRef<Set<string>>(new Set());
+  const campaignMarketMetaInFlightRef = useRef<Record<string, Promise<void>>>({});
+  const marketDirectoryInFlightRef = useRef<Promise<MarketCatalogItem[]> | null>(null);
 
   // ── Market management state ────────────────────────────────────
   const [marketSearch, setMarketSearch] = useState("");
@@ -6288,7 +6335,6 @@ export default function FbManagementPage() {
       try {
         const settled = await Promise.allSettled([
           fetchCampaigns(),
-          fetchMarkets(),
           fetchFragebogen("main"),
           fetchFragebogen("kuehler"),
           fetchFragebogen("mhd"),
@@ -6298,12 +6344,8 @@ export default function FbManagementPage() {
         ]);
 
         const campaignsResult = settled[0] as PromiseSettledResult<Awaited<ReturnType<typeof fetchCampaigns>>>;
-        const marketsResult = settled[1] as PromiseSettledResult<Awaited<ReturnType<typeof fetchMarkets>>>;
         if (campaignsResult.status !== "fulfilled") {
           throw campaignsResult.reason;
-        }
-        if (marketsResult.status !== "fulfilled") {
-          throw marketsResult.reason;
         }
 
         const optionalOrEmpty = <T,>(result: PromiseSettledResult<T>): T | [] => {
@@ -6312,41 +6354,24 @@ export default function FbManagementPage() {
         };
 
         const campaignsRes = campaignsResult.value;
-        const marketsRes = marketsResult.value;
         const mainFragebogen = optionalOrEmpty(
-          settled[2] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
+          settled[1] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
         );
         const kuehlerFragebogen = optionalOrEmpty(
-          settled[3] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
+          settled[2] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
         );
         const mhdFragebogen = optionalOrEmpty(
-          settled[4] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
+          settled[3] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
         );
         const mainModules = optionalOrEmpty(
-          settled[5] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+          settled[4] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
         );
         const kuehlerModules = optionalOrEmpty(
-          settled[6] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+          settled[5] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
         );
         const mhdModules = optionalOrEmpty(
-          settled[7] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+          settled[6] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
         );
-
-        const toCatalogItem = (market: Awaited<ReturnType<typeof fetchMarkets>>[number]): MarketCatalogItem => {
-          const chainSource = (market.dbName || market.name || "").trim();
-          const chain = chainSource ? chainSource.split(/\s+/)[0] : "Unbekannt";
-          return {
-            id: market.id,
-            name: getMarketDisplayName(market),
-            chain,
-            city: market.city,
-            region: market.region,
-            address: market.address,
-            stammnr: String(market.kuehlerStammnr || market.cokeMasterNumber || market.standardMarketNumber || "").trim(),
-            gm: "",
-            finished: Boolean(market.infoFlag),
-          };
-        };
 
         const moduleQuestionCountMain = new Map(mainModules.map((module) => [module.id, module.questions.length]));
         const moduleQuestionCountKuehler = new Map(kuehlerModules.map((module) => [module.id, module.questions.length]));
@@ -6368,7 +6393,8 @@ export default function FbManagementPage() {
           );
 
         setCampaignsData(campaignsRes);
-        setMarketsData(marketsRes.map(toCatalogItem));
+        setMarketsData([]);
+        setMarketDirectoryLoaded(false);
         setFragebogenByScope({
           main: mainFragebogen,
           kuehler: kuehlerFragebogen,
@@ -6394,6 +6420,76 @@ export default function FbManagementPage() {
     };
     void loadData();
   }, []);
+
+  const mergeMarketCatalogItems = useCallback((items: MarketCatalogItem[]) => {
+    if (items.length === 0) return;
+    setMarketsData((current) => {
+      const byId = new Map(current.map((market) => [market.id, market]));
+      for (const item of items) {
+        byId.set(item.id, { ...byId.get(item.id), ...item });
+      }
+      return Array.from(byId.values());
+    });
+  }, []);
+
+  const refreshCampaignAssignedMarkets = useCallback(async (targetCampaignIds: string[]) => {
+    const campaignIds = Array.from(new Set(targetCampaignIds.filter(Boolean))).slice(0, VISIT_STATUS_BATCH_SIZE);
+    if (campaignIds.length === 0) return;
+    const batchKey = campaignIds.slice().sort((a, b) => a.localeCompare(b, "de")).join("|");
+    const existingTask = campaignMarketMetaInFlightRef.current[batchKey];
+    if (existingTask) {
+      await existingTask;
+      return;
+    }
+    setCampaignMarketMetaLoadingByCampaignId((current) => {
+      const next = { ...current };
+      for (const id of campaignIds) next[id] = true;
+      return next;
+    });
+    const task = (async () => {
+      try {
+        const markets = await fetchCampaignAssignedMarkets(campaignIds);
+        mergeMarketCatalogItems(markets.map(toMarketCatalogItem));
+      } finally {
+        setCampaignMarketMetaLoadingByCampaignId((current) => {
+          const next = { ...current };
+          for (const id of campaignIds) next[id] = false;
+          return next;
+        });
+      }
+    })();
+    campaignMarketMetaInFlightRef.current[batchKey] = task;
+    try {
+      await task;
+    } finally {
+      delete campaignMarketMetaInFlightRef.current[batchKey];
+    }
+  }, [mergeMarketCatalogItems]);
+
+  const ensureMarketDirectoryLoaded = useCallback(async () => {
+    if (marketDirectoryLoaded) return marketsData;
+    if (marketDirectoryInFlightRef.current) return marketDirectoryInFlightRef.current;
+    setMarketDirectoryLoading(true);
+    setMarketDirectoryError(null);
+    const task = (async () => {
+      try {
+        const markets = await fetchMarkets();
+        const catalogItems = markets.map(toMarketCatalogItem);
+        setMarketsData(catalogItems);
+        setMarketDirectoryLoaded(true);
+        return catalogItems;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Märkte konnten nicht geladen werden.";
+        setMarketDirectoryError(message);
+        throw error;
+      } finally {
+        setMarketDirectoryLoading(false);
+        marketDirectoryInFlightRef.current = null;
+      }
+    })();
+    marketDirectoryInFlightRef.current = task;
+    return task;
+  }, [marketDirectoryLoaded, marketsData]);
 
   useEffect(() => {
     if (campaignsData.length === 0) {
@@ -6605,9 +6701,19 @@ export default function FbManagementPage() {
         const statusLoaded = Object.prototype.hasOwnProperty.call(visitStatusByCampaignId, campaignEntry.id);
         const statusLoading = Boolean(visitStatusLoadingByCampaignId[campaignEntry.id]);
         const assignedMarketsForCampaign = assignedMarketsByCampaignId.get(campaignEntry.id) ?? [];
-        const total = assignedMarketsForCampaign.length;
+        const statusRows = Object.values(visitStatusByMarket);
+        const total = assignedMarketsForCampaign.length > 0
+          ? assignedMarketsForCampaign.length
+          : statusLoaded && statusRows.length > 0
+            ? statusRows.length
+            : campaignEntry.marketIds.length;
         const filled = statusLoaded
-          ? assignedMarketsForCampaign.filter((market) => visitStatusByMarket[market.id]?.isComplete).length
+          ? assignedMarketsForCampaign.length > 0
+            ? assignedMarketsForCampaign.filter((market) => {
+              const marketId = market.marketId ?? market.id;
+              return visitStatusByMarket[market.id]?.isComplete || visitStatusByMarket[marketId]?.isComplete;
+            }).length
+            : statusRows.filter((status) => status.isComplete).length
           : 0;
         const byRegion = new Map<string, { total: number; filled: number }>();
         for (const market of assignedMarketsForCampaign) {
@@ -6724,6 +6830,7 @@ export default function FbManagementPage() {
   const campaignMarketIds = campaign?.marketIds ?? [];
   const campaignCurrentFragebogenId = campaign?.currentFragebogenId ?? null;
   const isVisitStatusLoading = campaignId ? Boolean(visitStatusLoadingByCampaignId[campaignId]) : false;
+  const isSelectedCampaignMarketMetaLoading = campaignId ? Boolean(campaignMarketMetaLoadingByCampaignId[campaignId]) : false;
 
   const allCampaignVisitSignature = useMemo(
     () =>
@@ -6735,6 +6842,22 @@ export default function FbManagementPage() {
   );
 
   useEffect(() => {
+    if (!campaignId || loading || marketDirectoryLoaded) return;
+    const missingSelectedMarketMeta = campaignMarketIds.some((marketId) => !marketById.has(marketId));
+    if (!missingSelectedMarketMeta) return;
+    if (campaignMarketMetaLoadingByCampaignId[campaignId]) return;
+    void refreshCampaignAssignedMarkets([campaignId]);
+  }, [
+    campaignId,
+    campaignMarketIds,
+    campaignMarketMetaLoadingByCampaignId,
+    loading,
+    marketById,
+    marketDirectoryLoaded,
+    refreshCampaignAssignedMarkets,
+  ]);
+
+  useEffect(() => {
     if (!campaignId) return;
     if (Object.prototype.hasOwnProperty.call(visitStatusByCampaignId, campaignId)) return;
     if (visitStatusLoadingByCampaignId[campaignId]) return;
@@ -6743,26 +6866,44 @@ export default function FbManagementPage() {
 
   useEffect(() => {
     if (loading || campaignsData.length === 0) return;
-    const priorityIds = [
-      ...(campaignId ? [campaignId] : []),
-      ...visibleCampaigns.map((entry) => entry.id),
-      ...campaignsData.map((entry) => entry.id),
-    ];
-    const pendingIds = Array.from(new Set(priorityIds)).filter((id) => (
-      !Object.prototype.hasOwnProperty.call(visitStatusByCampaignId, id)
+    const pendingIds = Array.from(new Set(visibleCampaigns.map((entry) => entry.id))).filter((id) => (
+      id !== campaignId
+      && !Object.prototype.hasOwnProperty.call(visitStatusByCampaignId, id)
       && !visitStatusLoadingByCampaignId[id]
     ));
     if (pendingIds.length === 0) return;
-    const queue = chunkArray(pendingIds, VISIT_STATUS_BATCH_SIZE);
-    const workerCount = Math.min(VISIT_STATUS_MAX_CONCURRENT_BATCHES, queue.length);
-    const runWorker = async () => {
-      while (queue.length > 0) {
-        const nextCampaignIds = queue.shift();
-        if (!nextCampaignIds) return;
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
+    const pauseBetweenBatches = () => new Promise<void>((resolve) => {
+      timeoutId = window.setTimeout(resolve, VISIT_STATUS_BACKGROUND_BATCH_DELAY_MS);
+    });
+    const hydrateVisibleCampaigns = async () => {
+      const queue = chunkArray(pendingIds, VISIT_STATUS_BACKGROUND_BATCH_SIZE);
+      for (const nextCampaignIds of queue) {
+        if (cancelled) return;
         await refreshCampaignVisitStatuses(nextCampaignIds, { suppressErrorBanner: true });
+        if (cancelled) return;
+        await pauseBetweenBatches();
       }
     };
-    void Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+    const startHydration = () => {
+      void hydrateVisibleCampaigns();
+    };
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      idleId = idleWindow.requestIdleCallback(startHydration, { timeout: 1500 });
+    } else {
+      timeoutId = window.setTimeout(startHydration, 700);
+    }
+    return () => {
+      cancelled = true;
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+      if (idleId != null) idleWindow.cancelIdleCallback?.(idleId);
+    };
   }, [
     allCampaignVisitSignature,
     campaignId,
@@ -6772,80 +6913,6 @@ export default function FbManagementPage() {
     visibleCampaigns,
     visitStatusByCampaignId,
     visitStatusLoadingByCampaignId,
-  ]);
-
-  useEffect(() => {
-    if (loading || campaignsData.length === 0) return;
-    let cancelled = false;
-    const runPrefetch = () => {
-      if (cancelled) return;
-      const campaignOrder = Array.from(new Set([
-        ...(campaignId ? [campaignId] : []),
-        ...visibleCampaigns.map((entry) => entry.id),
-        ...campaignsData.map((entry) => entry.id),
-      ]));
-      const queue: Array<{ campaignId: string; marketId: string; sessionId: string | null }> = [];
-      for (const targetCampaignId of campaignOrder) {
-        const statusByMarket = visitStatusByCampaignId[targetCampaignId];
-        if (!statusByMarket) continue;
-        for (const status of Object.values(statusByMarket)) {
-          if (!status.hasSubmittedVisit) continue;
-          const detailKey = getVisitDetailKey(targetCampaignId, status.marketId, status.sessionId);
-          if (
-            visitDetailByKey[detailKey]
-            || visitDetailLoadingByKey[detailKey]
-            || visitDetailPrefetchStartedRef.current.has(detailKey)
-          ) {
-            continue;
-          }
-          visitDetailPrefetchStartedRef.current.add(detailKey);
-          queue.push({ campaignId: targetCampaignId, marketId: status.marketId, sessionId: status.sessionId });
-        }
-      }
-      if (queue.length === 0) return;
-      const workerCount = Math.min(VISIT_DETAIL_PREFETCH_MAX_CONCURRENT, queue.length);
-      const runWorker = async () => {
-        while (!cancelled && queue.length > 0) {
-          const next = queue.shift();
-          if (!next) return;
-          await refreshMarketVisitDetail(next.campaignId, next.marketId, next.sessionId);
-          await new Promise((resolve) => setTimeout(resolve, 120));
-        }
-      };
-      void Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-    };
-
-    if (typeof window === "undefined") {
-      runPrefetch();
-      return () => {
-        cancelled = true;
-      };
-    }
-    const idleWindow = window as typeof window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const idleId = idleWindow.requestIdleCallback?.(runPrefetch, { timeout: 1800 });
-    if (idleId != null) {
-      return () => {
-        cancelled = true;
-        idleWindow.cancelIdleCallback?.(idleId);
-      };
-    }
-    const timeoutId = window.setTimeout(runPrefetch, 650);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  }, [
-    campaignId,
-    campaignsData,
-    loading,
-    refreshMarketVisitDetail,
-    visibleCampaigns,
-    visitDetailByKey,
-    visitDetailLoadingByKey,
-    visitStatusByCampaignId,
   ]);
 
   const assignedIds = campaignMarketIds;
@@ -7035,6 +7102,10 @@ export default function FbManagementPage() {
     () => (campaignId ? assignedMarketsByCampaignId.get(campaignId) ?? [] : []),
     [assignedMarketsByCampaignId, campaignId],
   );
+  const assignedMarketDisplayCount = assignedMarkets.length > 0 ? assignedMarkets.length : campaign?.marketIds.length ?? 0;
+  const assignedMarketMetaPending = Boolean(
+    campaign && campaign.marketIds.length > 0 && assignedMarkets.length === 0 && isSelectedCampaignMarketMetaLoading,
+  );
   const campaignVisitStatusByMarket = useMemo(
     () => (campaignId ? visitStatusByCampaignId[campaignId] ?? {} : {}),
     [campaignId, visitStatusByCampaignId],
@@ -7067,7 +7138,7 @@ export default function FbManagementPage() {
   );
 
   const finishedCount = useMemo(() => assignedMarkets.filter((m) => m.finished).length, [assignedMarkets]);
-  const pendingCount = assignedMarkets.length - finishedCount;
+  const pendingCount = Math.max(0, assignedMarketDisplayCount - finishedCount);
 
   const statusFiltered = useMemo(
     () =>
@@ -7101,8 +7172,9 @@ export default function FbManagementPage() {
     [campaignsData],
   );
   const exportCampaignOptions = useMemo(
-    () =>
-      campaignsData
+    () => {
+      if (!exportDialogOpen) return [];
+      return campaignsData
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name, "de"))
         .filter((entry) => {
@@ -7117,10 +7189,12 @@ export default function FbManagementPage() {
             entry.name.toLocaleLowerCase("de").includes(q) ||
             sectionLabel(entry.section).toLocaleLowerCase("de").includes(q)
           );
-        }),
-    [campaignsData, exportCampaignSearch, exportCampaignStatusFilter],
+        });
+    },
+    [campaignsData, exportCampaignSearch, exportCampaignStatusFilter, exportDialogOpen],
   );
   const exportGmOptions = useMemo(() => {
+    if (!exportDialogOpen) return [];
     const namesByDisplay = new Map<string, string>();
     const addName = (value: string | null | undefined) => {
       const displayName = displayExportGmName(value ?? "");
@@ -7140,12 +7214,15 @@ export default function FbManagementPage() {
     return Array.from(namesByDisplay.values())
       .sort((a, b) => a.localeCompare(b, "de"))
       .filter((name) => !q || name.toLocaleLowerCase("de").includes(q));
-  }, [campaignsData, exportGmSearch, visitStatusByCampaignId]);
+  }, [campaignsData, exportDialogOpen, exportGmSearch, visitStatusByCampaignId]);
   const exportRegionOptions = useMemo(
-    () => Array.from(new Set(marketsData.map((market) => market.region).filter(Boolean))).sort((a, b) => a.localeCompare(b, "de")),
-    [marketsData],
+    () => exportDialogOpen
+      ? Array.from(new Set(marketsData.map((market) => market.region).filter(Boolean))).sort((a, b) => a.localeCompare(b, "de"))
+      : [],
+    [exportDialogOpen, marketsData],
   );
   const exportPreview = useMemo(() => {
+    if (!exportDialogOpen) return { campaignCount: 0, assignmentCount: 0, submittedCount: 0 };
     const campaignIdSet = exportFilters.campaignIds.length ? new Set(exportFilters.campaignIds) : null;
     const sectionSet = exportFilters.sections.length ? new Set(exportFilters.sections) : null;
     const gmSet = new Set(exportFilters.gmNames.map(normalizeExportFilterValue));
@@ -7177,7 +7254,7 @@ export default function FbManagementPage() {
       }
     }
     return { campaignCount, assignmentCount, submittedCount };
-  }, [campaignsData, exportCampaignStatusFilter, exportFilters, marketById, visitStatusByCampaignId]);
+  }, [campaignsData, exportCampaignStatusFilter, exportDialogOpen, exportFilters, marketById, visitStatusByCampaignId]);
   const selectedRegionGms = useMemo(() => {
     if (!selectedRegion || !campaign) return [];
     const marketsInRegion = assignedMarkets.filter((market) => market.region === selectedRegion);
@@ -7217,12 +7294,12 @@ export default function FbManagementPage() {
     setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
   }, [campaignId, marketEditMode, marketFilter, marketSearch, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
 
+  const handleMarketFilterChange = useCallback((nextFilter: "all" | "finished" | "pending") => {
+    setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+    setMarketFilter(nextFilter);
+  }, []);
+
   const invalidateCampaignVisitStatus = useCallback((targetCampaignId: string) => {
-    for (const key of Array.from(visitDetailPrefetchStartedRef.current)) {
-      if (key.startsWith(`${targetCampaignId}:`)) {
-        visitDetailPrefetchStartedRef.current.delete(key);
-      }
-    }
     setVisitStatusByCampaignId((current) => {
       const next = { ...current };
       delete next[targetCampaignId];
@@ -7452,6 +7529,8 @@ export default function FbManagementPage() {
       detail: "Filter und Kampagnen werden geprüft.",
     });
     try {
+      const exportMarketsData = await ensureMarketDirectoryLoaded();
+      const exportMarketById = new Map(exportMarketsData.map((market) => [market.id, market]));
       const campaignIdSet = filters.campaignIds.length ? new Set(filters.campaignIds) : null;
       const sectionSet = filters.sections.length ? new Set(filters.sections) : null;
       const gmSet = new Set(filters.gmNames.map(normalizeExportFilterValue));
@@ -7502,7 +7581,7 @@ export default function FbManagementPage() {
           const assignments = exportCampaign.assignments.filter((assignment) => {
             const matchingStatuses = getCampaignVisitStatusesForMarket(statuses, assignment.marketId);
             const status = matchingStatuses[0] ?? null;
-            const market = marketById.get(assignment.marketId);
+            const market = exportMarketById.get(assignment.marketId);
             const gmCandidates = [
               normalizeExportFilterValue(assignment.gmName),
               normalizeExportFilterValue(status?.gmName),
@@ -7544,7 +7623,7 @@ export default function FbManagementPage() {
         const statuses = filteredVisitStatusByCampaignId[exportCampaign.id] ?? {};
         for (const status of Object.values(statuses)) {
           if (!status.sessionId || !status.hasSubmittedVisit) continue;
-          const market = marketById.get(status.marketId);
+          const market = exportMarketById.get(status.marketId);
           const key = getVisitDetailKey(exportCampaign.id, status.marketId, status.sessionId);
           detailTargetsByKey.set(key, {
             campaignId: exportCampaign.id,
@@ -7634,7 +7713,7 @@ export default function FbManagementPage() {
       });
       await exportFbManagementExcel({
         campaigns: filteredCampaigns,
-        markets: marketsData,
+        markets: exportMarketsData,
         visitStatusByCampaignId: filteredVisitStatusByCampaignId,
         visitDetails: loadedDetails,
         visitDetailErrors: detailErrors,
@@ -7657,17 +7736,18 @@ export default function FbManagementPage() {
     } finally {
       setIsExportingFbManagement(false);
     }
-  }, [campaignsData, exportCampaignStatusFilter, fragebogenByScope, isExportingFbManagement, marketById, marketsData, modulesByScope, visitDetailByKey, visitStatusByCampaignId]);
+  }, [campaignsData, ensureMarketDirectoryLoaded, exportCampaignStatusFilter, fragebogenByScope, isExportingFbManagement, modulesByScope, visitDetailByKey, visitStatusByCampaignId]);
 
   useEffect(() => {
     const handler = () => {
       setExportError(null);
       setExportProgress(null);
+      void ensureMarketDirectoryLoaded().catch(() => undefined);
       setExportDialogOpen(true);
     };
     window.addEventListener("admin:fbmanagement:export", handler);
     return () => window.removeEventListener("admin:fbmanagement:export", handler);
-  }, []);
+  }, [ensureMarketDirectoryLoaded]);
 
   if (loading) {
     return (
@@ -7858,6 +7938,7 @@ export default function FbManagementPage() {
 
   const openAddPanel = () => {
     setEditMenuOpen(false);
+    void ensureMarketDirectoryLoaded().catch(() => undefined);
     if (editBtnRef.current) {
       const r = editBtnRef.current.getBoundingClientRect();
       setAddPanelPos({ x: r.right - 520, y: r.bottom + 6 });
@@ -8798,10 +8879,12 @@ export default function FbManagementPage() {
               {campaign?.section === "kuehler" ? "Zugewiesene Kühler" : "Zugewiesene Märkte"}
             </span>
             <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>
-              {assignedMarkets.length} {campaign?.section === "kuehler" ? "Kühler" : "Märkte"} gesamt
+              {assignedMarketDisplayCount} {campaign?.section === "kuehler" ? "Kühler" : "Märkte"} gesamt
             </span>
-            {isVisitStatusLoading && (
-              <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.42)" }}>Besuchsstatus lädt...</span>
+            {(isVisitStatusLoading || assignedMarketMetaPending) && (
+              <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.42)" }}>
+                {assignedMarketMetaPending ? "Märkte laden..." : "Besuchsstatus lädt..."}
+              </span>
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -8809,11 +8892,11 @@ export default function FbManagementPage() {
             {marketEditMode !== "remove" && (
               <div style={{ display: "flex", gap: 3, background: "rgba(0,0,0,0.06)", borderRadius: 8, padding: 3 }}>
                 {(["all", "finished", "pending"] as const).map((f) => (
-                  <button key={f} onClick={() => setMarketFilter(f)}
+                  <button key={f} onClick={() => handleMarketFilterChange(f)}
                     style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" as const }}
                   >
                     {f === "all"
-                      ? `Alle (${assignedMarkets.length})`
+                      ? `Alle (${assignedMarketDisplayCount})`
                       : campaignStatusMetricsLoading
                         ? f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
                         : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
@@ -8876,21 +8959,39 @@ export default function FbManagementPage() {
               type="text"
               placeholder="Markt, Adresse oder GM suchen"
               value={marketSearch}
-              onChange={(e) => setMarketSearch(e.target.value)}
+              onChange={(e) => {
+                setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+                setMarketSearch(e.target.value);
+              }}
               style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, color: "#1a1a1a" }}
             />
             {marketSearch && (
-              <button onClick={() => setMarketSearch("")} style={{ display: "flex", border: "none", background: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", padding: 0 }}>
+              <button onClick={() => {
+                setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+                setMarketSearch("");
+              }} style={{ display: "flex", border: "none", background: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", padding: 0 }}>
                 <X size={10} strokeWidth={2} />
               </button>
             )}
           </div>
           {/* Filter chips */}
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            <MarketFilterChip label="Kette"  value={marketFilters.chain}  options={mfChains}  onChange={(v) => setMarketFilters((p) => ({ ...p, chain: v }))} />
-            <MarketFilterChip label="GM"     value={marketFilters.gm}     options={mfGms}     onChange={(v) => setMarketFilters((p) => ({ ...p, gm: v }))} />
-            <MarketFilterChip label="Stadt"  value={marketFilters.city}   options={mfCities}  onChange={(v) => setMarketFilters((p) => ({ ...p, city: v }))} />
-            <MarketFilterChip label="Region" value={marketFilters.region} options={mfRegions} onChange={(v) => setMarketFilters((p) => ({ ...p, region: v }))} />
+            <MarketFilterChip label="Kette"  value={marketFilters.chain}  options={mfChains}  onChange={(v) => {
+              setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+              setMarketFilters((p) => ({ ...p, chain: v }));
+            }} />
+            <MarketFilterChip label="GM"     value={marketFilters.gm}     options={mfGms}     onChange={(v) => {
+              setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+              setMarketFilters((p) => ({ ...p, gm: v }));
+            }} />
+            <MarketFilterChip label="Stadt"  value={marketFilters.city}   options={mfCities}  onChange={(v) => {
+              setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+              setMarketFilters((p) => ({ ...p, city: v }));
+            }} />
+            <MarketFilterChip label="Region" value={marketFilters.region} options={mfRegions} onChange={(v) => {
+              setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+              setMarketFilters((p) => ({ ...p, region: v }));
+            }} />
           </div>
         </div>
 
@@ -8899,7 +9000,9 @@ export default function FbManagementPage() {
           {filteredMarkets.length === 0 && (
             <div style={{ padding: "28px 20px", textAlign: "center" }}>
               <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>
-                {marketEditMode === "remove" ? "Keine ausstehenden Märkte zum Entfernen." : "Keine Märkte gefunden."}
+                {assignedMarketMetaPending
+                  ? "Zugewiesene Märkte werden geladen..."
+                  : marketEditMode === "remove" ? "Keine ausstehenden Märkte zum Entfernen." : "Keine Märkte gefunden."}
               </span>
             </div>
           )}
@@ -8996,6 +9099,8 @@ export default function FbManagementPage() {
           gmUsers={gmUsers}
           gmUsersLoading={gmUsersLoading}
           gmUsersError={gmUsersError}
+          directoryLoading={marketDirectoryLoading}
+          directoryError={marketDirectoryError}
         />
       )}
       {campaignContextMenu && contextMenuCampaign && createPortal(

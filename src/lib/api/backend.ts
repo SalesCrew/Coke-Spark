@@ -3964,6 +3964,14 @@ export async function fetchCampaigns(): Promise<Campaign[]> {
   return (data.campaigns ?? []).map(normalizeCampaign);
 }
 
+export async function fetchCampaignAssignedMarkets(campaignIds: string[]): Promise<MarketRecord[]> {
+  const uniqueCampaignIds = Array.from(new Set(campaignIds.map((entry) => entry.trim()).filter(Boolean)));
+  if (uniqueCampaignIds.length === 0) return [];
+  const params = new URLSearchParams({ campaignIds: uniqueCampaignIds.join(",") });
+  const data = (await authedFetch(`/admin/campaigns/assigned-markets?${params.toString()}`)) as { markets?: BackendMarket[] };
+  return (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market));
+}
+
 export async function fetchAdminPhotos(input: AdminPhotoArchiveFilters = {}): Promise<AdminPhotoArchiveResponse> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(input)) {

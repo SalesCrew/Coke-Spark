@@ -190,6 +190,7 @@
   vertical-align: baseline;
   line-height: inherit;
   align-items: baseline;
+  margin-left: 0.1em;
 }
 
 .cs-switch-wrap > .text-rotate {

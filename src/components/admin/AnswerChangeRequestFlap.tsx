@@ -812,11 +812,13 @@ export function AnswerChangeRequestFlap() {
                         </span>
                         <ChevronRight className={`answer-done-chevron ${compactDoneOpen ? "is-open" : ""}`} size={15} />
                       </button>
-                      {compactDoneOpen ? (
-                        <div className="answer-done-list">
-                          {renderCompactCompletedCards()}
+                      <div className={`answer-done-reveal ${compactDoneOpen ? "is-open" : ""}`} aria-hidden={!compactDoneOpen}>
+                        <div className="answer-done-reveal-inner">
+                          <div className="answer-done-list">
+                            {renderCompactCompletedCards()}
+                          </div>
                         </div>
-                      ) : null}
+                      </div>
                     </div>
                   ) : null}
                 </>
@@ -1043,11 +1045,13 @@ export function AnswerChangeRequestFlap() {
                           </span>
                           <ChevronRight className={`answer-done-chevron ${expandedDoneOpen ? "is-open" : ""}`} size={15} />
                         </button>
-                        {expandedDoneOpen ? (
-                          <div className="answer-done-list is-detail">
-                            {renderCompletedDetailCards()}
+                        <div className={`answer-done-reveal ${expandedDoneOpen ? "is-open" : ""}`} aria-hidden={!expandedDoneOpen}>
+                          <div className="answer-done-reveal-inner">
+                            <div className="answer-done-list is-detail">
+                              {renderCompletedDetailCards()}
+                            </div>
                           </div>
-                        ) : null}
+                        </div>
                       </div>
                     ) : null}
                   </>
@@ -1075,7 +1079,7 @@ export function AnswerChangeRequestFlap() {
           align-items: center;
           --answer-panel-width: 390px;
           transform: translateX(var(--answer-panel-width));
-          transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: transform 0.56s cubic-bezier(0.16, 0.92, 0.12, 1);
           will-change: transform;
         }
 
@@ -1616,10 +1620,41 @@ export function AnswerChangeRequestFlap() {
           margin-top: 16px;
         }
 
+        .answer-done-reveal {
+          display: grid;
+          grid-template-rows: 0fr;
+          opacity: 1;
+          transform: translateY(-5px);
+          transition:
+            grid-template-rows 0.9s linear(0, 0.5 25%, 0.73 43%, 0.86 58%, 0.93 70%, 0.97 82%, 0.99 92%, 1),
+            transform 0.9s linear(0, 0.5 25%, 0.73 43%, 0.86 58%, 0.93 70%, 0.97 82%, 0.99 92%, 1);
+          will-change: grid-template-rows, transform;
+        }
+
+        .answer-done-reveal.is-open {
+          grid-template-rows: 1fr;
+          transform: translateY(0);
+        }
+
+        .answer-done-reveal-inner {
+          min-height: 0;
+          overflow: hidden;
+        }
+
         .answer-done-list {
           display: grid;
           gap: 8px;
           padding: 0 9px 9px;
+          opacity: 0;
+          transform: translateY(-3px);
+          transition:
+            transform 0.9s linear(0, 0.5 25%, 0.73 43%, 0.86 58%, 0.93 70%, 0.97 82%, 0.99 92%, 1),
+            opacity 0.22s ease;
+        }
+
+        .answer-done-reveal.is-open .answer-done-list {
+          opacity: 1;
+          transform: translateY(0);
         }
 
         .answer-done-list .answer-request-card {
@@ -1686,6 +1721,21 @@ export function AnswerChangeRequestFlap() {
           padding: 16px 16px 96px;
           overflow-y: auto;
           scroll-padding-bottom: 96px;
+        }
+
+        .answer-compact,
+        .answer-people,
+        .answer-person-detail {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+
+        .answer-compact::-webkit-scrollbar,
+        .answer-people::-webkit-scrollbar,
+        .answer-person-detail::-webkit-scrollbar {
+          width: 0;
+          height: 0;
+          display: none;
         }
 
         .answer-person-header {

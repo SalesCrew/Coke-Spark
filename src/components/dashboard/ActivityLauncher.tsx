@@ -444,6 +444,9 @@ function AccordionRow({
   const [contentH, setContentH] = useState(0);
 
   const active = running && !paused;
+  const supportsComment = activity.key === "sonderaufgabe" || activity.key === "lager";
+  const commentPlaceholder =
+    activity.key === "lager" ? "Kommentar zum Lagerbesuch (optional)..." : "Kommentar zum Sondereinsatz...";
 
   useEffect(() => {
     if (!active) return;
@@ -560,7 +563,7 @@ function AccordionRow({
         activityType: activity.key,
         fromHm: vonVal,
         toHm: bisVal,
-        comment: activity.key === "sonderaufgabe" ? manualComment.trim() : undefined,
+        comment: supportsComment ? manualComment.trim() : undefined,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
@@ -609,7 +612,7 @@ function AccordionRow({
         activityType: activity.key,
         fromHm: nextFrom,
         toHm: nextTo,
-        comment: activity.key === "sonderaufgabe" ? manualComment.trim() : undefined,
+        comment: supportsComment ? manualComment.trim() : undefined,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
@@ -1087,12 +1090,12 @@ function AccordionRow({
                 </div>
               </div>
 
-              {activity.key === "sonderaufgabe" && (
+              {supportsComment && (
                 <textarea
                   value={manualComment}
                   onChange={(e) => setManualComment(e.target.value.slice(0, 2000))}
                   onClick={(e) => e.stopPropagation()}
-                  placeholder="Kommentar zum Sondereinsatz..."
+                  placeholder={commentPlaceholder}
                   maxLength={2000}
                   style={{
                     marginTop: 8,

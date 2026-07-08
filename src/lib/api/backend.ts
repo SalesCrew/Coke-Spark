@@ -2422,7 +2422,7 @@ export type AdminAnswerChangeRequest = {
 export type GmAnswerChangeRequest = AdminAnswerChangeRequest;
 
 export type TimeEntryChangeRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
-export type TimeEntryChangeRequestSourceKind = "marktbesuch" | "pause" | "zusatzzeit";
+export type TimeEntryChangeRequestSourceKind = "day_start" | "marktbesuch" | "pause" | "zusatzzeit";
 export type TimeEntryChangeRequest = {
   id: string;
   daySessionId: string;

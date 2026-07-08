@@ -1616,7 +1616,7 @@ function FreeInputMatrix({
   );
 }
 
-function PhotoLightbox({ photos }: { photos: string[] }) {
+function PhotoLightboxBase({ photos }: { photos: string[] }) {
   const [open, setOpen] = React.useState<number | null>(null);
   const [mounted, setMounted] = React.useState(false);
   const count = photos.length;
@@ -1687,6 +1687,377 @@ function PhotoLightbox({ photos }: { photos: string[] }) {
             onClick={() => setOpen(i)}
             style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 7, cursor: "pointer" }}
           />
+        ))}
+      </div>
+      {overlay}
+    </>
+  );
+}
+
+type PhotoLightboxTag = { id: string; label: string; deletedAt: string | null };
+
+function PhotoLightbox({
+  photos,
+  activePhotoIndex = 0,
+  onActivePhotoIndexChange,
+  tagsEnabled = false,
+  tags = [],
+  tagMode = "all",
+  tagSearch = "",
+  onTagSearchChange,
+  selectedTagIdsForIndex,
+  onToggleTag,
+}: {
+  photos: string[];
+  activePhotoIndex?: number;
+  onActivePhotoIndexChange?: (index: number) => void;
+  tagsEnabled?: boolean;
+  tags?: PhotoLightboxTag[];
+  tagMode?: PhotoTagMode;
+  tagSearch?: string;
+  onTagSearchChange?: (value: string) => void;
+  selectedTagIdsForIndex?: (index: number) => string[];
+  onToggleTag?: (tagId: string, index: number) => void;
+}) {
+  const [open, setOpen] = React.useState<number | null>(null);
+  const [mounted, setMounted] = React.useState(false);
+  const count = photos.length;
+
+  React.useEffect(() => { setMounted(true); }, []);
+
+  const openPhoto = (index: number) => {
+    setOpen(index);
+    onActivePhotoIndexChange?.(index);
+  };
+  const moveTo = (index: number) => {
+    if (count <= 0) return;
+    const nextIndex = (index + count) % count;
+    setOpen(nextIndex);
+    onActivePhotoIndexChange?.(nextIndex);
+  };
+  const prev = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    moveTo(open !== null ? open - 1 : activePhotoIndex - 1);
+  };
+  const next = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    moveTo(open !== null ? open + 1 : activePhotoIndex + 1);
+  };
+
+  const selectedTagIds = open !== null ? selectedTagIdsForIndex?.(open) ?? [] : [];
+  const normalizedTagSearch = normalizeTagSearchText(tagSearch);
+  const visibleTags = normalizedTagSearch.length === 0
+    ? tags
+    : tags.filter((tag) =>
+        selectedTagIds.includes(tag.id) || normalizeTagSearchText(tag.label).includes(normalizedTagSearch),
+      );
+  const currentPhoto = open !== null ? photos[open] ?? "" : "";
+  const showTags = tagsEnabled && tags.length > 0;
+
+  const overlay = open !== null && mounted ? createPortal(
+    <div
+      onClick={() => setOpen(null)}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 99999,
+        padding: 18,
+        background: "rgba(0,0,0,0.88)",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          position: "relative",
+          width: "min(92vw, 820px)",
+          maxHeight: "92vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch",
+          gap: showTags ? 10 : 0,
+        }}
+      >
+        <div
+          style={{
+            minHeight: 180,
+            maxHeight: showTags ? "50vh" : "78vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {isPreviewablePhotoSrc(currentPhoto) ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={currentPhoto}
+              alt={`Foto ${open + 1}`}
+              style={{
+                maxWidth: "100%",
+                maxHeight: showTags ? "50vh" : "78vh",
+                borderRadius: 14,
+                objectFit: "contain",
+                boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+                display: "block",
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: "min(100%, 560px)",
+                minHeight: 220,
+                borderRadius: 14,
+                background: "rgba(255,255,255,0.08)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: "rgba(255,255,255,0.72)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                boxShadow: "0 8px 40px rgba(0,0,0,0.35)",
+              }}
+            >
+              <Camera size={26} strokeWidth={1.7} />
+              <span style={{ fontSize: 12, fontWeight: 800 }}>Foto {open + 1}</span>
+            </div>
+          )}
+        </div>
+
+        {showTags && (
+          <div
+            style={{
+              borderRadius: 16,
+              background: "rgba(255,255,255,0.96)",
+              border: "1px solid rgba(255,255,255,0.66)",
+              boxShadow: "0 14px 36px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.88)",
+              padding: 12,
+              color: "#111827",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 850, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.32)" }}>
+                  Tags bearbeiten
+                </div>
+                <div style={{ marginTop: 2, fontSize: 12, fontWeight: 850, color: "#111827" }}>
+                  {tagMode === "perPhoto" ? `Foto ${open + 1}` : "Alle Fotos"}
+                </div>
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 800, color: "rgba(0,0,0,0.34)" }}>
+                {selectedTagIds.length}/{tags.length}
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                padding: "8px 10px",
+                borderRadius: 12,
+                border: "1px solid rgba(0,0,0,0.08)",
+                background: "rgba(248,250,252,0.88)",
+                marginBottom: 10,
+              }}
+            >
+              <Search size={12} strokeWidth={2} color="rgba(0,0,0,0.28)" />
+              <input
+                type="text"
+                value={tagSearch}
+                onChange={(event) => onTagSearchChange?.(event.target.value)}
+                placeholder="Tag suchen..."
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  color: "#111827",
+                  fontSize: 12,
+                  fontWeight: 650,
+                  fontFamily: "inherit",
+                }}
+              />
+              {tagSearch && (
+                <button
+                  type="button"
+                  onClick={() => onTagSearchChange?.("")}
+                  aria-label="Tag-Suche leeren"
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 999,
+                    border: "none",
+                    background: "rgba(0,0,0,0.05)",
+                    color: "rgba(0,0,0,0.42)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 14,
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    fontFamily: "inherit",
+                    padding: 0,
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <div style={{ maxHeight: "min(22vh, 190px)", overflowY: "auto", paddingRight: 2 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                {visibleTags.map((tag) => {
+                  const selected = selectedTagIds.includes(tag.id);
+                  const deleted = !!tag.deletedAt;
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => {
+                        onToggleTag?.(tag.id, open);
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        minHeight: 34,
+                        padding: "7px 12px",
+                        borderRadius: 999,
+                        border: selected
+                          ? "1.5px solid rgba(220,38,38,0.50)"
+                          : deleted
+                            ? "1.5px solid rgba(0,0,0,0.08)"
+                            : "1.5px solid rgba(0,0,0,0.12)",
+                        background: selected ? "linear-gradient(to bottom, #DC2626, #b91c1c)" : "rgba(255,255,255,0.9)",
+                        color: selected ? "#fff" : deleted ? "rgba(0,0,0,0.28)" : "#111827",
+                        fontSize: 11,
+                        fontWeight: selected ? 800 : 650,
+                        cursor: "pointer",
+                        boxShadow: selected
+                          ? "inset 0 1px 0.6px rgba(255,255,255,0.24), 0 0 0 1px #a91b1b, 0 1px 5px rgba(180,20,20,0.18)"
+                          : "0 1px 3px rgba(0,0,0,0.055)",
+                        opacity: deleted && !selected ? 0.58 : 1,
+                        textDecoration: deleted ? "line-through" : "none",
+                        transition: "all 0.15s ease",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {selected && <Check size={10} strokeWidth={3} />}
+                      {tag.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {visibleTags.length === 0 && (
+                <div style={{ padding: "8px 2px 2px", fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)" }}>
+                  Kein Tag gefunden.
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setOpen(null)}
+              style={{
+                width: "100%",
+                height: 36,
+                marginTop: 12,
+                borderRadius: 10,
+                border: "1px solid rgba(185,28,28,0.85)",
+                background: "linear-gradient(to bottom, #ef4444, #dc2626)",
+                color: "#fff",
+                fontSize: 11,
+                fontWeight: 850,
+                fontFamily: "inherit",
+                cursor: "pointer",
+                boxShadow: "inset 0 1px 0.7px rgba(255,255,255,0.32), 0 2px 9px rgba(220,38,38,0.22)",
+              }}
+            >
+              Fertig
+            </button>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setOpen(null)}
+          aria-label="Foto schließen"
+          style={{
+            position: "absolute",
+            top: -14,
+            right: -14,
+            width: 30,
+            height: 30,
+            borderRadius: "50%",
+            background: "rgba(255,255,255,0.15)",
+            border: "1px solid rgba(255,255,255,0.3)",
+            color: "#fff",
+            fontSize: 16,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            lineHeight: 1,
+            padding: 0,
+            fontFamily: "inherit",
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      {count > 1 && (
+        <div style={{ position: "absolute", bottom: 22, display: "flex", alignItems: "center", gap: 16 }}>
+          <button type="button" onClick={prev} style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.12)", border: "none", color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, paddingBottom: 1 }}>‹</button>
+          <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, fontWeight: 700 }}>{open + 1} / {count}</span>
+          <button type="button" onClick={next} style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.12)", border: "none", color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, paddingBottom: 1 }}>›</button>
+        </div>
+      )}
+    </div>,
+    document.body,
+  ) : null;
+
+  return (
+    <>
+      <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap" }}>
+        {photos.map((src, index) => (
+          <button
+            key={`${src}-${index}`}
+            type="button"
+            onClick={() => openPhoto(index)}
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: 7,
+              overflow: "hidden",
+              border: index === activePhotoIndex ? "1.5px solid rgba(220,38,38,0.42)" : "1px solid rgba(0,0,0,0.06)",
+              background: "rgba(0,0,0,0.04)",
+              padding: 0,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: index === activePhotoIndex ? "0 2px 8px rgba(220,38,38,0.14)" : "none",
+            }}
+          >
+            {isPreviewablePhotoSrc(src) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={src}
+                alt={`Foto ${index + 1}`}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+              />
+            ) : (
+              <Camera size={16} strokeWidth={1.8} color="rgba(0,0,0,0.32)" />
+            )}
+          </button>
         ))}
       </div>
       {overlay}
@@ -1836,6 +2207,7 @@ function QuestionCard({
   );
   const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
   const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
+  const photoTagSyncTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [photoSourcePickerOpen, setPhotoSourcePickerOpen] = React.useState(false);
   const [tagSearch, setTagSearch] = React.useState("");
   const [activePhotoIndex, setActivePhotoIndex] = React.useState(0);
@@ -1864,6 +2236,30 @@ function QuestionCard({
     if (!photoState) return;
     setActivePhotoIndex((prev) => Math.max(0, Math.min(prev, Math.max(photoState.photos.length - 1, 0))));
   }, [answer, question.id, question.type]);
+
+  React.useEffect(() => () => {
+    if (photoTagSyncTimerRef.current) {
+      clearTimeout(photoTagSyncTimerRef.current);
+      photoTagSyncTimerRef.current = null;
+    }
+  }, [question.id]);
+
+  const schedulePhotoTagSync = React.useCallback(
+    (payload: { questionId: string; photoState: PhotoAnswerState; photoKeys: string[] }) => {
+      if (!onPhotoSync || payload.photoState.photos.length === 0) return;
+      if (photoTagSyncTimerRef.current) clearTimeout(photoTagSyncTimerRef.current);
+      photoTagSyncTimerRef.current = setTimeout(() => {
+        photoTagSyncTimerRef.current = null;
+        void onPhotoSync({
+          questionId: payload.questionId,
+          files: [],
+          photoState: payload.photoState,
+          photoKeys: payload.photoKeys,
+        });
+      }, 450);
+    },
+    [onPhotoSync],
+  );
 
   return (
     <div
@@ -2310,7 +2706,6 @@ function QuestionCard({
       {question.type === "photo" && (() => {
         const photoState = decodePhotoAnswer(answer);
         const photos = photoState.photos;
-        const previewPhotos = photos.filter(isPreviewablePhotoSrc);
         const tagsEnabled = Boolean(cfg?.tagsEnabled) && Array.isArray(cfg?.tagIds) && (cfg.tagIds as string[]).length > 0;
         const configuredTagIds: string[] = tagsEnabled ? (cfg.tagIds as string[]) : [];
 
@@ -2434,31 +2829,41 @@ function QuestionCard({
             };
           }
           handlePhotoAnswerState(nextState);
-          if (onPhotoSync && nextState.photos.length > 0) {
-            await onPhotoSync({
+          if (nextState.photos.length > 0) {
+            schedulePhotoTagSync({
               questionId: question.id,
-              files: [],
               photoState: nextState,
               photoKeys,
             });
           }
         };
-        const toggleTag = async (id: string) => {
-          const nextSelected = selectedTagIds.includes(id)
-            ? selectedTagIds.filter((t) => t !== id)
-            : [...selectedTagIds, id];
+        const selectedTagIdsForPhotoIndex = (index: number) => {
+          const photoKey = photoKeys[index] ?? resolvePhotoUiKey(photos, index);
+          return tagMode === "perPhoto"
+            ? photoTagsForUiKey(photoState, photoKey)
+            : normalizePhotoTagIds(photoState.selectedTagIds);
+        };
+
+        const toggleTagForPhotoIndex = (id: string, index: number) => {
+          const targetPhotoKey = photoKeys[index] ?? resolvePhotoUiKey(photos, index);
+          const currentSelected = tagMode === "perPhoto"
+            ? photoTagsForUiKey(photoState, targetPhotoKey)
+            : normalizePhotoTagIds(photoState.selectedTagIds);
+          const nextSelected = currentSelected.includes(id)
+            ? currentSelected.filter((tagId) => tagId !== id)
+            : [...currentSelected, id];
           const nextState: PhotoAnswerState =
             tagMode === "perPhoto"
               ? {
                   ...photoState,
                   tagMode: "perPhoto",
                   selectedTagIds: unionPhotoTagIds([
-                    ...photoKeys.filter((key) => key !== activePhotoKey).map((key) => photoTagsForUiKey(photoState, key)),
+                    ...photoKeys.filter((key) => key !== targetPhotoKey).map((key) => photoTagsForUiKey(photoState, key)),
                     nextSelected,
                   ]),
                   photoTagIdsByPhotoKey: {
                     ...(photoState.photoTagIdsByPhotoKey ?? {}),
-                    [activePhotoKey]: normalizePhotoTagIds(nextSelected),
+                    [targetPhotoKey]: normalizePhotoTagIds(nextSelected),
                   },
                 }
               : {
@@ -2467,14 +2872,16 @@ function QuestionCard({
                   selectedTagIds: normalizePhotoTagIds(nextSelected),
                 };
           onAnswer(encodePhotoAnswer(nextState));
-          if (onPhotoSync && photoState.photos.length > 0) {
-            await onPhotoSync({
+          if (photoState.photos.length > 0) {
+            schedulePhotoTagSync({
               questionId: question.id,
-              files: [],
               photoState: nextState,
               photoKeys,
             });
           }
+        };
+        const toggleTag = (id: string) => {
+          toggleTagForPhotoIndex(id, activePhotoIndex);
         };
 
         return (
@@ -2586,8 +2993,19 @@ function QuestionCard({
                 </div>
               )}
             </div>
-            {previewPhotos.length > 0 && (
-              <PhotoLightbox photos={previewPhotos} />
+            {photos.length > 0 && (
+              <PhotoLightbox
+                photos={photos}
+                activePhotoIndex={activePhotoIndex}
+                onActivePhotoIndexChange={setActivePhotoIndex}
+                tagsEnabled={tagsEnabled}
+                tags={resolvedTags}
+                tagMode={tagMode}
+                tagSearch={tagSearch}
+                onTagSearchChange={setTagSearch}
+                selectedTagIdsForIndex={selectedTagIdsForPhotoIndex}
+                onToggleTag={toggleTagForPhotoIndex}
+              />
             )}
             {photos.length > 0 && (
               <div style={{ marginTop: 8 }}>

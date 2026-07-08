@@ -16,6 +16,7 @@ import {
   startDaySession,
   submitDaySession,
   type AdminZeiterfassungTimelineSegment,
+  type DaySessionCurrentPayload,
   type DaySessionReviewEdit,
   type DaySession,
   type TodaySubmissionItem,
@@ -27,9 +28,12 @@ import {
   saveLocalDaySessionStartSnapshot,
   type LocalDaySessionSnapshot,
 } from "@/lib/gm/daySessionPersistence";
+import { GmSkeletonTimelineRows } from "./GmDashboardSkeleton";
 
 interface TimeTrackerProps {
   currentPhase?: string; // exposed for debug panel
+  daySessionPayload?: DaySessionCurrentPayload | null;
+  daySessionLoading?: boolean;
 }
 
 interface DaySummarySnapshot {
@@ -310,7 +314,7 @@ function TimeField({ value, onOpenClock }: { value: string; onOpenClock: () => v
   );
 }
 
-export function TimeTracker(_: TimeTrackerProps) {
+export function TimeTracker({ daySessionPayload, daySessionLoading = false }: TimeTrackerProps) {
   const trackerTimezone = "Europe/Vienna";
   const authSession = readAuthSession();
   const gmDisplayName =
@@ -325,6 +329,8 @@ export function TimeTracker(_: TimeTrackerProps) {
   const [todayItems, setTodayItems] = useState<TodaySubmissionItem[]>([]);
   const [todayTimeline, setTodayTimeline] = useState<AdminZeiterfassungTimelineSegment[]>([]);
   const [todayStats, setTodayStats] = useState<TodaySubmissionsPayload["stats"]>(null);
+  const [todaySubmissionsLoading, setTodaySubmissionsLoading] = useState(true);
+  const [showTodaySubmissionsSkeleton, setShowTodaySubmissionsSkeleton] = useState(false);
   const [persistBusy, setPersistBusy] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
   const [openEndKmOnly, setOpenEndKmOnly] = useState(false);
@@ -484,7 +490,22 @@ export function TimeTracker(_: TimeTrackerProps) {
     setPersistError(null);
     const localSnapshot = readLatestLocalDaySessionSnapshot();
     try {
-      const payload = await fetchCurrentDaySession();
+      if (daySessionPayload === null) {
+        if (localSnapshot) {
+          applyLocalDaySessionSnapshot(localSnapshot);
+          setPersistError("Tagesstart ist lokal gesichert. Synchronisierung lÃ¤uft, sobald die Verbindung wieder da ist.");
+          void reconcileLocalDayStart(localSnapshot);
+          return;
+        }
+        setRunning(false);
+        setPaused(false);
+        setSeconds(0);
+        setConfirmedStartKm(null);
+        setPhase("idle");
+        return;
+      }
+      if (daySessionLoading && daySessionPayload === undefined) return;
+      const payload = daySessionPayload ?? await fetchCurrentDaySession();
       const session = payload.session;
       setDaySession(session);
       if (!session) {
@@ -544,9 +565,10 @@ export function TimeTracker(_: TimeTrackerProps) {
       const message = error instanceof Error ? error.message : "Arbeitstag konnte nicht geladen werden.";
       setPersistError(message);
     }
-  }, [applyLocalDaySessionSnapshot, enterForgotEndMode, reconcileLocalDayStart, trackerTimezone]);
+  }, [applyLocalDaySessionSnapshot, daySessionLoading, daySessionPayload, enterForgotEndMode, reconcileLocalDayStart, trackerTimezone]);
 
   const hydrateTodaySubmissions = useCallback(async (): Promise<TodaySubmissionsPayload> => {
+    setTodaySubmissionsLoading(true);
     try {
       const data = await fetchTodaySubmissions();
       const items = data.items ?? [];
@@ -562,6 +584,8 @@ export function TimeTracker(_: TimeTrackerProps) {
       setTodayTimeline([]);
       setTodayStats(null);
       return { items: [], timeline: [], stats: null, session: null };
+    } finally {
+      setTodaySubmissionsLoading(false);
     }
   }, []);
 
@@ -1136,6 +1160,15 @@ export function TimeTracker(_: TimeTrackerProps) {
     display: "flex", flexDirection: "column", flex: 1, minHeight: 0,
   };
   const feedItems = todayTimeline.length > 0 ? todayTimeline : todayItems;
+
+  useEffect(() => {
+    if (!todaySubmissionsLoading || feedItems.length > 0) {
+      setShowTodaySubmissionsSkeleton(false);
+      return;
+    }
+    const timeoutId = window.setTimeout(() => setShowTodaySubmissionsSkeleton(true), 160);
+    return () => window.clearTimeout(timeoutId);
+  }, [feedItems.length, todaySubmissionsLoading]);
 
   function isTimelineFeedItem(item: AdminZeiterfassungTimelineSegment | TodaySubmissionItem): item is AdminZeiterfassungTimelineSegment {
     return "start" in item && "end" in item;
@@ -1888,7 +1921,9 @@ export function TimeTracker(_: TimeTrackerProps) {
             <div className="mt-4" style={{ height: 1, background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.08) 50%, transparent)" }} />
             <div className="mt-3" style={{ minHeight: 93, maxHeight: 93, overflowY: "auto", paddingRight: 2 }}>
               <div className="space-y-1.5">
-                {feedItems.length > 0 ? feedItems.map((item) => (
+                {showTodaySubmissionsSkeleton ? (
+                  <GmSkeletonTimelineRows count={3} />
+                ) : feedItems.length > 0 ? feedItems.map((item) => (
                   <div key={feedKey(item)} className="flex items-center justify-between" style={{ backgroundColor: "rgba(0,0,0,0.03)", borderRadius: 7, padding: "7px 10px" }}>
                     <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
                       <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#DC2626", opacity: 0.8 }} />

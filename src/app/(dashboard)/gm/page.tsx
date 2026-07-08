@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GMStatusCard } from "@/components/dashboard/GMStatusCard";
@@ -17,9 +17,9 @@ import {
   cancelGmVisitSession,
   clearGmVisitPreloadCache,
   fetchGmBonusSummary,
+  fetchGmDashboardCritical,
   fetchGmVisitSession,
   fetchGmKpiSummary,
-  fetchLatestActiveGmVisitSession,
   logoutCurrentUser,
   clearLatestActiveGmVisitHandoff,
   readLatestActiveGmVisitHandoff,
@@ -27,6 +27,7 @@ import {
   fetchGmKuehlerMhdProgress,
   readCachedGmKpiSummary,
   setGmVisitPreloadCache,
+  type GmDashboardCriticalPayload,
   type GmKpiSummary,
   type GmKuehlerMhdProgressPayload,
   type GmVisitSessionReadPayload,
@@ -41,20 +42,40 @@ function formatElapsedTime(totalSeconds: number): string {
   return `${h}:${m}:${s}`;
 }
 
+type DashboardActiveVisitSummary = NonNullable<GmDashboardCriticalPayload["activeVisit"]>;
+
+function summarizeActiveVisitPayload(payload: GmVisitSessionReadPayload): DashboardActiveVisitSummary {
+  return {
+    sessionId: payload.session.id,
+    startedAt: payload.session.startedAt,
+    marketId: payload.market.id,
+    marketName: payload.market.name,
+    marketAddress: payload.market.address,
+    marketPostalCode: payload.market.postalCode,
+    marketCity: payload.market.city,
+    campaignIds: Array.from(new Set((payload.sections ?? []).map((section) => section.campaignId).filter(Boolean))),
+    campaignNames: Array.from(new Set((payload.sections ?? []).map((section) => section.campaignName).filter(Boolean))),
+  };
+}
+
 export default function GMDashboard() {
   const router = useRouter();
   const [bonusModalOpen, setBonusModalOpen] = useState(false);
   const [bonusSummary, setBonusSummary] = useState<PraemienGmBonusSummary | null>(null);
   const [gmKpiSummary, setGmKpiSummary] = useState<GmKpiSummary | null>(null);
   const [kuehlerMhdProgress, setKuehlerMhdProgress] = useState<GmKuehlerMhdProgressPayload | null>(null);
-  const [activeVisitPayload, setActiveVisitPayload] = useState<GmVisitSessionReadPayload | null>(null);
+  const [dashboardCritical, setDashboardCritical] = useState<GmDashboardCriticalPayload | null>(null);
+  const [dashboardCriticalLoading, setDashboardCriticalLoading] = useState(true);
+  const [activeVisitSummary, setActiveVisitSummary] = useState<DashboardActiveVisitSummary | null>(null);
+  const [activeVisitHydratedPayload, setActiveVisitHydratedPayload] = useState<GmVisitSessionReadPayload | null>(null);
   const [activeVisitSeconds, setActiveVisitSeconds] = useState(0);
   const [activeVisitOpening, setActiveVisitOpening] = useState(false);
   const [activeVisitCancelConfirm, setActiveVisitCancelConfirm] = useState(false);
   const [activeVisitCancelling, setActiveVisitCancelling] = useState(false);
   const [activeVisitCancelError, setActiveVisitCancelError] = useState<string | null>(null);
-  const [activeVisitSource, setActiveVisitSource] = useState<"backend" | "handoff" | null>(null);
   const [bonusLoading, setBonusLoading] = useState(true);
+  const criticalLastLoadedAtRef = useRef(0);
+  const criticalInFlightRef = useRef<Promise<void> | null>(null);
 
   const rememberActiveVisitPayload = useCallback((
     payload: GmVisitSessionReadPayload,
@@ -69,62 +90,88 @@ export default function GMDashboard() {
       setGmVisitPreloadCache(payload);
       clearLatestActiveGmVisitHandoff(payload.session.id);
     }
-    setActiveVisitPayload(payload);
-    setActiveVisitSource(source);
+    setActiveVisitSummary(summarizeActiveVisitPayload(payload));
+    setActiveVisitHydratedPayload(payload);
     setActiveVisitCancelConfirm(false);
     setActiveVisitCancelError(null);
     return true;
   }, []);
 
-  const loadActiveVisitPopup = useCallback(async () => {
-    try {
-      const activeVisit = await fetchLatestActiveGmVisitSession();
-      if (activeVisit.session?.id) {
-        const payload = await fetchGmVisitSession(activeVisit.session.id);
-        if (rememberActiveVisitPayload(payload, "backend")) return;
-      }
-    } catch {
-      // Dashboard remains usable when the backend active-visit lookup fails.
-      return;
+  const applyDashboardCritical = useCallback((payload: GmDashboardCriticalPayload) => {
+    setDashboardCritical(payload);
+    if (payload.activeVisit) {
+      setActiveVisitSummary(payload.activeVisit);
+      setActiveVisitHydratedPayload(null);
+      setActiveVisitCancelConfirm(false);
+      setActiveVisitCancelError(null);
+    } else {
+      clearLatestActiveGmVisitHandoff();
+      setActiveVisitSummary(null);
+      setActiveVisitHydratedPayload(null);
+      setActiveVisitCancelConfirm(false);
+      setActiveVisitCancelError(null);
     }
+  }, []);
 
-    clearLatestActiveGmVisitHandoff();
-    setActiveVisitPayload(null);
-    setActiveVisitSource(null);
-    setActiveVisitCancelConfirm(false);
-    setActiveVisitCancelError(null);
-  }, [rememberActiveVisitPayload]);
+  const loadDashboardCritical = useCallback(async (options?: { force?: boolean }) => {
+    const now = Date.now();
+    if (!options?.force && now - criticalLastLoadedAtRef.current < 15_000) return;
+    if (criticalInFlightRef.current) return criticalInFlightRef.current;
+    setDashboardCriticalLoading(true);
+    const request = (async () => {
+      try {
+        const payload = await fetchGmDashboardCritical();
+        criticalLastLoadedAtRef.current = Date.now();
+        applyDashboardCritical(payload);
+      } catch {
+        // Keep the dashboard usable with the last known critical state.
+      } finally {
+        setDashboardCriticalLoading(false);
+        criticalInFlightRef.current = null;
+      }
+    })();
+    criticalInFlightRef.current = request;
+    return request;
+  }, [applyDashboardCritical]);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
       if (cancelled) return;
-      void loadActiveVisitPopup();
+      void loadDashboardCritical();
+    };
+    const refreshImmediately = () => {
+      if (cancelled) return;
+      void loadDashboardCritical({ force: true });
     };
     const handoff = readLatestActiveGmVisitHandoff();
     if (handoff) {
       rememberActiveVisitPayload(handoff, "handoff");
     }
-    refresh();
+    void loadDashboardCritical({ force: true });
     if (typeof window !== "undefined") {
       window.addEventListener("focus", refresh);
       document.addEventListener("visibilitychange", refresh);
+      window.addEventListener("gm:day-session-updated", refreshImmediately);
+      window.addEventListener("gm:today-submissions-updated", refreshImmediately);
     }
     return () => {
       cancelled = true;
       if (typeof window !== "undefined") {
         window.removeEventListener("focus", refresh);
         document.removeEventListener("visibilitychange", refresh);
+        window.removeEventListener("gm:day-session-updated", refreshImmediately);
+        window.removeEventListener("gm:today-submissions-updated", refreshImmediately);
       }
     };
-  }, [loadActiveVisitPopup, rememberActiveVisitPayload]);
+  }, [loadDashboardCritical, rememberActiveVisitPayload]);
 
   useEffect(() => {
-    if (!activeVisitPayload?.session.startedAt) {
+    if (!activeVisitSummary?.startedAt) {
       setActiveVisitSeconds(0);
       return;
     }
-    const startedAtMs = new Date(activeVisitPayload.session.startedAt).getTime();
+    const startedAtMs = new Date(activeVisitSummary.startedAt).getTime();
     if (!Number.isFinite(startedAtMs)) {
       setActiveVisitSeconds(0);
       return;
@@ -135,7 +182,7 @@ export default function GMDashboard() {
     update();
     const intervalId = window.setInterval(update, 1000);
     return () => window.clearInterval(intervalId);
-  }, [activeVisitPayload?.session.startedAt]);
+  }, [activeVisitSummary?.startedAt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,29 +241,27 @@ export default function GMDashboard() {
   const gmDisplayName = [authSession?.user.firstName?.trim(), authSession?.user.lastName?.trim()]
     .filter((part): part is string => Boolean(part && part.length > 0))
     .join(" ");
-  const activeVisitCampaignNames = Array.from(
-    new Set((activeVisitPayload?.sections ?? []).map((section) => section.campaignName).filter(Boolean)),
-  );
-  const activeVisitCampaignIds = Array.from(
-    new Set((activeVisitPayload?.sections ?? []).map((section) => section.campaignId).filter(Boolean)),
-  );
-  const activeVisitAddress = activeVisitPayload
+  const activeVisitCampaignNames = activeVisitSummary?.campaignNames ?? [];
+  const activeVisitCampaignIds = activeVisitSummary?.campaignIds ?? [];
+  const activeVisitAddress = activeVisitSummary
     ? [
-      activeVisitPayload.market.address,
-      [activeVisitPayload.market.postalCode, activeVisitPayload.market.city].filter(Boolean).join(" "),
+      activeVisitSummary.marketAddress,
+      [activeVisitSummary.marketPostalCode, activeVisitSummary.marketCity].filter(Boolean).join(" "),
     ].filter(Boolean).join(", ")
     : "";
 
   async function openActiveVisit() {
-    if (!activeVisitPayload || activeVisitOpening) return;
+    if (!activeVisitSummary || activeVisitOpening) return;
     setActiveVisitOpening(true);
     try {
-      if (activeVisitSource === "backend" && (activeVisitPayload.sections ?? []).some((section) => section.questions.length > 0)) {
-        setGmVisitPreloadCache(activeVisitPayload);
+      const payload = activeVisitHydratedPayload ?? await fetchGmVisitSession(activeVisitSummary.sessionId);
+      setGmVisitPreloadCache(payload);
+      if (!activeVisitHydratedPayload) {
+        setActiveVisitHydratedPayload(payload);
       }
-      clearLatestActiveGmVisitHandoff(activeVisitPayload.session.id);
+      clearLatestActiveGmVisitHandoff(activeVisitSummary.sessionId);
       router.push(
-        `/gm/marktbesuch?chain=${encodeURIComponent(activeVisitPayload.market.name)}&address=${encodeURIComponent(activeVisitAddress)}&marketId=${encodeURIComponent(activeVisitPayload.market.id)}&campaignIds=${encodeURIComponent(activeVisitCampaignIds.join(","))}&sessionId=${encodeURIComponent(activeVisitPayload.session.id)}`,
+        `/gm/marktbesuch?chain=${encodeURIComponent(activeVisitSummary.marketName)}&address=${encodeURIComponent(activeVisitAddress)}&marketId=${encodeURIComponent(activeVisitSummary.marketId)}&campaignIds=${encodeURIComponent(activeVisitCampaignIds.join(","))}&sessionId=${encodeURIComponent(activeVisitSummary.sessionId)}`,
       );
     } finally {
       setActiveVisitOpening(false);
@@ -224,16 +269,17 @@ export default function GMDashboard() {
   }
 
   async function confirmCancelActiveVisit() {
-    if (!activeVisitPayload || activeVisitCancelling) return;
+    if (!activeVisitSummary || activeVisitCancelling) return;
     setActiveVisitCancelling(true);
     setActiveVisitCancelError(null);
     try {
-      await cancelGmVisitSession(activeVisitPayload.session.id);
-      clearGmVisitPreloadCache(activeVisitPayload.session.id);
-      clearLatestActiveGmVisitHandoff(activeVisitPayload.session.id);
-      setActiveVisitPayload(null);
-      setActiveVisitSource(null);
+      await cancelGmVisitSession(activeVisitSummary.sessionId);
+      clearGmVisitPreloadCache(activeVisitSummary.sessionId);
+      clearLatestActiveGmVisitHandoff(activeVisitSummary.sessionId);
+      setActiveVisitSummary(null);
+      setActiveVisitHydratedPayload(null);
       setActiveVisitCancelConfirm(false);
+      void loadDashboardCritical({ force: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Fragebogen konnte nicht abgebrochen werden.";
       setActiveVisitCancelError(message);
@@ -245,7 +291,7 @@ export default function GMDashboard() {
   return (
     <RedMonthProvider>
     <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7" }}>
-      {activeVisitPayload && (
+      {activeVisitSummary && (
         <div
           style={{
             position: "fixed",
@@ -363,7 +409,7 @@ export default function GMDashboard() {
                 </div>
               )}
               <div style={{ fontSize: 10, fontWeight: 650, color: "rgba(0,0,0,0.52)", lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {activeVisitPayload.market.name}
+                {activeVisitSummary.marketName}
               </div>
               <div style={{ fontSize: 10, color: "rgba(0,0,0,0.36)", lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {activeVisitAddress}
@@ -453,7 +499,10 @@ export default function GMDashboard() {
 
         <div className="mt-5 flex gap-5 items-stretch">
           <div className="flex-1">
-            <TimeTracker />
+            <TimeTracker
+              daySessionPayload={dashboardCritical?.daySession}
+              daySessionLoading={dashboardCriticalLoading}
+            />
           </div>
           <div className="flex-1">
             <div
@@ -474,17 +523,31 @@ export default function GMDashboard() {
             </div>
 
             <div className="mt-4" style={{ position: "relative", zIndex: 20 }}>
-              <KuehlerInventurCard activeVisitLocked={Boolean(activeVisitPayload)} />
+              <KuehlerInventurCard
+                activeVisitLocked={Boolean(activeVisitSummary)}
+                daySessionPayload={dashboardCritical?.daySession}
+                daySessionLoading={dashboardCriticalLoading}
+                initialProgressData={kuehlerMhdProgress}
+              />
             </div>
           </div>
         </div>
 
         <div className="mt-6 flex gap-5 items-start">
           <div className="flex-1">
-            <MarketList activeVisitLocked={Boolean(activeVisitPayload)} />
+            <MarketList
+              activeVisitLocked={Boolean(activeVisitSummary)}
+              daySessionPayload={dashboardCritical?.daySession}
+              daySessionLoading={dashboardCriticalLoading}
+            />
           </div>
           <div className="flex-1">
-            <ActivityLauncher activeVisitLocked={Boolean(activeVisitPayload)} />
+            <ActivityLauncher
+              activeVisitLocked={Boolean(activeVisitSummary)}
+              daySessionPayload={dashboardCritical?.daySession}
+              daySessionLoading={dashboardCriticalLoading}
+              activeDrafts={dashboardCriticalLoading ? [] : dashboardCritical?.activeTimeTrackingDrafts}
+            />
           </div>
         </div>
       </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { GmSkeletonBlock } from "./GmDashboardSkeleton";
+
 interface Goal {
   name: string;
   percent: number;
@@ -52,8 +54,17 @@ export function BonusCircles({
   const resolvedBonus = bonus ?? calcBonus(goals);
   if (isLoading) {
     return (
-      <div className="w-full" style={{ minHeight: 132, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span className="text-[12px] text-gray-400">Bonus wird geladen…</span>
+      <div className="w-full" style={{ minHeight: 132, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <div className="flex justify-center" style={{ gap: 20 }}>
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={`bonus-skeleton-${index}`} style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 62 }}>
+              <GmSkeletonBlock style={{ width: CIRCLE_SIZE, height: CIRCLE_SIZE, borderRadius: 999 }} />
+              <GmSkeletonBlock style={{ width: 46, height: 8, borderRadius: 99, marginTop: 8 }} />
+              <GmSkeletonBlock style={{ width: 34, height: 7, borderRadius: 99, marginTop: 5, opacity: 0.72 }} />
+            </div>
+          ))}
+        </div>
+        <GmSkeletonBlock style={{ height: 23, width: "100%", borderRadius: 7, marginTop: 14 }} />
       </div>
     );
   }

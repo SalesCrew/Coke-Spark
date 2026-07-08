@@ -39,6 +39,7 @@ import {
   cancelTimeTrackingEntry,
   setGmVisitPreloadCache,
   setGmVisitStartPreloadCache,
+  type DaySessionCurrentPayload,
   type GmVisitSessionPayload,
   type TimeTrackingActivityType,
   type TimeTrackingEntry,
@@ -50,6 +51,7 @@ import {
 import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import { DashboardGateOverlay } from "./DashboardLockOverlay";
+import { GmSkeletonMarketRows } from "./GmDashboardSkeleton";
 import type { MarketRecord } from "@/types/markets";
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
@@ -1640,7 +1642,17 @@ function AccordionRow({
 
 // ── Main Component ────────────────────────────────────────────
 
-export function ActivityLauncher({ activeVisitLocked = false }: { activeVisitLocked?: boolean }) {
+export function ActivityLauncher({
+  activeVisitLocked = false,
+  daySessionPayload,
+  activeDrafts,
+  daySessionLoading = false,
+}: {
+  activeVisitLocked?: boolean;
+  daySessionPayload?: DaySessionCurrentPayload | null;
+  activeDrafts?: TimeTrackingEntry[] | null;
+  daySessionLoading?: boolean;
+}) {
   const router = useRouter();
   const [view, setView] = useState<View>("idle");
   const [marketListMode, setMarketListMode] = useState<MarketListMode>("flex");
@@ -1684,7 +1696,13 @@ export function ActivityLauncher({ activeVisitLocked = false }: { activeVisitLoc
     const silent = options?.silent ?? false;
     if (!silent) setDayGateLoading(true);
     try {
-      const payload = await fetchCurrentDaySession();
+      if (daySessionPayload === null) {
+        setDayStarted(false);
+        setCurrentDayStartedAt(null);
+        return;
+      }
+      if (daySessionLoading && daySessionPayload === undefined) return;
+      const payload = daySessionPayload ?? await fetchCurrentDaySession();
       const localSnapshot = readLatestLocalDaySessionSnapshot();
       const localDayStarted = isLocalDaySessionSnapshotUsableForStartGate(localSnapshot);
       setDayStarted(Boolean(payload.gate?.dayStarted) || localDayStarted);
@@ -1699,9 +1717,9 @@ export function ActivityLauncher({ activeVisitLocked = false }: { activeVisitLoc
       setDayStarted(localDayStarted);
       setCurrentDayStartedAt(localDayStarted ? (localSnapshot?.session?.dayStartedAt ?? localSnapshot?.clientStartedAt ?? null) : null);
     } finally {
-      if (!silent) setDayGateLoading(false);
+      if (!silent) setDayGateLoading(daySessionLoading && daySessionPayload === undefined);
     }
-  }, []);
+  }, [daySessionLoading, daySessionPayload]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1733,6 +1751,21 @@ export function ActivityLauncher({ activeVisitLocked = false }: { activeVisitLoc
   }, [marketListMode]);
 
   useEffect(() => {
+    if (activeDrafts) {
+      const map: Partial<Record<TimeTrackingActivityType, TimeTrackingEntry>> = {};
+      let preferredOpen: TimeTrackingActivityType | null = null;
+      for (const entry of activeDrafts) {
+        const key = entry.activityType as TimeTrackingActivityType;
+        if (!activities.some((activity) => activity.key === key)) continue;
+        if (map[key]) continue;
+        map[key] = entry;
+        if (!preferredOpen) preferredOpen = key;
+        if (!entry.endAt) preferredOpen = key;
+      }
+      setActiveDraftsByActivity(map);
+      if (preferredOpen) setOpenActivity(preferredOpen);
+      return;
+    }
     let cancelled = false;
     void fetchActiveTimeTrackingDrafts()
       .then((payload) => {
@@ -1759,7 +1792,7 @@ export function ActivityLauncher({ activeVisitLocked = false }: { activeVisitLoc
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeDrafts, activities]);
 
   useEffect(() => {
     if (!selectedMarket) {
@@ -2305,10 +2338,11 @@ export function ActivityLauncher({ activeVisitLocked = false }: { activeVisitLoc
             );
           })}
           {isMarketsLoading && (
-            <div style={{ padding: "14px 6px", fontSize: 10, color: "rgba(0,0,0,0.35)" }}>
-              Märkte werden geladen...
+            <div style={{ padding: "2px 0 8px" }}>
+              <GmSkeletonMarketRows count={5} />
             </div>
           )}
+
           {!isMarketsLoading && markets.length === 0 && (
             <div style={{ padding: "14px 6px", fontSize: 10, color: "rgba(0,0,0,0.35)" }}>
               {marketListMode === "flex"

@@ -24,6 +24,7 @@ import {
   fetchGmVisitStartPayload,
   setGmVisitPreloadCache,
   setGmVisitStartPreloadCache,
+  type DaySessionCurrentPayload,
   type GmMarketDetailActiveCampaign,
   type GmMarketDetailSection,
   type GmMarketDetailPayload,
@@ -39,6 +40,7 @@ import {
 import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import { DashboardGateOverlay } from "./DashboardLockOverlay";
+import { GmSkeletonMarketRows } from "./GmDashboardSkeleton";
 import type { MarketRecord } from "@/types/markets";
 
 type MarketCampaignSummary = GmStartMarket["activeNowCampaigns"][number];
@@ -62,6 +64,8 @@ interface MarketListProps {
   visited?: number;
   total?: number;
   activeVisitLocked?: boolean;
+  daySessionPayload?: DaySessionCurrentPayload | null;
+  daySessionLoading?: boolean;
 }
 
 const CARD_MENU_SPACE = 80;
@@ -722,7 +726,7 @@ export function GmMarketDetailModal({
   );
 }
 
-export function MarketList({ visited, total, activeVisitLocked = false }: MarketListProps) {
+export function MarketList({ visited, total, activeVisitLocked = false, daySessionPayload, daySessionLoading = false }: MarketListProps) {
   const router = useRouter();
   const { current } = useRedMonth();
   const [search, setSearch] = useState("");
@@ -753,7 +757,12 @@ export function MarketList({ visited, total, activeVisitLocked = false }: Market
     const silent = options?.silent ?? false;
     if (!silent) setDayGateLoading(true);
     try {
-      const payload = await fetchCurrentDaySession();
+      if (daySessionPayload === null) {
+        setDayStarted(false);
+        return;
+      }
+      if (daySessionLoading && daySessionPayload === undefined) return;
+      const payload = daySessionPayload ?? await fetchCurrentDaySession();
       setDayStarted(
         Boolean(payload.gate?.dayStarted) ||
           isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()),
@@ -761,9 +770,9 @@ export function MarketList({ visited, total, activeVisitLocked = false }: Market
     } catch {
       setDayStarted(isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()));
     } finally {
-      if (!silent) setDayGateLoading(false);
+      if (!silent) setDayGateLoading(daySessionLoading && daySessionPayload === undefined);
     }
-  }, []);
+  }, [daySessionLoading, daySessionPayload]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1171,8 +1180,8 @@ export function MarketList({ visited, total, activeVisitLocked = false }: Market
         })}
 
         {isLoading && (
-          <div className="text-center py-8">
-            <span className="text-[10px] text-gray-400">Märkte werden geladen...</span>
+          <div style={{ padding: "2px 2px 10px" }}>
+            <GmSkeletonMarketRows count={6} />
           </div>
         )}
 

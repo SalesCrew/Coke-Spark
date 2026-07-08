@@ -2140,12 +2140,90 @@ export type GmKuehlerMhdProgressPayload = {
   };
 };
 
-export async function fetchGmAssignedStartMarkets(): Promise<GmStartMarket[]> {
-  const data = (await authedFetch("/markets/gm/assigned-active")) as { markets?: BackendMarket[] };
-  return (data.markets ?? []).map((market) => ({
-    market: mapBackendMarketToMarketRecord(market),
-    activeNowCampaigns: market.activeNowCampaigns ?? [],
+type TimedApiCache<T> = {
+  data: T | null;
+  expiresAt: number;
+  promise: Promise<T> | null;
+};
+
+const GM_START_MARKETS_CACHE_TTL_MS = 45_000;
+const GM_PROGRESS_CACHE_TTL_MS = 30_000;
+
+const gmAssignedStartMarketsCache: TimedApiCache<GmStartMarket[]> = {
+  data: null,
+  expiresAt: 0,
+  promise: null,
+};
+
+const gmFlexStartMarketsCache: TimedApiCache<GmStartMarket[]> = {
+  data: null,
+  expiresAt: 0,
+  promise: null,
+};
+
+const gmKuehlerMhdProgressCache: TimedApiCache<GmKuehlerMhdProgressPayload> = {
+  data: null,
+  expiresAt: 0,
+  promise: null,
+};
+
+function cloneGmStartMarkets(rows: GmStartMarket[]): GmStartMarket[] {
+  return rows.map((row) => ({
+    market: { ...row.market },
+    activeNowCampaigns: row.activeNowCampaigns.map((campaign) => ({ ...campaign })),
   }));
+}
+
+function cloneGmKuehlerMhdProgress(payload: GmKuehlerMhdProgressPayload): GmKuehlerMhdProgressPayload {
+  return {
+    ...payload,
+    kuehler: {
+      ...payload.kuehler,
+      markets: payload.kuehler.markets.map((market) => ({ ...market })),
+    },
+    mhd: {
+      ...payload.mhd,
+      markets: payload.mhd.markets.map((market) => ({ ...market })),
+    },
+    periodFallback: { ...payload.periodFallback },
+  };
+}
+
+async function readTimedApiCache<T>(
+  cache: TimedApiCache<T>,
+  ttlMs: number,
+  loader: () => Promise<T>,
+  clone: (value: T) => T,
+  options?: { force?: boolean },
+): Promise<T> {
+  const now = Date.now();
+  if (!options?.force && cache.data && cache.expiresAt > now) return clone(cache.data);
+  if (!options?.force && cache.promise) return clone(await cache.promise);
+  cache.promise = loader()
+    .then((value) => {
+      cache.data = value;
+      cache.expiresAt = Date.now() + ttlMs;
+      return value;
+    })
+    .finally(() => {
+      cache.promise = null;
+    });
+  return clone(await cache.promise);
+}
+
+export async function fetchGmAssignedStartMarkets(): Promise<GmStartMarket[]> {
+  return readTimedApiCache(
+    gmAssignedStartMarketsCache,
+    GM_START_MARKETS_CACHE_TTL_MS,
+    async () => {
+      const data = (await authedFetch("/markets/gm/assigned-active")) as { markets?: BackendMarket[] };
+      return (data.markets ?? []).map((market) => ({
+        market: mapBackendMarketToMarketRecord(market),
+        activeNowCampaigns: market.activeNowCampaigns ?? [],
+      }));
+    },
+    cloneGmStartMarkets,
+  );
 }
 
 export async function fetchGmMarketDetail(marketId: string): Promise<GmMarketDetailPayload> {
@@ -2160,15 +2238,28 @@ export async function fetchGmMarketDetail(marketId: string): Promise<GmMarketDet
 }
 
 export async function fetchGmFlexStartMarkets(): Promise<GmStartMarket[]> {
-  const data = (await authedFetch("/markets/gm/flex-start-markets")) as { markets?: BackendMarket[] };
-  return (data.markets ?? []).map((market) => ({
-    market: mapBackendMarketToMarketRecord(market),
-    activeNowCampaigns: market.activeNowCampaigns ?? [],
-  }));
+  return readTimedApiCache(
+    gmFlexStartMarketsCache,
+    GM_START_MARKETS_CACHE_TTL_MS,
+    async () => {
+      const data = (await authedFetch("/markets/gm/flex-start-markets")) as { markets?: BackendMarket[] };
+      return (data.markets ?? []).map((market) => ({
+        market: mapBackendMarketToMarketRecord(market),
+        activeNowCampaigns: market.activeNowCampaigns ?? [],
+      }));
+    },
+    cloneGmStartMarkets,
+  );
 }
 
-export async function fetchGmKuehlerMhdProgress(): Promise<GmKuehlerMhdProgressPayload> {
-  return (await authedFetch("/markets/gm/kuehler-mhd-progress")) as GmKuehlerMhdProgressPayload;
+export async function fetchGmKuehlerMhdProgress(options?: { force?: boolean }): Promise<GmKuehlerMhdProgressPayload> {
+  return readTimedApiCache(
+    gmKuehlerMhdProgressCache,
+    GM_PROGRESS_CACHE_TTL_MS,
+    async () => (await authedFetch("/markets/gm/kuehler-mhd-progress")) as GmKuehlerMhdProgressPayload,
+    cloneGmKuehlerMhdProgress,
+    options,
+  );
 }
 
 export type GmVisitStartSection = {
@@ -2251,6 +2342,8 @@ export type GmVisitSessionReadPayload = {
       rules: Array<Record<string, unknown>>;
       chains?: string[];
       appliesToMarketChain?: boolean;
+      moduleId?: string;
+      moduleName?: string;
       answer: {
         id: string;
         answerStatus: "unanswered" | "answered" | "invalid";
@@ -2641,6 +2734,30 @@ export type DaySessionCurrentPayload = {
     pauseOpen: boolean;
     staleDayOpen?: boolean;
   };
+};
+
+export type GmDashboardCriticalPayload = {
+  serverTime: string;
+  daySession: DaySessionCurrentPayload;
+  activeVisit: {
+    sessionId: string;
+    startedAt: string;
+    marketId: string;
+    marketName: string;
+    marketAddress: string;
+    marketPostalCode: string | null;
+    marketCity: string | null;
+    campaignIds: string[];
+    campaignNames: string[];
+  } | null;
+  activeTimeTrackingDrafts: TimeTrackingEntry[];
+  redPeriod: {
+    redPeriodId: string | null;
+    label: string;
+    startDate: string;
+    endDate: string;
+    daysUntilEnd: number;
+  } | null;
 };
 
 export type DayPause = {
@@ -4398,6 +4515,10 @@ export async function fetchActiveTimeTrackingDrafts(input?: { gmUserId?: string 
 
 export async function fetchCurrentDaySession(): Promise<DaySessionCurrentPayload> {
   return (await authedFetch("/day-session/current")) as DaySessionCurrentPayload;
+}
+
+export async function fetchGmDashboardCritical(): Promise<GmDashboardCriticalPayload> {
+  return (await authedFetch("/gm/dashboard/critical", { cache: "no-store" })) as GmDashboardCriticalPayload;
 }
 
 export async function fetchTodaySubmissions(): Promise<TodaySubmissionsPayload> {

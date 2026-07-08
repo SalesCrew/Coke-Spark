@@ -13,6 +13,7 @@ import {
   fetchLatestActiveGmVisitSession,
   setGmVisitPreloadCache,
   setGmVisitStartPreloadCache,
+  type DaySessionCurrentPayload,
   type GmKuehlerMhdProgressPayload,
   type GmMarketDetailPayload,
   type GmVisitSessionPayload,
@@ -28,6 +29,7 @@ import {
   type GmMarketDetailCampaignChoice,
   type GmDashboardMarket,
 } from "./MarketList";
+import { GmSkeletonMarketRows } from "./GmDashboardSkeleton";
 
 interface KuehlerMarket {
   marketId?: string;
@@ -141,6 +143,9 @@ interface KuehlerInventurCardProps {
   markets?: KuehlerMarket[];
   mhdMarkets?: KuehlerMarket[];
   activeVisitLocked?: boolean;
+  daySessionPayload?: DaySessionCurrentPayload | null;
+  daySessionLoading?: boolean;
+  initialProgressData?: GmKuehlerMhdProgressPayload | null;
 }
 
 export function KuehlerInventurCard({
@@ -153,12 +158,15 @@ export function KuehlerInventurCard({
   markets = defaultKuehlerMarkets,
   mhdMarkets = defaultMhdMarkets,
   activeVisitLocked = false,
+  daySessionPayload,
+  daySessionLoading = false,
+  initialProgressData,
 }: KuehlerInventurCardProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("kuehler");
   const [showDetail, setShowDetail] = useState(false);
   const [search, setSearch] = useState("");
-  const [progressData, setProgressData] = useState<GmKuehlerMhdProgressPayload | null>(null);
+  const [progressData, setProgressData] = useState<GmKuehlerMhdProgressPayload | null>(initialProgressData ?? null);
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedMarket, setSelectedMarket] = useState<GmDashboardMarket | null>(null);
@@ -177,6 +185,7 @@ export function KuehlerInventurCard({
   // Auto-rotate: switches every 10s, pauses 60s after manual interaction
   const autoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pauseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressLoadedAtRef = useRef(initialProgressData ? Date.now() : 0);
   const [paused, setPaused] = useState(false);
 
   const startAutoRotate = useCallback(() => {
@@ -219,7 +228,12 @@ export function KuehlerInventurCard({
     const silent = options?.silent ?? false;
     if (!silent) setDayGateLoading(true);
     try {
-      const payload = await fetchCurrentDaySession();
+      if (daySessionPayload === null) {
+        setDayStarted(false);
+        return;
+      }
+      if (daySessionLoading && daySessionPayload === undefined) return;
+      const payload = daySessionPayload ?? await fetchCurrentDaySession();
       setDayStarted(
         Boolean(payload.gate?.dayStarted) ||
           isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()),
@@ -227,9 +241,9 @@ export function KuehlerInventurCard({
     } catch {
       setDayStarted(isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()));
     } finally {
-      if (!silent) setDayGateLoading(false);
+      if (!silent) setDayGateLoading(daySessionLoading && daySessionPayload === undefined);
     }
-  }, []);
+  }, [daySessionLoading, daySessionPayload]);
 
   const formatYmd = useCallback((value: string | undefined, fallback: string): string => {
     if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return fallback;
@@ -237,11 +251,18 @@ export function KuehlerInventurCard({
     return `${d}.${m}.${y}`;
   }, []);
 
-  const loadProgress = useCallback(async () => {
+  const loadProgress = useCallback(async (options?: { force?: boolean }) => {
+    if (initialProgressData && !options?.force) {
+      setProgressData(initialProgressData);
+      setLoadError(null);
+      setLoadingData(false);
+      return;
+    }
     setLoadingData(true);
     try {
-      const payload = await fetchGmKuehlerMhdProgress();
+      const payload = await fetchGmKuehlerMhdProgress({ force: options?.force });
       setProgressData(payload);
+      progressLoadedAtRef.current = Date.now();
       setLoadError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Fortschritt konnte nicht geladen werden.";
@@ -250,7 +271,15 @@ export function KuehlerInventurCard({
     } finally {
       setLoadingData(false);
     }
-  }, []);
+  }, [initialProgressData]);
+
+  useEffect(() => {
+    if (!initialProgressData) return;
+    setProgressData(initialProgressData);
+    progressLoadedAtRef.current = Date.now();
+    setLoadError(null);
+    setLoadingData(false);
+  }, [initialProgressData]);
 
   useEffect(() => {
     void loadProgress();
@@ -274,10 +303,11 @@ export function KuehlerInventurCard({
 
   useEffect(() => {
     const onFocus = () => {
-      void loadProgress();
+      if (Date.now() - progressLoadedAtRef.current < 30_000) return;
+      void loadProgress({ force: true });
     };
     const onExternalUpdate = () => {
-      void loadProgress();
+      void loadProgress({ force: true });
     };
     window.addEventListener("focus", onFocus);
     window.addEventListener(TODAY_SUBMISSIONS_UPDATED_EVENT, onExternalUpdate);
@@ -883,15 +913,19 @@ export function KuehlerInventurCard({
             )}
 
             {filtered.pending.length === 0 && filtered.done.length === 0 && (
-              <div className="text-center py-6">
-                <span className="text-[10px] text-gray-400">
-                  {loadingData
-                    ? "Fortschritt wird geladen..."
-                    : search.trim().length > 0
+              loadingData ? (
+                <div style={{ padding: "6px 0 10px" }}>
+                  <GmSkeletonMarketRows count={5} />
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <span className="text-[10px] text-gray-400">
+                    {search.trim().length > 0
                       ? "Keine Märkte gefunden"
                       : "Keine zugewiesenen Märkte"}
-                </span>
-              </div>
+                  </span>
+                </div>
+              )
             )}
           </div>
         </div>

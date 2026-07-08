@@ -7,6 +7,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -49,6 +50,16 @@ const FONT_STACK = "var(--font-inter), Inter, system-ui, sans-serif";
 
 type VisitSection = GmVisitSessionReadPayload["sections"][number];
 type VisitQuestion = VisitSection["questions"][number];
+type ActivityQuestionEntry = {
+  section: VisitSection;
+  question: VisitQuestion;
+  index: number;
+};
+type ActivityModuleGroup = {
+  moduleId: string;
+  moduleName: string;
+  entries: ActivityQuestionEntry[];
+};
 
 function sectionLabel(section: VisitSection["section"] | GmCompletedVisitSummary["sections"][number]["section"]): string {
   if (section === "standard") return "Standard";
@@ -1449,6 +1460,8 @@ function ReadOnlyVisitViewer({
   const [requestSuccessByQuestionId, setRequestSuccessByQuestionId] = useState<Record<string, string>>({});
   const [deleteRequestOpen, setDeleteRequestOpen] = useState(false);
   const [deleteRequestSuccess, setDeleteRequestSuccess] = useState<string | null>(null);
+  const [navigatorOpen, setNavigatorOpen] = useState(false);
+  const [activeNavigatorSectionId, setActiveNavigatorSectionId] = useState<string | null>(null);
 
   useEffect(() => {
     setIndex(0);
@@ -1457,12 +1470,60 @@ function ReadOnlyVisitViewer({
     setRequestSuccessByQuestionId({});
     setDeleteRequestOpen(false);
     setDeleteRequestSuccess(null);
+    setNavigatorOpen(false);
+    setActiveNavigatorSectionId(null);
   }, [payload.session.id]);
 
   const current = questions[index] ?? null;
   const accent = current ? sectionColor(current.section.section) : R;
   const percent = questions.length ? Math.round(((index + 1) / questions.length) * 100) : 0;
   const currentSuccess = current ? requestSuccessByQuestionId[current.question.id] : null;
+  const navigatorSections = useMemo(() => {
+    let questionIndex = 0;
+    return payload.sections
+      .slice()
+      .sort((a, b) => a.orderIndex - b.orderIndex)
+      .map((section) => {
+        const entries: ActivityQuestionEntry[] = section.questions.map((question) => ({
+          section,
+          question,
+          index: questionIndex++,
+        }));
+        const moduleMap = new Map<string, ActivityModuleGroup>();
+
+        for (const entry of entries) {
+          const moduleId = entry.question.moduleId || `${section.id}:fallback`;
+          const moduleName = entry.question.moduleName || section.fragebogenName || section.campaignName || sectionLabel(section.section);
+          const existing = moduleMap.get(moduleId);
+          if (existing) existing.entries.push(entry);
+          else moduleMap.set(moduleId, { moduleId, moduleName, entries: [entry] });
+        }
+
+        return {
+          section,
+          entries,
+          modules: Array.from(moduleMap.values()),
+        };
+      });
+  }, [payload.sections]);
+  const effectiveNavigatorSectionId = activeNavigatorSectionId && navigatorSections.some((entry) => entry.section.id === activeNavigatorSectionId)
+    ? activeNavigatorSectionId
+    : current?.section.id ?? navigatorSections[0]?.section.id ?? null;
+  const activeNavigatorSection = navigatorSections.find((entry) => entry.section.id === effectiveNavigatorSectionId) ?? navigatorSections[0] ?? null;
+  const currentModule = activeNavigatorSection?.modules.find((module) => module.entries.some((entry) => entry.index === index)) ?? null;
+  const currentModuleLabel = currentModule?.moduleName ?? current?.section.fragebogenName ?? current?.section.campaignName ?? "Fragebogen";
+  const jumpToQuestion = useCallback((nextIndex: number) => {
+    const clamped = Math.max(0, Math.min(questions.length - 1, nextIndex));
+    setIndex(clamped);
+    const target = questions[clamped];
+    setActiveNavigatorSectionId(target?.section.id ?? null);
+    setNavigatorOpen(false);
+  }, [questions]);
+
+  useEffect(() => {
+    if (!current) return;
+    setActiveNavigatorSectionId((value) => value ?? current.section.id);
+  }, [current]);
 
   return (
     <div className="gm-activity-viewer-backdrop">
@@ -1524,28 +1585,6 @@ function ReadOnlyVisitViewer({
             <div style={{ width: `${percent}%`, background: `linear-gradient(90deg, ${accent}, ${accent}99)` }} />
           </div>
           <span className="gm-activity-readonly-badge">Read-only</span>
-        </div>
-
-        <div className="gm-activity-section-nav">
-          {payload.sections.map((section) => {
-            const firstIndex = questions.findIndex((entry) => entry.section.id === section.id);
-            const active = current?.section.id === section.id;
-            const color = sectionColor(section.section);
-            return (
-              <button
-                key={section.id}
-                type="button"
-                onClick={() => firstIndex >= 0 && setIndex(firstIndex)}
-                style={{
-                  color: active ? color : "rgba(15,23,42,0.48)",
-                  background: active ? `${color}10` : "rgba(15,23,42,0.035)",
-                  boxShadow: active ? `inset 0 0 0 1px ${color}24` : "inset 0 0 0 1px rgba(15,23,42,0.055)",
-                }}
-              >
-                {sectionLabel(section.section)}
-              </button>
-            );
-          })}
         </div>
 
         {current ? (
@@ -1626,32 +1665,129 @@ function ReadOnlyVisitViewer({
           </section>
         )}
 
+        {navigatorOpen ? (
+          <div className="gm-activity-bottom-navigator">
+            <div className="gm-activity-bottom-navigator-head">
+              <div>
+                <span>Navigation</span>
+                <strong>Module & Fragen</strong>
+              </div>
+              <button type="button" onClick={() => setNavigatorOpen(false)} aria-label="Navigation schliessen">
+                <X size={13} strokeWidth={2.3} />
+              </button>
+            </div>
+            <div className="gm-activity-bottom-section-tabs">
+              {navigatorSections.map(({ section, entries }) => {
+                const color = sectionColor(section.section);
+                const active = section.id === activeNavigatorSection?.section.id;
+                const answered = entries.filter((entry) => Boolean(entry.question.answer)).length;
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    onClick={() => setActiveNavigatorSectionId(section.id)}
+                    style={{
+                      color: active ? color : "rgba(15,23,42,0.48)",
+                      background: active ? `${color}12` : "rgba(15,23,42,0.035)",
+                      boxShadow: active ? `inset 0 0 0 1px ${color}24` : "inset 0 0 0 1px rgba(15,23,42,0.055)",
+                    }}
+                  >
+                    <i style={{ background: active ? color : "rgba(15,23,42,0.16)" }} />
+                    <span>{sectionLabel(section.section)}</span>
+                    <small>{answered}/{entries.length}</small>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="gm-activity-bottom-module-list">
+              {activeNavigatorSection?.modules.map((module) => {
+                const moduleColor = sectionColor(activeNavigatorSection.section.section);
+                const answered = module.entries.filter((entry) => Boolean(entry.question.answer)).length;
+                const moduleActive = module.entries.some((entry) => entry.index === index);
+                const complete = answered === module.entries.length && module.entries.length > 0;
+                return (
+                  <div
+                    key={module.moduleId}
+                    className="gm-activity-bottom-module"
+                    style={{ "--gm-nav-accent": moduleColor } as CSSProperties}
+                  >
+                    <button
+                      type="button"
+                      className="gm-activity-bottom-module-title"
+                      onClick={() => jumpToQuestion(module.entries[0]?.index ?? 0)}
+                      style={{
+                        background: moduleActive ? `${moduleColor}0c` : "transparent",
+                        boxShadow: moduleActive ? `inset 0 0 0 1px ${moduleColor}20` : "none",
+                      }}
+                    >
+                      <span className={complete ? "is-complete" : ""}>
+                        {complete ? <Check size={9} strokeWidth={3} /> : `${answered}/${module.entries.length}`}
+                      </span>
+                      <strong>{module.moduleName}</strong>
+                      <ChevronDown size={12} strokeWidth={2.3} />
+                    </button>
+                    <div className="gm-activity-bottom-question-list">
+                      {module.entries.map((entry) => {
+                        const done = Boolean(entry.question.answer);
+                        const active = entry.index === index;
+                        return (
+                          <button
+                            key={`${entry.question.id}-${entry.index}`}
+                            type="button"
+                            onClick={() => jumpToQuestion(entry.index)}
+                            style={{
+                              background: active ? `${moduleColor}0c` : "transparent",
+                              boxShadow: active ? `inset 0 0 0 1px ${moduleColor}20` : "none",
+                            }}
+                          >
+                            <span className={done ? "is-done" : ""}>
+                              {done ? <Check size={7} strokeWidth={3} /> : entry.index + 1}
+                            </span>
+                            <p>{entry.question.text}</p>
+                            {active ? <i style={{ background: moduleColor }} /> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <footer className="gm-activity-viewer-footer">
           <button
             type="button"
-            onClick={() => setIndex((value) => Math.max(0, value - 1))}
+            onClick={() => jumpToQuestion(index - 1)}
             disabled={index <= 0}
           >
             <ChevronLeft size={15} strokeWidth={2.2} />
             Zurück
           </button>
-          <div className="gm-activity-dot-row">
-            {questions.map((entry, itemIndex) => (
-              <button
-                key={`${entry.section.id}-${entry.question.id}-${itemIndex}`}
-                type="button"
-                aria-label={`Frage ${itemIndex + 1} anzeigen`}
-                onClick={() => setIndex(itemIndex)}
-                style={{
-                  background: itemIndex === index ? accent : itemIndex < index ? `${accent}99` : "rgba(15,23,42,0.12)",
-                  transform: itemIndex === index ? "scale(1.25)" : "scale(1)",
-                }}
-              />
-            ))}
-          </div>
           <button
             type="button"
-            onClick={() => setIndex((value) => Math.min(questions.length - 1, value + 1))}
+            className="gm-activity-footer-navigator"
+            onClick={() => setNavigatorOpen((value) => !value)}
+            aria-expanded={navigatorOpen}
+          >
+            <span>{sectionLabel(current?.section.section ?? "standard")}</span>
+            <strong>{currentModuleLabel}</strong>
+            <div className="gm-activity-dot-row" aria-hidden="true">
+              {questions.map((entry, itemIndex) => (
+                <i
+                  key={`${entry.section.id}-${entry.question.id}-${itemIndex}`}
+                  style={{
+                    background: itemIndex === index ? accent : itemIndex < index ? `${accent}99` : "rgba(15,23,42,0.12)",
+                    transform: itemIndex === index ? "scale(1.22)" : "scale(1)",
+                  }}
+                />
+              ))}
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => jumpToQuestion(index + 1)}
             disabled={index >= questions.length - 1}
           >
             Weiter
@@ -2405,23 +2541,6 @@ export default function GmActivityPage() {
           color: #047857 !important;
           box-shadow: inset 0 0 0 1px rgba(5,150,105,0.14);
         }
-        .gm-activity-section-nav {
-          display: flex;
-          gap: 6px;
-          overflow-x: auto;
-          padding: 12px 18px 0;
-        }
-        .gm-activity-section-nav button {
-          height: 28px;
-          border: none;
-          border-radius: 999px;
-          padding: 0 10px;
-          font-family: inherit;
-          font-size: 10px;
-          font-weight: 780;
-          cursor: pointer;
-          white-space: nowrap;
-        }
         .gm-activity-question-card {
           margin: 14px 18px;
           padding: 18px;
@@ -2894,7 +3013,7 @@ export default function GmActivityPage() {
           transform: translateY(1px);
         }
         .gm-activity-delete-request-bar {
-          margin-top: 12px;
+          margin: 12px 18px 0;
           border-radius: 15px;
           padding: 11px 12px;
           background: rgba(255,255,255,0.88);
@@ -3521,7 +3640,200 @@ export default function GmActivityPage() {
           background: rgba(255,255,255,0.93);
           backdrop-filter: blur(14px);
         }
-        .gm-activity-viewer-footer > button {
+        .gm-activity-bottom-navigator {
+          position: sticky;
+          bottom: 66px;
+          z-index: 5;
+          margin: 0 18px 10px;
+          max-height: min(430px, 52vh);
+          overflow: hidden;
+          display: grid;
+          grid-template-rows: auto auto minmax(0, 1fr);
+          gap: 10px;
+          padding: 12px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.97);
+          box-shadow: 0 18px 50px rgba(15,23,42,0.16), inset 0 0 0 1px rgba(15,23,42,0.07);
+          backdrop-filter: blur(18px);
+        }
+        .gm-activity-bottom-navigator-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+        .gm-activity-bottom-navigator-head span {
+          display: block;
+          font-size: 8px;
+          font-weight: 820;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: rgba(15,23,42,0.36);
+        }
+        .gm-activity-bottom-navigator-head strong {
+          display: block;
+          margin-top: 2px;
+          font-size: 13px;
+          font-weight: 850;
+          color: #111827;
+        }
+        .gm-activity-bottom-navigator-head button {
+          width: 28px;
+          height: 28px;
+          border: none;
+          border-radius: 10px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: rgba(15,23,42,0.54);
+          background: rgba(15,23,42,0.045);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.06);
+          cursor: pointer;
+        }
+        .gm-activity-bottom-section-tabs {
+          display: flex;
+          gap: 7px;
+          overflow-x: auto;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+          padding-bottom: 1px;
+        }
+        .gm-activity-bottom-section-tabs::-webkit-scrollbar {
+          display: none;
+        }
+        .gm-activity-bottom-section-tabs button {
+          height: 30px;
+          border: none;
+          border-radius: 999px;
+          padding: 0 10px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          flex: 0 0 auto;
+          font-family: inherit;
+          font-size: 10px;
+          font-weight: 760;
+          cursor: pointer;
+        }
+        .gm-activity-bottom-section-tabs i {
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+          flex: 0 0 auto;
+        }
+        .gm-activity-bottom-section-tabs small {
+          font-size: 9px;
+          font-weight: 820;
+          opacity: 0.62;
+        }
+        .gm-activity-bottom-module-list {
+          min-height: 0;
+          overflow-y: auto;
+          display: grid;
+          gap: 8px;
+          padding-right: 2px;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .gm-activity-bottom-module-list::-webkit-scrollbar {
+          display: none;
+        }
+        .gm-activity-bottom-module {
+          border-radius: 14px;
+          background: rgba(248,250,252,0.92);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.055);
+          overflow: hidden;
+        }
+        .gm-activity-bottom-module-title {
+          width: 100%;
+          min-height: 40px;
+          border: none;
+          padding: 9px 10px;
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 9px;
+          font-family: inherit;
+          text-align: left;
+          color: #111827;
+          cursor: pointer;
+        }
+        .gm-activity-bottom-module-title > span {
+          min-width: 26px;
+          height: 20px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 9px;
+          font-weight: 820;
+          color: var(--gm-nav-accent);
+          background: rgba(15,23,42,0.045);
+        }
+        .gm-activity-bottom-module-title > span.is-complete {
+          color: #fff;
+          background: var(--gm-nav-accent);
+        }
+        .gm-activity-bottom-module-title strong {
+          min-width: 0;
+          font-size: 11px;
+          font-weight: 820;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .gm-activity-bottom-question-list {
+          display: grid;
+          gap: 4px;
+          padding: 0 8px 8px;
+        }
+        .gm-activity-bottom-question-list button {
+          min-height: 34px;
+          border: none;
+          border-radius: 11px;
+          padding: 7px 9px;
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 8px;
+          font-family: inherit;
+          text-align: left;
+          color: #111827;
+          background: transparent;
+          cursor: pointer;
+        }
+        .gm-activity-bottom-question-list span {
+          width: 18px;
+          height: 18px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 8px;
+          font-weight: 820;
+          color: rgba(15,23,42,0.48);
+          background: rgba(15,23,42,0.055);
+        }
+        .gm-activity-bottom-question-list span.is-done {
+          color: #fff;
+          background: var(--gm-nav-accent);
+        }
+        .gm-activity-bottom-question-list p {
+          min-width: 0;
+          margin: 0;
+          font-size: 10px;
+          font-weight: 700;
+          color: rgba(15,23,42,0.68);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .gm-activity-bottom-question-list i {
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+        }
+        .gm-activity-viewer-footer > button:not(.gm-activity-footer-navigator) {
           height: 34px;
           border: none;
           border-radius: 10px;
@@ -3537,11 +3849,57 @@ export default function GmActivityPage() {
           box-shadow: inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14);
           cursor: pointer;
         }
-        .gm-activity-viewer-footer > button:disabled {
+        .gm-activity-viewer-footer > button:not(.gm-activity-footer-navigator):disabled {
           background: rgba(15,23,42,0.08);
           box-shadow: inset 0 0 0 1px rgba(15,23,42,0.05);
           color: rgba(15,23,42,0.28);
           cursor: not-allowed;
+        }
+        .gm-activity-footer-navigator {
+          min-width: 0;
+          height: 40px;
+          border: none;
+          border-radius: 13px;
+          padding: 6px 12px;
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          grid-template-rows: auto auto;
+          align-items: center;
+          column-gap: 9px;
+          row-gap: 4px;
+          font-family: inherit;
+          background: rgba(15,23,42,0.035);
+          color: rgba(15,23,42,0.58);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.06);
+          cursor: pointer;
+          transition: background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+        }
+        .gm-activity-footer-navigator:hover {
+          background: rgba(15,23,42,0.05);
+          box-shadow: inset 0 0 0 1px rgba(15,23,42,0.09);
+          transform: translateY(-1px);
+        }
+        .gm-activity-footer-navigator > span {
+          min-width: 0;
+          font-size: 8px;
+          font-weight: 820;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: rgba(15,23,42,0.42);
+          white-space: nowrap;
+        }
+        .gm-activity-footer-navigator > strong {
+          min-width: 0;
+          font-size: 11px;
+          font-weight: 820;
+          color: #111827;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .gm-activity-footer-navigator .gm-activity-dot-row {
+          grid-column: 1 / -1;
+          padding: 0;
         }
         .gm-activity-dot-row {
           display: flex;
@@ -3556,6 +3914,7 @@ export default function GmActivityPage() {
         .gm-activity-dot-row::-webkit-scrollbar {
           display: none;
         }
+        .gm-activity-dot-row i,
         .gm-activity-dot-row button {
           width: 6px;
           height: 6px;
@@ -3564,6 +3923,7 @@ export default function GmActivityPage() {
           padding: 0;
           flex: 0 0 auto;
           cursor: pointer;
+          transition: transform 0.16s ease, background 0.16s ease;
         }
         .gm-activity-history-backdrop {
           position: fixed;
@@ -3838,9 +4198,22 @@ export default function GmActivityPage() {
             max-height: calc(100vh - 104px);
             border-radius: 20px;
           }
-          .gm-activity-viewer-strip,
-          .gm-activity-viewer-footer {
+          .gm-activity-viewer-strip {
             grid-template-columns: 1fr;
+          }
+          .gm-activity-viewer-footer {
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 8px;
+            padding: 10px 10px 14px;
+          }
+          .gm-activity-viewer-footer > button:not(.gm-activity-footer-navigator) {
+            min-width: 0;
+            padding: 0 9px;
+          }
+          .gm-activity-bottom-navigator {
+            bottom: 58px;
+            margin: 0 10px 8px;
+            max-height: min(390px, 50vh);
           }
         }
       `}</style>

@@ -575,7 +575,11 @@ export function KuehlerInventurCard({
 
   return (
     <div
-      style={{ position: "relative", height: collapsedH || "auto" }}
+      style={{
+        position: "relative",
+        height: collapsedH || "auto",
+        zIndex: showDetail ? 30 : "auto",
+      }}
       onPointerDown={handleInteraction}
       onScroll={handleInteraction}
     >

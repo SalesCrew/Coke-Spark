@@ -473,7 +473,7 @@ export default function GMDashboard() {
               />
             </div>
 
-            <div className="mt-4" style={{ position: "relative", zIndex: 5 }}>
+            <div className="mt-4" style={{ position: "relative", zIndex: 20 }}>
               <KuehlerInventurCard activeVisitLocked={Boolean(activeVisitPayload)} />
             </div>
           </div>

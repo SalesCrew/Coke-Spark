@@ -603,8 +603,18 @@ function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange }: {
         <MetricCell label="Besuche" value={String(day.visits)} accent={day.visits > 0 ? R : undefined} />
         <ChevronDown size={14} strokeWidth={2.1} color="rgba(15,23,42,0.32)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.24s cubic-bezier(0.4,0,0.2,1)", justifySelf: "end" }} />
       </button>
-      <div style={{ maxHeight: expanded ? 760 : 0, overflow: "hidden", transition: "max-height 0.34s cubic-bezier(0.4,0,0.2,1)" }}>
-        <div style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.18s ease 0.05s", padding: "0 14px 12px" }}>
+      <div
+        className="gm-zeit-timeline-scroll"
+        style={{
+          maxHeight: expanded ? "min(760px, calc(100dvh - 210px))" : 0,
+          overflowX: "hidden",
+          overflowY: expanded ? "auto" : "hidden",
+          overscrollBehavior: "contain",
+          WebkitOverflowScrolling: "touch",
+          transition: "max-height 0.34s cubic-bezier(0.4,0,0.2,1)",
+        }}
+      >
+        <div style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.18s ease 0.05s", padding: "0 14px 24px" }}>
           <div style={{ borderRadius: 13, border: "1px solid rgba(15,23,42,0.055)", background: "linear-gradient(180deg, rgba(15,23,42,0.018), rgba(15,23,42,0.006))", padding: "4px 12px" }}>
             {day.segments.map((segment, index) => (
               <GmZeitTimelineRow

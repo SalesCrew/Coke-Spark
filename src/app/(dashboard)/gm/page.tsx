@@ -474,17 +474,17 @@ export default function GMDashboard() {
             </div>
 
             <div className="mt-4" style={{ position: "relative", zIndex: 5 }}>
-              <KuehlerInventurCard />
+              <KuehlerInventurCard activeVisitLocked={Boolean(activeVisitPayload)} />
             </div>
           </div>
         </div>
 
         <div className="mt-6 flex gap-5 items-start">
           <div className="flex-1">
-            <MarketList />
+            <MarketList activeVisitLocked={Boolean(activeVisitPayload)} />
           </div>
           <div className="flex-1">
-            <ActivityLauncher />
+            <ActivityLauncher activeVisitLocked={Boolean(activeVisitPayload)} />
           </div>
         </div>
       </div>

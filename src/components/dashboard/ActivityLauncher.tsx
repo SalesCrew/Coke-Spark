@@ -49,6 +49,7 @@ import {
 } from "@/lib/gm/daySessionPersistence";
 import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
+import { DashboardGateOverlay } from "./DashboardLockOverlay";
 import type { MarketRecord } from "@/types/markets";
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
@@ -1636,7 +1637,7 @@ function AccordionRow({
 
 // ── Main Component ────────────────────────────────────────────
 
-export function ActivityLauncher() {
+export function ActivityLauncher({ activeVisitLocked = false }: { activeVisitLocked?: boolean }) {
   const router = useRouter();
   const [view, setView] = useState<View>("idle");
   const [marketListMode, setMarketListMode] = useState<MarketListMode>("flex");
@@ -2026,12 +2027,12 @@ export function ActivityLauncher() {
           </div>
           <button
             onClick={() => {
-              if (!dayStarted || dayGateLoading) return;
+              if (!dayStarted || dayGateLoading || activeVisitLocked) return;
               setSelectedMarket(null);
               setSelectedSectionIds([]);
               setView("selectMarket");
             }}
-            disabled={!dayStarted || dayGateLoading}
+            disabled={!dayStarted || dayGateLoading || activeVisitLocked}
             style={{
               padding: "4px 14px",
               fontSize: 10,
@@ -2040,12 +2041,12 @@ export function ActivityLauncher() {
               background: "linear-gradient(to bottom, #DC2626, #e84040)",
               border: "none",
               borderRadius: 7,
-              cursor: !dayStarted || dayGateLoading ? "not-allowed" : "pointer",
+              cursor: !dayStarted || dayGateLoading || activeVisitLocked ? "not-allowed" : "pointer",
               boxShadow:
                 "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
               transition: "all 0.15s ease",
               letterSpacing: "0.01em",
-              opacity: !dayStarted || dayGateLoading ? 0.6 : 1,
+              opacity: !dayStarted || dayGateLoading || activeVisitLocked ? 0.6 : 1,
             }}
           >
             Starten
@@ -2099,15 +2100,32 @@ export function ActivityLauncher() {
               />
             ))}
           </div>
-          {!dayStarted && (
-            <div style={{ marginTop: 8, fontSize: 10, color: "#b91c1c", fontWeight: 600 }}>
-              Bitte zuerst den Arbeitstag starten.
-            </div>
-          )}
         </div>
       </div>
 
       {/* ── Market Selection View ── */}
+      <DashboardGateOverlay
+        loading={dayGateLoading}
+        locked={!dayStarted}
+        lockTitle="Arbeitstag nicht gestartet"
+        lockText="Starte zuerst deinen Arbeitstag, dann sind Marktbesuch und Zusatzzeiten freigegeben."
+        readyTitle="Arbeitstag aktiv"
+        readyText="Du kannst jetzt Marktbesuche und Zusatzzeiten erfassen."
+        inset={10}
+      />
+
+      {!dayGateLoading && dayStarted && activeVisitLocked && (
+        <DashboardGateOverlay
+          loading={false}
+          locked
+          lockTitle="Aktiver Fragebogen offen"
+          lockText="Schliesse den laufenden Fragebogen ab, bevor du einen neuen Marktbesuch startest."
+          inset="52px 10px auto 10px"
+          compact
+          variant="row"
+        />
+      )}
+
       <div
         style={{
           position: "absolute",

@@ -140,6 +140,7 @@ interface KuehlerInventurCardProps {
   endDate?: string;
   markets?: KuehlerMarket[];
   mhdMarkets?: KuehlerMarket[];
+  activeVisitLocked?: boolean;
 }
 
 export function KuehlerInventurCard({
@@ -151,6 +152,7 @@ export function KuehlerInventurCard({
   endDate = "31.03.2026",
   markets = defaultKuehlerMarkets,
   mhdMarkets = defaultMhdMarkets,
+  activeVisitLocked = false,
 }: KuehlerInventurCardProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("kuehler");
@@ -903,6 +905,7 @@ export function KuehlerInventurCard({
           isLaunching={isLaunching}
           dayStarted={dayStarted}
           dayGateLoading={dayGateLoading}
+          activeVisitLocked={activeVisitLocked}
           launchError={launchError}
           onToggleCampaign={toggleCampaign}
           onSelectCampaignChoice={selectKuehlerChoice}

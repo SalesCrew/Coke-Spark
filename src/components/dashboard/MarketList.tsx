@@ -38,6 +38,7 @@ import {
 } from "@/lib/gm/daySessionPersistence";
 import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
+import { DashboardGateOverlay } from "./DashboardLockOverlay";
 import type { MarketRecord } from "@/types/markets";
 
 type MarketCampaignSummary = GmStartMarket["activeNowCampaigns"][number];
@@ -60,6 +61,7 @@ type Market = GmDashboardMarket;
 interface MarketListProps {
   visited?: number;
   total?: number;
+  activeVisitLocked?: boolean;
 }
 
 const CARD_MENU_SPACE = 80;
@@ -389,6 +391,7 @@ export function GmMarketDetailModal({
   isLaunching,
   dayStarted,
   dayGateLoading,
+  activeVisitLocked = false,
   launchError,
   onToggleCampaign,
   onSelectCampaignChoice,
@@ -407,6 +410,7 @@ export function GmMarketDetailModal({
   isLaunching: boolean;
   dayStarted: boolean;
   dayGateLoading: boolean;
+  activeVisitLocked?: boolean;
   launchError: string | null;
   onToggleCampaign: (campaignId: string) => void;
   onSelectCampaignChoice?: (choice: GmMarketDetailCampaignChoice) => void;
@@ -451,6 +455,7 @@ export function GmMarketDetailModal({
     isLaunching ||
     dayGateLoading ||
     !dayStarted ||
+    activeVisitLocked ||
     selectedCampaignIds.length === 0 ||
     (hasCampaignChoices
       ? !selectedCampaignChoice || selectedCampaignChoice.done || selectedCampaignChoice.isStartable === false || selectableCampaignChoiceCount === 0
@@ -614,38 +619,55 @@ export function GmMarketDetailModal({
             </section>
           ) : null}
 
-          <section style={{ display: "grid", gap: 8 }}>
+          <section style={{ display: "grid", gap: 8, position: "relative" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(15,23,42,0.86)" }}>Kampagnen</div>
               <div style={{ fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.36)" }}>
                 {hasCampaignChoices ? selectableCampaignChoiceCount : selectableCampaigns.length} auswählbar
               </div>
             </div>
-            {hasCampaignChoices ? (
-              visibleCampaignChoices.map((choice) => (
-                <CampaignChoiceRow
-                  key={choice.key}
-                  choice={choice}
-                  selected={selectedCampaignChoiceKey === choice.key}
-                  disabled={choice.isStartable === false || Boolean(choice.done) || isLaunching}
-                  onSelect={() => onSelectCampaignChoice?.(choice)}
-                />
-              ))
-            ) : visibleCampaigns.length ? (
-              visibleCampaigns.map((campaign) => (
-                <CampaignRow
-                  key={campaign.campaignId}
-                  campaign={campaign}
-                  selected={selectedCampaignIds.includes(campaign.campaignId)}
-                  disabled={!campaign.isStartable || isLaunching}
-                  onToggle={() => onToggleCampaign(campaign.campaignId)}
-                />
-              ))
-            ) : (
-              <div style={{ borderRadius: 13, background: "rgba(15,23,42,0.025)", padding: 14, fontSize: 11, fontWeight: 700, color: "rgba(15,23,42,0.42)", textAlign: "center" }}>
-                Keine Kampagnen für diesen Markt.
-              </div>
-            )}
+            <div style={{ position: "relative", display: "grid", gap: 8, minHeight: 58 }}>
+              {hasCampaignChoices ? (
+                visibleCampaignChoices.map((choice) => (
+                  <CampaignChoiceRow
+                    key={choice.key}
+                    choice={choice}
+                    selected={selectedCampaignChoiceKey === choice.key}
+                    disabled={dayGateLoading || !dayStarted || activeVisitLocked || choice.isStartable === false || Boolean(choice.done) || isLaunching}
+                    onSelect={() => onSelectCampaignChoice?.(choice)}
+                  />
+                ))
+              ) : visibleCampaigns.length ? (
+                visibleCampaigns.map((campaign) => (
+                  <CampaignRow
+                    key={campaign.campaignId}
+                    campaign={campaign}
+                    selected={selectedCampaignIds.includes(campaign.campaignId)}
+                    disabled={dayGateLoading || !dayStarted || activeVisitLocked || !campaign.isStartable || isLaunching}
+                    onToggle={() => onToggleCampaign(campaign.campaignId)}
+                  />
+                ))
+              ) : (
+                <div style={{ borderRadius: 13, background: "rgba(15,23,42,0.025)", padding: 14, fontSize: 11, fontWeight: 700, color: "rgba(15,23,42,0.42)", textAlign: "center" }}>
+                  Keine Kampagnen für diesen Markt.
+                </div>
+              )}
+              <DashboardGateOverlay
+                loading={dayGateLoading}
+                locked={!dayStarted || activeVisitLocked}
+                lockTitle={!dayStarted ? "Arbeitstag nicht gestartet" : "Aktiver Fragebogen offen"}
+                lockText={
+                  !dayStarted
+                    ? "Starte zuerst deinen Arbeitstag, dann kannst du den Fragebogen beginnen."
+                    : "Schliesse den laufenden Fragebogen ab, bevor du einen neuen Marktbesuch startest."
+                }
+                readyTitle="Arbeitstag aktiv"
+                readyText="Der Fragebogen ist jetzt freigegeben."
+                inset={0}
+                compact
+                variant="row"
+              />
+            </div>
           </section>
 
           <section style={{ display: "grid", gap: 8 }}>
@@ -662,9 +684,9 @@ export function GmMarketDetailModal({
             )}
           </section>
 
-          {(!dayStarted || launchError) && (
-            <div style={{ fontSize: 10, fontWeight: 700, color: !dayStarted ? "#b45309" : "#DC2626" }}>
-              {!dayStarted ? "Bitte zuerst den Arbeitstag starten." : launchError}
+          {launchError && (
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#DC2626" }}>
+              {launchError}
             </div>
           )}
         </div>
@@ -673,7 +695,10 @@ export function GmMarketDetailModal({
           <button
             type="button"
             disabled={startDisabled}
-            onClick={onStart}
+            onClick={() => {
+              if (startDisabled) return;
+              onStart();
+            }}
             style={{
               width: "100%",
               height: 40,
@@ -697,7 +722,7 @@ export function GmMarketDetailModal({
   );
 }
 
-export function MarketList({ visited, total }: MarketListProps) {
+export function MarketList({ visited, total, activeVisitLocked = false }: MarketListProps) {
   const router = useRouter();
   const { current } = useRedMonth();
   const [search, setSearch] = useState("");
@@ -1184,6 +1209,7 @@ export function MarketList({ visited, total }: MarketListProps) {
           isLaunching={isLaunching}
           dayStarted={dayStarted}
           dayGateLoading={dayGateLoading}
+          activeVisitLocked={activeVisitLocked}
           launchError={launchError}
           onToggleCampaign={toggleCampaign}
           onStart={handleStartSelected}

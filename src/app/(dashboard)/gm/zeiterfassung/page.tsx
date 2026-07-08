@@ -67,7 +67,7 @@ type GmZeitDay = {
   segments: GmZeitSegment[];
 };
 
-type EditableTimeSegmentKind = Extract<SegmentKind, "marktbesuch" | "pause" | "zusatzzeit">;
+type EditableTimeSegmentKind = Extract<SegmentKind, "anfahrt" | "marktbesuch" | "pause" | "zusatzzeit">;
 
 type TimeChangeDraft = {
   day: GmZeitDay;
@@ -164,7 +164,15 @@ function fmtRequestHm(value: string | null | undefined): string {
 }
 
 function isEditableTimeSegmentKind(kind: SegmentKind): kind is EditableTimeSegmentKind {
-  return kind === "marktbesuch" || kind === "pause" || kind === "zusatzzeit";
+  return kind === "anfahrt" || kind === "marktbesuch" || kind === "pause" || kind === "zusatzzeit";
+}
+
+function getTimeChangeSourceKind(kind: EditableTimeSegmentKind): TimeEntryChangeRequestSourceKind {
+  return kind === "anfahrt" ? "day_start" : kind;
+}
+
+function getTimeChangeSourceId(dayId: string, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }): string {
+  return segment.kind === "anfahrt" ? dayId : segment.id;
 }
 
 function buildTimeChangeMap(requests: TimeEntryChangeRequest[]): Map<string, TimeEntryChangeRequest> {
@@ -186,7 +194,8 @@ function mapSessionToDay(session: AdminZeiterfassungSession, timeChangeMap: Map<
   const segments = session.timeline.map((segment) => {
     const mapped = mapTimelineSegment(segment);
     if (!isEditableTimeSegmentKind(mapped.kind)) return mapped;
-    const request = timeChangeMap.get(`${session.id}:${mapped.kind}:${mapped.id}`);
+    const editableMapped = mapped as GmZeitSegment & { kind: EditableTimeSegmentKind };
+    const request = timeChangeMap.get(`${session.id}:${getTimeChangeSourceKind(editableMapped.kind)}:${getTimeChangeSourceId(session.id, editableMapped)}`);
     if (!request || request.status === "rejected" || request.status === "cancelled") return mapped;
     return {
       ...mapped,
@@ -710,8 +719,8 @@ export default function GmZeiterfassungPage() {
     try {
       const result = await requestGmTimeEntryChange({
         sessionId: changeDraft.day.id,
-        kind: changeDraft.segment.kind as TimeEntryChangeRequestSourceKind,
-        segmentId: changeDraft.segment.id,
+        kind: getTimeChangeSourceKind(changeDraft.segment.kind),
+        segmentId: getTimeChangeSourceId(changeDraft.day.id, changeDraft.segment),
         requestedStartTime: changeDraft.startTime,
         requestedEndTime: changeDraft.endTime,
         requestNote: changeDraft.note,
@@ -1040,11 +1049,17 @@ export default function GmZeiterfassungPage() {
                   <input
                     type="time"
                     value={changeDraft.endTime}
+                    disabled={changeDraft.segment.kind === "anfahrt"}
                     onChange={(event) => setChangeDraft((current) => current ? { ...current, endTime: event.target.value } : current)}
-                    style={{ height: 42, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.025)", padding: "0 12px", fontSize: 14, fontWeight: 760, color: "rgba(15,23,42,0.9)", fontFamily: "inherit" }}
+                    style={{ height: 42, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: changeDraft.segment.kind === "anfahrt" ? "rgba(15,23,42,0.045)" : "rgba(15,23,42,0.025)", padding: "0 12px", fontSize: 14, fontWeight: 760, color: changeDraft.segment.kind === "anfahrt" ? "rgba(15,23,42,0.42)" : "rgba(15,23,42,0.9)", fontFamily: "inherit" }}
                   />
                 </label>
               </div>
+              {changeDraft.segment.kind === "anfahrt" ? (
+                <div style={{ marginTop: 8, fontSize: 10, lineHeight: 1.45, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>
+                  Das Ende der Anfahrt bleibt durch den nächsten Eintrag fix. Die Startzeit darf diesen Eintrag nicht überschneiden.
+                </div>
+              ) : null}
 
               <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
                 <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Notiz optional</span>

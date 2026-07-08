@@ -167,6 +167,8 @@ export function AnswerChangeRequestFlap() {
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [selectedGmId, setSelectedGmId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [compactDoneOpen, setCompactDoneOpen] = useState(false);
+  const [expandedDoneOpen, setExpandedDoneOpen] = useState(false);
 
   const loadRequests = useCallback(async () => {
     setLoading(true);
@@ -194,9 +196,13 @@ export function AnswerChangeRequestFlap() {
   const pendingRequests = useMemo(() => requests.filter((request) => request.status === "pending"), [requests]);
   const pendingTimeRequests = useMemo(() => timeRequests.filter((request) => request.status === "pending"), [timeRequests]);
   const pendingDeleteRequests = useMemo(() => deleteRequests.filter((request) => request.status === "pending"), [deleteRequests]);
-  const recentRequests = useMemo(() => requests.slice(0, 12), [requests]);
-  const recentTimeRequests = useMemo(() => timeRequests.slice(0, 8), [timeRequests]);
-  const recentDeleteRequests = useMemo(() => deleteRequests.slice(0, 8), [deleteRequests]);
+  const completedRequests = useMemo(() => requests.filter((request) => request.status !== "pending"), [requests]);
+  const completedTimeRequests = useMemo(() => timeRequests.filter((request) => request.status !== "pending"), [timeRequests]);
+  const completedDeleteRequests = useMemo(() => deleteRequests.filter((request) => request.status !== "pending"), [deleteRequests]);
+  const recentRequests = useMemo(() => pendingRequests.slice(0, 12), [pendingRequests]);
+  const recentTimeRequests = useMemo(() => pendingTimeRequests.slice(0, 8), [pendingTimeRequests]);
+  const recentDeleteRequests = useMemo(() => pendingDeleteRequests.slice(0, 8), [pendingDeleteRequests]);
+  const hasCompactPending = recentRequests.length > 0 || recentTimeRequests.length > 0 || recentDeleteRequests.length > 0;
   const totalPendingCount = pendingRequests.length + pendingTimeRequests.length + pendingDeleteRequests.length;
 
   const people = useMemo(() => {
@@ -257,20 +263,135 @@ export function AnswerChangeRequestFlap() {
     });
   }, [pendingRequests, pendingTimeRequests, pendingDeleteRequests]);
 
+  const completedPeople = useMemo(() => {
+    const byGm = new Map<string, {
+      id: string;
+      name: string;
+      email: string;
+      region: string | null;
+      requests: AdminAnswerChangeRequest[];
+      timeRequests: TimeEntryChangeRequest[];
+      deleteRequests: AdminVisitSessionDeleteRequest[];
+      latestAt: string;
+    }>();
+    const touch = (
+      gm: { id: string; name: string; email: string; region: string | null } | null,
+      createdAt: string,
+    ) => {
+      const id = gm?.id ?? "unknown";
+      const entry = byGm.get(id) ?? {
+        id,
+        name: gm?.name ?? "Gebietsmanager",
+        email: gm?.email ?? "",
+        region: gm?.region ?? null,
+        requests: [],
+        timeRequests: [],
+        deleteRequests: [],
+        latestAt: createdAt,
+      };
+      if (new Date(createdAt).getTime() > new Date(entry.latestAt).getTime()) {
+        entry.latestAt = createdAt;
+      }
+      byGm.set(id, entry);
+      return entry;
+    };
+    for (const request of completedRequests) {
+      touch(request.gm, request.createdAt).requests.push(request);
+    }
+    for (const request of completedTimeRequests) {
+      touch(request.gm, request.createdAt).timeRequests.push(request);
+    }
+    for (const request of completedDeleteRequests) {
+      touch(request.gm, request.createdAt).deleteRequests.push(request);
+    }
+    return Array.from(byGm.values()).sort((a, b) => {
+      const dateDiff = new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [completedRequests, completedTimeRequests, completedDeleteRequests]);
+
+  const allPeople = useMemo(() => {
+    const byGm = new Map<string, {
+      id: string;
+      name: string;
+      email: string;
+      region: string | null;
+      requests: AdminAnswerChangeRequest[];
+      timeRequests: TimeEntryChangeRequest[];
+      deleteRequests: AdminVisitSessionDeleteRequest[];
+      completedRequests: AdminAnswerChangeRequest[];
+      completedTimeRequests: TimeEntryChangeRequest[];
+      completedDeleteRequests: AdminVisitSessionDeleteRequest[];
+      latestAt: string;
+    }>();
+    const ensure = (person: {
+      id: string;
+      name: string;
+      email: string;
+      region: string | null;
+      latestAt?: string;
+    }) => {
+      const entry = byGm.get(person.id) ?? {
+        id: person.id,
+        name: person.name,
+        email: person.email,
+        region: person.region,
+        requests: [],
+        timeRequests: [],
+        deleteRequests: [],
+        completedRequests: [],
+        completedTimeRequests: [],
+        completedDeleteRequests: [],
+        latestAt: person.latestAt ?? "",
+      };
+      if (person.latestAt && (!entry.latestAt || new Date(person.latestAt).getTime() > new Date(entry.latestAt).getTime())) {
+        entry.latestAt = person.latestAt;
+      }
+      byGm.set(person.id, entry);
+      return entry;
+    };
+    for (const person of people) {
+      const entry = ensure(person);
+      entry.requests.push(...person.requests);
+      entry.timeRequests.push(...person.timeRequests);
+      entry.deleteRequests.push(...person.deleteRequests);
+    }
+    for (const person of completedPeople) {
+      const entry = ensure(person);
+      entry.completedRequests.push(...person.requests);
+      entry.completedTimeRequests.push(...person.timeRequests);
+      entry.completedDeleteRequests.push(...person.deleteRequests);
+    }
+    return Array.from(byGm.values()).sort((a, b) => {
+      const aPending = a.requests.length + a.timeRequests.length + a.deleteRequests.length;
+      const bPending = b.requests.length + b.timeRequests.length + b.deleteRequests.length;
+      if (aPending !== bPending) return bPending - aPending;
+      const dateDiff = new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [completedPeople, people]);
+
   useEffect(() => {
     if (!expanded) return;
-    if (selectedGmId && people.some((person) => person.id === selectedGmId)) return;
-    setSelectedGmId(people[0]?.id ?? null);
-  }, [expanded, people, selectedGmId]);
+    if (selectedGmId && allPeople.some((person) => person.id === selectedGmId)) return;
+    setSelectedGmId(allPeople[0]?.id ?? null);
+  }, [allPeople, expanded, selectedGmId]);
 
   const selectedPerson = useMemo(
-    () => people.find((person) => person.id === selectedGmId) ?? people[0] ?? null,
-    [people, selectedGmId],
+    () => allPeople.find((person) => person.id === selectedGmId) ?? allPeople[0] ?? null,
+    [allPeople, selectedGmId],
   );
 
   const selectedPersonRequests = selectedPerson?.requests ?? [];
   const selectedPersonTimeRequests = selectedPerson?.timeRequests ?? [];
   const selectedPersonDeleteRequests = selectedPerson?.deleteRequests ?? [];
+  const selectedPersonCompletedRequests = selectedPerson?.completedRequests ?? [];
+  const selectedPersonCompletedTimeRequests = selectedPerson?.completedTimeRequests ?? [];
+  const selectedPersonCompletedDeleteRequests = selectedPerson?.completedDeleteRequests ?? [];
+  const selectedPersonPendingCount = selectedPersonRequests.length + selectedPersonTimeRequests.length + selectedPersonDeleteRequests.length;
+  const selectedPersonCompletedCount = selectedPersonCompletedRequests.length + selectedPersonCompletedTimeRequests.length + selectedPersonCompletedDeleteRequests.length;
   const selectedApplicableIds = selectedPersonRequests
     .filter((request) => selectedIds.has(request.id) && request.autoApplicable)
     .map((request) => request.id);
@@ -374,6 +495,150 @@ export function AnswerChangeRequestFlap() {
     });
   };
 
+  const renderCompactCompletedCards = () => (
+    <>
+      {completedRequests.length > 0 ? <div className="answer-section-heading">Fragebogen</div> : null}
+      {completedRequests.map((request) => (
+        <article key={`answer-${request.id}`} className="answer-request-card is-muted">
+          <div className="answer-card-top">
+            <div className="answer-avatar">{initials(request.gm.name)}</div>
+            <div className="answer-card-title">
+              <strong>{request.gm.name}</strong>
+              <span>{marketLabel(request)}</span>
+            </div>
+            <span className={`answer-status is-${request.status}`}>{request.status}</span>
+          </div>
+          <p className="answer-question">{request.questionText}</p>
+          <div className="answer-diff-mini">
+            <span>{currentAnswerLabel(request.currentAnswerSnapshot)}</span>
+            <ChevronRight size={13} />
+            <strong>{request.requestedAnswerSummary}</strong>
+          </div>
+          {request.autoApplicabilityError ? <div className="answer-card-note">{request.autoApplicabilityError}</div> : null}
+        </article>
+      ))}
+      {completedTimeRequests.length > 0 ? <div className="answer-section-heading">Zeiterfassung</div> : null}
+      {completedTimeRequests.map((request) => (
+        <article key={`time-${request.id}`} className="answer-request-card is-time is-muted">
+          <div className="answer-card-top">
+            <div className="answer-avatar">{initials(request.gm?.name ?? "GM")}</div>
+            <div className="answer-card-title">
+              <strong>{request.gm?.name ?? "Gebietsmanager"}</strong>
+              <span>{request.workDate} · {timeKindLabel(request.sourceKind)}</span>
+            </div>
+            <span className={`answer-status is-${request.status}`}>{request.status}</span>
+          </div>
+          <p className="answer-question">{request.title}</p>
+          <div className="answer-diff-mini">
+            <span>{formatTimeRange(request.originalStartAt, request.originalEndAt)}</span>
+            <ChevronRight size={13} />
+            <strong>{formatTimeRange(request.requestedStartAt, request.requestedEndAt)}</strong>
+          </div>
+          {request.requestNote ? <div className="answer-card-note">{request.requestNote}</div> : null}
+        </article>
+      ))}
+      {completedDeleteRequests.length > 0 ? <div className="answer-section-heading">Fragebogen loeschen</div> : null}
+      {completedDeleteRequests.map((request) => (
+        <article key={`delete-${request.id}`} className="answer-request-card is-delete is-muted">
+          <div className="answer-card-top">
+            <div className="answer-avatar">{initials(request.gm.name)}</div>
+            <div className="answer-card-title">
+              <strong>{request.gm.name}</strong>
+              <span>{deleteRequestMarketLabel(request)}</span>
+            </div>
+            <span className={`answer-status is-${request.status}`}>{request.status}</span>
+          </div>
+          <p className="answer-question">Fragebogen aus Auswertungen entfernen</p>
+          <div className="answer-diff-mini">
+            <span>{request.campaignSummary || "Fragebogen"}</span>
+            <ChevronRight size={13} />
+            <strong>Soft delete</strong>
+          </div>
+          {request.requestNote ? <div className="answer-card-note">{request.requestNote}</div> : null}
+        </article>
+      ))}
+    </>
+  );
+
+  const renderCompletedDetailCards = () => (
+    <>
+      {selectedPersonCompletedRequests.map((request) => (
+        <article key={`done-answer-${request.id}`} className="answer-detail-card is-muted">
+          <div className="answer-select-row">
+            <span>
+              <strong>{marketLabel(request)}</strong>
+              <small>
+                {sectionLabel(request.section.section)} · {formatDateTime(request.session.submittedAt)} · {request.section.campaignName}
+              </small>
+            </span>
+            <span className={`answer-status is-${request.status}`}>{request.status}</span>
+          </div>
+          <p className="answer-question is-detail">{request.questionText}</p>
+          <div className="answer-diff-grid">
+            <div>
+              <span>Aktuell</span>
+              <strong>{currentAnswerLabel(request.currentAnswerSnapshot)}</strong>
+            </div>
+            <div>
+              <span>Bearbeitet</span>
+              <strong>{request.requestedAnswerSummary}</strong>
+            </div>
+          </div>
+          {request.requestNote ? <p className="answer-note">{request.requestNote}</p> : null}
+        </article>
+      ))}
+      {selectedPersonCompletedTimeRequests.map((request) => (
+        <article key={`done-time-${request.id}`} className="answer-detail-card is-time is-muted">
+          <div className="answer-select-row">
+            <span>
+              <strong>{request.title}</strong>
+              <small>
+                {request.workDate} · {timeKindLabel(request.sourceKind)}
+                {request.subtitle ? ` · ${request.subtitle}` : ""}
+              </small>
+            </span>
+            <span className={`answer-status is-${request.status}`}>{request.status}</span>
+          </div>
+          <div className="answer-diff-grid">
+            <div>
+              <span>Original</span>
+              <strong>{formatTimeRange(request.originalStartAt, request.originalEndAt)}</strong>
+            </div>
+            <div>
+              <span>Bearbeitet</span>
+              <strong>{formatTimeRange(request.requestedStartAt, request.requestedEndAt)}</strong>
+            </div>
+          </div>
+          {request.requestNote ? <p className="answer-note">{request.requestNote}</p> : null}
+        </article>
+      ))}
+      {selectedPersonCompletedDeleteRequests.map((request) => (
+        <article key={`done-delete-${request.id}`} className="answer-detail-card is-delete is-muted">
+          <div className="answer-select-row">
+            <span>
+              <strong>{deleteRequestMarketLabel(request)}</strong>
+              <small>
+                {request.campaignSummary || "Fragebogen"} · {formatDateTime(request.session.submittedAt)}
+              </small>
+            </span>
+            <span className={`answer-status is-${request.status}`}>{request.status}</span>
+          </div>
+          <div className="answer-diff-grid">
+            <div>
+              <span>Aktuell</span>
+              <strong>In Auswertungen enthalten</strong>
+            </div>
+            <div>
+              <span>Bearbeitet</span>
+              <strong>Besuch entfernen</strong>
+            </div>
+          </div>
+          {request.requestNote ? <p className="answer-note">{request.requestNote}</p> : null}
+        </article>
+      ))}
+    </>
+  );
+
   return (
     <div className={`answer-flap ${open ? "is-open" : ""} ${expanded ? "is-expanded" : ""}`}>
       <button
@@ -416,7 +681,7 @@ export function AnswerChangeRequestFlap() {
                   <strong>Anfragen werden geladen</strong>
                   <span>Die neuesten Korrekturen werden abgeglichen.</span>
                 </div>
-              ) : recentRequests.length === 0 && recentTimeRequests.length === 0 && recentDeleteRequests.length === 0 ? (
+              ) : !hasCompactPending && completedPeople.length === 0 ? (
                 <div className="answer-empty">
                   <Inbox size={20} />
                   <strong>Keine offenen Anfragen</strong>
@@ -424,6 +689,13 @@ export function AnswerChangeRequestFlap() {
                 </div>
               ) : (
                 <>
+                  {!hasCompactPending ? (
+                    <div className="answer-empty is-compact">
+                      <Inbox size={18} />
+                      <strong>Keine neuen Anfragen</strong>
+                      <span>Erledigte Korrekturen findest du unten.</span>
+                    </div>
+                  ) : null}
                   {recentRequests.length > 0 ? <div className="answer-section-heading">Fragebogen</div> : null}
                   {recentRequests.map((request) => (
                     <article key={request.id} className={`answer-request-card ${request.status !== "pending" ? "is-muted" : ""}`}>
@@ -527,6 +799,26 @@ export function AnswerChangeRequestFlap() {
                       ) : null}
                     </article>
                   ))}
+                  {completedPeople.length > 0 ? (
+                    <div className="answer-done-section">
+                      <button
+                        type="button"
+                        className="answer-done-summary"
+                        onClick={() => setCompactDoneOpen((value) => !value)}
+                      >
+                        <span>
+                          <strong>Erledigt</strong>
+                          <small>{completedRequests.length + completedTimeRequests.length + completedDeleteRequests.length} abgeschlossene Anfrage{completedRequests.length + completedTimeRequests.length + completedDeleteRequests.length === 1 ? "" : "n"}</small>
+                        </span>
+                        <ChevronRight className={`answer-done-chevron ${compactDoneOpen ? "is-open" : ""}`} size={15} />
+                      </button>
+                      {compactDoneOpen ? (
+                        <div className="answer-done-list">
+                          {renderCompactCompletedCards()}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </>
               )}
             </div>
@@ -534,10 +826,10 @@ export function AnswerChangeRequestFlap() {
             <div className="answer-expanded">
               <aside className="answer-people">
                 <div className="answer-pane-title">Personen</div>
-                {people.length === 0 ? (
-                  <div className="answer-empty is-small">Keine offenen Personen.</div>
-                ) : (
-                  people.map((person) => (
+                {allPeople.length > 0 ? (
+                  allPeople.map((person) => {
+                    const pendingCount = person.requests.length + person.timeRequests.length + person.deleteRequests.length;
+                    return (
                     <button
                       key={person.id}
                       type="button"
@@ -545,6 +837,7 @@ export function AnswerChangeRequestFlap() {
                       onClick={() => {
                         setSelectedGmId(person.id);
                         setSelectedIds(new Set());
+                        setExpandedDoneOpen(false);
                       }}
                     >
                       <span className="answer-avatar is-small">{initials(person.name)}</span>
@@ -552,20 +845,27 @@ export function AnswerChangeRequestFlap() {
                         <strong>{person.name}</strong>
                         <small>{person.region ?? person.email}</small>
                       </span>
-                      <span className="answer-person-count">{person.requests.length + person.timeRequests.length + person.deleteRequests.length}</span>
+                      {pendingCount > 0 ? <span className="answer-person-dot" aria-label={`${pendingCount} offene Anfragen`} /> : null}
                     </button>
-                  ))
-                )}
+                    );
+                  })
+                ) : null}
+                {allPeople.length === 0 ? (
+                  <div className="answer-empty is-small">Keine Personen.</div>
+                ) : null}
               </aside>
 
               <section className="answer-person-detail">
                 {selectedPerson ? (
                   <>
                     <div className="answer-person-header">
-                      <div>
+                      <div className="answer-person-header-main">
                         <div className="answer-pane-title">Pruefung pro GM</div>
                         <h3>{selectedPerson.name}</h3>
-                        <p>{selectedPerson.requests.length + selectedPerson.timeRequests.length + selectedPerson.deleteRequests.length} offene Anfrage{selectedPerson.requests.length + selectedPerson.timeRequests.length + selectedPerson.deleteRequests.length === 1 ? "" : "n"}</p>
+                        <p>
+                          {selectedPersonPendingCount} offene Anfrage{selectedPersonPendingCount === 1 ? "" : "n"}
+                          {selectedPersonCompletedCount > 0 ? ` · ${selectedPersonCompletedCount} erledigt` : ""}
+                        </p>
                       </div>
                       <div className="answer-bulk-actions">
                         <button
@@ -728,12 +1028,34 @@ export function AnswerChangeRequestFlap() {
                         </article>
                       ))}
                     </div>
+                    {selectedPersonCompletedCount > 0 ? (
+                      <div className="answer-done-section is-detail">
+                        <button
+                          type="button"
+                          className="answer-done-summary"
+                          onClick={() => setExpandedDoneOpen((value) => !value)}
+                        >
+                          <span>
+                            <strong>Erledigt</strong>
+                            <small>
+                              {selectedPersonCompletedCount} abgeschlossene Anfrage{selectedPersonCompletedCount === 1 ? "" : "n"}
+                            </small>
+                          </span>
+                          <ChevronRight className={`answer-done-chevron ${expandedDoneOpen ? "is-open" : ""}`} size={15} />
+                        </button>
+                        {expandedDoneOpen ? (
+                          <div className="answer-done-list is-detail">
+                            {renderCompletedDetailCards()}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <div className="answer-empty">
                     <UserRound size={20} />
-                    <strong>Keine offenen Anfragen</strong>
-                    <span>Es gibt aktuell keine Person mit offenen Korrekturen.</span>
+                    <strong>Keine Anfragen</strong>
+                    <span>Es gibt aktuell keine Person mit Korrekturen.</span>
                   </div>
                 )}
               </section>
@@ -904,6 +1226,9 @@ export function AnswerChangeRequestFlap() {
           font-weight: 820;
           letter-spacing: 0;
           color: rgba(16, 24, 40, 0.92);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .answer-flap-title p {
@@ -923,6 +1248,9 @@ export function AnswerChangeRequestFlap() {
         }
 
         .answer-status {
+          position: absolute;
+          top: 12px;
+          right: 12px;
           border-radius: 999px;
           background: rgba(239, 43, 45, 0.07);
           color: rgba(215, 25, 32, 0.88);
@@ -1038,8 +1366,13 @@ export function AnswerChangeRequestFlap() {
           margin-top: 10px;
         }
 
+        .answer-empty.is-compact {
+          min-height: 118px;
+        }
+
         .answer-request-card,
         .answer-detail-card {
+          position: relative;
           border: 1px solid rgba(16, 24, 40, 0.07);
           border-radius: 18px;
           background: #fff;
@@ -1068,6 +1401,11 @@ export function AnswerChangeRequestFlap() {
           display: flex;
           align-items: center;
           gap: 10px;
+        }
+
+        .answer-request-card > .answer-card-top,
+        .answer-detail-card.is-muted > .answer-select-row {
+          padding-right: 78px;
         }
 
         .answer-avatar {
@@ -1213,6 +1551,88 @@ export function AnswerChangeRequestFlap() {
           margin-top: 10px;
         }
 
+        .answer-done-section {
+          border: 1px solid rgba(16, 24, 40, 0.07);
+          border-radius: 18px;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 252, 0.9));
+          box-shadow: 0 6px 18px rgba(16, 24, 40, 0.045);
+          overflow: hidden;
+        }
+
+        .answer-done-summary {
+          width: 100%;
+          border: 0;
+          background: transparent;
+          cursor: pointer;
+          font: inherit;
+          color: inherit;
+          text-align: left;
+        }
+
+        .answer-done-summary {
+          min-height: 54px;
+          padding: 12px 13px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+        }
+
+        .answer-done-summary span {
+          min-width: 0;
+          display: grid;
+          gap: 2px;
+        }
+
+        .answer-done-summary strong {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 12px;
+          font-weight: 900;
+          color: rgba(16, 24, 40, 0.82);
+        }
+
+        .answer-done-summary small {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 10px;
+          font-weight: 760;
+          color: rgba(16, 24, 40, 0.42);
+        }
+
+        .answer-done-chevron {
+          color: rgba(16, 24, 40, 0.42);
+          transition: transform 0.16s ease;
+          flex: 0 0 auto;
+        }
+
+        .answer-done-chevron.is-open {
+          transform: rotate(90deg);
+        }
+
+        .answer-done-section.is-detail {
+          margin-top: 16px;
+        }
+
+        .answer-done-list {
+          display: grid;
+          gap: 8px;
+          padding: 0 9px 9px;
+        }
+
+        .answer-done-list .answer-request-card {
+          border-radius: 14px;
+          padding: 11px;
+          box-shadow: none;
+        }
+
+        .answer-done-list.is-detail {
+          padding: 0 12px 12px;
+          gap: 10px;
+        }
+
         .answer-expanded {
           height: calc(100% - 65px);
           display: grid;
@@ -1252,26 +1672,24 @@ export function AnswerChangeRequestFlap() {
           gap: 2px;
         }
 
-        .answer-person-count {
-          min-width: 24px;
-          height: 24px;
+        .answer-person-dot {
+          width: 7px;
+          height: 7px;
           border-radius: 999px;
-          background: #fff;
-          border: 1px solid rgba(16, 24, 40, 0.07);
-          display: grid;
-          place-items: center;
-          font-size: 10px;
-          font-weight: 950;
-          color: #d71920;
+          background: #d71920;
+          box-shadow: 0 0 0 3px rgba(215, 25, 32, 0.08);
+          flex: 0 0 auto;
         }
 
         .answer-person-detail {
           min-width: 0;
-          padding: 16px;
+          padding: 16px 16px 96px;
           overflow-y: auto;
+          scroll-padding-bottom: 96px;
         }
 
         .answer-person-header {
+          min-width: 0;
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
@@ -1279,7 +1697,13 @@ export function AnswerChangeRequestFlap() {
           margin-bottom: 14px;
         }
 
+        .answer-person-header-main {
+          min-width: 0;
+          flex: 1 1 auto;
+        }
+
         .answer-bulk-actions {
+          flex: 0 0 auto;
           flex-wrap: wrap;
           justify-content: flex-end;
         }
@@ -1391,6 +1815,199 @@ export function AnswerChangeRequestFlap() {
           .answer-person-header {
             display: grid;
           }
+        }
+      `}</style>
+      <style jsx global>{`
+        .answer-flap .answer-done-list .answer-section-heading {
+          margin: 4px 2px 0;
+          font-size: 9px;
+          font-weight: 820;
+          letter-spacing: 0.11em;
+          text-transform: uppercase;
+          color: rgba(16, 24, 40, 0.38);
+        }
+
+        .answer-flap .answer-done-list .answer-request-card,
+        .answer-flap .answer-done-list .answer-detail-card {
+          position: relative;
+          border: 1px solid rgba(16, 24, 40, 0.07);
+          border-radius: 14px;
+          background: #fff;
+          padding: 11px;
+          box-shadow: 0 6px 18px rgba(16, 24, 40, 0.05);
+        }
+
+        .answer-flap .answer-done-list .answer-request-card.is-muted,
+        .answer-flap .answer-done-list .answer-detail-card.is-muted {
+          opacity: 0.58;
+        }
+
+        .answer-flap .answer-done-list .answer-request-card.is-time,
+        .answer-flap .answer-done-list .answer-detail-card.is-time {
+          border-color: rgba(59, 130, 246, 0.12);
+          background: linear-gradient(180deg, #ffffff, rgba(248, 250, 252, 0.9));
+        }
+
+        .answer-flap .answer-done-list .answer-request-card.is-delete,
+        .answer-flap .answer-done-list .answer-detail-card.is-delete {
+          border-color: rgba(215, 25, 32, 0.14);
+          background: linear-gradient(180deg, #ffffff, rgba(255, 245, 245, 0.72));
+        }
+
+        .answer-flap .answer-done-list .answer-card-top,
+        .answer-flap .answer-done-list .answer-select-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .answer-flap .answer-done-list .answer-request-card > .answer-card-top,
+        .answer-flap .answer-done-list .answer-detail-card > .answer-select-row {
+          padding-right: 78px;
+        }
+
+        .answer-flap .answer-done-list .answer-avatar {
+          width: 36px;
+          height: 36px;
+          border-radius: 14px;
+          background: linear-gradient(145deg, rgba(239, 43, 45, 0.13), rgba(255, 255, 255, 0.95));
+          border: 1px solid rgba(239, 43, 45, 0.14);
+          display: grid;
+          place-items: center;
+          color: #d71920;
+          font-size: 11px;
+          font-weight: 950;
+          flex: 0 0 auto;
+        }
+
+        .answer-flap .answer-done-list .answer-card-title {
+          min-width: 0;
+          flex: 1;
+          display: grid;
+          gap: 2px;
+        }
+
+        .answer-flap .answer-done-list .answer-card-title strong,
+        .answer-flap .answer-done-list .answer-select-row strong {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 12px;
+          font-weight: 900;
+          color: #111827;
+        }
+
+        .answer-flap .answer-done-list .answer-card-title span,
+        .answer-flap .answer-done-list .answer-select-row small {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 10px;
+          font-weight: 750;
+          color: rgba(16, 24, 40, 0.48);
+        }
+
+        .answer-flap .answer-done-list .answer-status {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          border-radius: 999px;
+          background: rgba(239, 43, 45, 0.07);
+          color: rgba(215, 25, 32, 0.88);
+          padding: 6px 9px;
+          font-size: 10px;
+          font-weight: 780;
+          line-height: 1;
+          flex: 0 0 auto;
+        }
+
+        .answer-flap .answer-done-list .answer-status.is-approved {
+          background: rgba(0, 158, 107, 0.1);
+          color: #00895e;
+        }
+
+        .answer-flap .answer-done-list .answer-status.is-rejected,
+        .answer-flap .answer-done-list .answer-status.is-cancelled {
+          background: rgba(16, 24, 40, 0.07);
+          color: rgba(16, 24, 40, 0.56);
+        }
+
+        .answer-flap .answer-done-list .answer-question {
+          margin: 11px 0 8px;
+          font-size: 11px;
+          line-height: 1.45;
+          font-weight: 800;
+          color: rgba(16, 24, 40, 0.75);
+        }
+
+        .answer-flap .answer-done-list .answer-question.is-detail {
+          margin: 12px 0;
+        }
+
+        .answer-flap .answer-done-list .answer-diff-mini {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+          align-items: center;
+          gap: 8px;
+          border-radius: 13px;
+          background: #f8fafc;
+          padding: 9px 10px;
+          font-size: 10px;
+          font-weight: 800;
+          color: rgba(16, 24, 40, 0.52);
+        }
+
+        .answer-flap .answer-done-list .answer-diff-mini span,
+        .answer-flap .answer-done-list .answer-diff-mini strong {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .answer-flap .answer-done-list .answer-diff-mini strong {
+          color: #d71920;
+        }
+
+        .answer-flap .answer-done-list .answer-diff-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .answer-flap .answer-done-list .answer-diff-grid > div {
+          border-radius: 14px;
+          background: #f8fafc;
+          padding: 10px;
+          display: grid;
+          gap: 5px;
+        }
+
+        .answer-flap .answer-done-list .answer-diff-grid span {
+          font-size: 9px;
+          font-weight: 840;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: rgba(16, 24, 40, 0.36);
+        }
+
+        .answer-flap .answer-done-list .answer-diff-grid strong {
+          font-size: 11px;
+          line-height: 1.35;
+          font-weight: 820;
+          color: rgba(16, 24, 40, 0.78);
+        }
+
+        .answer-flap .answer-done-list .answer-note,
+        .answer-flap .answer-done-list .answer-card-note {
+          margin: 8px 0 0;
+          border-radius: 12px;
+          border: 1px solid rgba(215, 25, 32, 0.16);
+          background: linear-gradient(180deg, rgba(215, 25, 32, 0.055), rgba(215, 25, 32, 0.035));
+          padding: 10px 12px;
+          color: rgba(177, 24, 31, 0.92);
+          font-size: 11px;
+          font-weight: 720;
+          line-height: 1.45;
         }
       `}</style>
     </div>

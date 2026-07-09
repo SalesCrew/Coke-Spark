@@ -495,16 +495,22 @@ export default function GMDashboard() {
         className="mx-auto px-6 pt-6 lg:px-10 lg:pt-8"
         style={{ maxWidth: 960, position: "relative", zIndex: 1 }}
       >
-        <GMStatusCard name={gmDisplayName || ""} bars={statusBars} ipp={averageIpp} praemie={displayedBonus} />
-
-        <div className="mt-5 flex gap-5 items-stretch">
-          <div className="flex-1">
+        <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+          <div className="min-w-0 space-y-5">
             <TimeTracker
               daySessionPayload={dashboardCritical?.daySession}
               daySessionLoading={dashboardCriticalLoading}
             />
+            <MarketList
+              activeVisitLocked={Boolean(activeVisitSummary)}
+              daySessionPayload={dashboardCritical?.daySession}
+              daySessionLoading={dashboardCriticalLoading}
+            />
           </div>
-          <div className="flex-1">
+
+          <div className="min-w-0 space-y-4">
+            <GMStatusCard name={gmDisplayName || ""} bars={statusBars} ipp={averageIpp} praemie={displayedBonus} />
+
             <div
               style={{
                 backgroundColor: "#ffffff",
@@ -530,18 +536,7 @@ export default function GMDashboard() {
                 initialProgressData={kuehlerMhdProgress}
               />
             </div>
-          </div>
-        </div>
 
-        <div className="mt-6 flex gap-5 items-start">
-          <div className="flex-1">
-            <MarketList
-              activeVisitLocked={Boolean(activeVisitSummary)}
-              daySessionPayload={dashboardCritical?.daySession}
-              daySessionLoading={dashboardCriticalLoading}
-            />
-          </div>
-          <div className="flex-1">
             <ActivityLauncher
               activeVisitLocked={Boolean(activeVisitSummary)}
               daySessionPayload={dashboardCritical?.daySession}

@@ -151,6 +151,8 @@ function sortDeleteRequests(input: AdminVisitSessionDeleteRequest[]): AdminVisit
 }
 
 function timeKindLabel(kind: TimeEntryChangeRequest["sourceKind"]): string {
+  if (kind === "day_start") return "Anfahrt";
+  if (kind === "day_end") return "Heimfahrt";
   if (kind === "marktbesuch") return "Marktbesuch";
   if (kind === "pause") return "Pause";
   return "Zusatz";

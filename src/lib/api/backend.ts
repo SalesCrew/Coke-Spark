@@ -1583,6 +1583,22 @@ export async function fetchGmProfile(): Promise<GmProfilePayload> {
   return (await authedFetch("/gm/profile", { cache: "no-store" })) as GmProfilePayload;
 }
 
+export type GmTextSettingsPayload = {
+  textScalePercent: number;
+  updatedAt: string | null;
+};
+
+export async function fetchGmTextSettings(): Promise<GmTextSettingsPayload> {
+  return (await authedFetch("/gm/settings/text-scale", { cache: "no-store" })) as GmTextSettingsPayload;
+}
+
+export async function updateGmTextSettings(input: { textScalePercent: number }): Promise<GmTextSettingsPayload> {
+  return (await authedFetch("/gm/settings/text-scale", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as GmTextSettingsPayload;
+}
+
 export async function presignGmProfilePhoto(input: {
   extension?: string;
   mimeType?: string;
@@ -2515,7 +2531,7 @@ export type AdminAnswerChangeRequest = {
 export type GmAnswerChangeRequest = AdminAnswerChangeRequest;
 
 export type TimeEntryChangeRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
-export type TimeEntryChangeRequestSourceKind = "day_start" | "marktbesuch" | "pause" | "zusatzzeit";
+export type TimeEntryChangeRequestSourceKind = "day_start" | "day_end" | "marktbesuch" | "pause" | "zusatzzeit";
 export type TimeEntryChangeRequest = {
   id: string;
   daySessionId: string;

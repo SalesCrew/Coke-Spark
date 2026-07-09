@@ -69,7 +69,7 @@ type GmZeitDay = {
   segments: GmZeitSegment[];
 };
 
-type EditableTimeSegmentKind = Extract<SegmentKind, "anfahrt" | "marktbesuch" | "pause" | "zusatzzeit">;
+type EditableTimeSegmentKind = Extract<SegmentKind, "anfahrt" | "marktbesuch" | "pause" | "zusatzzeit" | "heimfahrt">;
 
 type TimeChangeDraft = {
   day: GmZeitDay;
@@ -167,15 +167,16 @@ function fmtRequestHm(value: string | null | undefined): string {
 }
 
 function isEditableTimeSegmentKind(kind: SegmentKind): kind is EditableTimeSegmentKind {
-  return kind === "anfahrt" || kind === "marktbesuch" || kind === "pause" || kind === "zusatzzeit";
+  return kind === "anfahrt" || kind === "marktbesuch" || kind === "pause" || kind === "zusatzzeit" || kind === "heimfahrt";
 }
 
 function getTimeChangeSourceKind(kind: EditableTimeSegmentKind): TimeEntryChangeRequestSourceKind {
+  if (kind === "heimfahrt") return "day_end";
   return kind === "anfahrt" ? "day_start" : kind;
 }
 
 function getTimeChangeSourceId(dayId: string, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }): string {
-  return segment.kind === "anfahrt" ? dayId : segment.id;
+  return segment.kind === "anfahrt" || segment.kind === "heimfahrt" ? dayId : segment.id;
 }
 
 function buildTimeChangeMap(requests: TimeEntryChangeRequest[]): Map<string, TimeEntryChangeRequest> {
@@ -1111,6 +1112,7 @@ export default function GmZeiterfassungPage() {
                 <TimeChangeInput
                   label="Start"
                   value={changeDraft.startTime}
+                  disabled={changeDraft.segment.kind === "heimfahrt"}
                   onChange={(value) => setChangeDraft((current) => current ? { ...current, startTime: value } : current)}
                 />
                 <TimeChangeInput
@@ -1123,6 +1125,10 @@ export default function GmZeiterfassungPage() {
               {changeDraft.segment.kind === "anfahrt" ? (
                 <div style={{ marginTop: 8, fontSize: 10, lineHeight: 1.45, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>
                   Das Ende der Anfahrt bleibt durch den nächsten Eintrag fix. Die Startzeit darf diesen Eintrag nicht überschneiden.
+                </div>
+              ) : changeDraft.segment.kind === "heimfahrt" ? (
+                <div style={{ marginTop: 8, fontSize: 10, lineHeight: 1.45, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>
+                  Der Start der Heimfahrt bleibt durch den letzten Eintrag fix. Die Endzeit muss danach liegen.
                 </div>
               ) : null}
 

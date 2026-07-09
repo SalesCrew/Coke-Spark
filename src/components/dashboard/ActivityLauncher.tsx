@@ -2315,9 +2315,7 @@ export function ActivityLauncher({
           locked
           lockTitle="Aktiver Fragebogen offen"
           lockText="Schliesse den laufenden Fragebogen ab, bevor du einen neuen Marktbesuch startest."
-          inset="52px 10px auto 10px"
-          compact
-          variant="row"
+          inset={10}
         />
       )}
 

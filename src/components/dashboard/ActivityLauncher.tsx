@@ -14,6 +14,7 @@ import {
   BedDouble,
   Coffee,
   Clock,
+  Camera,
   ChevronLeft,
   Check,
   Search,
@@ -35,6 +36,7 @@ import {
   startTimeTrackingDraft,
   endTimeTrackingDraft,
   commentTimeTrackingDraft,
+  uploadTimeTrackingDoctorConfirmation,
   submitTimeTrackingEntry,
   cancelTimeTrackingEntry,
   setGmVisitPreloadCache,
@@ -59,6 +61,8 @@ const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const CARD_MENU_SPACE = 80;
 const MIN_CARD_HEIGHT = 260;
 const LIVE_STOP_CONFIRM_AFTER_MS = 10 * 60 * 1000;
+const DOCTOR_CONFIRMATION_MAX_BYTES = 10 * 1024 * 1024;
+const DOCTOR_CONFIRMATION_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "heic", "heif"]);
 
 type ZusatzActivityKey = TimeTrackingActivityType | "pause";
 type ZusatzActivity = {
@@ -205,6 +209,95 @@ function manualStartBeforeDayStart(dayStartedAt: string | null | undefined, hm: 
 }
 
 // ── Clock Picker ──────────────────────────────────────────────
+
+function isAllowedDoctorConfirmationFile(file: File): boolean {
+  if (file.type && !file.type.toLowerCase().startsWith("image/")) return false;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return !extension || DOCTOR_CONFIRMATION_EXTENSIONS.has(extension);
+}
+
+function DoctorConfirmationUploadField({
+  file,
+  error,
+  disabled,
+  onFileChange,
+}: {
+  file: File | null;
+  error: string | null;
+  disabled?: boolean;
+  onFileChange: (file: File | null) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const hasFile = Boolean(file);
+  return (
+    <div
+      onClick={(event) => event.stopPropagation()}
+      style={{
+        marginTop: 8,
+        padding: "8px 9px",
+        borderRadius: 10,
+        border: `1px solid ${hasFile ? "rgba(5,150,105,0.18)" : "rgba(220,38,38,0.14)"}`,
+        background: hasFile ? "rgba(5,150,105,0.045)" : "rgba(220,38,38,0.035)",
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => inputRef.current?.click()}
+        style={{
+          width: "100%",
+          border: "none",
+          background: "transparent",
+          padding: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          textAlign: "left",
+          cursor: disabled ? "not-allowed" : "pointer",
+          fontFamily: "inherit",
+          opacity: disabled ? 0.65 : 1,
+        }}
+      >
+        <span
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: hasFile ? "#059669" : "#DC2626",
+            background: hasFile ? "rgba(5,150,105,0.08)" : "rgba(220,38,38,0.06)",
+            boxShadow: `inset 0 0 0 1px ${hasFile ? "rgba(5,150,105,0.15)" : "rgba(220,38,38,0.14)"}`,
+            flexShrink: 0,
+          }}
+        >
+          <Camera size={13} strokeWidth={2} />
+        </span>
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <span style={{ display: "block", fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>
+            Arztbestätigung
+          </span>
+          <span style={{ display: "block", marginTop: 1, fontSize: 10, fontWeight: 700, color: hasFile ? "#047857" : "rgba(15,23,42,0.56)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {file?.name ?? "Foto auswählen"}
+          </span>
+        </span>
+      </button>
+      {error ? (
+        <div style={{ marginTop: 6, fontSize: 9, fontWeight: 700, color: "#b91c1c", lineHeight: 1.35 }}>
+          {error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 interface ClockPickerProps {
   onSelect: (h: number, m: number) => void;
@@ -389,7 +482,7 @@ interface AccordionRowProps {
   onToggle: () => void;
   isLast: boolean;
   onRequestClock: (target: "von" | "bis", onSelect: (h: number, m: number) => void) => void;
-  onManualSave: (input: { activityType: ZusatzActivityKey; fromHm: string; toHm: string; comment?: string }) => Promise<void>;
+  onManualSave: (input: { activityType: ZusatzActivityKey; fromHm: string; toHm: string; comment?: string; doctorConfirmationFile?: File | null }) => Promise<void>;
   dayStarted: boolean;
   dayStartedAt?: string | null;
   initialDraft?: TimeTrackingEntry | null;
@@ -432,6 +525,8 @@ function AccordionRow({
   const [vonVal, setVonVal] = useState("");
   const [bisVal, setBisVal] = useState("");
   const [manualComment, setManualComment] = useState("");
+  const [doctorConfirmationFile, setDoctorConfirmationFile] = useState<File | null>(null);
+  const [doctorConfirmationError, setDoctorConfirmationError] = useState<string | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaved, setManualSaved] = useState(false);
@@ -447,6 +542,7 @@ function AccordionRow({
 
   const active = running && !paused;
   const supportsComment = activity.key === "sonderaufgabe" || activity.key === "lager";
+  const supportsDoctorConfirmation = activity.key === "arztbesuch";
   const commentPlaceholder =
     activity.key === "lager" ? "Kommentar zum Lagerbesuch (optional)..." : "Kommentar zum Sondereinsatz...";
 
@@ -460,7 +556,7 @@ function AccordionRow({
     if (isOpen && contentRef.current) {
       setContentH(contentRef.current.scrollHeight);
     }
-  }, [isOpen, mode]);
+  }, [awaitingLiveDecision, doctorConfirmationError, doctorConfirmationFile, isOpen, mode, running]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -481,6 +577,8 @@ function AccordionRow({
       setManualError(null);
       setManualSaved(false);
       setManualComment("");
+      setDoctorConfirmationFile(null);
+      setDoctorConfirmationError(null);
       setManualStartConflict(null);
     }
   }, [isManualOnly, isOpen]);
@@ -532,6 +630,25 @@ function AccordionRow({
     });
   }
 
+  function handleDoctorConfirmationFile(file: File | null) {
+    setDoctorConfirmationError(null);
+    if (!file) {
+      setDoctorConfirmationFile(null);
+      return;
+    }
+    if (file.size > DOCTOR_CONFIRMATION_MAX_BYTES) {
+      setDoctorConfirmationFile(null);
+      setDoctorConfirmationError("Foto ist zu groß. Maximal 10 MB sind erlaubt.");
+      return;
+    }
+    if (!isAllowedDoctorConfirmationFile(file)) {
+      setDoctorConfirmationFile(null);
+      setDoctorConfirmationError("Bitte ein Foto hochladen.");
+      return;
+    }
+    setDoctorConfirmationFile(file);
+  }
+
   function buildManualStartConflict(fromHm: string, toHm: string) {
     if (!dayStartedAt || !manualStartBeforeDayStart(dayStartedAt, fromHm)) return null;
     const dayStart = new Date(dayStartedAt);
@@ -566,6 +683,7 @@ function AccordionRow({
         fromHm: vonVal,
         toHm: bisVal,
         comment: supportsComment ? manualComment.trim() : undefined,
+        doctorConfirmationFile: supportsDoctorConfirmation ? doctorConfirmationFile : null,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
@@ -574,6 +692,8 @@ function AccordionRow({
       setVonVal("");
       setBisVal("");
       setManualComment("");
+      setDoctorConfirmationFile(null);
+      setDoctorConfirmationError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Speichern fehlgeschlagen.";
       setManualError(message || "Speichern fehlgeschlagen.");
@@ -615,6 +735,7 @@ function AccordionRow({
         fromHm: nextFrom,
         toHm: nextTo,
         comment: supportsComment ? manualComment.trim() : undefined,
+        doctorConfirmationFile: supportsDoctorConfirmation ? doctorConfirmationFile : null,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
@@ -623,6 +744,8 @@ function AccordionRow({
       setVonVal("");
       setBisVal("");
       setManualComment("");
+      setDoctorConfirmationFile(null);
+      setDoctorConfirmationError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Speichern fehlgeschlagen.";
       setManualError(message || "Speichern fehlgeschlagen.");
@@ -744,6 +867,9 @@ function AccordionRow({
       if (trimmedComment.length > 0) {
         await commentTimeTrackingDraft(activeDraftId, { comment: trimmedComment });
       }
+      if (supportsDoctorConfirmation && doctorConfirmationFile) {
+        await uploadTimeTrackingDoctorConfirmation(activeDraftId, doctorConfirmationFile);
+      }
       await submitTimeTrackingEntry(activeDraftId);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
@@ -755,6 +881,8 @@ function AccordionRow({
       setLiveComment("");
       setLiveCommentDraft("");
       setIsLiveCommentOpen(false);
+      setDoctorConfirmationFile(null);
+      setDoctorConfirmationError(null);
       setSeconds(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Speichern fehlgeschlagen.";
@@ -798,6 +926,8 @@ function AccordionRow({
       setLiveComment("");
       setLiveCommentDraft("");
       setIsLiveCommentOpen(false);
+      setDoctorConfirmationFile(null);
+      setDoctorConfirmationError(null);
       setSeconds(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Abbrechen fehlgeschlagen.";
@@ -928,6 +1058,14 @@ function AccordionRow({
                   </div>
                 ) : awaitingLiveDecision ? (
                   <div className="flex-1" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {supportsDoctorConfirmation && (
+                      <DoctorConfirmationUploadField
+                        file={doctorConfirmationFile}
+                        error={doctorConfirmationError}
+                        disabled={isPersistingLive}
+                        onFileChange={handleDoctorConfirmationFile}
+                      />
+                    )}
                     <div className="flex gap-1.5">
                       <button
                         onClick={(e) => {
@@ -1116,6 +1254,15 @@ function AccordionRow({
                     fontFamily: "inherit",
                     boxShadow: "inset 0 1px 2px rgba(15,23,42,0.03)",
                   }}
+                />
+              )}
+
+              {supportsDoctorConfirmation && (
+                <DoctorConfirmationUploadField
+                  file={doctorConfirmationFile}
+                  error={doctorConfirmationError}
+                  disabled={manualSaving}
+                  onFileChange={handleDoctorConfirmationFile}
                 />
               )}
 
@@ -1866,6 +2013,7 @@ export function ActivityLauncher({
     fromHm: string;
     toHm: string;
     comment?: string;
+    doctorConfirmationFile?: File | null;
   }) => {
     if (!dayStarted) {
       throw new Error("Bitte zuerst den Arbeitstag starten.");
@@ -1896,6 +2044,9 @@ export function ActivityLauncher({
     const trimmedComment = input.comment?.trim();
     if (trimmedComment) {
       await commentTimeTrackingDraft(started.entry.id, { comment: trimmedComment });
+    }
+    if (input.doctorConfirmationFile) {
+      await uploadTimeTrackingDoctorConfirmation(started.entry.id, input.doctorConfirmationFile);
     }
     await endTimeTrackingDraft(started.entry.id, { endAt: endIso });
     await submitTimeTrackingEntry(started.entry.id);

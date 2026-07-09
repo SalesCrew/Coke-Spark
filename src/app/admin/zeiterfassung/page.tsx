@@ -15,6 +15,7 @@ import {
   patchAdminZeiterfassungSegment,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
+import { DoctorConfirmationProofButton } from "@/components/dashboard/DoctorConfirmationProofButton";
 import { exportAdminDiaeten, MONTH_LABELS } from "@/lib/exports/diaetenExport";
 import { exportAdminZeiterfassung, getMonthBoundsForZeiterfassungExport } from "@/lib/exports/zeiterfassungExport";
 import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
@@ -108,15 +109,20 @@ interface DisplaySegment {
   subtype?: string;
   comment?: string;
   questionnaireType?: string;
+  doctorConfirmation?: TimeDaySession["entries"][number]["doctorConfirmation"];
 }
 
 function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
   if (Array.isArray(session.timeline)) {
     const entryIdByKey = new Map<string, string>();
     const entryCommentByKey = new Map<string, string | undefined>();
+    const entryDoctorConfirmationByKey = new Map<string, TimeDaySession["entries"][number]["doctorConfirmation"]>();
     for (const entry of session.entries) {
       const key = `${entry.kind}|${entry.startTime}|${entry.endTime}`;
       entryIdByKey.set(key, entry.id);
+      if (entry.kind === "zusatzzeit" && entry.doctorConfirmation) {
+        entryDoctorConfirmationByKey.set(key, entry.doctorConfirmation);
+      }
       if (entry.kind === "zusatzzeit" && entry.comment) {
         entryCommentByKey.set(key, entry.comment);
       }
@@ -137,6 +143,9 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
         segment.comment ??
         entryCommentByKey.get(`${segment.kind}|${segment.start}|${segment.end}`),
       questionnaireType: segment.questionnaireType,
+      doctorConfirmation:
+        segment.doctorConfirmation ??
+        entryDoctorConfirmationByKey.get(`${segment.kind}|${segment.start}|${segment.end}`),
       kmNote:
         segment.kind === "anfahrt"
           ? `KM Start: ${fmtKm(session.startKm)}`
@@ -218,6 +227,7 @@ function deriveTimeline(session: TimeDaySession): DisplaySegment[] {
         title: label,
         subtype: entry.subtype,
         comment: entry.comment,
+        doctorConfirmation: entry.doctorConfirmation,
       });
     }
   });
@@ -603,8 +613,15 @@ function ActionRow({
             </div>
           </>
         ) : (
-          <div style={{ fontSize: 10, fontWeight: 600, color: isFahrtzeit ? "rgba(0,0,0,0.35)" : "#374151", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>
-            {seg.end ? `${seg.start}–${seg.end}` : `${seg.start}`}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+            <DoctorConfirmationProofButton
+              entryId={seg.id}
+              doctorConfirmation={seg.doctorConfirmation}
+              canUpload={false}
+            />
+            <span style={{ fontSize: 10, fontWeight: 600, color: isFahrtzeit ? "rgba(0,0,0,0.35)" : "#374151", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>
+              {seg.end ? `${seg.start}–${seg.end}` : `${seg.start}`}
+            </span>
           </div>
         )}
         <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>{displayedDuration}</div>

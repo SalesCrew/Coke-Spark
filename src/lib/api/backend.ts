@@ -2702,6 +2702,12 @@ export type TimeTrackingEntry = {
   submittedAt: string | null;
   cancelledAt: string | null;
   durationMin: number | null;
+  doctorConfirmation: {
+    isRequired: boolean;
+    isUploaded: boolean;
+    uploadedAt: string | null;
+    fileName: string | null;
+  } | null;
 };
 
 export type DaySessionStatus = "draft" | "started" | "ended" | "submitted" | "cancelled";
@@ -2788,6 +2794,12 @@ export type AdminZeiterfassungSessionEntry = {
   marketAddress?: string;
   subtype?: string;
   comment?: string;
+  doctorConfirmation?: {
+    isRequired: boolean;
+    isUploaded: boolean;
+    uploadedAt: string | null;
+    fileName: string | null;
+  };
   questionnaireType?: string;
   questionnaireTypes?: string[];
 };
@@ -2802,6 +2814,12 @@ export type AdminZeiterfassungTimelineSegment = {
   subtitle?: string;
   subtype?: string;
   comment?: string;
+  doctorConfirmation?: {
+    isRequired: boolean;
+    isUploaded: boolean;
+    uploadedAt: string | null;
+    fileName: string | null;
+  };
   questionnaireType?: string;
 };
 
@@ -4489,6 +4507,88 @@ export async function commentTimeTrackingDraft(entryId: string, input: {
       comment: input.comment ?? null,
     }),
   })) as { entry: TimeTrackingEntry };
+}
+
+export async function presignTimeTrackingDoctorConfirmation(input: {
+  entryId: string;
+  extension?: string;
+  mimeType?: string;
+  fileName?: string;
+}): Promise<{ upload: { bucket: string; path: string; signedUrl: string; token: string } }> {
+  return (await authedFetch(`/time-tracking/entries/${input.entryId}/doctor-confirmation/presign`, {
+    method: "POST",
+    body: JSON.stringify({
+      extension: input.extension,
+      mimeType: input.mimeType,
+      fileName: input.fileName,
+    }),
+  })) as { upload: { bucket: string; path: string; signedUrl: string; token: string } };
+}
+
+export async function commitTimeTrackingDoctorConfirmation(input: {
+  entryId: string;
+  storageBucket: string;
+  storagePath: string;
+  fileName?: string;
+  mimeType?: string;
+  byteSize?: number;
+}): Promise<{ entry: TimeTrackingEntry }> {
+  return (await authedFetch(`/time-tracking/entries/${input.entryId}/doctor-confirmation/commit`, {
+    method: "POST",
+    body: JSON.stringify({
+      storageBucket: input.storageBucket,
+      storagePath: input.storagePath,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      byteSize: input.byteSize,
+    }),
+  })) as { entry: TimeTrackingEntry };
+}
+
+export async function uploadTimeTrackingDoctorConfirmation(entryId: string, file: File): Promise<{ entry: TimeTrackingEntry }> {
+  const extension = (file.name.split(".").pop() ?? "jpg").toLowerCase();
+  const presign = await presignTimeTrackingDoctorConfirmation({
+    entryId,
+    extension,
+    mimeType: file.type || undefined,
+    fileName: file.name,
+  });
+  const uploadResponse = await fetch(presign.upload.signedUrl, {
+    method: "PUT",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+  if (!uploadResponse.ok) {
+    throw new Error("Arztbestätigung konnte nicht hochgeladen werden.");
+  }
+  return commitTimeTrackingDoctorConfirmation({
+    entryId,
+    storageBucket: presign.upload.bucket,
+    storagePath: presign.upload.path,
+    fileName: file.name,
+    mimeType: file.type || undefined,
+    byteSize: file.size,
+  });
+}
+
+export async function fetchTimeTrackingDoctorConfirmation(entryId: string): Promise<{
+  doctorConfirmation: {
+    signedUrl: string;
+    expiresAt: string;
+    fileName: string | null;
+    mimeType: string | null;
+  };
+}> {
+  return (await authedFetch(`/time-tracking/entries/${entryId}/doctor-confirmation`)) as {
+    doctorConfirmation: {
+      signedUrl: string;
+      expiresAt: string;
+      fileName: string | null;
+      mimeType: string | null;
+    };
+  };
 }
 
 export async function submitTimeTrackingEntry(entryId: string): Promise<{ entry: TimeTrackingEntry }> {

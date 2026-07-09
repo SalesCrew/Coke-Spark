@@ -18,6 +18,7 @@ import {
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import Aurora from "@/components/ui/Aurora";
+import { DoctorConfirmationProofButton } from "@/components/dashboard/DoctorConfirmationProofButton";
 import {
   fetchGmZeiterfassung,
   fetchGmTimeEntryChangeRequests,
@@ -43,6 +44,7 @@ type GmZeitSegment = {
   durationMin: number;
   title: string;
   subtitle?: string;
+  doctorConfirmation?: AdminZeiterfassungTimelineSegment["doctorConfirmation"];
   timeChange?: {
     status: "pending" | "approved" | "rejected" | "cancelled";
     originalStart: string;
@@ -150,6 +152,7 @@ function mapTimelineSegment(segment: AdminZeiterfassungTimelineSegment): GmZeitS
     durationMin: segment.durationMin,
     title: segment.title,
     subtitle: segment.subtitle ?? segment.comment,
+    doctorConfirmation: segment.doctorConfirmation,
   };
 }
 
@@ -518,11 +521,12 @@ function MetricCell({ label, value, accent }: { label: string; value: string; ac
   );
 }
 
-function GmZeitTimelineRow({ segment, first, last, onRequestChange }: {
+function GmZeitTimelineRow({ segment, first, last, onRequestChange, onDoctorConfirmationUploaded }: {
   segment: GmZeitSegment;
   first: boolean;
   last: boolean;
   onRequestChange?: (segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => void;
+  onDoctorConfirmationUploaded?: () => void;
 }) {
   const meta = segmentMeta(segment.kind);
   const Icon = meta.icon;
@@ -566,8 +570,16 @@ function GmZeitTimelineRow({ segment, first, last, onRequestChange }: {
         ) : null}
       </div>
       <div style={{ padding: "9px 0", textAlign: "right", flexShrink: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(15,23,42,0.86)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-          {segment.start} - {segment.end}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
+          <DoctorConfirmationProofButton
+            entryId={segment.id}
+            doctorConfirmation={segment.doctorConfirmation}
+            canUpload
+            onUploaded={() => onDoctorConfirmationUploaded?.()}
+          />
+          <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(15,23,42,0.86)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+            {segment.start} - {segment.end}
+          </div>
         </div>
         <div style={{ marginTop: 2, fontSize: 9, fontWeight: 650, color: "rgba(15,23,42,0.32)" }}>
           {segment.durationMin} Min
@@ -577,10 +589,11 @@ function GmZeitTimelineRow({ segment, first, last, onRequestChange }: {
   );
 }
 
-function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange }: {
+function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange, onDoctorConfirmationUploaded }: {
   day: GmZeitDay;
   defaultExpanded?: boolean;
   onRequestChange?: (day: GmZeitDay, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => void;
+  onDoctorConfirmationUploaded?: () => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   return (
@@ -632,6 +645,7 @@ function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange }: {
                 first={index === 0}
                 last={index === day.segments.length - 1}
                 onRequestChange={isEditableTimeSegmentKind(segment.kind) ? (selected) => onRequestChange?.(day, selected) : undefined}
+                onDoctorConfirmationUploaded={onDoctorConfirmationUploaded}
               />
             ))}
           </div>
@@ -651,6 +665,7 @@ export default function GmZeiterfassungPage() {
   const [changeError, setChangeError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const selectedRange = useMemo(() => getDateRange(range), [range]);
   const timeChangeMap = useMemo(() => buildTimeChangeMap(timeRequests), [timeRequests]);
   const days = useMemo(() => (payload?.sessions ?? []).map((session) => mapSessionToDay(session, timeChangeMap)), [payload?.sessions, timeChangeMap]);
@@ -699,7 +714,7 @@ export default function GmZeiterfassungPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedRange.from, selectedRange.to]);
+  }, [reloadToken, selectedRange.from, selectedRange.to]);
 
   const openTimeChangeRequest = (day: GmZeitDay, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => {
     setChangeError(null);
@@ -947,6 +962,7 @@ export default function GmZeiterfassungPage() {
                       day={day}
                       defaultExpanded={index === 0}
                       onRequestChange={openTimeChangeRequest}
+                      onDoctorConfirmationUploaded={() => setReloadToken((value) => value + 1)}
                     />
                   ))}
                 </div>

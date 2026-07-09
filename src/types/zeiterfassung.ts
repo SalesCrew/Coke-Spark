@@ -13,6 +13,12 @@ export interface TimeEntry {
   kind: EntryKind;
   subtype?: EntrySubtype;
   comment?: string;
+  doctorConfirmation?: {
+    isRequired: boolean;
+    isUploaded: boolean;
+    uploadedAt: string | null;
+    fileName: string | null;
+  };
   marketName?: string;
   marketAddress?: string;
   questionnaireType?: string;
@@ -45,6 +51,12 @@ export interface TimeDaySession {
     subtitle?: string;
     subtype?: string;
     comment?: string;
+    doctorConfirmation?: {
+      isRequired: boolean;
+      isUploaded: boolean;
+      uploadedAt: string | null;
+      fileName: string | null;
+    };
     questionnaireType?: string;
   }>;
   stats?: {

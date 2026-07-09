@@ -770,7 +770,7 @@ const GMDayRow = React.memo(function GMDayRow({
           <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", justifySelf: "end" }} />
         </>
       </div>
-      <div className="zt-expanded-shell" style={{ maxHeight: expanded ? "1200px" : "0", overflow: "hidden", transition: "max-height 0.36s cubic-bezier(0.4,0,0.2,1)" }}>
+      <div className="zt-expanded-shell" style={{ maxHeight: expanded ? "none" : "0", overflow: expanded ? "visible" : "hidden", transition: expanded ? "none" : "max-height 0.36s cubic-bezier(0.4,0,0.2,1)" }}>
         {expanded && (
         <div style={{ opacity: 1, transition: "opacity 0.22s ease 0.05s" }}>
           <div style={{ padding: "8px 18px 10px", borderTop: "1px solid rgba(0,0,0,0.045)" }}>
@@ -896,7 +896,7 @@ const HistoryDayRow = React.memo(function HistoryDayRow({ session, timeline, sta
       </div>
 
       {/* Expanded timeline */}
-      <div className="zt-expanded-shell" style={{ maxHeight: expanded ? "1000px" : "0", overflow: "hidden", transition: "max-height 0.32s cubic-bezier(0.4,0,0.2,1)" }}>
+      <div className="zt-expanded-shell" style={{ maxHeight: expanded ? "none" : "0", overflow: expanded ? "visible" : "hidden", transition: expanded ? "none" : "max-height 0.32s cubic-bezier(0.4,0,0.2,1)" }}>
         {expanded && (
         <div style={{ opacity: 1, transition: "opacity 0.2s ease 0.05s", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
           {timeline.map((seg) => (

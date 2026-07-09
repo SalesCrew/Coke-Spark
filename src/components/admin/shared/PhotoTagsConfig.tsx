@@ -129,14 +129,22 @@ export function PhotoTagsConfig({
   const handleCreate = async () => {
     const label = createInput.trim();
     if (!label || isCreatingTag) return;
+    const existingTag = pool.find((tag) => !tag.deletedAt && tag.label.trim().toLocaleLowerCase("de-AT") === label.toLocaleLowerCase("de-AT"));
+    if (existingTag) {
+      set({ tagIds: [...new Set([...tagIds, existingTag.id])] });
+      setCreateInput("");
+      return;
+    }
     setIsCreatingTag(true);
     try {
       const tag = await createPhotoTag(label);
-      setPool((prev) => [
-        ...prev,
-        { id: tag.id, label: tag.label, deletedAt: tag.deletedAt ?? undefined },
-      ]);
-      set({ tagIds: [...tagIds, tag.id] });
+      setPool((prev) => {
+        const nextTag = { id: tag.id, label: tag.label, deletedAt: tag.deletedAt ?? undefined };
+        return prev.some((item) => item.id === tag.id)
+          ? prev.map((item) => (item.id === tag.id ? nextTag : item))
+          : [...prev, nextTag];
+      });
+      set({ tagIds: [...new Set([...tagIds, tag.id])] });
       setCreateInput("");
     } catch {
       // Keep UI stable if backend rejects.

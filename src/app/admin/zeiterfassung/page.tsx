@@ -308,7 +308,7 @@ function resolveEditableSegmentKind(seg: DisplaySegment): EditableSegmentKind | 
 }
 
 // ── Action Row ────────────────────────────────────────────────
-function ActionRow({
+const ActionRow = React.memo(function ActionRow({
   seg,
   session,
   onSegmentPatched,
@@ -492,6 +492,7 @@ function ActionRow({
 
   return (
     <div
+      className="zt-timeline-row"
       style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: isFahrtzeit ? "5px 14px" : "8px 14px", background: bg, borderBottom: "1px solid rgba(0,0,0,0.03)", position: "relative" }}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -699,29 +700,29 @@ function ActionRow({
       )}
     </div>
   );
-}
+});
 
 // ── Stat tile ─────────────────────────────────────────────────
-function StatTile({ label, value, color = "#1a1a1a" }: { label: string; value: string; color?: string }) {
+const StatTile = React.memo(function StatTile({ label, value, color = "#1a1a1a" }: { label: string; value: string; color?: string }) {
   return (
     <div style={{ flex: 1, minWidth: 0, background: "#fff", borderRadius: 8, border: "1px solid rgba(0,0,0,0.055)", padding: "9px 11px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "rgba(0,0,0,0.28)", whiteSpace: "nowrap" as const }}>{label}</span>
       <span style={{ fontSize: 14, fontWeight: 800, color, letterSpacing: "-0.025em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{value}</span>
     </div>
   );
-}
+});
 
-function RowMetricCell({ label, value, color }: { label: string; value: string; color: string }) {
+const RowMetricCell = React.memo(function RowMetricCell({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <div style={{ minWidth: 0, textAlign: "left" as const }}>
       <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 11, fontWeight: 600, color, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>{value}</div>
     </div>
   );
-}
+});
 
 // ── GM Day Row (daily view) ───────────────────────────────────
-function GMDayRow({
+const GMDayRow = React.memo(function GMDayRow({
   session,
   onSegmentPatched,
 }: {
@@ -730,10 +731,10 @@ function GMDayRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const stats = deriveStats(session);
-  const timeline = useMemo(() => deriveTimeline(session), [session]);
+  const timeline = useMemo(() => (expanded ? deriveTimeline(session) : []), [expanded, session]);
   const av = gmAvatarColor(session.gmName);
   return (
-    <div style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+    <div className="zt-session-row" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
       <div onClick={() => setExpanded(e => !e)}
         style={{ display: "grid", gridTemplateColumns: ROW_GRID_TEMPLATE, columnGap: ROW_GRID_COLUMN_GAP, alignItems: "center", padding: "11px 18px", cursor: "pointer", transition: "background 0.1s" }}
         onMouseEnter={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.018)"; }}
@@ -769,8 +770,9 @@ function GMDayRow({
           <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", justifySelf: "end" }} />
         </>
       </div>
-      <div style={{ maxHeight: expanded ? "1200px" : "0", overflow: "hidden", transition: "max-height 0.36s cubic-bezier(0.4,0,0.2,1)" }}>
-        <div style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.22s ease 0.05s" }}>
+      <div className="zt-expanded-shell" style={{ maxHeight: expanded ? "1200px" : "0", overflow: "hidden", transition: "max-height 0.36s cubic-bezier(0.4,0,0.2,1)" }}>
+        {expanded && (
+        <div style={{ opacity: 1, transition: "opacity 0.22s ease 0.05s" }}>
           <div style={{ padding: "8px 18px 10px", borderTop: "1px solid rgba(0,0,0,0.045)" }}>
             <div style={{ display: "flex", gap: 7, background: "rgba(0,0,0,0.022)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 10, padding: 6 }}>
               <StatTile label="Start-KM" value={fmtKm(session.startKm)} />
@@ -792,13 +794,14 @@ function GMDayRow({
             ))}
           </div>
         </div>
+        )}
       </div>
     </div>
   );
-}
+});
 
 // ── Date group (daily view) ───────────────────────────────────
-function DateGroup({
+const DateGroup = React.memo(function DateGroup({
   dateISO,
   sessions,
   onSegmentPatched,
@@ -811,7 +814,7 @@ function DateGroup({
   const isToday = dateISO === TODAY;
   const totalEntries = sessions.reduce((s, sess) => s + sess.entries.length, 0);
   return (
-    <div>
+    <div className="zt-day-group">
       <div style={{ padding: "12px 18px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>{weekday},</span>
@@ -831,10 +834,10 @@ function DateGroup({
       </div>
     </div>
   );
-}
+});
 
 // ── History Day Row (inside GM expansion) ────────────────────
-function HistoryDayRow({ session, timeline, stats, onSegmentPatched }: {
+const HistoryDayRow = React.memo(function HistoryDayRow({ session, timeline, stats, onSegmentPatched }: {
   session: TimeDaySession;
   timeline: DisplaySegment[];
   stats: ReturnType<typeof deriveStats>;
@@ -845,7 +848,7 @@ function HistoryDayRow({ session, timeline, stats, onSegmentPatched }: {
   const isToday = session.date === TODAY;
 
   return (
-    <div style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+    <div className="zt-session-row" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
       {/* Collapsed row — same column structure as daily GMDayRow */}
       <div
         onClick={() => setExpanded(e => !e)}
@@ -893,8 +896,9 @@ function HistoryDayRow({ session, timeline, stats, onSegmentPatched }: {
       </div>
 
       {/* Expanded timeline */}
-      <div style={{ maxHeight: expanded ? "1000px" : "0", overflow: "hidden", transition: "max-height 0.32s cubic-bezier(0.4,0,0.2,1)" }}>
-        <div style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.2s ease 0.05s", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+      <div className="zt-expanded-shell" style={{ maxHeight: expanded ? "1000px" : "0", overflow: "hidden", transition: "max-height 0.32s cubic-bezier(0.4,0,0.2,1)" }}>
+        {expanded && (
+        <div style={{ opacity: 1, transition: "opacity 0.2s ease 0.05s", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
           {timeline.map((seg) => (
             <ActionRow
               key={seg.id}
@@ -904,13 +908,14 @@ function HistoryDayRow({ session, timeline, stats, onSegmentPatched }: {
             />
           ))}
         </div>
+        )}
       </div>
     </div>
   );
-}
+});
 
 // ── GM Ansicht Row ────────────────────────────────────────────
-function GMAnsichtRow({
+const GMAnsichtRow = React.memo(function GMAnsichtRow({
   gm,
   onSegmentPatched,
 }: {
@@ -922,9 +927,10 @@ function GMAnsichtRow({
 
   // Build sorted history groups
   const historyGroups = useMemo(() => {
+    if (!expanded) return [];
     const sorted = [...gm.sessions].sort((a, b) => b.date.localeCompare(a.date));
     return sorted.map(s => ({ session: s, timeline: deriveTimeline(s), stats: deriveStats(s) }));
-  }, [gm.sessions]);
+  }, [expanded, gm.sessions]);
 
   const metrics = [
     { label: "Aktuelle KW", value: fmtDur(gm.currentKwReineArbeitszeitMin), sub: `KW ${gm.currentKwNumber}`, color: "#1a1a1a" },
@@ -935,7 +941,7 @@ function GMAnsichtRow({
   ];
 
   return (
-    <div style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+    <div className="zt-session-row" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
       {/* Collapsed row */}
       <div onClick={() => setExpanded(e => !e)}
         style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 18px", cursor: "pointer", transition: "background 0.1s" }}
@@ -968,8 +974,9 @@ function GMAnsichtRow({
       </div>
 
       {/* Expanded history */}
-      <div style={{ maxHeight: expanded ? "1600px" : "0", overflow: "hidden", transition: "max-height 0.4s cubic-bezier(0.4,0,0.2,1)" }}>
-        <div style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.22s ease 0.06s" }}>
+      <div className="zt-expanded-shell" style={{ maxHeight: expanded ? "1600px" : "0", overflow: "hidden", transition: "max-height 0.4s cubic-bezier(0.4,0,0.2,1)" }}>
+        {expanded && (
+        <div style={{ opacity: 1, transition: "opacity 0.22s ease 0.06s" }}>
 
           {/* Summary strip */}
           <div style={{ padding: "8px 18px 10px", borderTop: "1px solid rgba(0,0,0,0.045)" }}>
@@ -984,7 +991,7 @@ function GMAnsichtRow({
           </div>
 
           {/* Historical date blocks — each day is its own collapsible row */}
-          <div className="map-scroll" style={{ maxHeight: 800, overflowY: "auto", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+          <div className="map-scroll zt-history-list" style={{ maxHeight: 800, overflowY: "auto", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
             {historyGroups.map(({ session, timeline, stats }) => (
               <HistoryDayRow
                 key={session.id}
@@ -996,10 +1003,11 @@ function GMAnsichtRow({
             ))}
           </div>
         </div>
+        )}
       </div>
     </div>
   );
-}
+});
 
 // ── Page ─────────────────────────────────────────────────────
 export default function ZeiterfassungPage() {
@@ -1076,6 +1084,10 @@ export default function ZeiterfassungPage() {
       if (showLoader) setLoading(false);
     }
   }, []);
+
+  const refreshZeiterfassungSilently = useCallback(async () => {
+    await loadZeiterfassungData({ showLoader: false });
+  }, [loadZeiterfassungData]);
 
   useEffect(() => {
     void loadZeiterfassungData({ showLoader: true });
@@ -1194,6 +1206,21 @@ export default function ZeiterfassungPage() {
         @keyframes ztBodyFade { from { opacity:0 } to { opacity:1 } }
         .zt-main { animation: ztFadeIn 0.25s ease both; }
         .zt-body { animation: ztBodyFade 0.2s ease both; }
+        .zt-day-group {
+          content-visibility: auto;
+          contain: layout paint style;
+          contain-intrinsic-size: auto 420px;
+        }
+        .zt-session-row,
+        .zt-expanded-shell,
+        .zt-history-list {
+          contain: layout paint style;
+        }
+        .zt-timeline-row {
+          content-visibility: auto;
+          contain: layout paint style;
+          contain-intrinsic-size: auto 42px;
+        }
       `}</style>
 
       <div className="zt-main" style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
@@ -1273,7 +1300,7 @@ export default function ZeiterfassungPage() {
                     key={g.date}
                     dateISO={g.date}
                     sessions={g.sessions}
-                    onSegmentPatched={() => loadZeiterfassungData({ showLoader: false })}
+                    onSegmentPatched={refreshZeiterfassungSilently}
                   />
                 ))}
               </div>
@@ -1295,7 +1322,7 @@ export default function ZeiterfassungPage() {
                     <GMAnsichtRow
                       key={gm.gmId}
                       gm={gm}
-                      onSegmentPatched={() => loadZeiterfassungData({ showLoader: false })}
+                      onSegmentPatched={refreshZeiterfassungSilently}
                     />
                   ))}
                 </div>

@@ -3757,12 +3757,14 @@ export default function GmActivityPage() {
           background: rgba(248,250,252,0.92);
           box-shadow: inset 0 0 0 1px rgba(15,23,42,0.055);
           overflow: hidden;
+          padding: 6px;
         }
         .gm-activity-bottom-module-title {
           width: 100%;
           min-height: 40px;
           border: none;
-          padding: 9px 10px;
+          border-radius: 10px;
+          padding: 8px 10px;
           display: grid;
           grid-template-columns: auto minmax(0, 1fr) auto;
           align-items: center;
@@ -3799,7 +3801,7 @@ export default function GmActivityPage() {
         .gm-activity-bottom-question-list {
           display: grid;
           gap: 4px;
-          padding: 0 8px 8px;
+          padding-top: 5px;
         }
         .gm-activity-bottom-question-list button {
           min-height: 34px;

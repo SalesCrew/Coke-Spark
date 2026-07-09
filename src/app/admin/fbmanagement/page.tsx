@@ -187,10 +187,24 @@ function applyMarketFilters(
     m.chain.toLowerCase().includes(q)
   );
   if (filters.chain)  r = r.filter(m => m.chain  === filters.chain);
-  if (filters.gm)     r = r.filter(m => m.gm     === filters.gm);
+  if (filters.gm) {
+    const selectedGm = normalizeMarketFilterValue(filters.gm);
+    r = r.filter(m => splitMarketGmNames(m.gm).some((gm) => normalizeMarketFilterValue(gm) === selectedGm));
+  }
   if (filters.city)   r = r.filter(m => m.city   === filters.city);
   if (filters.region) r = r.filter(m => m.region === filters.region);
   return r;
+}
+
+function normalizeMarketFilterValue(value: string | null | undefined): string {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
+}
+
+function splitMarketGmNames(value: string | null | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
 }
 
 function getCampaignVisitStatusRowId(status: CampaignMarketVisitStatus): string {
@@ -6072,9 +6086,21 @@ function MarketFilterChip({
   const syncPos = useCallback(() => {
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      setPos({ x: r.left, y: r.bottom + 5 });
+      const margin = 12;
+      const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth ?? window.innerWidth;
+      const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight;
+      const menuWidth = Math.min(168, Math.max(120, viewportWidth - margin * 2));
+      const menuHeight = Math.min(260, options.length * 32 + 8);
+      const preferredX = r.right - menuWidth;
+      const x = Math.min(Math.max(margin, preferredX), viewportWidth - menuWidth - margin);
+      const belowY = r.bottom + 5;
+      const aboveY = r.top - menuHeight - 5;
+      const y = belowY + menuHeight > viewportHeight - margin && aboveY >= margin
+        ? aboveY
+        : Math.min(Math.max(margin, belowY), viewportHeight - menuHeight - margin);
+      setPos({ x, y });
     }
-  }, []);
+  }, [options.length]);
 
   // Outside-click close
   useEffect(() => {
@@ -6096,7 +6122,6 @@ function MarketFilterChip({
   }, [open, syncPos]);
 
   const toggleOpen = () => {
-    if (options.length === 0 && !value) return;
     syncPos();
     setOpen((o) => !o);
   };
@@ -6128,10 +6153,16 @@ function MarketFilterChip({
       </button>
       {mounted && open && typeof document !== "undefined" && createPortal(
         <div
+          className="fbm-filter-popover"
           onMouseDown={(e) => e.stopPropagation()}
-          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9998, minWidth: 160, background: "#fff", borderRadius: 10, padding: 4, boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mfcIn 0.14s ease both" }}
+          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9998, width: 168, maxWidth: "calc(100vw - 24px)", maxHeight: 260, overflowY: "auto", background: "#fff", borderRadius: 10, padding: 4, boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mfcIn 0.14s ease both" }}
         >
-          <style>{`@keyframes mfcIn { from { opacity:0; transform:translateY(-4px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } }`}</style>
+          <style>{`@keyframes mfcIn { from { opacity:0; transform:translateY(-4px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } } .fbm-filter-popover { scrollbar-width: none; -ms-overflow-style: none; } .fbm-filter-popover::-webkit-scrollbar { display: none; }`}</style>
+          {options.length === 0 && (
+            <div style={{ padding: "8px 10px", fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.45)" }}>
+              Keine Optionen
+            </div>
+          )}
           {options.map((opt) => {
             const sel = opt === value;
             const optionLabel = formatOption?.(opt) ?? opt;
@@ -6142,7 +6173,7 @@ function MarketFilterChip({
                 onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
               >
                 <div style={{ width: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>{sel && <Check size={10} strokeWidth={3} />}</div>
-                {optionLabel}
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{optionLabel}</span>
               </button>
             );
           })}
@@ -6154,6 +6185,154 @@ function MarketFilterChip({
 }
 
 // ── Market edit menu (small 2-option popover) ─────────────────
+
+function MarketWeekFilterChip({
+  values,
+  options,
+  onChange,
+  formatOption,
+}: {
+  values: string[];
+  options: string[];
+  onChange: (values: string[]) => void;
+  formatOption: (value: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const syncPos = useCallback(() => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      const margin = 12;
+      const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth ?? window.innerWidth;
+      const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight;
+      const menuWidth = Math.min(168, Math.max(120, viewportWidth - margin * 2));
+      const menuHeight = Math.min(260, options.length * 32 + 42);
+      const preferredX = r.right - menuWidth;
+      const x = Math.min(Math.max(margin, preferredX), viewportWidth - menuWidth - margin);
+      const belowY = r.bottom + 5;
+      const aboveY = r.top - menuHeight - 5;
+      const y = belowY + menuHeight > viewportHeight - margin && aboveY >= margin
+        ? aboveY
+        : Math.min(Math.max(margin, belowY), viewportHeight - menuHeight - margin);
+      setPos({ x, y });
+    }
+  }, [options.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = () => setOpen(false);
+    window.addEventListener("mousedown", h);
+    return () => window.removeEventListener("mousedown", h);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("scroll", syncPos, true);
+    window.addEventListener("resize", syncPos);
+    return () => {
+      window.removeEventListener("scroll", syncPos, true);
+      window.removeEventListener("resize", syncPos);
+    };
+  }, [open, syncPos]);
+
+  const toggleOpen = () => {
+    syncPos();
+    setOpen((current) => !current);
+  };
+
+  const active = values.length > 0;
+  const compactLabel = values.length === 0
+    ? "Woche"
+    : values.length === 1
+      ? formatOption(values[0])
+      : `${formatOption(values[0])} +${values.length - 1}`;
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={toggleOpen}
+        style={{
+          width: 92,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 5,
+          padding: "5px 8px",
+          borderRadius: 7,
+          border: "none",
+          cursor: "pointer",
+          fontSize: 11,
+          fontWeight: 600,
+          background: active ? "rgba(0,0,0,0.06)" : "rgba(0,0,0,0.035)",
+          color: active ? "#1a1a1a" : "rgba(0,0,0,0.4)",
+          boxShadow: active ? "0 0 0 1.5px rgba(0,0,0,0.2)" : "none",
+          transition: "background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease",
+        }}
+        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "rgba(0,0,0,0.055)"; }}
+        onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "rgba(0,0,0,0.035)"; }}
+      >
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{compactLabel}</span>
+        {active ? (
+          <span
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              onChange([]);
+            }}
+            style={{ flex: "0 0 auto", cursor: "pointer", display: "flex", alignItems: "center" }}
+          >
+            <X size={9} strokeWidth={2.5} />
+          </span>
+        ) : (
+          <ChevronDown size={9} strokeWidth={2} style={{ flex: "0 0 auto" }} />
+        )}
+      </button>
+      {mounted && open && typeof document !== "undefined" && createPortal(
+        <div
+          className="fbm-filter-popover"
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9998, width: 168, maxWidth: "calc(100vw - 24px)", maxHeight: 260, overflowY: "auto", background: "#fff", borderRadius: 10, padding: 4, boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mfcIn 0.14s ease both" }}
+        >
+          <style>{`@keyframes mfcIn { from { opacity:0; transform:translateY(-4px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } } .fbm-filter-popover { scrollbar-width: none; -ms-overflow-style: none; } .fbm-filter-popover::-webkit-scrollbar { display: none; }`}</style>
+          {values.length > 0 && (
+            <button
+              onClick={() => onChange([])}
+              style={{ display: "flex", alignItems: "center", width: "100%", padding: "7px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, textAlign: "left", background: "rgba(220,38,38,0.06)", color: "#DC2626", transition: "background 0.1s ease" }}
+            >
+              Auswahl löschen
+            </button>
+          )}
+          {options.length === 0 && (
+            <div style={{ padding: "8px 10px", fontSize: 11, fontWeight: 500, color: "rgba(0,0,0,0.45)" }}>
+              Keine Optionen
+            </div>
+          )}
+          {options.map((opt) => {
+            const sel = values.includes(opt);
+            const optionLabel = formatOption(opt);
+            return (
+              <button
+                key={opt}
+                onClick={() => onChange(toggleListValue(values, opt))}
+                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: sel ? 600 : 400, textAlign: "left", background: sel ? "rgba(0,0,0,0.05)" : "transparent", color: sel ? "#1a1a1a" : "#374151", transition: "background 0.1s ease" }}
+                onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
+                onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
+              >
+                <div style={{ width: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>{sel && <Check size={10} strokeWidth={3} />}</div>
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{optionLabel}</span>
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
 
 function MarketEditMenu({
   pos, onAdd, onRemove, onClose,
@@ -6675,7 +6854,7 @@ export default function FbManagementPage() {
   // ── Market management state ────────────────────────────────────
   const [marketSearch, setMarketSearch] = useState("");
   const [marketFilters, setMarketFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
-  const [marketWeekFilter, setMarketWeekFilter] = useState<string | null>(null);
+  const [marketWeekFilters, setMarketWeekFilters] = useState<string[]>([]);
   const [marketEditMode, setMarketEditMode] = useState<"idle" | "remove" | "add">("idle");
   const [editMenuOpen, setEditMenuOpen] = useState(false);
   const [editMenuPos, setEditMenuPos] = useState({ x: 0, y: 0 });
@@ -7042,7 +7221,7 @@ export default function FbManagementPage() {
         const visitStatus = visitStatusByMarket[marketId] ?? null;
         assigned.push({
           ...market,
-          gm: assignmentGmByMarketId.get(marketId) ?? "",
+          gm: assignmentGmByMarketId.get(marketId) ?? visitStatus?.gmName ?? "",
           finished: visitStatus ? visitStatus.isComplete : false,
         });
       }
@@ -7144,7 +7323,7 @@ export default function FbManagementPage() {
     setEditMenuOpen(false);
     setMarketSearch("");
     setMarketFilters({ chain: null, gm: null, city: null, region: null });
-    setMarketWeekFilter(null);
+    setMarketWeekFilters([]);
     setMarketFilter("all");
   }, []);
   const previewQuestions = useMemo(() => {
@@ -7412,7 +7591,7 @@ export default function FbManagementPage() {
         setEditMenuOpen(false);
         setMarketSearch("");
         setMarketFilters({ chain: null, gm: null, city: null, region: null });
-        setMarketWeekFilter(null);
+        setMarketWeekFilters([]);
         setMarketFilter("all");
       }
       setCampaignContextMenu(null);
@@ -7506,20 +7685,23 @@ export default function FbManagementPage() {
   );
 
   useEffect(() => {
-    if (!marketWeekFilter) return;
-    if (marketWeekLabelByKey.has(marketWeekFilter)) return;
-    setMarketWeekFilter(null);
-  }, [marketWeekFilter, marketWeekLabelByKey]);
+    if (marketWeekFilters.length === 0) return;
+    const validWeeks = marketWeekFilters.filter((weekKey) => marketWeekLabelByKey.has(weekKey));
+    if (validWeeks.length === marketWeekFilters.length) return;
+    setMarketWeekFilters(validWeeks);
+  }, [marketWeekFilters, marketWeekLabelByKey]);
 
   const weekFilteredAssignedMarkets = useMemo(() => {
-    if (!marketWeekFilter) return assignedMarkets;
+    if (marketWeekFilters.length === 0) return assignedMarkets;
+    const selectedWeeks = new Set(marketWeekFilters);
     return assignedMarkets.filter((market) => {
       const marketId = market.marketId ?? market.id;
       const visitStatus = campaignVisitStatusByMarket[market.id] ?? campaignVisitStatusByMarket[marketId] ?? null;
-      return getVisitWeekKey(visitStatus) === marketWeekFilter;
+      const visitWeekKey = getVisitWeekKey(visitStatus);
+      return Boolean(visitWeekKey && selectedWeeks.has(visitWeekKey));
     });
-  }, [assignedMarkets, campaignVisitStatusByMarket, marketWeekFilter]);
-  const countBaseMarkets = marketWeekFilter ? weekFilteredAssignedMarkets : assignedMarkets;
+  }, [assignedMarkets, campaignVisitStatusByMarket, marketWeekFilters]);
+  const countBaseMarkets = marketWeekFilters.length > 0 ? weekFilteredAssignedMarkets : assignedMarkets;
   const finishedCount = useMemo(() => countBaseMarkets.filter((m) => m.finished).length, [countBaseMarkets]);
   const pendingCount = Math.max(0, countBaseMarkets.length - finishedCount);
 
@@ -7547,7 +7729,21 @@ export default function FbManagementPage() {
 
   // Derive filter option lists from the full assigned set
   const mfChains = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.chain))).sort(), [assignedMarkets]);
-  const mfGms = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.gm).filter(Boolean))).sort(), [assignedMarkets]);
+  const mfGms = useMemo(() => {
+    const namesByKey = new Map<string, string>();
+    const addName = (value: string | null | undefined) => {
+      for (const gmName of splitMarketGmNames(value)) {
+        const key = normalizeMarketFilterValue(gmName);
+        if (key && !namesByKey.has(key)) namesByKey.set(key, gmName);
+      }
+    };
+
+    for (const market of assignedMarkets) addName(market.gm);
+    for (const assignment of campaign?.assignments ?? []) addName(assignment.gmName);
+    for (const status of Object.values(campaignVisitStatusByMarket)) addName(status.gmName);
+
+    return Array.from(namesByKey.values()).sort((a, b) => a.localeCompare(b, "de"));
+  }, [assignedMarkets, campaign?.assignments, campaignVisitStatusByMarket]);
   const mfCities = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.city))).sort(), [assignedMarkets]);
   const mfRegions = useMemo(() => Array.from(new Set(assignedMarkets.map((m) => m.region))).sort(), [assignedMarkets]);
   const exportSectionOptions = useMemo(
@@ -7675,7 +7871,7 @@ export default function FbManagementPage() {
 
   useEffect(() => {
     setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
-  }, [campaignId, marketEditMode, marketFilter, marketSearch, marketWeekFilter, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
+  }, [campaignId, marketEditMode, marketFilter, marketSearch, marketWeekFilters, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
 
   const handleMarketFilterChange = useCallback((nextFilter: "all" | "finished" | "pending") => {
     setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
@@ -9279,7 +9475,7 @@ export default function FbManagementPage() {
                     style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" as const }}
                   >
                     {f === "all"
-                      ? `Alle (${marketWeekFilter ? countBaseMarkets.length : assignedMarketDisplayCount})`
+                      ? `Alle (${marketWeekFilters.length > 0 ? countBaseMarkets.length : assignedMarketDisplayCount})`
                       : campaignStatusMetricsLoading
                         ? f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
                         : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
@@ -9375,15 +9571,14 @@ export default function FbManagementPage() {
               setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
               setMarketFilters((p) => ({ ...p, region: v }));
             }} />
-            <MarketFilterChip
-              label="Woche"
-              value={marketWeekFilter}
+            <MarketWeekFilterChip
+              values={marketWeekFilters}
               options={marketWeekOptions.map((option) => option.key)}
               formatOption={(value) => marketWeekLabelByKey.get(value) ?? value}
-              onChange={(v) => {
+              onChange={(values) => {
                 setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
-                setMarketWeekFilter(v);
-                if (v) setMarketFilter("finished");
+                setMarketWeekFilters(values);
+                if (values.length > 0) setMarketFilter("finished");
               }}
             />
           </div>

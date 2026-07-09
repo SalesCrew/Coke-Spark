@@ -177,15 +177,21 @@ function applyMarketFilters(
 ): MarketCatalogItem[] {
   let r = markets;
   const q = search.trim().toLowerCase();
-  if (q) r = r.filter(m =>
-    m.name.toLowerCase().includes(q) ||
-    m.address.toLowerCase().includes(q) ||
-    (m.stammnr ?? "").toLowerCase().includes(q) ||
-    (m.kuehlerNumber ?? "").toLowerCase().includes(q) ||
-    (m.gm ? m.gm.toLowerCase().includes(q) : false) ||
-    m.city.toLowerCase().includes(q) ||
-    m.chain.toLowerCase().includes(q)
-  );
+  if (q) {
+    const terms = q.split(/\s+/).filter(Boolean);
+    r = r.filter((m) => {
+      const searchable = [
+        m.name,
+        m.address,
+        m.stammnr,
+        m.kuehlerNumber,
+        m.gm,
+        m.city,
+        m.chain,
+      ].filter(Boolean).join(" ").toLowerCase();
+      return terms.every((term) => searchable.includes(term));
+    });
+  }
   if (filters.chain)  r = r.filter(m => m.chain  === filters.chain);
   if (filters.gm) {
     const selectedGm = normalizeMarketFilterValue(filters.gm);

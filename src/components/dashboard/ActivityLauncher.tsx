@@ -1162,6 +1162,9 @@ function AccordionRow({
                     onChange={(e) => setVonVal(formatTimeInput(e.target.value))}
                     placeholder="HH:MM"
                     maxLength={5}
+                    inputMode="numeric"
+                    pattern="[0-9:]*"
+                    autoComplete="off"
                     onClick={(e) => e.stopPropagation()}
                     className="outline-none text-[11px] tabular-nums text-gray-700"
                     style={{
@@ -1201,6 +1204,9 @@ function AccordionRow({
                     onChange={(e) => setBisVal(formatTimeInput(e.target.value))}
                     placeholder="HH:MM"
                     maxLength={5}
+                    inputMode="numeric"
+                    pattern="[0-9:]*"
+                    autoComplete="off"
                     onClick={(e) => e.stopPropagation()}
                     className="outline-none text-[11px] tabular-nums text-gray-700"
                     style={{
@@ -1406,6 +1412,8 @@ function AccordionRow({
                         }}
                         maxLength={5}
                         inputMode="numeric"
+                        pattern="[0-9:]*"
+                        autoComplete="off"
                         style={{
                           width: "100%",
                           border: "none",

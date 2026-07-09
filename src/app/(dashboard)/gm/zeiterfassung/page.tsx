@@ -1055,6 +1055,7 @@ export default function GmZeiterfassungPage() {
                   <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Start</span>
                   <input
                     type="time"
+                    step={60}
                     value={changeDraft.startTime}
                     onChange={(event) => setChangeDraft((current) => current ? { ...current, startTime: event.target.value } : current)}
                     style={{ height: 42, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.025)", padding: "0 12px", fontSize: 14, fontWeight: 760, color: "rgba(15,23,42,0.9)", fontFamily: "inherit" }}
@@ -1064,6 +1065,7 @@ export default function GmZeiterfassungPage() {
                   <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Ende</span>
                   <input
                     type="time"
+                    step={60}
                     value={changeDraft.endTime}
                     disabled={changeDraft.segment.kind === "anfahrt"}
                     onChange={(event) => setChangeDraft((current) => current ? { ...current, endTime: event.target.value } : current)}

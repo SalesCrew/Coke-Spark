@@ -6446,6 +6446,9 @@ function MarktbesuchInner() {
                           }}
                           placeholder="HH:MM"
                           maxLength={5}
+                          inputMode="numeric"
+                          pattern="[0-9:]*"
+                          autoComplete="off"
                           style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#1a1a1a", background: "none", border: "none", outline: "none", fontVariantNumeric: "tabular-nums" }}
                         />
                         <VisitDatePicker

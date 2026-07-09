@@ -1586,6 +1586,8 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false }: Ti
                                   onChange={(event) => updateReviewDraft(key, { startTime: formatHmDraft(event.target.value) })}
                                   maxLength={5}
                                   inputMode="numeric"
+                                  pattern="[0-9:]*"
+                                  autoComplete="off"
                                   style={{ width: "100%", border: "1px solid rgba(15,23,42,0.06)", outline: "none", borderRadius: 9, background: "rgba(15,23,42,0.035)", padding: "9px 10px", fontSize: 13, fontWeight: 800, color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums", boxSizing: "border-box", fontFamily: "inherit" }}
                                 />
                               </label>
@@ -1600,6 +1602,8 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false }: Ti
                                   onChange={(event) => updateReviewDraft(key, { endTime: formatHmDraft(event.target.value) })}
                                   maxLength={5}
                                   inputMode="numeric"
+                                  pattern="[0-9:]*"
+                                  autoComplete="off"
                                   style={{ width: "100%", border: "1px solid rgba(15,23,42,0.06)", outline: "none", borderRadius: 9, background: "rgba(15,23,42,0.035)", padding: "9px 10px", fontSize: 13, fontWeight: 800, color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums", boxSizing: "border-box", fontFamily: "inherit" }}
                                 />
                               </label>

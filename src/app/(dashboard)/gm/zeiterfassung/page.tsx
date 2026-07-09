@@ -441,6 +441,63 @@ function GmZeitSegmentedControl({ value, onChange }: {
   );
 }
 
+function TimeChangeInput({
+  label,
+  value,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label style={{ display: "grid", gap: 6 }}>
+      <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>
+        {label}
+      </span>
+      <span style={{ position: "relative", display: "block" }}>
+        <input
+          type="time"
+          step={60}
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          style={{
+            width: "100%",
+            height: 42,
+            borderRadius: 12,
+            border: "1px solid rgba(15,23,42,0.08)",
+            background: disabled ? "rgba(15,23,42,0.045)" : "rgba(15,23,42,0.025)",
+            padding: "0 34px 0 12px",
+            fontSize: 14,
+            fontWeight: 760,
+            color: disabled ? "rgba(15,23,42,0.42)" : "rgba(15,23,42,0.9)",
+            fontFamily: "inherit",
+            boxSizing: "border-box",
+            WebkitAppearance: "none",
+            appearance: "none",
+          }}
+        />
+        <Clock
+          size={14}
+          strokeWidth={1.9}
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            right: 12,
+            top: "50%",
+            transform: "translateY(-50%)",
+            color: disabled ? "rgba(15,23,42,0.24)" : "rgba(15,23,42,0.52)",
+            pointerEvents: "none",
+          }}
+        />
+      </span>
+    </label>
+  );
+}
+
 function WeeklyProgress({ sessions }: { sessions: AdminZeiterfassungSession[] }) {
   const today = new Date();
   const weekStart = startOfWeek(today);
@@ -1051,27 +1108,17 @@ export default function GmZeiterfassungPage() {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <label style={{ display: "grid", gap: 6 }}>
-                  <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Start</span>
-                  <input
-                    type="time"
-                    step={60}
-                    value={changeDraft.startTime}
-                    onChange={(event) => setChangeDraft((current) => current ? { ...current, startTime: event.target.value } : current)}
-                    style={{ height: 42, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.025)", padding: "0 12px", fontSize: 14, fontWeight: 760, color: "rgba(15,23,42,0.9)", fontFamily: "inherit" }}
-                  />
-                </label>
-                <label style={{ display: "grid", gap: 6 }}>
-                  <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Ende</span>
-                  <input
-                    type="time"
-                    step={60}
-                    value={changeDraft.endTime}
-                    disabled={changeDraft.segment.kind === "anfahrt"}
-                    onChange={(event) => setChangeDraft((current) => current ? { ...current, endTime: event.target.value } : current)}
-                    style={{ height: 42, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: changeDraft.segment.kind === "anfahrt" ? "rgba(15,23,42,0.045)" : "rgba(15,23,42,0.025)", padding: "0 12px", fontSize: 14, fontWeight: 760, color: changeDraft.segment.kind === "anfahrt" ? "rgba(15,23,42,0.42)" : "rgba(15,23,42,0.9)", fontFamily: "inherit" }}
-                  />
-                </label>
+                <TimeChangeInput
+                  label="Start"
+                  value={changeDraft.startTime}
+                  onChange={(value) => setChangeDraft((current) => current ? { ...current, startTime: value } : current)}
+                />
+                <TimeChangeInput
+                  label="Ende"
+                  value={changeDraft.endTime}
+                  disabled={changeDraft.segment.kind === "anfahrt"}
+                  onChange={(value) => setChangeDraft((current) => current ? { ...current, endTime: value } : current)}
+                />
               </div>
               {changeDraft.segment.kind === "anfahrt" ? (
                 <div style={{ marginTop: 8, fontSize: 10, lineHeight: 1.45, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>

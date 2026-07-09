@@ -190,6 +190,10 @@ function questionAnswerSummary(question: VisitQuestion): string {
   return jsonPreview || "Antwort gespeichert";
 }
 
+function hasStoredAnswer(question: VisitQuestion): boolean {
+  return Boolean(question.answer && question.answer.answerStatus === "answered");
+}
+
 function questionTypeLabel(type: VisitQuestion["type"]): string {
   if (type === "single") return "Einzelauswahl";
   if (type === "yesno") return "Ja/Nein";
@@ -1680,7 +1684,7 @@ function ReadOnlyVisitViewer({
               {navigatorSections.map(({ section, entries }) => {
                 const color = sectionColor(section.section);
                 const active = section.id === activeNavigatorSection?.section.id;
-                const answered = entries.filter((entry) => Boolean(entry.question.answer)).length;
+                const answered = entries.filter((entry) => hasStoredAnswer(entry.question)).length;
                 return (
                   <button
                     key={section.id}
@@ -1702,7 +1706,7 @@ function ReadOnlyVisitViewer({
             <div className="gm-activity-bottom-module-list">
               {activeNavigatorSection?.modules.map((module) => {
                 const moduleColor = sectionColor(activeNavigatorSection.section.section);
-                const answered = module.entries.filter((entry) => Boolean(entry.question.answer)).length;
+                const answered = module.entries.filter((entry) => hasStoredAnswer(entry.question)).length;
                 const moduleActive = module.entries.some((entry) => entry.index === index);
                 const complete = answered === module.entries.length && module.entries.length > 0;
                 return (
@@ -1728,7 +1732,7 @@ function ReadOnlyVisitViewer({
                     </button>
                     <div className="gm-activity-bottom-question-list">
                       {module.entries.map((entry) => {
-                        const done = Boolean(entry.question.answer);
+                        const done = hasStoredAnswer(entry.question);
                         const active = entry.index === index;
                         return (
                           <button
@@ -2446,6 +2450,7 @@ export default function GmActivityPage() {
           width: min(720px, 100%);
           max-height: min(820px, calc(100vh - 132px));
           overflow: auto;
+          position: relative;
           border-radius: 24px;
           background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.94));
           box-shadow: 0 24px 70px rgba(15,23,42,0.18), inset 0 0 0 1px rgba(255,255,255,0.7);
@@ -3641,11 +3646,15 @@ export default function GmActivityPage() {
           backdrop-filter: blur(14px);
         }
         .gm-activity-bottom-navigator {
-          position: sticky;
+          position: absolute;
+          left: 18px;
+          right: 18px;
           bottom: 66px;
-          z-index: 5;
-          margin: 0 18px 10px;
-          max-height: min(430px, 52vh);
+          z-index: 8;
+          margin: 0;
+          height: min(430px, calc(100vh - 260px));
+          max-height: calc(100% - 140px);
+          min-height: 250px;
           overflow: hidden;
           display: grid;
           grid-template-rows: auto auto minmax(0, 1fr);
@@ -3729,14 +3738,19 @@ export default function GmActivityPage() {
         .gm-activity-bottom-module-list {
           min-height: 0;
           overflow-y: auto;
-          display: grid;
-          gap: 8px;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+          touch-action: pan-y;
+          display: block;
           padding-right: 2px;
           scrollbar-width: none;
           -ms-overflow-style: none;
         }
         .gm-activity-bottom-module-list::-webkit-scrollbar {
           display: none;
+        }
+        .gm-activity-bottom-module + .gm-activity-bottom-module {
+          margin-top: 8px;
         }
         .gm-activity-bottom-module {
           border-radius: 14px;
@@ -4211,9 +4225,16 @@ export default function GmActivityPage() {
             padding: 0 9px;
           }
           .gm-activity-bottom-navigator {
+            left: 10px;
+            right: 10px;
             bottom: 58px;
-            margin: 0 10px 8px;
-            max-height: min(390px, 50vh);
+            margin: 0;
+            height: min(390px, calc(100vh - 218px));
+            max-height: calc(100% - 116px);
+            min-height: 236px;
+          }
+          .gm-activity-bottom-module-list {
+            max-height: none;
           }
         }
       `}</style>

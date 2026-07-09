@@ -111,6 +111,13 @@ interface MarketListFilters {
   region: string | null;
 }
 
+type MarketWeekOption = {
+  key: string;
+  label: string;
+  start: Date;
+  end: Date;
+};
+
 type FbManagementExportFilters = {
   campaignIds: string[];
   sections: CampaignSection[];
@@ -195,6 +202,103 @@ function getCampaignVisitStatusesForMarket(
   marketId: string,
 ): CampaignMarketVisitStatus[] {
   return Object.values(statuses).filter((status) => status.marketId === marketId || getCampaignVisitStatusRowId(status) === marketId);
+}
+
+function parseDateInput(raw: string | null | undefined): Date | null {
+  if (!raw) return null;
+  const date = raw.includes("T") ? new Date(raw) : new Date(`${raw}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toLocalYmd(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatShortDate(date: Date): string {
+  return date.toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit" }).replace(/\s/g, "");
+}
+
+function startOfBusinessWeek(date: Date): Date {
+  const result = new Date(date);
+  result.setHours(12, 0, 0, 0);
+  const day = result.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  result.setDate(result.getDate() + mondayOffset);
+  return result;
+}
+
+function endOfBusinessWeek(start: Date): Date {
+  const result = new Date(start);
+  result.setDate(result.getDate() + 4);
+  result.setHours(12, 0, 0, 0);
+  return result;
+}
+
+function makeWeekOption(start: Date): MarketWeekOption {
+  const normalizedStart = startOfBusinessWeek(start);
+  const end = endOfBusinessWeek(normalizedStart);
+  return {
+    key: `${toLocalYmd(normalizedStart)}__${toLocalYmd(end)}`,
+    label: `${formatShortDate(normalizedStart)}-${formatShortDate(end)}`,
+    start: normalizedStart,
+    end,
+  };
+}
+
+function getVisitWeekKey(status: CampaignMarketVisitStatus | null | undefined): string | null {
+  const submittedAt = parseDateInput(status?.submittedAt ?? null);
+  if (!submittedAt) return null;
+  return makeWeekOption(submittedAt).key;
+}
+
+function buildCampaignWeekOptions(
+  campaign: Campaign | null | undefined,
+  statuses: CampaignVisitStatusByMarket,
+): MarketWeekOption[] {
+  const byKey = new Map<string, MarketWeekOption>();
+  const now = new Date();
+  const statusDates = Object.values(statuses)
+    .map((status) => parseDateInput(status.submittedAt ?? null))
+    .filter((date): date is Date => Boolean(date));
+
+  let rangeStart = parseDateInput(campaign?.startDate ?? null);
+  let rangeEnd = parseDateInput(campaign?.endDate ?? null);
+  if (!rangeStart && statusDates.length) {
+    rangeStart = new Date(Math.min(...statusDates.map((date) => date.getTime())));
+  }
+  if (!rangeEnd && statusDates.length) {
+    rangeEnd = new Date(Math.max(...statusDates.map((date) => date.getTime())));
+  }
+  if (!rangeStart && !rangeEnd) {
+    const current = makeWeekOption(now);
+    return [current];
+  }
+  if (!rangeStart) rangeStart = rangeEnd;
+  if (!rangeEnd) rangeEnd = rangeStart;
+  if (!rangeStart || !rangeEnd) return [];
+
+  const firstWeek = startOfBusinessWeek(rangeStart);
+  const lastWeek = startOfBusinessWeek(rangeEnd);
+  for (const cursor = new Date(firstWeek); cursor <= lastWeek; cursor.setDate(cursor.getDate() + 7)) {
+    const option = makeWeekOption(cursor);
+    byKey.set(option.key, option);
+    if (byKey.size > 90) break;
+  }
+
+  for (const date of statusDates) {
+    const option = makeWeekOption(date);
+    byKey.set(option.key, option);
+  }
+
+  const current = makeWeekOption(now);
+  if (!campaign || (rangeStart <= current.end && rangeEnd >= current.start)) {
+    byKey.set(current.key, current);
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => b.start.getTime() - a.start.getTime());
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -5951,9 +6055,13 @@ const MarketRow = React.memo(function MarketRow({
 // ── Market filter chip ─────────────────────────────────────────
 
 function MarketFilterChip({
-  label, value, options, onChange,
+  label, value, options, onChange, formatOption,
 }: {
-  label: string; value: string | null; options: string[]; onChange: (v: string | null) => void;
+  label: string;
+  value: string | null;
+  options: string[];
+  onChange: (v: string | null) => void;
+  formatOption?: (value: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -5988,11 +6096,13 @@ function MarketFilterChip({
   }, [open, syncPos]);
 
   const toggleOpen = () => {
+    if (options.length === 0 && !value) return;
     syncPos();
     setOpen((o) => !o);
   };
 
   const active = value !== null;
+  const activeLabel = active ? formatOption?.(value) ?? value : label;
   return (
     <>
       <button
@@ -6010,7 +6120,7 @@ function MarketFilterChip({
         onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "rgba(0,0,0,0.055)"; }}
         onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "rgba(0,0,0,0.035)"; }}
       >
-        {active ? value : label}
+        {activeLabel}
         {active
           ? <span onMouseDown={(e) => { e.stopPropagation(); onChange(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center" }}><X size={9} strokeWidth={2.5} /></span>
           : <ChevronDown size={9} strokeWidth={2} />
@@ -6024,6 +6134,7 @@ function MarketFilterChip({
           <style>{`@keyframes mfcIn { from { opacity:0; transform:translateY(-4px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } }`}</style>
           {options.map((opt) => {
             const sel = opt === value;
+            const optionLabel = formatOption?.(opt) ?? opt;
             return (
               <button key={opt} onClick={() => { onChange(sel ? null : opt); setOpen(false); }}
                 style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: sel ? 600 : 400, textAlign: "left", background: sel ? "rgba(0,0,0,0.05)" : "transparent", color: sel ? "#1a1a1a" : "#374151", transition: "background 0.1s ease" }}
@@ -6031,7 +6142,7 @@ function MarketFilterChip({
                 onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
               >
                 <div style={{ width: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>{sel && <Check size={10} strokeWidth={3} />}</div>
-                {opt}
+                {optionLabel}
               </button>
             );
           })}
@@ -6564,6 +6675,7 @@ export default function FbManagementPage() {
   // ── Market management state ────────────────────────────────────
   const [marketSearch, setMarketSearch] = useState("");
   const [marketFilters, setMarketFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
+  const [marketWeekFilter, setMarketWeekFilter] = useState<string | null>(null);
   const [marketEditMode, setMarketEditMode] = useState<"idle" | "remove" | "add">("idle");
   const [editMenuOpen, setEditMenuOpen] = useState(false);
   const [editMenuPos, setEditMenuPos] = useState({ x: 0, y: 0 });
@@ -7032,6 +7144,7 @@ export default function FbManagementPage() {
     setEditMenuOpen(false);
     setMarketSearch("");
     setMarketFilters({ chain: null, gm: null, city: null, region: null });
+    setMarketWeekFilter(null);
     setMarketFilter("all");
   }, []);
   const previewQuestions = useMemo(() => {
@@ -7299,6 +7412,7 @@ export default function FbManagementPage() {
         setEditMenuOpen(false);
         setMarketSearch("");
         setMarketFilters({ chain: null, gm: null, city: null, region: null });
+        setMarketWeekFilter(null);
         setMarketFilter("all");
       }
       setCampaignContextMenu(null);
@@ -7382,19 +7496,43 @@ export default function FbManagementPage() {
     [assignedMarketIdSet, marketsData],
   );
 
-  const finishedCount = useMemo(() => assignedMarkets.filter((m) => m.finished).length, [assignedMarkets]);
-  const pendingCount = Math.max(0, assignedMarketDisplayCount - finishedCount);
+  const marketWeekOptions = useMemo(
+    () => buildCampaignWeekOptions(campaign, campaignVisitStatusByMarket),
+    [campaign, campaignVisitStatusByMarket],
+  );
+  const marketWeekLabelByKey = useMemo(
+    () => new Map(marketWeekOptions.map((option) => [option.key, option.label] as const)),
+    [marketWeekOptions],
+  );
+
+  useEffect(() => {
+    if (!marketWeekFilter) return;
+    if (marketWeekLabelByKey.has(marketWeekFilter)) return;
+    setMarketWeekFilter(null);
+  }, [marketWeekFilter, marketWeekLabelByKey]);
+
+  const weekFilteredAssignedMarkets = useMemo(() => {
+    if (!marketWeekFilter) return assignedMarkets;
+    return assignedMarkets.filter((market) => {
+      const marketId = market.marketId ?? market.id;
+      const visitStatus = campaignVisitStatusByMarket[market.id] ?? campaignVisitStatusByMarket[marketId] ?? null;
+      return getVisitWeekKey(visitStatus) === marketWeekFilter;
+    });
+  }, [assignedMarkets, campaignVisitStatusByMarket, marketWeekFilter]);
+  const countBaseMarkets = marketWeekFilter ? weekFilteredAssignedMarkets : assignedMarkets;
+  const finishedCount = useMemo(() => countBaseMarkets.filter((m) => m.finished).length, [countBaseMarkets]);
+  const pendingCount = Math.max(0, countBaseMarkets.length - finishedCount);
 
   const statusFiltered = useMemo(
     () =>
       marketEditMode === "remove"
-        ? assignedMarkets.filter((m) => !m.finished)
+        ? countBaseMarkets.filter((m) => !m.finished)
         : marketFilter === "finished"
-          ? assignedMarkets.filter((m) => m.finished)
+          ? countBaseMarkets.filter((m) => m.finished)
           : marketFilter === "pending"
-            ? assignedMarkets.filter((m) => !m.finished)
-            : assignedMarkets,
-    [assignedMarkets, marketEditMode, marketFilter],
+            ? countBaseMarkets.filter((m) => !m.finished)
+            : countBaseMarkets,
+    [countBaseMarkets, marketEditMode, marketFilter],
   );
 
   const filteredMarkets = useMemo(
@@ -7537,7 +7675,7 @@ export default function FbManagementPage() {
 
   useEffect(() => {
     setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
-  }, [campaignId, marketEditMode, marketFilter, marketSearch, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
+  }, [campaignId, marketEditMode, marketFilter, marketSearch, marketWeekFilter, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
 
   const handleMarketFilterChange = useCallback((nextFilter: "all" | "finished" | "pending") => {
     setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
@@ -9141,7 +9279,7 @@ export default function FbManagementPage() {
                     style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" as const }}
                   >
                     {f === "all"
-                      ? `Alle (${assignedMarketDisplayCount})`
+                      ? `Alle (${marketWeekFilter ? countBaseMarkets.length : assignedMarketDisplayCount})`
                       : campaignStatusMetricsLoading
                         ? f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
                         : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
@@ -9237,6 +9375,17 @@ export default function FbManagementPage() {
               setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
               setMarketFilters((p) => ({ ...p, region: v }));
             }} />
+            <MarketFilterChip
+              label="Woche"
+              value={marketWeekFilter}
+              options={marketWeekOptions.map((option) => option.key)}
+              formatOption={(value) => marketWeekLabelByKey.get(value) ?? value}
+              onChange={(v) => {
+                setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+                setMarketWeekFilter(v);
+                if (v) setMarketFilter("finished");
+              }}
+            />
           </div>
         </div>
 

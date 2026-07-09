@@ -4059,6 +4059,7 @@ function AdminAnswerPhoto({
   deletingPhotoId: string | null;
 }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [photoToDelete, setPhotoToDelete] = useState<AnswerPhotoEntry | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -4073,7 +4074,12 @@ function AdminAnswerPhoto({
   const deletePhoto = (event: React.SyntheticEvent, photo: AnswerPhotoEntry) => {
     event.stopPropagation();
     if (!photo.id || deletingPhotoId === photo.id) return;
-    onDeletePhoto(photo);
+    setPhotoToDelete(photo);
+  };
+  const confirmDeletePhoto = () => {
+    if (!photoToDelete?.id || deletingPhotoId === photoToDelete.id) return;
+    onDeletePhoto(photoToDelete);
+    setPhotoToDelete(null);
   };
 
   if (answer.length === 0) {
@@ -4119,7 +4125,7 @@ function AdminAnswerPhoto({
           </div>
         )}
         <div style={{ width: "100%", marginTop: 12, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: "rgba(255,255,255,0.84)", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
               {getFileName(activePhoto, lightboxIndex ?? 0)}
             </div>
@@ -4166,6 +4172,103 @@ function AdminAnswerPhoto({
         >
           <X size={15} strokeWidth={2.1} />
         </button>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+  const confirmOverlay = mounted && photoToDelete ? createPortal(
+    <div
+      onClick={() => {
+        if (!deletingPhotoId) setPhotoToDelete(null);
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100000,
+        background: "rgba(0,0,0,0.42)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(420px, calc(100vw - 48px))",
+          borderRadius: 18,
+          background: "#fff",
+          border: "1px solid rgba(0,0,0,0.08)",
+          boxShadow: "0 22px 70px rgba(0,0,0,0.28)",
+          padding: 20,
+          fontFamily: "inherit",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 13, background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.16)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Trash2 size={17} strokeWidth={2.2} color="#DC2626" />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 850, color: "#111827", letterSpacing: "-0.02em" }}>
+              Foto wirklich löschen?
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.55, color: "rgba(17,24,39,0.58)" }}>
+              Das Foto wird aus diesem Fragebogen entfernt. Die restlichen Antworten und Fotos bleiben unverändert.
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(17,24,39,0.07)" }}>
+          <div style={{ fontSize: 9, fontWeight: 850, letterSpacing: "0.11em", textTransform: "uppercase", color: "rgba(17,24,39,0.34)" }}>
+            Datei
+          </div>
+          <div style={{ marginTop: 5, maxWidth: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", fontSize: 11, fontWeight: 750, color: "rgba(17,24,39,0.50)" }}>
+            {getFileName(photoToDelete, 0)}
+          </div>
+        </div>
+        <div style={{ marginTop: 18, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <button
+            type="button"
+            onClick={() => setPhotoToDelete(null)}
+            disabled={Boolean(deletingPhotoId)}
+            style={{
+              height: 34,
+              padding: "0 14px",
+              borderRadius: 10,
+              border: "1px solid rgba(0,0,0,0.09)",
+              background: "linear-gradient(to bottom, #fff, #f7f7f7)",
+              color: "rgba(17,24,39,0.62)",
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: deletingPhotoId ? "not-allowed" : "pointer",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 4px rgba(0,0,0,0.05)",
+              fontFamily: "inherit",
+            }}
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={confirmDeletePhoto}
+            disabled={deletingPhotoId === photoToDelete.id}
+            style={{
+              height: 34,
+              padding: "0 14px",
+              borderRadius: 10,
+              border: "1px solid #b91c1c",
+              background: "linear-gradient(to bottom, #ef4444, #dc2626)",
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 850,
+              cursor: deletingPhotoId === photoToDelete.id ? "not-allowed" : "pointer",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.28), 0 6px 14px rgba(220,38,38,0.18)",
+              fontFamily: "inherit",
+            }}
+          >
+            {deletingPhotoId === photoToDelete.id ? "Lösche..." : "Foto löschen"}
+          </button>
+        </div>
       </div>
     </div>,
     document.body,
@@ -4247,6 +4350,7 @@ function AdminAnswerPhoto({
         )}
       </div>
       {overlay}
+      {confirmOverlay}
     </>
   );
 }
@@ -4778,8 +4882,6 @@ function MarketVisitDetail({
 
   const handleDeletePhoto = useCallback(async (photo: AnswerPhotoEntry) => {
     if (!visitSummary?.sessionId || !photo.id || deletingPhotoId) return;
-    const confirmed = window.confirm("Dieses Foto wirklich loeschen? Die restlichen Antworten bleiben erhalten.");
-    if (!confirmed) return;
 
     setDeletingPhotoId(photo.id);
     setPhotoDeleteError(null);

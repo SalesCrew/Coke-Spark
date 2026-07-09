@@ -12,6 +12,7 @@ import {
   BackendApiError,
   assignCampaignMarketAssignments,
   assignCampaignMarkets,
+  deleteAdminCampaignVisitPhoto,
   deleteCampaign,
   fetchCampaignAssignedMarkets,
   fetchCampaignMarketVisitDetail,
@@ -3793,7 +3794,10 @@ function AnswerSlider({ answer, config, color }: { answer: string; config: Previ
 }
 
 type AnswerPhotoEntry = {
+  id?: string;
   src: string;
+  storageBucket?: string;
+  storagePath?: string;
   tags: string[];
 };
 
@@ -3920,6 +3924,208 @@ function AnswerPhoto({ answer }: { answer: AnswerPhotoEntry[] }) {
         })}
         {overflow > 0 && (
           <div style={{ padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.45)", border: "1px solid rgba(0,0,0,0.07)" }}>+{overflow}</div>
+        )}
+      </div>
+      {overlay}
+    </>
+  );
+}
+
+function AdminAnswerPhoto({
+  answer,
+  onDeletePhoto,
+  deletingPhotoId,
+}: {
+  answer: AnswerPhotoEntry[];
+  onDeletePhoto: (photo: AnswerPhotoEntry) => void;
+  deletingPhotoId: string | null;
+}) {
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const getFileName = (photo: AnswerPhotoEntry, idx: number) => {
+    const raw = photo.storagePath || photo.src;
+    if (!raw || raw === "photo_placeholder" || raw.startsWith("data:") || raw.startsWith("blob:")) return `Foto ${idx + 1}`;
+    try { return decodeURIComponent(raw.split("/").pop()?.split("?")[0] || `Foto ${idx + 1}`); } catch { return `Foto ${idx + 1}`; }
+  };
+  const isReal = (src: string) => src && src !== "photo_placeholder" && (src.startsWith("data:") || src.startsWith("http") || src.startsWith("/") || src.startsWith("blob:"));
+  const visible = answer.slice(0, 6);
+  const activePhoto = lightboxIndex !== null ? answer[lightboxIndex] : null;
+  const deletePhoto = (event: React.SyntheticEvent, photo: AnswerPhotoEntry) => {
+    event.stopPropagation();
+    if (!photo.id || deletingPhotoId === photo.id) return;
+    onDeletePhoto(photo);
+  };
+
+  if (answer.length === 0) {
+    return <p style={{ margin: "6px 0 0", fontSize: 10, color: "rgba(0,0,0,0.3)", fontStyle: "italic" }}>Keine Fotos</p>;
+  }
+
+  const overlay = mounted && activePhoto ? createPortal(
+    <div
+      onClick={() => setLightboxIndex(null)}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 99999,
+        background: "rgba(0,0,0,0.88)",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 28,
+      }}
+    >
+      <div onClick={(event) => event.stopPropagation()} style={{ position: "relative", maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", alignItems: "center" }}>
+        {isReal(activePhoto.src) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={activePhoto.src}
+            alt={getFileName(activePhoto, lightboxIndex ?? 0)}
+            style={{
+              maxWidth: "92vw",
+              maxHeight: "74vh",
+              borderRadius: 14,
+              objectFit: "contain",
+              boxShadow: "0 10px 42px rgba(0,0,0,0.48)",
+              display: "block",
+              background: "rgba(255,255,255,0.06)",
+            }}
+          />
+        ) : (
+          <div style={{ width: 340, height: 240, borderRadius: 14, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+            <Camera size={34} strokeWidth={1.5} color="rgba(255,255,255,0.42)" />
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", fontWeight: 700 }}>{getFileName(activePhoto, lightboxIndex ?? 0)}</span>
+          </div>
+        )}
+        <div style={{ width: "100%", marginTop: 12, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "rgba(255,255,255,0.84)", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+              {getFileName(activePhoto, lightboxIndex ?? 0)}
+            </div>
+            {activePhoto.tags.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+                {activePhoto.tags.map((tag) => (
+                  <span key={tag} style={{ fontSize: 10, color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 999, padding: "2px 7px" }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          {activePhoto.id && (
+            <button
+              type="button"
+              onClick={(event) => deletePhoto(event, activePhoto)}
+              disabled={deletingPhotoId === activePhoto.id}
+              style={{
+                flexShrink: 0,
+                height: 34,
+                padding: "0 13px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.24)",
+                background: deletingPhotoId === activePhoto.id ? "rgba(255,255,255,0.14)" : "rgba(220,38,38,0.88)",
+                color: "#fff",
+                fontSize: 11,
+                fontWeight: 800,
+                cursor: deletingPhotoId === activePhoto.id ? "not-allowed" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <Trash2 size={13} strokeWidth={2.2} />
+              {deletingPhotoId === activePhoto.id ? "Wird geloescht..." : "Foto loeschen"}
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setLightboxIndex(null)}
+          style={{ position: "absolute", top: -14, right: -14, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <X size={15} strokeWidth={2.1} />
+        </button>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+
+  return (
+    <>
+      <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {visible.map((photo, index) => {
+          const real = isReal(photo.src);
+          const deleting = photo.id ? deletingPhotoId === photo.id : false;
+          return (
+            <button
+              key={photo.id ?? `${photo.storagePath ?? photo.src}-${index}`}
+              type="button"
+              onClick={() => setLightboxIndex(index)}
+              style={{
+                width: 92,
+                height: 66,
+                position: "relative",
+                border: "1px solid rgba(0,0,0,0.08)",
+                background: "rgba(0,0,0,0.035)",
+                borderRadius: 9,
+                padding: 0,
+                cursor: "pointer",
+                overflow: "hidden",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
+              }}
+              title={getFileName(photo, index)}
+            >
+              {real ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photo.src} alt={getFileName(photo, index)} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              ) : (
+                <span style={{ height: "100%", padding: "0 8px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.45)" }}>
+                  <Camera size={14} strokeWidth={1.7} color="rgba(0,0,0,0.34)" />
+                  <span style={{ width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{getFileName(photo, index)}</span>
+                </span>
+              )}
+              {photo.id && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => deletePhoto(event, photo)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") deletePhoto(event, photo);
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: 5,
+                    right: 5,
+                    width: 22,
+                    height: 22,
+                    borderRadius: 7,
+                    background: deleting ? "rgba(17,24,39,0.58)" : "rgba(220,38,38,0.92)",
+                    color: "#fff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 3px 10px rgba(0,0,0,0.18)",
+                    pointerEvents: deleting ? "none" : "auto",
+                  }}
+                  title="Foto loeschen"
+                >
+                  <Trash2 size={11} strokeWidth={2.3} />
+                </span>
+              )}
+            </button>
+          );
+        })}
+        {answer.length > visible.length && (
+          <button
+            type="button"
+            onClick={() => setLightboxIndex(visible.length)}
+            style={{ width: 92, height: 66, border: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.035)", borderRadius: 9, color: "rgba(0,0,0,0.48)", fontSize: 11, fontWeight: 800, cursor: "pointer" }}
+          >
+            +{answer.length - visible.length}
+          </button>
         )}
       </div>
       {overlay}
@@ -4182,7 +4388,10 @@ function MarketVisitDetail({
             }
           } else if (question.type === "photo") {
             rawAnswer = (question.answer.photos ?? []).map((photo) => ({
-              src: normalizeReplayPhotoSrc(photo.storagePath, photo.storageBucket),
+              id: photo.id,
+              src: photo.signedUrl || normalizeReplayPhotoSrc(photo.storagePath, photo.storageBucket),
+              storageBucket: photo.storageBucket,
+              storagePath: photo.storagePath,
               tags: (photo.tags ?? [])
                 .map((tag) => tag.photoTagLabelSnapshot)
                 .filter((label) => label.trim().length > 0),
@@ -4312,6 +4521,8 @@ function MarketVisitDetail({
   const [draftComment, setDraftComment] = useState("");
   const [savingQuestionId, setSavingQuestionId] = useState<string | null>(null);
   const [saveErrorByQuestionId, setSaveErrorByQuestionId] = useState<Record<string, string>>({});
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
+  const [photoDeleteError, setPhotoDeleteError] = useState<string | null>(null);
 
   const parseYesNoMultiDraft = useCallback((value: SessionQuestionView["rawAnswer"]): YesNoMultiDraft => {
     if (typeof value === "string" && value.trim().startsWith("{")) {
@@ -4446,6 +4657,26 @@ function MarketVisitDetail({
       setSavingQuestionId(null);
     }
   }, [buildPatchAnswerPayload, draftComment, onVisitUpdated, savingQuestionId, visitSummary?.sessionId]);
+
+  const handleDeletePhoto = useCallback(async (photo: AnswerPhotoEntry) => {
+    if (!visitSummary?.sessionId || !photo.id || deletingPhotoId) return;
+    const confirmed = window.confirm("Dieses Foto wirklich loeschen? Die restlichen Antworten bleiben erhalten.");
+    if (!confirmed) return;
+
+    setDeletingPhotoId(photo.id);
+    setPhotoDeleteError(null);
+    try {
+      await deleteAdminCampaignVisitPhoto({
+        sessionId: visitSummary.sessionId,
+        photoId: photo.id,
+      });
+      await onVisitUpdated();
+    } catch (error) {
+      setPhotoDeleteError(error instanceof Error ? error.message : "Foto konnte nicht geloescht werden.");
+    } finally {
+      setDeletingPhotoId(null);
+    }
+  }, [deletingPhotoId, onVisitUpdated, visitSummary?.sessionId]);
 
   const renderEditControls = (q: SessionQuestionView) => {
     const commonInputStyle: React.CSSProperties = {
@@ -4851,7 +5082,21 @@ function MarketVisitDetail({
       case "text": return <AnswerText answer={raw as string} />;
       case "numeric": return <AnswerNumeric answer={raw as string} config={q.config} />;
       case "slider": return <AnswerSlider answer={raw as string} config={q.config} color={campaignColor} />;
-      case "photo": return <AnswerPhoto answer={Array.isArray(raw) ? (raw as AnswerPhotoEntry[]) : []} />;
+      case "photo":
+        return (
+          <>
+            <AdminAnswerPhoto
+              answer={Array.isArray(raw) ? (raw as AnswerPhotoEntry[]) : []}
+              onDeletePhoto={handleDeletePhoto}
+              deletingPhotoId={deletingPhotoId}
+            />
+            {photoDeleteError && (
+              <p style={{ margin: "6px 0 0", fontSize: 10, color: "#b91c1c", fontWeight: 700 }}>
+                {photoDeleteError}
+              </p>
+            )}
+          </>
+        );
       case "matrix": return <AnswerMatrix answer={raw as string[] | Record<string, string>} config={q.config} color={campaignColor} />;
       default: return null;
     }

@@ -4178,6 +4178,17 @@ export async function fetchCampaignMarketVisitDetail(
   return data.market;
 }
 
+export async function deleteAdminCampaignVisitPhoto(input: {
+  sessionId: string;
+  photoId: string;
+}): Promise<{ ok: boolean }> {
+  return (await authedFetch(
+    `/admin/campaigns/visit-sessions/${encodeURIComponent(input.sessionId)}/photos/${encodeURIComponent(input.photoId)}`,
+    { method: "DELETE" },
+    30000,
+  )) as { ok: boolean };
+}
+
 export async function patchCampaignVisitAnswer(input: {
   sessionId: string;
   visitQuestionId: string;

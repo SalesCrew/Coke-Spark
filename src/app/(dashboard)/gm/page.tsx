@@ -495,7 +495,7 @@ export default function GMDashboard() {
         className="mx-auto px-6 pt-6 lg:px-10 lg:pt-8"
         style={{ maxWidth: 960, position: "relative", zIndex: 1 }}
       >
-        <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+        <div className="grid gap-5 min-[700px]:grid-cols-2 min-[700px]:items-start">
           <div className="min-w-0 space-y-5">
             <TimeTracker
               daySessionPayload={dashboardCritical?.daySession}

@@ -541,10 +541,14 @@ function AccordionRow({
   const [contentH, setContentH] = useState(0);
 
   const active = running && !paused;
-  const supportsComment = activity.key === "sonderaufgabe" || activity.key === "lager";
+  const supportsComment = activity.key === "sonderaufgabe" || activity.key === "lager" || activity.key === "homeoffice";
   const supportsDoctorConfirmation = activity.key === "arztbesuch";
   const commentPlaceholder =
-    activity.key === "lager" ? "Kommentar zum Lagerbesuch (optional)..." : "Kommentar zum Sondereinsatz...";
+    activity.key === "lager"
+      ? "Kommentar zum Lagerbesuch (optional)..."
+      : activity.key === "homeoffice"
+        ? "Kommentar zum Homeoffice (optional)..."
+        : "Kommentar zum Sondereinsatz...";
 
   useEffect(() => {
     if (!active) return;

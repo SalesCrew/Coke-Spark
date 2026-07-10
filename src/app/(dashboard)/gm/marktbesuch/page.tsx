@@ -10,6 +10,7 @@ import {
   clearGmVisitPreloadCache,
   commitGmVisitPhotos,
   createGmVisitSession,
+  deleteInheritedGmVisitPhoto,
   deleteGmVisitPhoto,
   fetchActiveGmVisitSession,
   fetchGmVisitSession,
@@ -22,6 +23,7 @@ import {
   setLatestActiveGmVisitHandoff,
   submitGmVisitSession,
   updateGmVisitSessionStart,
+  updateInheritedGmVisitPhotoTags,
   type GmVisitSessionReadPayload,
   type GmVisitStartPayload,
   type GmVisitStartSection,
@@ -149,8 +151,12 @@ interface PhotoAnswerState {
 }
 
 interface UploadedPhotoMeta {
+  photoId?: string;
   storageBucket: string;
   storagePath: string;
+  inherited?: boolean;
+  sourceSessionId?: string;
+  sourceAnswerId?: string;
   mimeType?: string;
   byteSize?: number;
   widthPx?: number;
@@ -1227,7 +1233,9 @@ interface QuestionCardProps {
   }) => Promise<void>;
   onPhotoDelete?: (payload: {
     questionId: string;
+    photoId?: string;
     storagePath?: string;
+    inherited?: boolean;
     photoState: PhotoAnswerState;
     photoKeys: string[];
   }) => Promise<void>;
@@ -2794,7 +2802,9 @@ function QuestionCard({
           if (onPhotoDelete) {
             await onPhotoDelete({
               questionId: question.id,
+              photoId: removedMeta?.photoId,
               storagePath: removedMeta?.storagePath ?? (!isPreviewablePhotoSrc(removedSrc) ? removedSrc : undefined),
+              inherited: Boolean(removedMeta?.inherited),
               photoState: nextState,
               photoKeys: nextPhotoKeys,
             });
@@ -3934,8 +3944,12 @@ function MarktbesuchInner() {
             photoTagIdsByPhotoKey,
           });
           nextPhotoMetaByQuestionId[question.id] = (answer.photos ?? []).map((photo) => ({
+            photoId: photo.id,
             storageBucket: photo.storageBucket,
             storagePath: photo.storagePath,
+            inherited: Boolean(photo.inherited),
+            sourceSessionId: photo.sourceSessionId,
+            sourceAnswerId: photo.sourceAnswerId,
             mimeType: photo.mimeType ?? undefined,
             byteSize: photo.byteSize ?? undefined,
             widthPx: photo.widthPx ?? undefined,
@@ -4262,20 +4276,42 @@ function MarktbesuchInner() {
           uploadedMeta.push({
             storageBucket: presign.upload.bucket,
             storagePath: presign.upload.path,
+            inherited: false,
             mimeType: file.type || undefined,
             byteSize: file.size,
           });
         }
 
         const mergedMeta = payload.files.length > 0 ? [...existingMeta, ...uploadedMeta] : existingMeta;
-        await commitGmVisitPhotos({
-          sessionId: visitSessionId,
-          visitAnswerId: answerId,
-          photos: mergedMeta.map((meta, index) => ({
-            ...meta,
-            photoTagIds: photoTagsForCommit(payload.photoState, meta, index, payload.photoKeys),
-          })),
-        });
+        const taggedMeta = mergedMeta.map((meta, index) => ({
+          meta,
+          photoTagIds: photoTagsForCommit(payload.photoState, meta, index, payload.photoKeys),
+        }));
+        const currentPhotos = taggedMeta
+          .filter(({ meta }) => !meta.inherited)
+          .map(({ meta, photoTagIds }) => ({
+            storageBucket: meta.storageBucket,
+            storagePath: meta.storagePath,
+            mimeType: meta.mimeType,
+            byteSize: meta.byteSize,
+            widthPx: meta.widthPx,
+            heightPx: meta.heightPx,
+            sha256: meta.sha256,
+            photoTagIds,
+          }));
+        if (currentPhotos.length > 0) {
+          await commitGmVisitPhotos({
+            sessionId: visitSessionId,
+            visitAnswerId: answerId,
+            photos: currentPhotos,
+          });
+        }
+        const inheritedPhotos = taggedMeta.flatMap(({ meta, photoTagIds }) =>
+          meta.inherited && meta.photoId ? [{ photoId: meta.photoId, photoTagIds }] : [],
+        );
+        if (inheritedPhotos.length > 0) {
+          await updateInheritedGmVisitPhotoTags({ sessionId: visitSessionId, photos: inheritedPhotos });
+        }
         setPhotoMetaByQuestionId((prev) => ({ ...prev, [payload.questionId]: mergedMeta }));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Fotos konnten nicht gespeichert werden.";
@@ -4288,9 +4324,16 @@ function MarktbesuchInner() {
   );
 
   const handlePhotoDelete = useCallback(
-    async (payload: { questionId: string; storagePath?: string; photoState: PhotoAnswerState; photoKeys: string[] }) => {
+    async (payload: {
+      questionId: string;
+      photoId?: string;
+      storagePath?: string;
+      inherited?: boolean;
+      photoState: PhotoAnswerState;
+      photoKeys: string[];
+    }) => {
       const answerId = photoAnswerIdByQuestionId[payload.questionId] ?? null;
-      if (!payload.storagePath || !answerId) return;
+      if (!answerId) return;
       if (!visitSessionId) {
         const message = "Foto konnte nicht gelöscht werden, weil der Fragebogen noch nicht gespeichert ist.";
         setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: message }));
@@ -4299,14 +4342,22 @@ function MarktbesuchInner() {
       setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: true }));
       setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: null }));
       try {
-        await deleteGmVisitPhoto({
-          sessionId: visitSessionId,
-          visitAnswerId: answerId,
-          storagePath: payload.storagePath,
-        });
+        if (payload.inherited) {
+          if (!payload.photoId) throw new Error("Das übernommene Foto konnte nicht eindeutig zugeordnet werden.");
+          await deleteInheritedGmVisitPhoto({ sessionId: visitSessionId, photoId: payload.photoId });
+        } else {
+          if (!payload.storagePath) return;
+          await deleteGmVisitPhoto({
+            sessionId: visitSessionId,
+            visitAnswerId: answerId,
+            storagePath: payload.storagePath,
+          });
+        }
         setPhotoMetaByQuestionId((prev) => ({
           ...prev,
-          [payload.questionId]: (prev[payload.questionId] ?? []).filter((meta) => meta.storagePath !== payload.storagePath),
+          [payload.questionId]: (prev[payload.questionId] ?? []).filter((meta) =>
+            payload.photoId ? meta.photoId !== payload.photoId : meta.storagePath !== payload.storagePath,
+          ),
         }));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Foto konnte nicht gelöscht werden.";
@@ -4907,19 +4958,36 @@ function MarktbesuchInner() {
         continue;
       }
 
-      await commitGmVisitPhotos({
-        sessionId: visitSessionId,
-        visitAnswerId: answerId,
-        photos: meta.map((entry, index) => ({
-          ...entry,
-          photoTagIds: photoTagsForCommit(
-            photoState,
-            entry,
-            index,
-            photoState.photos.map((photo, photoIndex) => resolvePhotoUiKey(photoState.photos, photoIndex)),
-          ),
-        })),
-      });
+      const photoKeys = photoState.photos.map((photo, photoIndex) => resolvePhotoUiKey(photoState.photos, photoIndex));
+      const taggedMeta = meta.map((entry, index) => ({
+        entry,
+        photoTagIds: photoTagsForCommit(photoState, entry, index, photoKeys),
+      }));
+      const currentPhotos = taggedMeta
+        .filter(({ entry }) => !entry.inherited)
+        .map(({ entry, photoTagIds }) => ({
+          storageBucket: entry.storageBucket,
+          storagePath: entry.storagePath,
+          mimeType: entry.mimeType,
+          byteSize: entry.byteSize,
+          widthPx: entry.widthPx,
+          heightPx: entry.heightPx,
+          sha256: entry.sha256,
+          photoTagIds,
+        }));
+      if (currentPhotos.length > 0) {
+        await commitGmVisitPhotos({
+          sessionId: visitSessionId,
+          visitAnswerId: answerId,
+          photos: currentPhotos,
+        });
+      }
+      const inheritedPhotos = taggedMeta.flatMap(({ entry, photoTagIds }) =>
+        entry.inherited && entry.photoId ? [{ photoId: entry.photoId, photoTagIds }] : [],
+      );
+      if (inheritedPhotos.length > 0) {
+        await updateInheritedGmVisitPhotoTags({ sessionId: visitSessionId, photos: inheritedPhotos });
+      }
     }
 
     return { ok: missingIds.length === 0, missingIds };

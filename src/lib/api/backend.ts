@@ -270,6 +270,9 @@ type BackendCampaignMarketVisitSummary = {
           id: string;
           storageBucket: string;
           storagePath: string;
+          inherited?: boolean;
+          sourceSessionId?: string;
+          sourceAnswerId?: string;
           signedUrl?: string | null;
           signedUrlExpiresAt?: string | null;
           mimeType: string | null;
@@ -2382,6 +2385,9 @@ export type GmVisitSessionReadPayload = {
           id: string;
           storageBucket: string;
           storagePath: string;
+          inherited?: boolean;
+          sourceSessionId?: string;
+          sourceAnswerId?: string;
           signedUrl?: string | null;
           signedUrlExpiresAt?: string | null;
           mimeType: string | null;
@@ -3676,6 +3682,26 @@ export async function deleteGmVisitPhoto(input: {
   return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}/photos/delete`, {
     method: "POST",
     body: JSON.stringify({ visitAnswerId, storagePath }),
+  })) as { ok: boolean };
+}
+
+export async function updateInheritedGmVisitPhotoTags(input: {
+  sessionId: string;
+  photos: Array<{ photoId: string; photoTagIds: string[] }>;
+}): Promise<{ ok: boolean }> {
+  return (await authedFetch(`/markets/gm/visit-sessions/${input.sessionId}/inherited-photos/tags`, {
+    method: "PATCH",
+    body: JSON.stringify({ photos: input.photos }),
+  })) as { ok: boolean };
+}
+
+export async function deleteInheritedGmVisitPhoto(input: {
+  sessionId: string;
+  photoId: string;
+}): Promise<{ ok: boolean }> {
+  return (await authedFetch(`/markets/gm/visit-sessions/${input.sessionId}/inherited-photos/delete`, {
+    method: "POST",
+    body: JSON.stringify({ photoId: input.photoId }),
   })) as { ok: boolean };
 }
 

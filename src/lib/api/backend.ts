@@ -2531,7 +2531,7 @@ export type AdminAnswerChangeRequest = {
 export type GmAnswerChangeRequest = AdminAnswerChangeRequest;
 
 export type TimeEntryChangeRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
-export type TimeEntryChangeRequestSourceKind = "day_start" | "day_end" | "marktbesuch" | "pause" | "zusatzzeit";
+export type TimeEntryChangeRequestSourceKind = "day_start" | "day_end" | "day_km" | "marktbesuch" | "pause" | "zusatzzeit";
 export type TimeEntryChangeRequest = {
   id: string;
   daySessionId: string;
@@ -2546,6 +2546,10 @@ export type TimeEntryChangeRequest = {
   originalEndAt: string;
   requestedStartAt: string;
   requestedEndAt: string;
+  originalStartKm: number | null;
+  originalEndKm: number | null;
+  requestedStartKm: number | null;
+  requestedEndKm: number | null;
   requestNote: string | null;
   status: TimeEntryChangeRequestStatus;
   reviewedByUserId: string | null;
@@ -3451,8 +3455,10 @@ export async function requestGmTimeEntryChange(input: {
   sessionId: string;
   kind: TimeEntryChangeRequestSourceKind;
   segmentId: string;
-  requestedStartTime: string;
-  requestedEndTime: string;
+  requestedStartTime?: string;
+  requestedEndTime?: string;
+  requestedStartKm?: number;
+  requestedEndKm?: number;
   requestNote?: string;
 }): Promise<GmTimeEntryChangeRequestResult> {
   return (await authedFetch("/day-session/time-change-requests", {
@@ -3461,8 +3467,10 @@ export async function requestGmTimeEntryChange(input: {
       sessionId: input.sessionId,
       kind: input.kind,
       segmentId: input.segmentId,
-      requestedStartTime: input.requestedStartTime,
-      requestedEndTime: input.requestedEndTime,
+      ...(input.requestedStartTime !== undefined ? { requestedStartTime: input.requestedStartTime } : {}),
+      ...(input.requestedEndTime !== undefined ? { requestedEndTime: input.requestedEndTime } : {}),
+      ...(input.requestedStartKm !== undefined ? { requestedStartKm: input.requestedStartKm } : {}),
+      ...(input.requestedEndKm !== undefined ? { requestedEndKm: input.requestedEndKm } : {}),
       ...(input.requestNote?.trim() ? { requestNote: input.requestNote.trim() } : {}),
     }),
   })) as GmTimeEntryChangeRequestResult;
@@ -3708,12 +3716,16 @@ export async function patchAdminZeiterfassungDaySession(input: {
   sessionId: string;
   startTime?: string;
   endTime?: string;
+  startKm?: number;
+  endKm?: number;
 }): Promise<{ ok: boolean }> {
   return (await authedFetch(`/admin/zeiterfassung/day-sessions/${encodeURIComponent(input.sessionId)}`, {
     method: "PATCH",
     body: JSON.stringify({
       ...(input.startTime !== undefined ? { startTime: input.startTime } : {}),
       ...(input.endTime !== undefined ? { endTime: input.endTime } : {}),
+      ...(input.startKm !== undefined ? { startKm: input.startKm } : {}),
+      ...(input.endKm !== undefined ? { endKm: input.endKm } : {}),
     }),
   })) as { ok: boolean };
 }

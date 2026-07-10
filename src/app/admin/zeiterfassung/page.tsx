@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   ChevronDown, Clock, Store, Car, Coffee,
   GraduationCap, Wrench, Home, Warehouse, Star, Search,
-  X,
+  Pencil, X,
 } from "lucide-react";
 import {
   fetchAdminDiaetenExport,
@@ -703,12 +703,18 @@ const ActionRow = React.memo(function ActionRow({
 });
 
 // ── Stat tile ─────────────────────────────────────────────────
-const StatTile = React.memo(function StatTile({ label, value, color = "#1a1a1a" }: { label: string; value: string; color?: string }) {
+const StatTile = React.memo(function StatTile({ label, value, color = "#1a1a1a", onEdit }: { label: string; value: string; color?: string; onEdit?: () => void }) {
   return (
-    <div style={{ flex: 1, minWidth: 0, background: "#fff", borderRadius: 8, border: "1px solid rgba(0,0,0,0.055)", padding: "9px 11px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", display: "flex", flexDirection: "column", gap: 3 }}>
+    <button
+      type="button"
+      onClick={onEdit}
+      disabled={!onEdit}
+      style={{ flex: 1, minWidth: 0, position: "relative", background: "#fff", borderRadius: 8, border: "1px solid rgba(0,0,0,0.055)", padding: "9px 11px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", display: "flex", flexDirection: "column", gap: 3, textAlign: "left", fontFamily: "inherit", cursor: onEdit ? "pointer" : "default" }}
+    >
       <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "rgba(0,0,0,0.28)", whiteSpace: "nowrap" as const }}>{label}</span>
       <span style={{ fontSize: 14, fontWeight: 800, color, letterSpacing: "-0.025em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{value}</span>
-    </div>
+      {onEdit ? <Pencil size={10} strokeWidth={1.9} style={{ position: "absolute", top: 8, right: 8, color: "rgba(0,0,0,0.28)" }} /> : null}
+    </button>
   );
 });
 
@@ -730,9 +736,53 @@ const GMDayRow = React.memo(function GMDayRow({
   onSegmentPatched: () => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [kmEditing, setKmEditing] = useState(false);
+  const [kmStartDraft, setKmStartDraft] = useState("");
+  const [kmEndDraft, setKmEndDraft] = useState("");
+  const [kmSaving, setKmSaving] = useState(false);
+  const [kmError, setKmError] = useState<string | null>(null);
   const stats = deriveStats(session);
   const timeline = useMemo(() => (expanded ? deriveTimeline(session) : []), [expanded, session]);
   const av = gmAvatarColor(session.gmName);
+  const openKmEditor = () => {
+    setKmStartDraft(session.startKm == null ? "" : String(session.startKm));
+    setKmEndDraft(session.endKm == null ? "" : String(session.endKm));
+    setKmError(null);
+    setKmEditing(true);
+  };
+  const saveKm = async () => {
+    const nextStart = kmStartDraft.trim() === "" ? session.startKm : Number(kmStartDraft);
+    const nextEnd = kmEndDraft.trim() === "" ? session.endKm : Number(kmEndDraft);
+    if ((nextStart !== null && (!Number.isInteger(nextStart) || nextStart < 0)) || (nextEnd !== null && (!Number.isInteger(nextEnd) || nextEnd < 0))) {
+      setKmError("Bitte gültige, ganze Kilometerstände eingeben.");
+      return;
+    }
+    if (nextStart !== null && nextEnd !== null && nextEnd < nextStart) {
+      setKmError("End-KM darf nicht kleiner als Start-KM sein.");
+      return;
+    }
+    const startChanged = nextStart !== null && nextStart !== session.startKm;
+    const endChanged = nextEnd !== null && nextEnd !== session.endKm;
+    if (!startChanged && !endChanged) {
+      setKmEditing(false);
+      return;
+    }
+    setKmSaving(true);
+    setKmError(null);
+    try {
+      await patchAdminZeiterfassungDaySession({
+        sessionId: session.id,
+        ...(startChanged ? { startKm: nextStart } : {}),
+        ...(endChanged ? { endKm: nextEnd } : {}),
+      });
+      setKmEditing(false);
+      await onSegmentPatched();
+    } catch (error) {
+      setKmError(error instanceof Error ? error.message : "Kilometerstände konnten nicht gespeichert werden.");
+    } finally {
+      setKmSaving(false);
+    }
+  };
   return (
     <div className="zt-session-row" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
       <div onClick={() => setExpanded(e => !e)}
@@ -775,13 +825,31 @@ const GMDayRow = React.memo(function GMDayRow({
         <div style={{ opacity: 1, transition: "opacity 0.22s ease 0.05s" }}>
           <div style={{ padding: "8px 18px 10px", borderTop: "1px solid rgba(0,0,0,0.045)" }}>
             <div style={{ display: "flex", gap: 7, background: "rgba(0,0,0,0.022)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 10, padding: 6 }}>
-              <StatTile label="Start-KM" value={fmtKm(session.startKm)} />
-              <StatTile label="End-KM" value={fmtKm(session.endKm)} />
+              <StatTile label="Start-KM" value={fmtKm(session.startKm)} onEdit={openKmEditor} />
+              <StatTile label="End-KM" value={fmtKm(session.endKm)} onEdit={openKmEditor} />
               <StatTile label="Gefahren" value={stats.kmGefahren == null ? "—" : `${stats.kmGefahren.toLocaleString("de-AT")} km`} color="#374151" />
               <StatTile label="Arbeitstag" value={fmtDur(stats.arbeitstag)} color="#1a1a1a" />
               <StatTile label="Reine AZ" value={fmtDur(stats.reineArbeitszeit)} color="#16a34a" />
               <StatTile label="Pause" value={fmtDur(stats.pauseMin)} color="#D97706" />
             </div>
+            {kmEditing ? (
+              <div style={{ marginTop: 7, borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", background: "#fff", padding: 9 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 7, alignItems: "end" }}>
+                  {[
+                    { label: "Start-KM", value: kmStartDraft, setValue: setKmStartDraft },
+                    { label: "End-KM", value: kmEndDraft, setValue: setKmEndDraft },
+                  ].map((field) => (
+                    <label key={field.label} style={{ display: "grid", gap: 4 }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(0,0,0,0.32)" }}>{field.label}</span>
+                      <input inputMode="numeric" value={field.value} onChange={(event) => field.setValue(event.target.value.replace(/\D/g, ""))} style={{ height: 30, minWidth: 0, borderRadius: 7, border: "1px solid rgba(0,0,0,0.09)", background: "rgba(0,0,0,0.018)", padding: "0 9px", fontFamily: "inherit", fontSize: 11, fontWeight: 700, outline: "none" }} />
+                    </label>
+                  ))}
+                  <button type="button" onClick={() => setKmEditing(false)} disabled={kmSaving} style={{ height: 30, borderRadius: 7, border: "1px solid rgba(0,0,0,0.08)", background: "#fff", padding: "0 11px", fontFamily: "inherit", fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.48)", cursor: "pointer" }}>Abbrechen</button>
+                  <button type="button" onClick={() => void saveKm()} disabled={kmSaving} style={{ height: 30, borderRadius: 7, border: "none", background: "linear-gradient(to bottom, #ef4444, #DC2626)", padding: "0 13px", fontFamily: "inherit", fontSize: 9, fontWeight: 750, color: "#fff", cursor: kmSaving ? "wait" : "pointer", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3), 0 0 0 1px #b91c1c" }}>{kmSaving ? "Speichert..." : "Speichern"}</button>
+                </div>
+                {kmError ? <div style={{ marginTop: 6, fontSize: 9, fontWeight: 650, color: "#b91c1c" }}>{kmError}</div> : null}
+              </div>
+            ) : null}
           </div>
           <div style={{ borderTop: "1px solid rgba(0,0,0,0.04)" }}>
             {timeline.map((seg) => (

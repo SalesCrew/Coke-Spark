@@ -10,6 +10,7 @@ import {
   Coffee,
   Home,
   Loader2,
+  Pencil,
   Route,
   Store,
   Warehouse,
@@ -65,8 +66,17 @@ type GmZeitDay = {
   reineAzMin: number;
   pauseMin: number;
   km: number | null;
+  startKm: number | null;
+  endKm: number | null;
   visits: number;
   segments: GmZeitSegment[];
+  kmChange?: {
+    status: TimeEntryChangeRequest["status"];
+    originalStartKm: number | null;
+    originalEndKm: number | null;
+    requestedStartKm: number | null;
+    requestedEndKm: number | null;
+  };
 };
 
 type EditableTimeSegmentKind = Extract<SegmentKind, "anfahrt" | "marktbesuch" | "pause" | "zusatzzeit" | "heimfahrt">;
@@ -79,12 +89,23 @@ type TimeChangeDraft = {
   note: string;
 };
 
+type KmChangeDraft = {
+  day: GmZeitDay;
+  startKm: string;
+  endKm: string;
+  note: string;
+};
+
 function fmtDur(min: number): string {
   const safe = Math.max(0, min);
   if (safe < 60) return `${safe} Min`;
   const h = Math.floor(safe / 60);
   const m = safe % 60;
   return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
+function fmtKmValue(value: number | null): string {
+  return value == null ? "-" : `${value.toLocaleString("de-AT")} km`;
 }
 
 function toYmd(date: Date): string {
@@ -213,6 +234,7 @@ function mapSessionToDay(session: AdminZeiterfassungSession, timeChangeMap: Map<
       },
     };
   });
+  const kmRequest = timeChangeMap.get(`${session.id}:day_km:${session.id}`);
   return {
     id: session.id,
     dateLabel: fmtDateLabel(session.date),
@@ -223,8 +245,21 @@ function mapSessionToDay(session: AdminZeiterfassungSession, timeChangeMap: Map<
     reineAzMin: session.stats.reineArbeitszeit,
     pauseMin: session.stats.pauseMin,
     km: session.stats.kmGefahren,
+    startKm: session.startKm,
+    endKm: session.endKm,
     visits: session.stats.marktbesuche,
     segments,
+    ...(kmRequest && kmRequest.status !== "rejected" && kmRequest.status !== "cancelled"
+      ? {
+          kmChange: {
+            status: kmRequest.status,
+            originalStartKm: kmRequest.originalStartKm,
+            originalEndKm: kmRequest.originalEndKm,
+            requestedStartKm: kmRequest.requestedStartKm,
+            requestedEndKm: kmRequest.requestedEndKm,
+          },
+        }
+      : {}),
   };
 }
 
@@ -499,6 +534,23 @@ function TimeChangeInput({
   );
 }
 
+function KmChangeInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label style={{ display: "grid", gap: 6 }}>
+      <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>{label}</span>
+      <span style={{ position: "relative", display: "block" }}>
+        <input
+          inputMode="numeric"
+          value={value}
+          onChange={(event) => onChange(event.target.value.replace(/\D/g, ""))}
+          style={{ width: "100%", height: 42, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.025)", padding: "0 38px 0 12px", fontSize: 14, fontWeight: 760, color: "rgba(15,23,42,0.9)", fontFamily: "inherit", boxSizing: "border-box", outline: "none" }}
+        />
+        <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 760, color: "rgba(15,23,42,0.34)", pointerEvents: "none" }}>km</span>
+      </span>
+    </label>
+  );
+}
+
 function WeeklyProgress({ sessions }: { sessions: AdminZeiterfassungSession[] }) {
   const today = new Date();
   const weekStart = startOfWeek(today);
@@ -647,10 +699,11 @@ function GmZeitTimelineRow({ segment, first, last, onRequestChange, onDoctorConf
   );
 }
 
-function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange, onDoctorConfirmationUploaded }: {
+function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange, onRequestKm, onDoctorConfirmationUploaded }: {
   day: GmZeitDay;
   defaultExpanded?: boolean;
   onRequestChange?: (day: GmZeitDay, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => void;
+  onRequestKm?: (day: GmZeitDay) => void;
   onDoctorConfirmationUploaded?: () => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -695,6 +748,31 @@ function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange, onDoctorC
         }}
       >
         <div style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.18s ease 0.05s", padding: "0 14px 24px" }}>
+          <button
+            type="button"
+            onClick={() => onRequestKm?.(day)}
+            disabled={!onRequestKm || (day.startKm === null && day.endKm === null)}
+            style={{ width: "100%", marginBottom: 8, minHeight: 48, borderRadius: 12, border: "1px solid rgba(15,23,42,0.055)", background: "rgba(15,23,42,0.014)", padding: "8px 12px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 12, alignItems: "center", textAlign: "left", fontFamily: "inherit", cursor: onRequestKm ? "pointer" : "default" }}
+          >
+            {[
+              { label: "Start-KM", value: fmtKmValue(day.startKm) },
+              { label: "End-KM", value: fmtKmValue(day.endKm) },
+              { label: "Gefahren", value: fmtKmValue(day.km) },
+            ].map((item) => (
+              <span key={item.label} style={{ minWidth: 0, display: "grid", gap: 3 }}>
+                <span style={{ fontSize: 8, fontWeight: 760, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.3)" }}>{item.label}</span>
+                <strong style={{ fontSize: 11, fontWeight: 760, color: "rgba(15,23,42,0.78)", fontVariantNumeric: "tabular-nums" }}>{item.value}</strong>
+              </span>
+            ))}
+            <span style={{ width: 28, height: 28, borderRadius: 9, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1px solid rgba(15,23,42,0.06)", color: "rgba(15,23,42,0.42)" }}>
+              <Pencil size={12} strokeWidth={1.9} />
+            </span>
+            {day.kmChange?.status === "pending" ? (
+              <span style={{ gridColumn: "1 / -1", marginTop: -4, fontSize: 9, fontWeight: 720, color: "#D97706" }}>
+                KM-Änderung angefragt
+              </span>
+            ) : null}
+          </button>
           <div style={{ borderRadius: 13, border: "1px solid rgba(15,23,42,0.055)", background: "linear-gradient(180deg, rgba(15,23,42,0.018), rgba(15,23,42,0.006))", padding: "4px 12px" }}>
             {day.segments.map((segment, index) => (
               <GmZeitTimelineRow
@@ -719,6 +797,7 @@ export default function GmZeiterfassungPage() {
   const [payload, setPayload] = useState<GmZeiterfassungPayload | null>(null);
   const [timeRequests, setTimeRequests] = useState<TimeEntryChangeRequest[]>([]);
   const [changeDraft, setChangeDraft] = useState<TimeChangeDraft | null>(null);
+  const [kmChangeDraft, setKmChangeDraft] = useState<KmChangeDraft | null>(null);
   const [changeSubmitting, setChangeSubmitting] = useState(false);
   const [changeError, setChangeError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -776,11 +855,23 @@ export default function GmZeiterfassungPage() {
 
   const openTimeChangeRequest = (day: GmZeitDay, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => {
     setChangeError(null);
+    setKmChangeDraft(null);
     setChangeDraft({
       day,
       segment,
       startTime: segment.start,
       endTime: segment.end,
+      note: "",
+    });
+  };
+
+  const openKmChangeRequest = (day: GmZeitDay) => {
+    setChangeError(null);
+    setChangeDraft(null);
+    setKmChangeDraft({
+      day,
+      startKm: day.startKm == null ? "" : String(day.startKm),
+      endKm: day.endKm == null ? "" : String(day.endKm),
       note: "",
     });
   };
@@ -807,6 +898,49 @@ export default function GmZeiterfassungPage() {
       setChangeDraft(null);
     } catch (err) {
       setChangeError(err instanceof Error ? err.message : "Änderungsanfrage konnte nicht gesendet werden.");
+    } finally {
+      setChangeSubmitting(false);
+    }
+  };
+
+  const submitKmChangeRequest = async () => {
+    if (!kmChangeDraft) return;
+    const parsedStart = kmChangeDraft.startKm.trim() === "" ? null : Number(kmChangeDraft.startKm);
+    const parsedEnd = kmChangeDraft.endKm.trim() === "" ? null : Number(kmChangeDraft.endKm);
+    if ((parsedStart !== null && (!Number.isInteger(parsedStart) || parsedStart < 0)) || (parsedEnd !== null && (!Number.isInteger(parsedEnd) || parsedEnd < 0))) {
+      setChangeError("Bitte gültige, ganze Kilometerstände eingeben.");
+      return;
+    }
+    if (parsedStart !== null && parsedEnd !== null && parsedEnd < parsedStart) {
+      setChangeError("End-KM darf nicht kleiner als Start-KM sein.");
+      return;
+    }
+    const startChanged = parsedStart !== null && parsedStart !== kmChangeDraft.day.startKm;
+    const endChanged = parsedEnd !== null && parsedEnd !== kmChangeDraft.day.endKm;
+    if (!startChanged && !endChanged) {
+      setChangeError("Bitte mindestens einen Kilometerstand ändern.");
+      return;
+    }
+    setChangeSubmitting(true);
+    setChangeError(null);
+    try {
+      const result = await requestGmTimeEntryChange({
+        sessionId: kmChangeDraft.day.id,
+        kind: "day_km",
+        segmentId: kmChangeDraft.day.id,
+        ...(startChanged ? { requestedStartKm: parsedStart as number } : {}),
+        ...(endChanged ? { requestedEndKm: parsedEnd as number } : {}),
+        requestNote: kmChangeDraft.note,
+      });
+      if (result.request) {
+        setTimeRequests((current) => {
+          const withoutCurrent = current.filter((request) => request.id !== result.request?.id);
+          return [result.request as TimeEntryChangeRequest, ...withoutCurrent];
+        });
+      }
+      setKmChangeDraft(null);
+    } catch (error) {
+      setChangeError(error instanceof Error ? error.message : "KM-Änderungsanfrage konnte nicht gesendet werden.");
     } finally {
       setChangeSubmitting(false);
     }
@@ -1020,6 +1154,7 @@ export default function GmZeiterfassungPage() {
                       day={day}
                       defaultExpanded={index === 0}
                       onRequestChange={openTimeChangeRequest}
+                      onRequestKm={openKmChangeRequest}
                       onDoctorConfirmationUploaded={() => setReloadToken((value) => value + 1)}
                     />
                   ))}
@@ -1165,6 +1300,50 @@ export default function GmZeiterfassungPage() {
                 disabled={changeSubmitting}
                 style={{ height: 40, borderRadius: 12, border: "1px solid rgba(255,255,255,0.34)", background: "linear-gradient(180deg, #f43f46, #d71920)", color: "#fff", fontSize: 12, fontWeight: 820, fontFamily: "inherit", cursor: "pointer", boxShadow: "0 10px 18px rgba(215,25,32,0.22), inset 0 1px 0 rgba(255,255,255,0.25)" }}
               >
+                {changeSubmitting ? <Loader2 size={14} className="animate-spin" style={{ display: "inline", marginRight: 6 }} /> : null}
+                Anfrage senden
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {kmChangeDraft ? (
+        <div style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, background: "rgba(15,23,42,0.22)", backdropFilter: "blur(12px)" }}>
+          <section style={{ width: "min(430px, 100%)", borderRadius: 20, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", boxShadow: "0 24px 70px rgba(15,23,42,0.22), inset 0 1px 0 rgba(255,255,255,0.9)", overflow: "hidden" }}>
+            <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid rgba(15,23,42,0.055)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>KM-Anfrage</div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 760, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.92)" }}>Kilometer korrigieren</h2>
+                <p style={{ margin: "6px 0 0", fontSize: 11, lineHeight: 1.5, fontWeight: 600, color: "rgba(15,23,42,0.45)" }}>
+                  Deine Änderung wird geprüft. Bis zur Freigabe bleiben die bisherigen Kilometerstände gültig.
+                </p>
+              </div>
+              <button type="button" onClick={() => setKmChangeDraft(null)} style={{ width: 30, height: 30, borderRadius: 10, border: "1px solid rgba(15,23,42,0.06)", background: "rgba(15,23,42,0.025)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "rgba(15,23,42,0.48)", cursor: "pointer" }} aria-label="Schließen">
+                <X size={14} />
+              </button>
+            </div>
+            <div style={{ padding: 18 }}>
+              <div style={{ borderRadius: 14, border: "1px solid rgba(15,23,42,0.06)", background: "rgba(15,23,42,0.018)", padding: 13, marginBottom: 14 }}>
+                <div style={{ fontSize: 8, fontWeight: 780, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)", marginBottom: 6 }}>Arbeitstag · {kmChangeDraft.day.dateShort}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <span style={{ display: "grid", gap: 3 }}><small style={{ fontSize: 9, color: "rgba(15,23,42,0.4)" }}>Start-KM aktuell</small><strong style={{ fontSize: 12, color: "rgba(15,23,42,0.82)" }}>{fmtKmValue(kmChangeDraft.day.startKm)}</strong></span>
+                  <span style={{ display: "grid", gap: 3 }}><small style={{ fontSize: 9, color: "rgba(15,23,42,0.4)" }}>End-KM aktuell</small><strong style={{ fontSize: 12, color: "rgba(15,23,42,0.82)" }}>{fmtKmValue(kmChangeDraft.day.endKm)}</strong></span>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <KmChangeInput label="Start-KM" value={kmChangeDraft.startKm} onChange={(value) => setKmChangeDraft((current) => current ? { ...current, startKm: value } : current)} />
+                <KmChangeInput label="End-KM" value={kmChangeDraft.endKm} onChange={(value) => setKmChangeDraft((current) => current ? { ...current, endKm: value } : current)} />
+              </div>
+              <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
+                <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Notiz optional</span>
+                <textarea value={kmChangeDraft.note} onChange={(event) => setKmChangeDraft((current) => current ? { ...current, note: event.target.value } : current)} rows={3} placeholder="Warum sollen die Kilometerstände geändert werden?" style={{ resize: "none", borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.02)", padding: "11px 12px", fontSize: 12, lineHeight: 1.45, fontWeight: 620, color: "rgba(15,23,42,0.86)", fontFamily: "inherit" }} />
+              </label>
+              {changeError ? <div style={{ marginTop: 12, borderRadius: 12, border: "1px solid rgba(220,38,38,0.16)", background: "rgba(220,38,38,0.055)", padding: "10px 12px", color: R, fontSize: 11, fontWeight: 760, lineHeight: 1.45 }}>{changeError}</div> : null}
+            </div>
+            <div style={{ padding: "0 18px 18px", display: "grid", gridTemplateColumns: "1fr 1.35fr", gap: 10 }}>
+              <button type="button" onClick={() => setKmChangeDraft(null)} disabled={changeSubmitting} style={{ height: 40, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", color: "rgba(15,23,42,0.55)", fontSize: 12, fontWeight: 780, fontFamily: "inherit", cursor: "pointer" }}>Abbrechen</button>
+              <button type="button" onClick={() => void submitKmChangeRequest()} disabled={changeSubmitting} style={{ height: 40, borderRadius: 12, border: "1px solid rgba(255,255,255,0.34)", background: "linear-gradient(180deg, #f43f46, #d71920)", color: "#fff", fontSize: 12, fontWeight: 820, fontFamily: "inherit", cursor: "pointer", boxShadow: "0 10px 18px rgba(215,25,32,0.22), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
                 {changeSubmitting ? <Loader2 size={14} className="animate-spin" style={{ display: "inline", marginRight: 6 }} /> : null}
                 Anfrage senden
               </button>

@@ -58,6 +58,22 @@ function formatTimeRange(start: string, end: string): string {
   return `${formatTime(start)} - ${formatTime(end)}`;
 }
 
+function formatKmRange(start: number | null, end: number | null): string {
+  const format = (value: number | null) => value == null ? "-" : value.toLocaleString("de-AT");
+  return `${format(start)} - ${format(end)} km`;
+}
+
+function formatTimeRequestValue(request: TimeEntryChangeRequest, requested: boolean): string {
+  if (request.sourceKind !== "day_km") {
+    return requested
+      ? formatTimeRange(request.requestedStartAt, request.requestedEndAt)
+      : formatTimeRange(request.originalStartAt, request.originalEndAt);
+  }
+  const start = requested ? (request.requestedStartKm ?? request.originalStartKm) : request.originalStartKm;
+  const end = requested ? (request.requestedEndKm ?? request.originalEndKm) : request.originalEndKm;
+  return formatKmRange(start, end);
+}
+
 function initials(name: string): string {
   const parts = name
     .split(/\s+/)
@@ -153,6 +169,7 @@ function sortDeleteRequests(input: AdminVisitSessionDeleteRequest[]): AdminVisit
 function timeKindLabel(kind: TimeEntryChangeRequest["sourceKind"]): string {
   if (kind === "day_start") return "Anfahrt";
   if (kind === "day_end") return "Heimfahrt";
+  if (kind === "day_km") return "Kilometerstand";
   if (kind === "marktbesuch") return "Marktbesuch";
   if (kind === "pause") return "Pause";
   return "Zusatz";
@@ -532,9 +549,9 @@ export function AnswerChangeRequestFlap() {
           </div>
           <p className="answer-question">{request.title}</p>
           <div className="answer-diff-mini">
-            <span>{formatTimeRange(request.originalStartAt, request.originalEndAt)}</span>
+            <span>{formatTimeRequestValue(request, false)}</span>
             <ChevronRight size={13} />
-            <strong>{formatTimeRange(request.requestedStartAt, request.requestedEndAt)}</strong>
+            <strong>{formatTimeRequestValue(request, true)}</strong>
           </div>
           {request.requestNote ? <div className="answer-card-note">{request.requestNote}</div> : null}
         </article>
@@ -604,11 +621,11 @@ export function AnswerChangeRequestFlap() {
           <div className="answer-diff-grid">
             <div>
               <span>Original</span>
-              <strong>{formatTimeRange(request.originalStartAt, request.originalEndAt)}</strong>
+              <strong>{formatTimeRequestValue(request, false)}</strong>
             </div>
             <div>
               <span>Bearbeitet</span>
-              <strong>{formatTimeRange(request.requestedStartAt, request.requestedEndAt)}</strong>
+              <strong>{formatTimeRequestValue(request, true)}</strong>
             </div>
           </div>
           {request.requestNote ? <p className="answer-note">{request.requestNote}</p> : null}
@@ -752,9 +769,9 @@ export function AnswerChangeRequestFlap() {
                       </div>
                       <p className="answer-question">{request.title}</p>
                       <div className="answer-diff-mini">
-                        <span>{formatTimeRange(request.originalStartAt, request.originalEndAt)}</span>
+                        <span>{formatTimeRequestValue(request, false)}</span>
                         <ChevronRight size={13} />
-                        <strong>{formatTimeRange(request.requestedStartAt, request.requestedEndAt)}</strong>
+                        <strong>{formatTimeRequestValue(request, true)}</strong>
                       </div>
                       {request.requestNote ? <div className="answer-card-note">{request.requestNote}</div> : null}
                       {request.status === "pending" ? (
@@ -969,11 +986,11 @@ export function AnswerChangeRequestFlap() {
                           <div className="answer-diff-grid">
                             <div>
                               <span>Original</span>
-                              <strong>{formatTimeRange(request.originalStartAt, request.originalEndAt)}</strong>
+                              <strong>{formatTimeRequestValue(request, false)}</strong>
                             </div>
                             <div>
                               <span>Angefragt</span>
-                              <strong>{formatTimeRange(request.requestedStartAt, request.requestedEndAt)}</strong>
+                              <strong>{formatTimeRequestValue(request, true)}</strong>
                             </div>
                           </div>
                           {request.requestNote ? <p className="answer-note">{request.requestNote}</p> : null}

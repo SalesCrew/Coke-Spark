@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Calendar,
+  Check,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -14,6 +15,8 @@ import {
   ImageOff,
   Images,
   List,
+  Loader2,
+  Pencil,
   Search,
   SlidersHorizontal,
   X,
@@ -22,8 +25,10 @@ import {
   fetchAdminPhotoFacets,
   fetchAdminPhotos,
   fetchAdminPhotoSignedUrls,
+  fetchPhotoTags,
   fetchRedMonthCalendar,
   readAuthSession,
+  updateAdminPhotoTags,
   type AdminPhotoArchiveFacets,
   type AdminPhotoArchiveFilters,
   type AdminPhotoArchiveItem,
@@ -668,6 +673,8 @@ function DetailDrawer({
   previewUrl,
   originalUrl,
   onOriginalNeeded,
+  canEditTags,
+  onTagsUpdated,
   onClose,
 }: {
   photo: AdminPhotoArchiveItem | null;
@@ -675,9 +682,18 @@ function DetailDrawer({
   previewUrl?: PhotoSignedUrlState;
   originalUrl?: PhotoSignedUrlState;
   onOriginalNeeded: (photoId: string) => void;
+  canEditTags: boolean;
+  onTagsUpdated: (photoId: string, tags: AdminPhotoArchiveItem["tags"]) => void;
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [editingTags, setEditingTags] = useState(false);
+  const [availableTags, setAvailableTags] = useState<Array<{ id: string; label: string }>>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [tagSearch, setTagSearch] = useState("");
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagsSaving, setTagsSaving] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
   const previewSrc = previewUrl?.signedUrl ?? "";
   const originalSrc = originalUrl?.signedUrl ?? "";
   const imageSrc = originalSrc || previewSrc;
@@ -687,6 +703,47 @@ function DetailDrawer({
   useEffect(() => {
     if (photo && !originalSrc) onOriginalNeeded(photo.id);
   }, [onOriginalNeeded, originalSrc, photo]);
+
+  useEffect(() => {
+    setEditingTags(false);
+    setAvailableTags([]);
+    setSelectedTagIds([]);
+    setTagSearch("");
+    setTagError(null);
+  }, [photo?.id]);
+
+  const startTagEditing = useCallback(async () => {
+    if (!photo || !canEditTags) return;
+    setEditingTags(true);
+    setTagsLoading(true);
+    setTagError(null);
+    setSelectedTagIds(photo.tags.map((tag) => tag.photoTagId).filter((id): id is string => Boolean(id)));
+    try {
+      const tags = await fetchPhotoTags();
+      setAvailableTags(tags.map((tag) => ({ id: tag.id, label: tag.label })));
+    } catch (error) {
+      setTagError(error instanceof Error ? error.message : "Foto-Tags konnten nicht geladen werden.");
+    } finally {
+      setTagsLoading(false);
+    }
+  }, [canEditTags, photo]);
+
+  const saveTags = useCallback(async () => {
+    if (!photo || tagsSaving) return;
+    setTagsSaving(true);
+    setTagError(null);
+    try {
+      const tags = await updateAdminPhotoTags(photo.id, selectedTagIds);
+      onTagsUpdated(photo.id, tags);
+      setEditingTags(false);
+    } catch (error) {
+      setTagError(error instanceof Error ? error.message : "Foto-Tags konnten nicht gespeichert werden.");
+    } finally {
+      setTagsSaving(false);
+    }
+  }, [onTagsUpdated, photo, selectedTagIds, tagsSaving]);
+
+  const visibleTags = availableTags.filter((tag) => tag.label.toLocaleLowerCase("de-AT").includes(tagSearch.trim().toLocaleLowerCase("de-AT")));
 
   if (!photo && !loading) return null;
 
@@ -763,14 +820,58 @@ function DetailDrawer({
             </section>
 
             <section style={{ marginTop: 10, border: SOFT_BORDER, borderRadius: 14, padding: 14, background: "#fff" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Datei</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Datei</div>
+                {canEditTags && !editingTags ? (
+                  <button type="button" onClick={() => void startTagEditing()} style={{ ...iconButtonStyle, width: "auto", height: 28, padding: "0 9px", gap: 5, fontSize: 9, fontWeight: 700 }}>
+                    <Pencil size={11} /> Tags bearbeiten
+                  </button>
+                ) : null}
+              </div>
               <InfoGrid rows={[
                 ["Typ", photo.mimeType || "-"],
                 ["Gr??e", fmtBytes(photo.byteSize)],
                 ["Abmessung", photo.widthPx && photo.heightPx ? `${photo.widthPx} x ${photo.heightPx}` : "-"],
                 ["Upload", fmtDateTime(photo.uploadedAt)],
               ]} />
-              {photo.tags.length > 0 && <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>{photo.tags.map((tag) => <span key={tag.id} style={tagStyle}>{tag.label}</span>)}</div>}
+              {editingTags ? (
+                <div style={{ marginTop: 13, borderTop: "1px solid rgba(15,23,42,0.06)", paddingTop: 12 }}>
+                  <label style={{ height: 34, display: "flex", alignItems: "center", gap: 7, borderRadius: 9, border: "1px solid rgba(15,23,42,0.075)", background: "rgba(248,250,252,0.82)", padding: "0 10px" }}>
+                    <Search size={12} color="rgba(15,23,42,0.34)" />
+                    <input value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} placeholder="Tag suchen..." style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 10, fontWeight: 600, color: "#111827" }} />
+                  </label>
+                  <div style={{ marginTop: 9, minHeight: 54, maxHeight: 190, overflowY: "auto", display: "flex", alignContent: "flex-start", flexWrap: "wrap", gap: 6 }}>
+                    {tagsLoading ? (
+                      <div style={{ width: "100%", minHeight: 54, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(15,23,42,0.36)" }}><Loader2 size={15} className="animate-spin" /></div>
+                    ) : visibleTags.length > 0 ? visibleTags.map((tag) => {
+                      const selected = selectedTagIds.includes(tag.id);
+                      return (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => setSelectedTagIds((current) => selected ? current.filter((id) => id !== tag.id) : [...current, tag.id])}
+                          style={{ minHeight: 28, borderRadius: 999, border: selected ? "1px solid rgba(220,38,38,0.22)" : "1px solid rgba(15,23,42,0.07)", background: selected ? "rgba(220,38,38,0.075)" : "#fff", color: selected ? R : "rgba(15,23,42,0.58)", padding: "0 9px", display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "inherit", fontSize: 9, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          {selected ? <Check size={10} strokeWidth={2.4} /> : null}{tag.label}
+                        </button>
+                      );
+                    }) : (
+                      <div style={{ width: "100%", padding: "15px 0", textAlign: "center", fontSize: 10, fontWeight: 600, color: "rgba(15,23,42,0.34)" }}>Kein Tag gefunden.</div>
+                    )}
+                  </div>
+                  {tagError ? <div style={{ marginTop: 8, borderRadius: 8, border: "1px solid rgba(220,38,38,0.14)", background: "rgba(220,38,38,0.05)", padding: "8px 9px", fontSize: 9, fontWeight: 700, color: R }}>{tagError}</div> : null}
+                  <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end", gap: 7 }}>
+                    <button type="button" disabled={tagsSaving} onClick={() => { setEditingTags(false); setTagError(null); }} style={{ height: 30, borderRadius: 8, border: "none", background: "linear-gradient(to bottom, #fff, #f5f5f5)", boxShadow: BUTTON_SHADOW, padding: "0 11px", fontFamily: "inherit", fontSize: 9, fontWeight: 700, color: "rgba(15,23,42,0.52)", cursor: "pointer" }}>Abbrechen</button>
+                    <button type="button" disabled={tagsLoading || tagsSaving} onClick={() => void saveTags()} style={{ height: 30, borderRadius: 8, border: "none", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)", padding: "0 12px", display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 9, fontWeight: 750, color: "#fff", cursor: tagsSaving ? "wait" : "pointer", opacity: tagsLoading ? 0.55 : 1 }}>
+                      {tagsSaving ? <Loader2 size={11} className="animate-spin" /> : null} Speichern
+                    </button>
+                  </div>
+                </div>
+              ) : photo.tags.length > 0 ? (
+                <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>{photo.tags.map((tag) => <span key={tag.id} style={tagStyle}>{tag.label}</span>)}</div>
+              ) : (
+                <div style={{ marginTop: 12, fontSize: 9, fontWeight: 600, color: "rgba(15,23,42,0.32)" }}>Keine Tags zugeordnet.</div>
+              )}
               {photo.comment.trim() && <p style={{ margin: "12px 0 0", fontSize: 11, lineHeight: 1.5, fontWeight: 500, color: "rgba(0,0,0,0.58)" }}>{photo.comment}</p>}
             </section>
           </>
@@ -978,6 +1079,12 @@ export default function FotoarchivPage() {
   const applyFilters = useCallback((next: Filters) => {
     setSearchDraft(next.search ?? "");
     setFilters(compact({ ...next, page: 1, pageSize: 30 }));
+  }, []);
+
+  const handlePhotoTagsUpdated = useCallback((photoId: string, tags: AdminPhotoArchiveItem["tags"]) => {
+    setPhotos((current) => current.map((photo) => photo.id === photoId ? { ...photo, tags } : photo));
+    setSelectedPhoto((current) => current?.id === photoId ? { ...current, tags } : current);
+    void fetchAdminPhotoFacets().then(setFacets).catch(() => {});
   }, []);
 
   const handleExport = useCallback(async () => {
@@ -1209,6 +1316,8 @@ export default function FotoarchivPage() {
         previewUrl={selectedPhoto ? previewUrls[selectedPhoto.id] : undefined}
         originalUrl={selectedPhoto ? originalUrls[selectedPhoto.id] : undefined}
         onOriginalNeeded={(photoId) => requestOriginalUrls([photoId])}
+        canEditTags={readAuthSession()?.user.role === "admin"}
+        onTagsUpdated={handlePhotoTagsUpdated}
         onClose={() => setSelectedPhotoId(null)}
       />
     </main>

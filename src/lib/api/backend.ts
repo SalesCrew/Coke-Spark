@@ -4180,6 +4180,14 @@ export async function fetchAdminPhotoDetail(photoId: string): Promise<AdminPhoto
   return data.photo;
 }
 
+export async function updateAdminPhotoTags(photoId: string, photoTagIds: string[]): Promise<AdminPhotoArchiveItem["tags"]> {
+  const data = (await authedFetch(`/admin/photos/${encodeURIComponent(photoId)}/tags`, {
+    method: "PATCH",
+    body: JSON.stringify({ photoTagIds: Array.from(new Set(photoTagIds)) }),
+  })) as { tags?: AdminPhotoArchiveItem["tags"] };
+  return data.tags ?? [];
+}
+
 export async function fetchCampaignMarketVisitStatuses(campaignIds: string[]): Promise<CampaignMarketVisitStatusBatch[]> {
   const uniqueCampaignIds = Array.from(new Set(campaignIds.map((entry) => entry.trim()).filter(Boolean)));
   if (uniqueCampaignIds.length === 0) return [];

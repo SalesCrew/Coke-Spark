@@ -2842,6 +2842,21 @@ export type AdminKurtiReplyPayload = {
   expiresAt: string | null;
 };
 
+export type AdminKurtiWindowLayoutInput = {
+  panel: { x: number; y: number; width: number; height: number };
+  bubble: { x: number; y: number };
+  bubbleDismissed: boolean;
+  isCollapsed: boolean;
+};
+
+export type AdminKurtiWindowLayout = AdminKurtiWindowLayoutInput & {
+  updatedAt: string;
+};
+
+export type AdminKurtiWindowLayoutPayload = {
+  layout: AdminKurtiWindowLayout | null;
+};
+
 export type DayPause = {
   id: string;
   daySessionId: string;
@@ -4791,6 +4806,19 @@ export async function sendGmKurtiMessage(message: string): Promise<GmKurtiReplyP
 
 export async function fetchAdminKurtiMessages(): Promise<AdminKurtiMessagesPayload> {
   return (await authedFetch("/admin/kurti/messages", { cache: "no-store" })) as AdminKurtiMessagesPayload;
+}
+
+export async function fetchAdminKurtiWindowLayout(): Promise<AdminKurtiWindowLayoutPayload> {
+  return (await authedFetch("/admin/kurti/layout", { cache: "no-store" })) as AdminKurtiWindowLayoutPayload;
+}
+
+export async function saveAdminKurtiWindowLayout(
+  layout: AdminKurtiWindowLayoutInput,
+): Promise<AdminKurtiWindowLayoutPayload> {
+  return (await authedFetch("/admin/kurti/layout", {
+    method: "PUT",
+    body: JSON.stringify(layout),
+  })) as AdminKurtiWindowLayoutPayload;
 }
 
 export async function sendAdminKurtiMessage(message: string): Promise<AdminKurtiReplyPayload> {

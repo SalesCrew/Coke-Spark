@@ -478,6 +478,7 @@ export function AdminSidenav() {
         <AdminKurtiPanel
           open={kurtiOpen}
           sidebarExpanded={isSidebarExpanded}
+          onOpen={() => setKurtiOpen(true)}
           onClose={() => setKurtiOpen(false)}
         />
       ) : null}

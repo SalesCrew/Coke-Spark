@@ -187,17 +187,17 @@ export function CollapsibleMenu({
     if (chatTyping.visibleLength >= chatTyping.content.length) {
       const finishId = window.setTimeout(() => {
         setChatTyping((current) => current?.messageId === chatTyping.messageId ? null : current);
-      }, 180);
+      }, 110);
       return () => window.clearTimeout(finishId);
     }
 
     const chunkSize = Math.max(1, Math.ceil(chatTyping.content.length / 420));
     const stepCount = Math.ceil(chatTyping.content.length / chunkSize);
-    const typingDurationMs = Math.min(6_500, Math.max(2_400, chatTyping.content.length * 11));
-    const baseDelay = Math.max(16, Math.round(typingDurationMs / stepCount));
+    const typingDurationMs = Math.min(4_500, Math.max(1_400, chatTyping.content.length * 6.5));
+    const baseDelay = Math.max(10, Math.round(typingDurationMs / stepCount));
     const nextLength = Math.min(chatTyping.content.length, chatTyping.visibleLength + chunkSize);
     const typedChunk = chatTyping.content.slice(chatTyping.visibleLength, nextLength);
-    const delay = /[.!?,;:]\s*$/.test(typedChunk) ? baseDelay + 36 : baseDelay;
+    const delay = /[.!?,;:]\s*$/.test(typedChunk) ? baseDelay + 20 : baseDelay;
     const typeId = window.setTimeout(() => {
       setChatTyping((current) => current?.messageId === chatTyping.messageId
         ? { ...current, visibleLength: nextLength }

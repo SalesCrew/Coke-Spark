@@ -11,6 +11,7 @@ import {
   Home,
   Loader2,
   Pencil,
+  Plus,
   Route,
   Store,
   Warehouse,
@@ -24,12 +25,14 @@ import {
   fetchGmZeiterfassung,
   fetchGmTimeEntryChangeRequests,
   logoutCurrentUser,
+  requestGmAdditionalTimeEntry,
   requestGmTimeEntryChange,
   type AdminZeiterfassungSession,
   type AdminZeiterfassungTimelineSegment,
   type GmZeiterfassungPayload,
   type TimeEntryChangeRequest,
   type TimeEntryChangeRequestSourceKind,
+  type TimeTrackingActivityType,
 } from "@/lib/api/backend";
 
 const R = "#DC2626";
@@ -58,6 +61,9 @@ type GmZeitSegment = {
 
 type GmZeitDay = {
   id: string;
+  status: AdminZeiterfassungSession["status"];
+  isLive: boolean;
+  timezone: string;
   dateLabel: string;
   dateShort: string;
   isToday?: boolean;
@@ -95,6 +101,142 @@ type KmChangeDraft = {
   endKm: string;
   note: string;
 };
+
+type AdditionalActivityType = Exclude<TimeTrackingActivityType, "hotel">;
+
+type AdditionalTimeDraft = {
+  day: GmZeitDay;
+  activityType: AdditionalActivityType;
+  startTime: string;
+  endTime: string;
+  comment: string;
+  note: string;
+};
+
+type AdditionalTimeInterval = {
+  id: string;
+  start: number;
+  end: number;
+  label: string;
+  pending: boolean;
+};
+
+const ADDITIONAL_ACTIVITY_OPTIONS: Array<{ value: AdditionalActivityType; label: string }> = [
+  { value: "homeoffice", label: "Homeoffice" },
+  { value: "sonderaufgabe", label: "Sondereinsatz" },
+  { value: "arztbesuch", label: "Arztbesuch" },
+  { value: "werkstatt", label: "Werkstatt/Autoreinigung" },
+  { value: "schulung", label: "Schulung" },
+  { value: "lager", label: "Lager" },
+  { value: "hoteluebernachtung", label: "Hotelübernachtung" },
+];
+
+function hmToMinuteOfDay(value: string): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function minuteOfDayToHm(value: number): string {
+  const safe = Math.max(0, Math.min(23 * 60 + 59, Math.round(value)));
+  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+}
+
+function isoToHm(value: string, timezone: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("de-AT", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const hour = parts.find((part) => part.type === "hour")?.value;
+  const minute = parts.find((part) => part.type === "minute")?.value;
+  return hour && minute ? `${hour}:${minute}` : null;
+}
+
+function additionalActivityLabel(value: AdditionalActivityType): string {
+  return ADDITIONAL_ACTIVITY_OPTIONS.find((option) => option.value === value)?.label ?? "Zusatzzeit";
+}
+
+function getAdditionalTimeIntervals(day: GmZeitDay, requests: TimeEntryChangeRequest[]): AdditionalTimeInterval[] {
+  const timelineIntervals = day.segments
+    .filter((segment) => segment.kind === "marktbesuch" || segment.kind === "pause" || segment.kind === "zusatzzeit")
+    .map((segment) => ({
+      id: segment.id,
+      start: hmToMinuteOfDay(segment.start),
+      end: hmToMinuteOfDay(segment.end),
+      label: segment.title,
+      pending: false,
+    }))
+    .filter((interval): interval is AdditionalTimeInterval => interval.start !== null && interval.end !== null && interval.end > interval.start);
+
+  const pendingIntervals = requests
+    .filter((request) => request.daySessionId === day.id && request.status === "pending" && request.requestedActivityType !== null)
+    .map((request) => {
+      const start = isoToHm(request.requestedStartAt, day.timezone);
+      const end = isoToHm(request.requestedEndAt, day.timezone);
+      return {
+        id: request.id,
+        start: start ? hmToMinuteOfDay(start) : null,
+        end: end ? hmToMinuteOfDay(end) : null,
+        label: `Angefragt: ${request.requestedActivityType ? additionalActivityLabel(request.requestedActivityType as AdditionalActivityType) : "Zusatzzeit"}`,
+        pending: true,
+      };
+    })
+    .filter((interval): interval is AdditionalTimeInterval => interval.start !== null && interval.end !== null && interval.end > interval.start);
+
+  return [...timelineIntervals, ...pendingIntervals].sort((left, right) => left.start - right.start || left.end - right.end);
+}
+
+function getAdditionalTimeGaps(day: GmZeitDay, intervals: AdditionalTimeInterval[]): Array<{ start: number; end: number }> {
+  const dayStart = hmToMinuteOfDay(day.startTime);
+  const dayEnd = hmToMinuteOfDay(day.endTime);
+  if (dayStart === null || dayEnd === null || dayEnd <= dayStart) return [];
+
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const interval of intervals) {
+    const start = Math.max(dayStart, interval.start);
+    const end = Math.min(dayEnd, interval.end);
+    if (end <= start) continue;
+    const previous = merged.at(-1);
+    if (previous && start <= previous.end) {
+      previous.end = Math.max(previous.end, end);
+    } else {
+      merged.push({ start, end });
+    }
+  }
+
+  const gaps: Array<{ start: number; end: number }> = [];
+  let cursor = dayStart;
+  for (const interval of merged) {
+    if (interval.start > cursor) gaps.push({ start: cursor, end: interval.start });
+    cursor = Math.max(cursor, interval.end);
+  }
+  if (cursor < dayEnd) gaps.push({ start: cursor, end: dayEnd });
+  return gaps;
+}
+
+function validateAdditionalTimeDraft(
+  draft: AdditionalTimeDraft,
+  intervals: AdditionalTimeInterval[],
+): string | null {
+  const dayStart = hmToMinuteOfDay(draft.day.startTime);
+  const dayEnd = hmToMinuteOfDay(draft.day.endTime);
+  const start = hmToMinuteOfDay(draft.startTime);
+  const end = hmToMinuteOfDay(draft.endTime);
+  if (start === null || end === null) return "Bitte eine gültige Start- und Endzeit eingeben.";
+  if (end <= start) return "Die Endzeit muss nach der Startzeit liegen.";
+  if (dayStart === null || dayEnd === null || start < dayStart || end > dayEnd) {
+    return `Die Zusatzzeit muss innerhalb des Arbeitstags von ${draft.day.startTime} bis ${draft.day.endTime} liegen.`;
+  }
+  const overlap = intervals.find((interval) => start < interval.end && end > interval.start);
+  if (overlap) {
+    return `Der Zeitraum überschneidet sich mit „${overlap.label}“ (${minuteOfDayToHm(overlap.start)}-${minuteOfDayToHm(overlap.end)}).`;
+  }
+  return null;
+}
 
 function fmtDur(min: number): string {
   const safe = Math.max(0, min);
@@ -237,6 +379,9 @@ function mapSessionToDay(session: AdminZeiterfassungSession, timeChangeMap: Map<
   const kmRequest = timeChangeMap.get(`${session.id}:day_km:${session.id}`);
   return {
     id: session.id,
+    status: session.status,
+    isLive: session.isLive,
+    timezone: session.timezone,
     dateLabel: fmtDateLabel(session.date),
     dateShort: fmtDateShort(session.date),
     isToday: session.date === toYmd(new Date()),
@@ -699,11 +844,13 @@ function GmZeitTimelineRow({ segment, first, last, onRequestChange, onDoctorConf
   );
 }
 
-function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange, onRequestKm, onDoctorConfirmationUploaded }: {
+function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange, onRequestKm, onRequestAdditional, pendingAdditionalCount = 0, onDoctorConfirmationUploaded }: {
   day: GmZeitDay;
   defaultExpanded?: boolean;
   onRequestChange?: (day: GmZeitDay, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => void;
   onRequestKm?: (day: GmZeitDay) => void;
+  onRequestAdditional?: (day: GmZeitDay) => void;
+  pendingAdditionalCount?: number;
   onDoctorConfirmationUploaded?: () => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -773,6 +920,42 @@ function GmZeitDayRow({ day, defaultExpanded = false, onRequestChange, onRequest
               </span>
             ) : null}
           </button>
+          <button
+            type="button"
+            onClick={() => onRequestAdditional?.(day)}
+            disabled={!onRequestAdditional}
+            style={{
+              width: "100%",
+              minHeight: 48,
+              marginBottom: 8,
+              borderRadius: 12,
+              border: "1px solid rgba(220,38,38,0.1)",
+              background: "linear-gradient(180deg, rgba(220,38,38,0.032), rgba(220,38,38,0.014))",
+              padding: "8px 10px 8px 12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              textAlign: "left",
+              fontFamily: "inherit",
+              cursor: onRequestAdditional ? "pointer" : "default",
+            }}
+          >
+            <span style={{ minWidth: 0, display: "grid", gap: 3 }}>
+              <strong style={{ fontSize: 11, fontWeight: 780, color: "rgba(15,23,42,0.84)" }}>Zusatzzeit nachtragen</strong>
+              <span style={{ fontSize: 9, fontWeight: 640, color: "rgba(15,23,42,0.4)" }}>
+                Freies Zeitfenster auswählen und anfragen
+              </span>
+              {pendingAdditionalCount > 0 ? (
+                <span style={{ fontSize: 9, fontWeight: 720, color: "#D97706" }}>
+                  {pendingAdditionalCount} offene {pendingAdditionalCount === 1 ? "Anfrage" : "Anfragen"}
+                </span>
+              ) : null}
+            </span>
+            <span style={{ width: 28, height: 28, flex: "0 0 28px", borderRadius: 9, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1px solid rgba(220,38,38,0.1)", color: R, boxShadow: "0 2px 6px rgba(15,23,42,0.04)" }}>
+              <Plus size={13} strokeWidth={2} />
+            </span>
+          </button>
           <div style={{ borderRadius: 13, border: "1px solid rgba(15,23,42,0.055)", background: "linear-gradient(180deg, rgba(15,23,42,0.018), rgba(15,23,42,0.006))", padding: "4px 12px" }}>
             {day.segments.map((segment, index) => (
               <GmZeitTimelineRow
@@ -798,6 +981,7 @@ export default function GmZeiterfassungPage() {
   const [timeRequests, setTimeRequests] = useState<TimeEntryChangeRequest[]>([]);
   const [changeDraft, setChangeDraft] = useState<TimeChangeDraft | null>(null);
   const [kmChangeDraft, setKmChangeDraft] = useState<KmChangeDraft | null>(null);
+  const [additionalDraft, setAdditionalDraft] = useState<AdditionalTimeDraft | null>(null);
   const [changeSubmitting, setChangeSubmitting] = useState(false);
   const [changeError, setChangeError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -806,6 +990,18 @@ export default function GmZeiterfassungPage() {
   const selectedRange = useMemo(() => getDateRange(range), [range]);
   const timeChangeMap = useMemo(() => buildTimeChangeMap(timeRequests), [timeRequests]);
   const days = useMemo(() => (payload?.sessions ?? []).map((session) => mapSessionToDay(session, timeChangeMap)), [payload?.sessions, timeChangeMap]);
+  const additionalIntervals = useMemo(
+    () => additionalDraft ? getAdditionalTimeIntervals(additionalDraft.day, timeRequests) : [],
+    [additionalDraft, timeRequests],
+  );
+  const additionalGaps = useMemo(
+    () => additionalDraft ? getAdditionalTimeGaps(additionalDraft.day, additionalIntervals) : [],
+    [additionalDraft, additionalIntervals],
+  );
+  const additionalValidationError = useMemo(
+    () => additionalDraft ? validateAdditionalTimeDraft(additionalDraft, additionalIntervals) : null,
+    [additionalDraft, additionalIntervals],
+  );
   const currentWeekNumber = getIsoWeek(new Date());
   const weeklySessions = useMemo(
     () => (payload?.sessions ?? []).filter((session) => getIsoWeek(new Date(`${session.date}T12:00:00`)) === currentWeekNumber),
@@ -856,6 +1052,7 @@ export default function GmZeiterfassungPage() {
   const openTimeChangeRequest = (day: GmZeitDay, segment: GmZeitSegment & { kind: EditableTimeSegmentKind }) => {
     setChangeError(null);
     setKmChangeDraft(null);
+    setAdditionalDraft(null);
     setChangeDraft({
       day,
       segment,
@@ -868,10 +1065,28 @@ export default function GmZeiterfassungPage() {
   const openKmChangeRequest = (day: GmZeitDay) => {
     setChangeError(null);
     setChangeDraft(null);
+    setAdditionalDraft(null);
     setKmChangeDraft({
       day,
       startKm: day.startKm == null ? "" : String(day.startKm),
       endKm: day.endKm == null ? "" : String(day.endKm),
+      note: "",
+    });
+  };
+
+  const openAdditionalTimeRequest = (day: GmZeitDay) => {
+    const intervals = getAdditionalTimeIntervals(day, timeRequests);
+    const gaps = getAdditionalTimeGaps(day, intervals);
+    const initialGap = gaps[0];
+    setChangeError(null);
+    setChangeDraft(null);
+    setKmChangeDraft(null);
+    setAdditionalDraft({
+      day,
+      activityType: "homeoffice",
+      startTime: initialGap ? minuteOfDayToHm(initialGap.start) : day.startTime,
+      endTime: initialGap ? minuteOfDayToHm(initialGap.end) : day.endTime,
+      comment: "",
       note: "",
     });
   };
@@ -946,6 +1161,38 @@ export default function GmZeiterfassungPage() {
     }
   };
 
+  const submitAdditionalTimeRequest = async () => {
+    if (!additionalDraft) return;
+    const validationError = validateAdditionalTimeDraft(additionalDraft, additionalIntervals);
+    if (validationError) {
+      setChangeError(validationError);
+      return;
+    }
+    setChangeSubmitting(true);
+    setChangeError(null);
+    try {
+      const result = await requestGmAdditionalTimeEntry({
+        sessionId: additionalDraft.day.id,
+        activityType: additionalDraft.activityType,
+        requestedStartTime: additionalDraft.startTime,
+        requestedEndTime: additionalDraft.endTime,
+        comment: additionalDraft.comment,
+        requestNote: additionalDraft.note,
+      });
+      if (result.request) {
+        setTimeRequests((current) => {
+          const withoutCurrent = current.filter((request) => request.id !== result.request?.id);
+          return [result.request as TimeEntryChangeRequest, ...withoutCurrent];
+        });
+      }
+      setAdditionalDraft(null);
+    } catch (error) {
+      setChangeError(error instanceof Error ? error.message : "Zusatzzeit-Anfrage konnte nicht gesendet werden.");
+    } finally {
+      setChangeSubmitting(false);
+    }
+  };
+
   return (
     <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7", fontFamily: "var(--font-inter), Inter, system-ui, sans-serif", paddingBottom: 112 }}>
       <style>{`
@@ -962,6 +1209,21 @@ export default function GmZeiterfassungPage() {
           background: linear-gradient(90deg, rgba(15,23,42,0.045), rgba(15,23,42,0.078), rgba(15,23,42,0.045));
           background-size: 220% 100%;
           animation: gmZeitSkeletonShimmer 1.35s ease-in-out infinite;
+        }
+        .gm-zeit-additional-scroll::-webkit-scrollbar { display: none; }
+        .gm-zeit-request-textarea {
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
+          outline: none;
+          transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+        }
+        .gm-zeit-request-textarea:focus,
+        .gm-zeit-request-textarea:focus-visible {
+          outline: none;
+          border-color: rgba(220,38,38,0.22) !important;
+          background: #fff !important;
+          box-shadow: 0 0 0 3px rgba(220,38,38,0.055);
         }
         .gm-zeit-stats-panel,
         .gm-zeit-week-strip,
@@ -1155,6 +1417,8 @@ export default function GmZeiterfassungPage() {
                       defaultExpanded={index === 0}
                       onRequestChange={openTimeChangeRequest}
                       onRequestKm={openKmChangeRequest}
+                      onRequestAdditional={openAdditionalTimeRequest}
+                      pendingAdditionalCount={timeRequests.filter((request) => request.daySessionId === day.id && request.status === "pending" && request.requestedActivityType !== null).length}
                       onDoctorConfirmationUploaded={() => setReloadToken((value) => value + 1)}
                     />
                   ))}
@@ -1344,6 +1608,133 @@ export default function GmZeiterfassungPage() {
             <div style={{ padding: "0 18px 18px", display: "grid", gridTemplateColumns: "1fr 1.35fr", gap: 10 }}>
               <button type="button" onClick={() => setKmChangeDraft(null)} disabled={changeSubmitting} style={{ height: 40, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", color: "rgba(15,23,42,0.55)", fontSize: 12, fontWeight: 780, fontFamily: "inherit", cursor: "pointer" }}>Abbrechen</button>
               <button type="button" onClick={() => void submitKmChangeRequest()} disabled={changeSubmitting} style={{ height: 40, borderRadius: 12, border: "1px solid rgba(255,255,255,0.34)", background: "linear-gradient(180deg, #f43f46, #d71920)", color: "#fff", fontSize: 12, fontWeight: 820, fontFamily: "inherit", cursor: "pointer", boxShadow: "0 10px 18px rgba(215,25,32,0.22), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
+                {changeSubmitting ? <Loader2 size={14} className="animate-spin" style={{ display: "inline", marginRight: 6 }} /> : null}
+                Anfrage senden
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {additionalDraft ? (
+        <div style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, background: "rgba(15,23,42,0.22)", backdropFilter: "blur(12px)" }}>
+          <section style={{ width: "min(480px, 100%)", maxHeight: "min(88dvh, 760px)", borderRadius: 20, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", boxShadow: "0 24px 70px rgba(15,23,42,0.22), inset 0 1px 0 rgba(255,255,255,0.9)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid rgba(15,23,42,0.055)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(220,38,38,0.62)", marginBottom: 5 }}>Zeitanfrage</div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 760, letterSpacing: "-0.02em", color: "rgba(15,23,42,0.92)" }}>Zusatzzeit nachtragen</h2>
+                <p style={{ margin: "6px 0 0", fontSize: 11, lineHeight: 1.5, fontWeight: 600, color: "rgba(15,23,42,0.45)" }}>
+                  Wähle eine freie Lücke. Erst nach der Admin-Freigabe wird der Eintrag übernommen.
+                </p>
+              </div>
+              <button type="button" onClick={() => setAdditionalDraft(null)} style={{ width: 30, height: 30, flex: "0 0 30px", borderRadius: 10, border: "1px solid rgba(15,23,42,0.06)", background: "rgba(15,23,42,0.025)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "rgba(15,23,42,0.48)", cursor: "pointer" }} aria-label="Schließen">
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="gm-zeit-additional-scroll" style={{ minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", padding: 18, scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <div style={{ borderRadius: 14, border: "1px solid rgba(15,23,42,0.06)", background: "rgba(15,23,42,0.018)", padding: 13, marginBottom: 14 }}>
+                <div style={{ fontSize: 8, fontWeight: 780, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.32)", marginBottom: 5 }}>Arbeitstag · {additionalDraft.day.dateShort}</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <strong style={{ fontSize: 12, fontWeight: 760, color: "rgba(15,23,42,0.84)" }}>{additionalDraft.day.startTime} - {additionalDraft.day.endTime}</strong>
+                  <span style={{ fontSize: 9, fontWeight: 720, color: additionalDraft.day.isLive ? "#059669" : "rgba(15,23,42,0.38)" }}>
+                    {additionalDraft.day.isLive ? "Läuft" : "Abgeschlossen"}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)", marginBottom: 7 }}>Was fehlt?</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 7 }}>
+                  {ADDITIONAL_ACTIVITY_OPTIONS.map((option) => {
+                    const selected = additionalDraft.activityType === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setAdditionalDraft((current) => current ? { ...current, activityType: option.value } : current)}
+                        style={{ minHeight: 36, borderRadius: 10, border: selected ? "1px solid rgba(220,38,38,0.22)" : "1px solid rgba(15,23,42,0.065)", background: selected ? "rgba(220,38,38,0.055)" : "#fff", padding: "7px 10px", textAlign: "left", color: selected ? R : "rgba(15,23,42,0.68)", fontSize: 10, lineHeight: 1.25, fontWeight: selected ? 780 : 680, fontFamily: "inherit", cursor: "pointer", boxShadow: selected ? "inset 0 0 0 1px rgba(255,255,255,0.5)" : "none" }}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 7 }}>
+                  <div style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Freie Zeitfenster</div>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(15,23,42,0.3)" }}>{additionalGaps.length}</span>
+                </div>
+                {additionalGaps.length > 0 ? (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                    {additionalGaps.map((gap) => {
+                      const start = minuteOfDayToHm(gap.start);
+                      const end = minuteOfDayToHm(gap.end);
+                      const selected = start === additionalDraft.startTime && end === additionalDraft.endTime;
+                      return (
+                        <button
+                          key={`${gap.start}-${gap.end}`}
+                          type="button"
+                          onClick={() => setAdditionalDraft((current) => current ? { ...current, startTime: start, endTime: end } : current)}
+                          style={{ height: 32, display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 9, border: selected ? "1px solid rgba(5,150,105,0.22)" : "1px solid rgba(15,23,42,0.065)", background: selected ? "rgba(5,150,105,0.06)" : "rgba(15,23,42,0.018)", padding: "0 10px", color: selected ? "#047857" : "rgba(15,23,42,0.62)", fontSize: 10, fontWeight: 760, fontVariantNumeric: "tabular-nums", fontFamily: "inherit", cursor: "pointer" }}
+                        >
+                          <Clock size={11} strokeWidth={2} />
+                          {start} - {end}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ borderRadius: 11, border: "1px solid rgba(217,119,6,0.16)", background: "rgba(217,119,6,0.045)", padding: "10px 11px", fontSize: 10, lineHeight: 1.45, fontWeight: 680, color: "#A16207" }}>
+                    In diesem Arbeitstag ist aktuell keine freie Zeitlücke vorhanden.
+                  </div>
+                )}
+              </div>
+
+              {additionalIntervals.length > 0 ? (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)", marginBottom: 7 }}>Bereits belegt</div>
+                  <div style={{ maxHeight: 132, overflowY: "auto", scrollbarWidth: "none", msOverflowStyle: "none", borderRadius: 11, border: "1px solid rgba(15,23,42,0.055)", background: "rgba(15,23,42,0.012)", padding: "2px 10px" }}>
+                    {additionalIntervals.map((interval, index) => (
+                      <div key={interval.id} style={{ minHeight: 34, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: index < additionalIntervals.length - 1 ? "1px solid rgba(15,23,42,0.045)" : "none" }}>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10, fontWeight: 680, color: interval.pending ? "#D97706" : "rgba(15,23,42,0.58)" }}>{interval.label}</span>
+                        <strong style={{ flex: "0 0 auto", fontSize: 10, fontWeight: 760, color: "rgba(15,23,42,0.62)", fontVariantNumeric: "tabular-nums" }}>{minuteOfDayToHm(interval.start)} - {minuteOfDayToHm(interval.end)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <TimeChangeInput label="Start" value={additionalDraft.startTime} onChange={(value) => setAdditionalDraft((current) => current ? { ...current, startTime: value } : current)} />
+                <TimeChangeInput label="Ende" value={additionalDraft.endTime} onChange={(value) => setAdditionalDraft((current) => current ? { ...current, endTime: value } : current)} />
+              </div>
+
+              <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
+                <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Kommentar zum Eintrag optional</span>
+                <textarea className="gm-zeit-request-textarea" value={additionalDraft.comment} onChange={(event) => setAdditionalDraft((current) => current ? { ...current, comment: event.target.value } : current)} rows={2} placeholder="Was wurde gemacht?" style={{ resize: "none", borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.02)", padding: "10px 12px", fontSize: 12, lineHeight: 1.45, fontWeight: 620, color: "rgba(15,23,42,0.86)", fontFamily: "inherit" }} />
+              </label>
+              <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
+                <span style={{ fontSize: 9, fontWeight: 780, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Hinweis an Admin optional</span>
+                <textarea className="gm-zeit-request-textarea" value={additionalDraft.note} onChange={(event) => setAdditionalDraft((current) => current ? { ...current, note: event.target.value } : current)} rows={2} placeholder="Warum wird diese Zusatzzeit nachgetragen?" style={{ resize: "none", borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(15,23,42,0.02)", padding: "10px 12px", fontSize: 12, lineHeight: 1.45, fontWeight: 620, color: "rgba(15,23,42,0.86)", fontFamily: "inherit" }} />
+              </label>
+
+              {additionalValidationError || changeError ? (
+                <div style={{ marginTop: 12, borderRadius: 12, border: "1px solid rgba(220,38,38,0.16)", background: "rgba(220,38,38,0.055)", padding: "10px 12px", color: R, fontSize: 11, fontWeight: 760, lineHeight: 1.45 }}>
+                  {changeError ?? additionalValidationError}
+                </div>
+              ) : (
+                <div style={{ marginTop: 10, fontSize: 9, lineHeight: 1.45, fontWeight: 650, color: "rgba(15,23,42,0.36)" }}>
+                  Berührende Zeitgrenzen sind erlaubt. Überschneidungen werden vor dem Senden und erneut bei der Freigabe geprüft.
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "12px 18px 18px", borderTop: "1px solid rgba(15,23,42,0.05)", display: "grid", gridTemplateColumns: "1fr 1.35fr", gap: 10, background: "rgba(255,255,255,0.97)" }}>
+              <button type="button" onClick={() => setAdditionalDraft(null)} disabled={changeSubmitting} style={{ height: 40, borderRadius: 12, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", color: "rgba(15,23,42,0.55)", fontSize: 12, fontWeight: 780, fontFamily: "inherit", cursor: "pointer" }}>Abbrechen</button>
+              <button type="button" onClick={() => void submitAdditionalTimeRequest()} disabled={changeSubmitting || Boolean(additionalValidationError) || additionalGaps.length === 0} style={{ height: 40, borderRadius: 12, border: "1px solid rgba(255,255,255,0.34)", background: changeSubmitting || additionalValidationError || additionalGaps.length === 0 ? "rgba(15,23,42,0.12)" : "linear-gradient(180deg, #f43f46, #d71920)", color: "#fff", fontSize: 12, fontWeight: 820, fontFamily: "inherit", cursor: changeSubmitting || additionalValidationError || additionalGaps.length === 0 ? "not-allowed" : "pointer", boxShadow: changeSubmitting || additionalValidationError || additionalGaps.length === 0 ? "none" : "0 10px 18px rgba(215,25,32,0.22), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
                 {changeSubmitting ? <Loader2 size={14} className="animate-spin" style={{ display: "inline", marginRight: 6 }} /> : null}
                 Anfrage senden
               </button>

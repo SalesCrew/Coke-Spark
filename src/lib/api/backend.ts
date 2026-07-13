@@ -2548,6 +2548,16 @@ export type TimeEntryChangeRequest = {
   timezone: string;
   title: string;
   subtitle: string | null;
+  requestedActivityType:
+    | "sonderaufgabe"
+    | "arztbesuch"
+    | "werkstatt"
+    | "homeoffice"
+    | "schulung"
+    | "lager"
+    | "hoteluebernachtung"
+    | "heimfahrt"
+    | null;
   originalStartAt: string;
   originalEndAt: string;
   requestedStartAt: string;
@@ -3497,6 +3507,27 @@ export async function requestGmTimeEntryChange(input: {
       ...(input.requestedEndTime !== undefined ? { requestedEndTime: input.requestedEndTime } : {}),
       ...(input.requestedStartKm !== undefined ? { requestedStartKm: input.requestedStartKm } : {}),
       ...(input.requestedEndKm !== undefined ? { requestedEndKm: input.requestedEndKm } : {}),
+      ...(input.requestNote?.trim() ? { requestNote: input.requestNote.trim() } : {}),
+    }),
+  })) as GmTimeEntryChangeRequestResult;
+}
+
+export async function requestGmAdditionalTimeEntry(input: {
+  sessionId: string;
+  activityType: Exclude<TimeTrackingActivityType, "hotel">;
+  requestedStartTime: string;
+  requestedEndTime: string;
+  comment?: string;
+  requestNote?: string;
+}): Promise<GmTimeEntryChangeRequestResult> {
+  return (await authedFetch("/day-session/time-change-requests/zusatzzeit", {
+    method: "POST",
+    body: JSON.stringify({
+      sessionId: input.sessionId,
+      activityType: input.activityType,
+      requestedStartTime: input.requestedStartTime,
+      requestedEndTime: input.requestedEndTime,
+      ...(input.comment?.trim() ? { comment: input.comment.trim() } : {}),
       ...(input.requestNote?.trim() ? { requestNote: input.requestNote.trim() } : {}),
     }),
   })) as GmTimeEntryChangeRequestResult;
@@ -4898,6 +4929,13 @@ export async function endDaySession(input?: { endAt?: string; endTime?: string }
   return (await authedFetch("/day-session/end", {
     method: "PATCH",
     body: JSON.stringify(payload),
+  })) as { session: DaySession };
+}
+
+export async function reopenEndedDaySession(): Promise<{ session: DaySession }> {
+  return (await authedFetch("/day-session/end/reopen", {
+    method: "PATCH",
+    body: JSON.stringify({}),
   })) as { session: DaySession };
 }
 

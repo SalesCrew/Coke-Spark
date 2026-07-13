@@ -65,6 +65,7 @@ function formatKmRange(start: number | null, end: number | null): string {
 
 function formatTimeRequestValue(request: TimeEntryChangeRequest, requested: boolean): string {
   if (request.sourceKind !== "day_km") {
+    if (request.requestedActivityType && !requested) return "Nicht erfasst";
     return requested
       ? formatTimeRange(request.requestedStartAt, request.requestedEndAt)
       : formatTimeRange(request.originalStartAt, request.originalEndAt);
@@ -166,7 +167,9 @@ function sortDeleteRequests(input: AdminVisitSessionDeleteRequest[]): AdminVisit
   });
 }
 
-function timeKindLabel(kind: TimeEntryChangeRequest["sourceKind"]): string {
+function timeKindLabel(request: TimeEntryChangeRequest): string {
+  if (request.requestedActivityType) return "Zusatzzeit nachtragen";
+  const kind = request.sourceKind;
   if (kind === "day_start") return "Anfahrt";
   if (kind === "day_end") return "Heimfahrt";
   if (kind === "day_km") return "Kilometerstand";
@@ -543,7 +546,7 @@ export function AnswerChangeRequestFlap() {
             <div className="answer-avatar">{initials(request.gm?.name ?? "GM")}</div>
             <div className="answer-card-title">
               <strong>{request.gm?.name ?? "Gebietsmanager"}</strong>
-              <span>{request.workDate} · {timeKindLabel(request.sourceKind)}</span>
+              <span>{request.workDate} · {timeKindLabel(request)}</span>
             </div>
             <span className={`answer-status is-${request.status}`}>{request.status}</span>
           </div>
@@ -612,7 +615,7 @@ export function AnswerChangeRequestFlap() {
             <span>
               <strong>{request.title}</strong>
               <small>
-                {request.workDate} · {timeKindLabel(request.sourceKind)}
+                {request.workDate} · {timeKindLabel(request)}
                 {request.subtitle ? ` · ${request.subtitle}` : ""}
               </small>
             </span>
@@ -763,7 +766,7 @@ export function AnswerChangeRequestFlap() {
                         <div className="answer-avatar">{initials(request.gm?.name ?? "GM")}</div>
                         <div className="answer-card-title">
                           <strong>{request.gm?.name ?? "Gebietsmanager"}</strong>
-                          <span>{request.workDate} · {timeKindLabel(request.sourceKind)}</span>
+                          <span>{request.workDate} · {timeKindLabel(request)}</span>
                         </div>
                         <span className={`answer-status is-${request.status}`}>{request.status}</span>
                       </div>
@@ -973,7 +976,7 @@ export function AnswerChangeRequestFlap() {
                             <span>
                               <strong>{request.title}</strong>
                               <small>
-                                {request.workDate} · {timeKindLabel(request.sourceKind)}
+                                {request.workDate} · {timeKindLabel(request)}
                                 {request.subtitle ? ` · ${request.subtitle}` : ""}
                               </small>
                             </span>

@@ -15,6 +15,8 @@ type ZeiterfassungExportInput = {
   timezone: string;
 };
 
+type TimelineSegment = AdminZeiterfassungSession["timeline"][number];
+
 const SEGMENT_LABELS: Record<AdminZeiterfassungSession["timeline"][number]["kind"], string> = {
   anfahrt: "Anfahrt",
   fahrtzeit: "Fahrtzeit",
@@ -68,6 +70,57 @@ function kindSort(kind: AdminZeiterfassungSession["timeline"][number]["kind"]): 
     case "heimfahrt": return 60;
     default: return 99;
   }
+}
+
+function hmToMinutes(value: string): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function normalizeSessionTimeline(session: AdminZeiterfassungSession): AdminZeiterfassungSession {
+  const timeline = [...(session.timeline ?? [])];
+  const realActions = timeline
+    .filter((segment) => segment.kind === "marktbesuch" || segment.kind === "pause" || segment.kind === "zusatzzeit")
+    .sort((left, right) => left.start.localeCompare(right.start) || left.end.localeCompare(right.end));
+  const existingFahrtzeiten = new Set(
+    timeline
+      .filter((segment) => segment.kind === "fahrtzeit")
+      .map((segment) => `${segment.start}-${segment.end}`),
+  );
+  const inferred: TimelineSegment[] = [];
+
+  for (let index = 1; index < realActions.length; index += 1) {
+    const previous = realActions[index - 1];
+    const current = realActions[index];
+    const startMin = hmToMinutes(previous.end);
+    const endMin = hmToMinutes(current.start);
+    if (startMin === null || endMin === null || endMin <= startMin) continue;
+    const key = `${previous.end}-${current.start}`;
+    if (existingFahrtzeiten.has(key)) continue;
+    inferred.push({
+      id: `export-fahrtzeit-${session.id}-${previous.end}-${current.start}`,
+      kind: "fahrtzeit",
+      start: previous.end,
+      end: current.start,
+      durationMin: endMin - startMin,
+      title: "Fahrtzeit",
+    });
+  }
+
+  return {
+    ...session,
+    timeline: [...timeline, ...inferred].sort((left, right) =>
+      left.start.localeCompare(right.start)
+      || kindSort(left.kind) - kindSort(right.kind)
+      || left.end.localeCompare(right.end)
+      || left.id.localeCompare(right.id),
+    ),
+  };
+}
+
+function normalizeSessionsForExport(sessions: AdminZeiterfassungSession[]): AdminZeiterfassungSession[] {
+  return sessions.map(normalizeSessionTimeline);
 }
 
 function subtypeLabel(value: string | undefined | null): string {
@@ -227,6 +280,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
     throw new Error("Für diesen Zeitraum gibt es keine Zeiterfassungsdaten.");
   }
 
+  const sessions = normalizeSessionsForExport(input.sessions);
   const XLSX = await import("xlsx-js-style");
   const wb = XLSX.utils.book_new();
   const encodeCell = XLSX.utils.encode_cell;
@@ -309,7 +363,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
   addTitle(detailWs, "Zeiterfassung Einträge", `${input.range.from} bis ${input.range.to} - ${input.timezone}`, detailHeaders.length - 1);
   detailHeaders.forEach((label, col) => setCell(detailWs, encodeCell, 3, col, label, header));
 
-  const detailRows = buildSegmentRows(input.sessions);
+  const detailRows = buildSegmentRows(sessions);
   detailRows.forEach(({ session, segment }, index) => {
     const row = 4 + index;
     const style = CALCULATED_SEGMENTS.has(segment.kind) ? calculatedCell : textCell;
@@ -378,7 +432,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
   const dayWs: Worksheet = {};
   addTitle(dayWs, "Tagesübersicht", "Ein Tag pro GM, inklusive berechneter Fahrtzeiten und Tages-KPIs.", dayHeaders.length - 1);
   dayHeaders.forEach((label, col) => setCell(dayWs, encodeCell, 3, col, label, header));
-  input.sessions
+  sessions
     .slice()
     .sort((left, right) => left.date.localeCompare(right.date) || left.gmName.localeCompare(right.gmName, "de"))
     .forEach((session, index) => {
@@ -410,7 +464,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
       ];
       values.forEach((cell, col) => setCell(dayWs, encodeCell, row, col, cell.value, cell.style ?? textCell, cell.extra));
     });
-  const dayLastRow = Math.max(4, input.sessions.length + 3);
+  const dayLastRow = Math.max(4, sessions.length + 3);
   dayWs["!ref"] = encodeRange({ s: { r: 0, c: 0 }, e: { r: dayLastRow, c: dayHeaders.length - 1 } });
   dayWs["!autofilter"] = { ref: encodeRange({ s: { r: 3, c: 0 }, e: { r: dayLastRow, c: dayHeaders.length - 1 } }) };
   dayWs["!cols"] = [12, 13, 24, 12, 14, 12, 12, 14, 13, 11, 12, 13, 13, 15, 11, 10, 10, 12, 12, 10, 38].map((wch) => ({ wch }));
@@ -436,7 +490,7 @@ export async function exportAdminZeiterfassung(input: ZeiterfassungExportInput):
   const summaryWs: Worksheet = {};
   addTitle(summaryWs, "GM Summen", "Praktische Summen pro GM für schnelle Kontrollen und Pivot-Auswertungen.", summaryHeaders.length - 1);
   summaryHeaders.forEach((label, col) => setCell(summaryWs, encodeCell, 3, col, label, header));
-  const gmRows = buildGmSummary(input.sessions);
+  const gmRows = buildGmSummary(sessions);
   gmRows.forEach((rowData, index) => {
     const row = 4 + index;
     const values = [

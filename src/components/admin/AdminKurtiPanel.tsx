@@ -12,6 +12,7 @@ import { Bot, ChevronLeft, Database, MessageCircle, Minimize2, SendHorizontal, S
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AdminKurtiChart } from "@/components/admin/AdminKurtiChart";
+import { AdminKurtiVisualization } from "@/components/admin/AdminKurtiVisualization";
 import {
   fetchAdminKurtiMessages,
   fetchAdminKurtiWindowLayout,
@@ -843,13 +844,14 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
           const isUser = message.role === "user";
           const isTypingMessage = !isUser && typing?.messageId === message.id;
           const showCharts = !isUser && !isTypingMessage && Boolean(message.charts?.length);
+          const showVisualizations = !isUser && !isTypingMessage && Boolean(message.visualizations?.length);
           const visibleContent = isTypingMessage ? typing.content.slice(0, typing.visibleLength) : message.content;
           return (
             <div
               key={message.id}
               aria-label={isTypingMessage ? message.content : undefined}
               style={{
-                maxWidth: isUser ? "78%" : showCharts ? "96%" : "88%",
+                maxWidth: isUser ? "78%" : showCharts || showVisualizations ? "96%" : "88%",
                 alignSelf: isUser ? "flex-end" : "flex-start",
                 borderRadius: isUser ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
                 padding: isUser ? "10px 13px" : "11px 13px",
@@ -871,6 +873,9 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
                   <AdminKurtiMarkdown content={visibleContent} isTyping={isTypingMessage} />
                   {showCharts ? message.charts?.map((chart, index) => (
                     <AdminKurtiChart key={`${message.id}-${index}-${chart.title}`} chart={chart} />
+                  )) : null}
+                  {showVisualizations ? message.visualizations?.map((visualization, index) => (
+                    <AdminKurtiVisualization key={`${message.id}-${index}-${visualization.kind}-${visualization.title}`} visualization={visualization} />
                   )) : null}
                 </>
               )}

@@ -2842,8 +2842,107 @@ export type AdminKurtiChartSpec = {
   }>;
 };
 
+export type AdminKurtiVisualizationTone = "red" | "slate" | "amber" | "emerald" | "blue" | "violet" | "cyan" | "pink";
+export type AdminKurtiVisualizationValueFormat = "number" | "decimal" | "percent" | "currency" | "duration_minutes" | "duration_hours";
+
+type AdminKurtiVisualizationBase = {
+  title: string;
+  subtitle: string | null;
+  sourceLabel: string | null;
+  timeframe: string | null;
+  note: string | null;
+};
+
+export type AdminKurtiSeriesVisualization = AdminKurtiVisualizationBase & {
+  kind: "series";
+  variant: "line" | "area" | "bar" | "stacked_bar" | "horizontal_bar" | "combo";
+  xLabel: string | null;
+  yLabel: string | null;
+  valueFormat: AdminKurtiVisualizationValueFormat;
+  showLegend: boolean;
+  series: Array<{ key: string; label: string; display: "line" | "area" | "bar"; tone: AdminKurtiVisualizationTone }>;
+  points: Array<{ label: string; values: Array<number | null> }>;
+  referenceLines: Array<{ label: string; value: number }>;
+};
+
+export type AdminKurtiCompositionVisualization = AdminKurtiVisualizationBase & {
+  kind: "composition";
+  variant: "donut" | "pie" | "funnel";
+  valueFormat: AdminKurtiVisualizationValueFormat;
+  centerLabel: string | null;
+  items: Array<{ label: string; value: number; tone: AdminKurtiVisualizationTone }>;
+};
+
+export type AdminKurtiScatterVisualization = AdminKurtiVisualizationBase & {
+  kind: "scatter";
+  xLabel: string;
+  yLabel: string;
+  xFormat: AdminKurtiVisualizationValueFormat;
+  yFormat: AdminKurtiVisualizationValueFormat;
+  series: Array<{ key: string; label: string; tone: AdminKurtiVisualizationTone }>;
+  points: Array<{ label: string; seriesKey: string; x: number; y: number; size: number | null }>;
+};
+
+export type AdminKurtiHeatmapVisualization = AdminKurtiVisualizationBase & {
+  kind: "heatmap";
+  valueFormat: AdminKurtiVisualizationValueFormat;
+  xLabels: string[];
+  rows: Array<{ label: string; values: Array<number | null> }>;
+};
+
+export type AdminKurtiMetricsVisualization = AdminKurtiVisualizationBase & {
+  kind: "metrics";
+  columns: "2" | "3" | "4";
+  items: Array<{
+    label: string;
+    value: number | null;
+    displayValue: string | null;
+    valueFormat: AdminKurtiVisualizationValueFormat;
+    delta: number | null;
+    deltaLabel: string | null;
+    progress: number | null;
+    status: "neutral" | "positive" | "warning" | "critical";
+  }>;
+};
+
+export type AdminKurtiTableVisualization = AdminKurtiVisualizationBase & {
+  kind: "table";
+  columns: Array<{ key: string; label: string; align: "left" | "center" | "right" }>;
+  rows: Array<{ label: string; values: Array<string | null>; status: "neutral" | "positive" | "warning" | "critical" }>;
+};
+
+export type AdminKurtiTimelineVisualization = AdminKurtiVisualizationBase & {
+  kind: "timeline";
+  items: Array<{
+    date: string;
+    label: string;
+    description: string | null;
+    value: string | null;
+    status: "completed" | "active" | "pending" | "warning" | "critical";
+  }>;
+};
+
+export type AdminKurtiRadarVisualization = AdminKurtiVisualizationBase & {
+  kind: "radar";
+  valueFormat: AdminKurtiVisualizationValueFormat;
+  maximum: number | null;
+  axes: string[];
+  series: Array<{ label: string; tone: AdminKurtiVisualizationTone; values: number[] }>;
+};
+
+export type AdminKurtiVisualization =
+  | AdminKurtiSeriesVisualization
+  | AdminKurtiCompositionVisualization
+  | AdminKurtiScatterVisualization
+  | AdminKurtiHeatmapVisualization
+  | AdminKurtiMetricsVisualization
+  | AdminKurtiTableVisualization
+  | AdminKurtiTimelineVisualization
+  | AdminKurtiRadarVisualization;
+
 export type AdminKurtiMessage = GmKurtiMessage & {
   charts?: AdminKurtiChartSpec[];
+  visualizations?: AdminKurtiVisualization[];
 };
 
 export type AdminKurtiMessagesPayload = {

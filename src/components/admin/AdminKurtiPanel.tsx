@@ -14,6 +14,10 @@ import remarkGfm from "remark-gfm";
 import { AdminKurtiChart } from "@/components/admin/AdminKurtiChart";
 import { AdminKurtiVisualization } from "@/components/admin/AdminKurtiVisualization";
 import {
+  AdminKurtiVisualizationSkeleton,
+  type AdminKurtiVisualizationSkeletonKind,
+} from "@/components/admin/kurti-visualizations/AdminKurtiVisualizationSkeleton";
+import {
   fetchAdminKurtiMessages,
   fetchAdminKurtiWindowLayout,
   saveAdminKurtiWindowLayout,
@@ -167,6 +171,22 @@ function AdminKurtiMarkdown({ content, isTyping }: { content: string; isTyping: 
   );
 }
 
+function inferVisualizationSkeletonKind(message: string): AdminKurtiVisualizationSkeletonKind | null {
+  const visualizationIntent = /(chart|diagramm|grafik|visualis|dashboard|entwicklung|trend|verlauf|vergleich|ranking|rangliste|anteil|verteilung|zusammensetzung|korrelation|zusammenhang|heatmap|matrix|tabelle|kpi|kennzahl|donut|pie|funnel|scatter|bubble|radar|timeline|histogramm|boxplot|waterfall|wasserfall|treemap|top\s*\d*|höchste|hoechste|niedrigste|zeitreihe)/i;
+  if (!visualizationIntent.test(message)) return null;
+  if (/treemap|baumkarte|viele.*anteile|long.?tail/i.test(message)) return "treemap";
+  if (/waterfall|wasserfall|brücke|bruecke|beitrag.*veränder|abweichung.*zerleg/i.test(message)) return "waterfall";
+  if (/histogramm|box.?plot|quartil|median.*streu|ausrei[ßs]er|verteilung.*(ipp|wert|dauer|zeit|stunden|km|punkte)/i.test(message)) return "distribution";
+  if (/heatmap|matrix|intensität|intensitaet|vollständigkeit|vollstaendigkeit/i.test(message)) return "heatmap";
+  if (/scatter|streu.?diagramm|bubble|korrelation|zusammenhang.*zwischen/i.test(message)) return "scatter";
+  if (/funnel|trichter|donut|pie|torte|kreis|anteil|zusammensetzung|verteilung/i.test(message)) return "composition";
+  if (/timeline|zeitstrahl|ereignis|audit.*verlauf|chronolog/i.test(message)) return "timeline";
+  if (/radar|spinnen.?diagramm|profil.*dimension/i.test(message)) return "radar";
+  if (/dashboard|kpi|kennzahl|überblick|ueberblick|summary/i.test(message)) return "metrics";
+  if (/tabelle|exakt|detailwerte|liste|drilldown/i.test(message)) return "table";
+  return "series";
+}
+
 export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: AdminKurtiPanelProps) {
   const [messages, setMessages] = useState<AdminKurtiMessage[]>([]);
   const [input, setInput] = useState("");
@@ -176,6 +196,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typing, setTyping] = useState<TypingState | null>(null);
+  const [pendingVisualizationKind, setPendingVisualizationKind] = useState<AdminKurtiVisualizationSkeletonKind | null>(null);
   const [capabilityCount, setCapabilityCount] = useState(28);
   const [memoryMinutes, setMemoryMinutes] = useState(480);
   const [panelRect, setPanelRect] = useState<PanelRect | null>(null);
@@ -580,6 +601,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
       },
     ]);
     setInput("");
+    setPendingVisualizationKind(inferVisualizationSkeletonKind(text));
     setSending(true);
     setError(null);
     try {
@@ -598,6 +620,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
       setError(caught instanceof Error ? caught.message : "Admin-Kurti konnte nicht antworten.");
     } finally {
       setSending(false);
+      setPendingVisualizationKind(null);
     }
   }, [configured, input, loading, sending, typing]);
 
@@ -882,7 +905,12 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
             </div>
           );
         })}
-        {sending ? <TypingBubble label="Kurti analysiert" /> : null}
+        {sending ? (
+          <>
+            <TypingBubble label="Kurti analysiert" />
+            {pendingVisualizationKind ? <AdminKurtiVisualizationSkeleton kind={pendingVisualizationKind} /> : null}
+          </>
+        ) : null}
         {!configured && !loading ? (
           <div className="admin-kurti-notice">Admin-Kurti ist verfügbar, sobald der OpenAI API-Zugang serverseitig hinterlegt ist.</div>
         ) : null}

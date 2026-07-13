@@ -43,8 +43,8 @@ export function CompositionVisualization({ visualization }: { visualization: Adm
   let pieAngle = 0;
   return (
     <VisualizationFrame {...visualization}>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 0.7fr) minmax(145px, 1fr)", alignItems: "center", gap: 12 }}>
-        <svg role="img" aria-label={`${visualization.variant}: ${visualization.title}`} viewBox="0 0 150 150" style={{ width: "100%", maxWidth: 176, justifySelf: "center" }}>
+      <div className={styles.compositionLayout}>
+        <svg className={styles.compositionChart} role="img" aria-label={`${visualization.variant}: ${visualization.title}`} viewBox="0 0 150 150">
           <defs>
             <filter id="composition-soft-shadow" x="-25%" y="-25%" width="150%" height="150%">
               <feDropShadow dx="0" dy="3" stdDeviation="3" floodColor="#0f172a" floodOpacity="0.1" />
@@ -87,7 +87,7 @@ export function CompositionVisualization({ visualization }: { visualization: Adm
             </g>
           ) : null}
         </svg>
-        <div style={{ display: "grid", gap: 5 }}>
+        <div className={styles.compositionLegend}>
           {visualization.items.map((item) => (
             <div key={item.label} style={{ display: "grid", gridTemplateColumns: "8px minmax(0,1fr) auto", alignItems: "center", gap: 6, padding: "2px 0", fontSize: 9.5 }}>
               <span style={{ width: 6, height: 6, borderRadius: 999, background: TONE_COLORS[item.tone], opacity: 0.78 }} />

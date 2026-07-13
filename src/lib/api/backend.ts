@@ -2930,6 +2930,32 @@ export type AdminKurtiRadarVisualization = AdminKurtiVisualizationBase & {
   series: Array<{ label: string; tone: AdminKurtiVisualizationTone; values: number[] }>;
 };
 
+export type AdminKurtiDistributionVisualization = AdminKurtiVisualizationBase & {
+  kind: "distribution";
+  variant: "histogram" | "box_plot";
+  xLabel: string;
+  valueFormat: AdminKurtiVisualizationValueFormat;
+  binCount: number | null;
+  showOutliers: boolean;
+  series: Array<{ label: string; tone: AdminKurtiVisualizationTone; values: number[] }>;
+};
+
+export type AdminKurtiWaterfallVisualization = AdminKurtiVisualizationBase & {
+  kind: "waterfall";
+  valueFormat: AdminKurtiVisualizationValueFormat;
+  startLabel: string;
+  startValue: number;
+  steps: Array<{ label: string; value: number }>;
+  endLabel: string;
+  showConnectors: boolean;
+};
+
+export type AdminKurtiTreemapVisualization = AdminKurtiVisualizationBase & {
+  kind: "treemap";
+  valueFormat: AdminKurtiVisualizationValueFormat;
+  items: Array<{ label: string; value: number; tone: AdminKurtiVisualizationTone }>;
+};
+
 export type AdminKurtiVisualization =
   | AdminKurtiSeriesVisualization
   | AdminKurtiCompositionVisualization
@@ -2938,7 +2964,10 @@ export type AdminKurtiVisualization =
   | AdminKurtiMetricsVisualization
   | AdminKurtiTableVisualization
   | AdminKurtiTimelineVisualization
-  | AdminKurtiRadarVisualization;
+  | AdminKurtiRadarVisualization
+  | AdminKurtiDistributionVisualization
+  | AdminKurtiWaterfallVisualization
+  | AdminKurtiTreemapVisualization;
 
 export type AdminKurtiMessage = GmKurtiMessage & {
   charts?: AdminKurtiChartSpec[];

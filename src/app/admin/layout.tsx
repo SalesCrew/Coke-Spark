@@ -911,6 +911,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {kuehlerModuleEditorOpen && (
           <KuehlerModuleEditor
             existingModule={kuehlerEditingModule ?? undefined}
+            availableChains={availableMarketChains}
             existingQuestions={kuehlerExistingQuestions}
             onSave={handleKuehlerModuleSave}
             onClose={() => { setKuehlerModuleEditorOpen(false); setKuehlerEditingModule(null); }}
@@ -929,6 +930,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {mhdModuleEditorOpen && (
           <MhdModuleEditor
             existingModule={mhdEditingModule ?? undefined}
+            availableChains={availableMarketChains}
             existingQuestions={mhdExistingQuestions}
             onSave={handleMhdModuleSave}
             onClose={() => { setMhdModuleEditorOpen(false); setMhdEditingModule(null); }}
@@ -947,6 +949,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {flexModuleEditorOpen && (
           <FlexModuleEditor
             existingModule={flexEditingModule ?? undefined}
+            availableChains={availableMarketChains}
             existingQuestions={flexExistingQuestions}
             onSave={handleFlexModuleSave}
             onClose={() => { setFlexModuleEditorOpen(false); setFlexEditingModule(null); }}
@@ -965,6 +968,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {billaModuleEditorOpen && (
           <BillaModuleEditor
             existingModule={billaEditingModule ?? undefined}
+            availableChains={availableMarketChains}
             existingQuestions={billaExistingQuestions}
             onSave={handleBillaModuleSave}
             onClose={() => { setBillaModuleEditorOpen(false); setBillaEditingModule(null); }}

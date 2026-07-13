@@ -19,6 +19,7 @@ import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
 import { QuestionTypeContextMenu } from "@/components/admin/QuestionTypeContextMenu";
 import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
 import { ExistingQuestionPreviewModal } from "@/components/admin/ExistingQuestionPreviewModal";
+import { HandelskettenSelector } from "@/components/admin/HandelskettenSelector";
 import { cloneQuestionForModuleInsert, hasQuestionInModule } from "@/utils/existingQuestionPicker";
 
 // Purple accent colours — zero red/yellow anywhere in this file
@@ -600,11 +601,11 @@ function ImageAttachment({ value, onChange }: { value: string[]; onChange: (v: s
   );
 }
 
-function QuestionCard({ question, index, isExpanded, onToggle, onUpdate, onDelete, onDragStart, onDragOver, onDrop, onContextTypeMenu, dropTarget, allQuestions }: {
+function QuestionCard({ question, index, isExpanded, onToggle, onUpdate, onDelete, onDragStart, onDragOver, onDrop, onContextTypeMenu, dropTarget, allQuestions, availableChains }: {
   question: Question; index: number; isExpanded: boolean; onToggle: () => void;
   onUpdate: (q: Question) => void; onDelete: () => void;
   onDragStart: (i: number) => void; onDragOver: (i: number) => void;
-  onDrop: () => void; onContextTypeMenu: (questionId: string, x: number, y: number) => void; dropTarget: boolean; allQuestions: Question[];
+  onDrop: () => void; onContextTypeMenu: (questionId: string, x: number, y: number) => void; dropTarget: boolean; allQuestions: Question[]; availableChains: string[];
 }) {
   const badge = typeBadgeColor(question.type);
   const [logicOpen, setLogicOpen] = useState(false);
@@ -653,6 +654,14 @@ function QuestionCard({ question, index, isExpanded, onToggle, onUpdate, onDelet
             )}
             <TypeConfig question={question} onUpdate={onUpdate} />
 
+            <HandelskettenSelector
+              question={question}
+              onUpdate={onUpdate}
+              availableChains={availableChains}
+              accentColor={PD}
+              accentBackground={P_BG}
+            />
+
             <div style={{ marginTop: 14 }}>
               <button onClick={(e) => { e.stopPropagation(); setLogicOpen(!logicOpen); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 0 6px", fontSize: 11, fontWeight: 600, color: question.rules.length > 0 ? PD : "rgba(0,0,0,0.35)", background: "none", border: "none", cursor: "pointer", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
                 <Zap size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
@@ -682,10 +691,11 @@ interface MhdModuleEditorProps {
   onClose: () => void;
   onSave: (m: Module) => Promise<void> | void;
   existingModule?: Module;
+  availableChains?: string[];
   existingQuestions?: Question[];
 }
 
-export function MhdModuleEditor({ onClose, onSave, existingModule, existingQuestions = [] }: MhdModuleEditorProps) {
+export function MhdModuleEditor({ onClose, onSave, existingModule, availableChains = [], existingQuestions = [] }: MhdModuleEditorProps) {
   const [moduleName, setModuleName] = useState(existingModule?.name ?? "");
   const [description, setDescription] = useState(existingModule?.description ?? "");
   const [questions, setQuestions] = useState<Question[]>(
@@ -867,6 +877,7 @@ export function MhdModuleEditor({ onClose, onSave, existingModule, existingQuest
                 onContextTypeMenu={(questionId, x, y) => setTypeMenu({ questionId, x, y })}
                 dropTarget={dropIdx === i && dragIdx !== null && dragIdx !== i}
                 allQuestions={questions}
+                availableChains={availableChains}
               />
             ))}
             {questions.length > 0 && dragIdx !== null && (

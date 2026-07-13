@@ -87,6 +87,15 @@ function fmtDateTimeInTimezone(iso: string, timezone: string): string {
   }).format(new Date(iso));
 }
 
+function fmtHmInTimezone(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat("de-AT", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(iso));
+}
+
 function fmtKm(raw: string): string {
   const num = parseInt(raw.replace(/\D/g, ""), 10);
   if (isNaN(num)) return raw;
@@ -596,8 +605,8 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false }: Ti
 
   useEffect(() => {
     if (phase !== "dayReview" || reviewSegments.length > 0) return;
-    resetReviewStateFromTimeline(todayTimeline);
-  }, [phase, reviewSegments.length, todayTimeline]); // eslint-disable-line react-hooks/exhaustive-deps
+    resetReviewStateFromTimeline(ensureDayEndReviewSegment(todayTimeline));
+  }, [phase, reviewSegments.length, todayTimeline, daySession?.id, daySession?.status, daySession?.dayEndedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-focus KM fields ─────────────────────────────────────────────────
   useEffect(() => {
@@ -723,8 +732,40 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false }: Ti
     setReviewError(null);
   }
 
+  function ensureDayEndReviewSegment(
+    timeline: AdminZeiterfassungTimelineSegment[],
+    submissionsSession?: TodaySubmissionsPayload["session"],
+  ): AdminZeiterfassungTimelineSegment[] {
+    if (timeline.some((segment) => segment.kind === "heimfahrt") || timeline.length <= 1) return timeline;
+
+    const freshSessionEnded = submissionsSession?.status === "ended" || submissionsSession?.status === "submitted";
+    const localSessionEnded = daySession?.status === "ended" || daySession?.status === "submitted";
+    if (!freshSessionEnded && !localSessionEnded) return timeline;
+
+    const sessionId = submissionsSession?.id ?? daySession?.id;
+    const endTime = freshSessionEnded
+      ? submissionsSession?.endTime
+      : daySession?.dayEndedAt
+        ? fmtHmInTimezone(daySession.dayEndedAt, trackerTimezone)
+        : null;
+    const lastSegment = timeline[timeline.length - 1];
+    if (!sessionId || !endTime || !lastSegment || !isValidHm(endTime)) return timeline;
+
+    return [
+      ...timeline,
+      {
+        id: `heimfahrt-${sessionId}`,
+        kind: "heimfahrt",
+        start: lastSegment.end,
+        end: endTime,
+        durationMin: Math.max(0, toMinutes(endTime) - toMinutes(lastSegment.end)),
+        title: "Heimfahrt",
+      },
+    ];
+  }
+
   function openDayReview(submissions: TodaySubmissionsPayload) {
-    resetReviewStateFromTimeline(submissions.timeline ?? []);
+    resetReviewStateFromTimeline(ensureDayEndReviewSegment(submissions.timeline ?? [], submissions.session));
     transitionTo("dayReview");
   }
 

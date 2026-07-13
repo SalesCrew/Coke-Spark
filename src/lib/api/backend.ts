@@ -4695,7 +4695,7 @@ export async function fetchGmDashboardCritical(): Promise<GmDashboardCriticalPay
 }
 
 export async function fetchTodaySubmissions(): Promise<TodaySubmissionsPayload> {
-  return (await authedFetch("/day-session/today-submissions")) as TodaySubmissionsPayload;
+  return (await authedFetch("/day-session/today-submissions", { cache: "no-store" })) as TodaySubmissionsPayload;
 }
 
 export async function fetchGmZeiterfassung(input?: {

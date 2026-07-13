@@ -2822,6 +2822,26 @@ export type GmKurtiReplyPayload = {
   expiresAt: string | null;
 };
 
+export type AdminKurtiMessage = GmKurtiMessage;
+
+export type AdminKurtiMessagesPayload = {
+  messages: AdminKurtiMessage[];
+  configured: boolean;
+  expiresAt: string | null;
+  capabilities: {
+    readOnly: boolean;
+    crossGm: boolean;
+    toolCount: number;
+    memoryMinutes: number;
+  };
+};
+
+export type AdminKurtiReplyPayload = {
+  messages: AdminKurtiMessage[];
+  assistantMessage: AdminKurtiMessage | null;
+  expiresAt: string | null;
+};
+
 export type DayPause = {
   id: string;
   daySessionId: string;
@@ -4767,6 +4787,17 @@ export async function sendGmKurtiMessage(message: string): Promise<GmKurtiReplyP
     method: "POST",
     body: JSON.stringify({ message }),
   }, 60000)) as GmKurtiReplyPayload;
+}
+
+export async function fetchAdminKurtiMessages(): Promise<AdminKurtiMessagesPayload> {
+  return (await authedFetch("/admin/kurti/messages", { cache: "no-store" })) as AdminKurtiMessagesPayload;
+}
+
+export async function sendAdminKurtiMessage(message: string): Promise<AdminKurtiReplyPayload> {
+  return (await authedFetch("/admin/kurti/messages", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  }, 120000)) as AdminKurtiReplyPayload;
 }
 
 export async function fetchTodaySubmissions(): Promise<TodaySubmissionsPayload> {

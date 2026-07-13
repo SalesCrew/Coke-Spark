@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LogOut } from "lucide-react";
+import { LogOut, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AdminManagerPanel } from "@/components/admin/AdminManagerPanel";
+import { AdminKurtiPanel } from "@/components/admin/AdminKurtiPanel";
 import { AdminProfilePopover } from "@/components/admin/AdminProfilePopover";
 import { CustomerAccessPanel } from "@/components/admin/CustomerAccessPanel";
 import { ADMIN_NAV_GROUPS } from "@/components/ui/adminNavigation";
@@ -20,6 +21,7 @@ type SidebarOverlayState = "closed" | "profile" | "password" | "manager" | "cust
 export function AdminSidenav() {
   const [hovered, setHovered] = useState(false);
   const [overlayState, setOverlayState] = useState<SidebarOverlayState>("closed");
+  const [kurtiOpen, setKurtiOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const [authUser, setAuthUser] = useState(() => readAuthSession()?.user ?? null);
   const pathname = usePathname();
@@ -64,6 +66,7 @@ export function AdminSidenav() {
   const handleLogout = () => {
     logoutCurrentUser();
     setOverlayState("closed");
+    setKurtiOpen(false);
     if (typeof window !== "undefined") {
       window.location.assign("/");
       return;
@@ -71,7 +74,7 @@ export function AdminSidenav() {
     router.replace("/");
     router.refresh();
   };
-  const isSidebarExpanded = hovered || overlayState !== "closed";
+  const isSidebarExpanded = hovered || overlayState !== "closed" || kurtiOpen;
 
   const displayName = useMemo(() => {
     const firstName = authUser?.firstName?.trim() ?? "";
@@ -127,6 +130,7 @@ export function AdminSidenav() {
           ref={profileButtonRef}
           type="button"
           onClick={() => {
+            setKurtiOpen(false);
             if (overlayState === "closed") {
               refreshAnchorRect();
               setOverlayState("profile");
@@ -328,6 +332,76 @@ export function AdminSidenav() {
             flexShrink: 0,
           }}
         >
+          {adminAccess.isAdmin ? (
+            <button
+              type="button"
+              aria-expanded={kurtiOpen}
+              aria-controls="admin-kurti-panel"
+              onClick={() => {
+                setOverlayState("closed");
+                setKurtiOpen((current) => !current);
+              }}
+              style={{
+                width: "100%",
+                height: 38,
+                marginBottom: 5,
+                borderRadius: 11,
+                border: kurtiOpen ? "1px solid rgba(220,38,38,0.18)" : "1px solid rgba(220,38,38,0.08)",
+                background: kurtiOpen
+                  ? "linear-gradient(112deg, rgba(220,38,38,0.16), rgba(239,68,68,0.06))"
+                  : "linear-gradient(112deg, rgba(220,38,38,0.085), rgba(239,68,68,0.025))",
+                color: kurtiOpen ? "#b91c1c" : "rgba(185,28,28,0.72)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: isSidebarExpanded ? "flex-start" : "center",
+                paddingLeft: isSidebarExpanded ? 12 : 0,
+                paddingRight: isSidebarExpanded ? 8 : 0,
+                gap: isSidebarExpanded ? 10 : 0,
+                fontFamily: "inherit",
+                overflow: "hidden",
+                whiteSpace: "nowrap",
+                boxShadow: kurtiOpen ? "0 5px 14px rgba(185,28,28,0.08)" : "none",
+                transition: "all 0.2s ease",
+              }}
+            >
+              <div style={{ width: 16, height: 16, display: "grid", placeItems: "center", flexShrink: 0 }}>
+                <MessageCircle size={16} strokeWidth={kurtiOpen ? 2.1 : 1.8} />
+              </div>
+              <span
+                style={{
+                  minWidth: 0,
+                  flex: isSidebarExpanded ? 1 : "0 0 0",
+                  width: isSidebarExpanded ? "auto" : 0,
+                  opacity: isSidebarExpanded ? 1 : 0,
+                  overflow: "hidden",
+                  textAlign: "left",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  transition: "opacity 0.2s ease, width 0.25s ease",
+                }}
+              >
+                Kurti
+              </span>
+              <span
+                style={{
+                  display: isSidebarExpanded ? "inline-flex" : "none",
+                  alignItems: "center",
+                  height: 17,
+                  padding: "0 6px",
+                  borderRadius: 999,
+                  color: "rgba(153,27,27,0.74)",
+                  background: "rgba(255,255,255,0.5)",
+                  border: "1px solid rgba(220,38,38,0.09)",
+                  fontSize: 7.5,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                }}
+              >
+                NEU
+              </span>
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleLogout}
@@ -400,6 +474,13 @@ export function AdminSidenav() {
         anchorRect={anchorRect}
         onClose={() => setOverlayState("closed")}
       />
+      {adminAccess.isAdmin ? (
+        <AdminKurtiPanel
+          open={kurtiOpen}
+          sidebarExpanded={isSidebarExpanded}
+          onClose={() => setKurtiOpen(false)}
+        />
+      ) : null}
     </>
   );
 }

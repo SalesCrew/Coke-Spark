@@ -15,6 +15,7 @@ const retentionRows = [
   ["IPP-, KPI-, Bonus- und Prämienwerte", "7 Jahre, soweit Auszahlung, Abrechnung oder buchhalterische Nachweise betroffen sind; sonst 3 Jahre für Qualitätssicherung und Reporting. Kunden sehen nur freigegebene Reportingwerte, keine internen HR-/Payrolldetails."],
   ["Login-, Auth-, Audit- und Sicherheitslogs", "24 Monate. Incident-relevante Logs werden bis zum Abschluss der Untersuchung und danach bis zu 3 Jahre oder im Legal Hold aufbewahrt."],
   ["Technische Telemetrie und Fehlerlogs", "Detaildaten grundsätzlich 90 Tage. Aggregierte technische Statistiken höchstens 12 Monate."],
+  ["Admin-Kurti Chat", "Nachrichten werden in Coke Spark 15 Minuten nach der letzten erfolgreichen Unterhaltung automatisch gelöscht. Die technische Verarbeitung durch den KI-Dienst erfolgt nach den dort vereinbarten API-Datenkontrollen; unnötige personenbezogene oder sensible Angaben sollen nicht eingegeben werden."],
   ["Excel-, Foto- und sonstige Exporte", "Arbeitskopien sind nach Zweckerfüllung zu löschen, grundsätzlich innerhalb von 30 Tagen, außer sie werden in einem freigegebenen geschützten Ablageort als Nachweis mit eigener Frist gespeichert."],
   ["Akzeptanz- und Datenschutz-Nachweise", "Für die Dauer des Zugangs plus 3 Jahre als Nachweis der Information, länger nur bei Streitfall, Prüfung oder Legal Hold."],
 ];
@@ -119,14 +120,23 @@ const sections: PrivacyNoticeSection[] = [
     ],
   },
   {
-    title: "12. Automatisierte Auswertungen",
+    title: "12. Admin-Kurti Daten-Assistent",
+    body: [
+      "Admin-Kurti ist eine freiwillige, ausschließlich für interne Admins freigeschaltete Assistenzfunktion. Sie kann über begrenzte serverseitige Lesefunktionen die Daten abrufen, die ein Admin in Coke Spark für operative Auswertungen, GM-, Markt-, Besuchs-, Zeit-, IPP-, Bonus- und Kampagnenfragen benötigt.",
+      "Admin-Kurti kann Daten mehrerer GMs und Bereiche für eine Antwort zusammenführen. Die Funktion ist strikt lesend: Sie darf keine Datensätze ändern, keine Freigaben erteilen und keine verbindlichen Personal-, Bonus- oder sonstigen Entscheidungen treffen. Ergebnisse müssen bei wichtigen Entscheidungen in den jeweiligen Spark-Ansichten geprüft werden.",
+      "Für eine Anfrage werden der eingegebene Text, der kurzzeitige Chatverlauf und die von den begrenzten Datenfunktionen gelieferten erforderlichen Informationen an den serverseitig konfigurierten KI-Dienst übermittelt. Die API-Anfrage wird ohne anbieterseitige dauerhafte Antwortspeicherung angefordert; der Spark-Chatverlauf wird nach 15 Minuten gelöscht.",
+      "In den Chat gehören nur Informationen, die für die konkrete Arbeitsfrage erforderlich sind. Passwörter, API-Schlüssel, private Inhalte und unnötige besondere Kategorien personenbezogener Daten dürfen nicht eingegeben werden. Kunden-Zugänge erhalten keinen Zugriff auf Admin-Kurti.",
+    ],
+  },
+  {
+    title: "13. Automatisierte Auswertungen",
     body: [
       "Coke Spark berechnet Kennzahlen, Fortschritte, IPP, Bonus-/Prämienwerte und Statusinformationen zur operativen Steuerung und zum Reporting.",
       "Diese Auswertungen sollen nachvollziehbar bleiben. Es ist keine ausschließlich automatisierte finale Entscheidung vorgesehen, die ohne menschliche Prüfmöglichkeit rechtliche oder vergleichbar erhebliche Wirkung entfaltet.",
     ],
   },
   {
-    title: "13. Rechte",
+    title: "14. Rechte",
     body: [
       "Betroffene Personen können Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch verlangen, soweit die gesetzlichen Voraussetzungen vorliegen.",
       "Bestimmte Daten können wegen gesetzlicher Aufbewahrungspflichten, Auditpflichten, Nachweisinteressen oder Sicherheitserfordernissen nicht sofort gelöscht werden; in solchen Fällen kann eine Einschränkung oder Sperrung geprüft werden.",
@@ -137,7 +147,7 @@ const sections: PrivacyNoticeSection[] = [
     ],
   },
   {
-    title: "14. Sicherheit und Datenschutzvorfälle",
+    title: "15. Sicherheit und Datenschutzvorfälle",
     body: [
       "Coke Spark nutzt rollenbasierte Berechtigungen, serverseitige Zugriffsprüfungen, Backend-only Datenbankzugriffe, private Speicherbereiche, signierte Datei-URLs, Protokollierung und Auditmechanismen.",
       "Direkte anonyme oder normale Client-Zugriffe auf die Datenbanktabellen sind nicht vorgesehen. Geschäftsdaten werden über die autorisierte Backend-API verarbeitet.",

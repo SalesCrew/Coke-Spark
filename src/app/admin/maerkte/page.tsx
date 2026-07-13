@@ -164,7 +164,7 @@ const FrequencyCircle = React.memo(function FrequencyCircle({ visited, frequency
 // ── Market row (memoized for virtual list) ─────────────────────
 
 const MARKET_ROW_H = 54; // px — must match the actual rendered row height
-const MARKET_LIST_GRID = "minmax(240px,1.55fr) minmax(82px,0.5fr) 86px 34px minmax(140px,0.9fr) minmax(70px,0.45fr) 54px minmax(110px,0.75fr) 56px minmax(110px,0.75fr) 38px 40px";
+const MARKET_LIST_GRID = "minmax(240px,1.55fr) minmax(82px,0.5fr) 34px minmax(140px,0.9fr) minmax(70px,0.45fr) 54px minmax(110px,0.75fr) 56px minmax(110px,0.75fr) 38px 40px";
 const MARKET_LIST_GAP = "0 10px";
 
 function UniverseMarketDropdown({
@@ -330,20 +330,14 @@ const MarketRow = React.memo(function MarketRow({
   active,
   visited,
   visitCount,
-  universeMarketDisabled,
-  universeMarketSaving,
   onSelect,
-  onUniverseMarketChange,
   onOpenContextMenu,
 }: {
   market: MarketRecord;
   active: boolean;
   visited: boolean;
   visitCount: number;
-  universeMarketDisabled: boolean;
-  universeMarketSaving: boolean;
   onSelect: (id: string | null) => void;
-  onUniverseMarketChange: (marketId: string, value: boolean) => void;
   onOpenContextMenu?: (event: React.MouseEvent<HTMLDivElement>, marketId: string) => void;
 }) {
   const chainLabel = market.dbName.trim() || market.name.split(" ")[0].slice(0, 4);
@@ -379,15 +373,6 @@ const MarketRow = React.memo(function MarketRow({
       </div>
       {/* Stammnr */}
       <div style={{ minWidth: 0, fontSize: 11, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" }}>{market.cokeMasterNumber || market.kuehlerStammnr || ""}</div>
-      {/* Universumsmarkt */}
-      <div onClick={(event) => event.stopPropagation()} style={{ minWidth: 0 }}>
-        <UniverseMarketDropdown
-          value={market.universeMarket}
-          disabled={universeMarketDisabled}
-          saving={universeMarketSaving}
-          onChange={(value) => onUniverseMarketChange(market.id, value)}
-        />
-      </div>
       {/* Info dot */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
         {market.infoFlag && <span style={{ width: 6, height: 6, borderRadius: "50%", background: R, flexShrink: 0 }} title="Info vorhanden" />}
@@ -424,8 +409,6 @@ function VirtualMarketList({
   items,
   selectedId,
   onSelect,
-  onUniverseMarketChange,
-  savingUniverseMarketId,
   onOpenContextMenu,
   visitedSet,
   visitCounts,
@@ -433,8 +416,6 @@ function VirtualMarketList({
   items: MarketRecord[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  onUniverseMarketChange: (marketId: string, value: boolean) => void;
-  savingUniverseMarketId: string | null;
   onOpenContextMenu?: (event: React.MouseEvent<HTMLDivElement>, marketId: string) => void;
   visitedSet: Set<string>;
   visitCounts: Record<string, number>;
@@ -488,10 +469,7 @@ function VirtualMarketList({
             active={m.id === selectedId}
             visited={visitedSet.has(m.id)}
             visitCount={visitCounts[m.id] ?? 0}
-            universeMarketDisabled={savingUniverseMarketId !== null}
-            universeMarketSaving={savingUniverseMarketId === m.id}
             onSelect={onSelect}
-            onUniverseMarketChange={onUniverseMarketChange}
             onOpenContextMenu={onOpenContextMenu}
           />
         ))}
@@ -1840,6 +1818,8 @@ function MarketDetailDrawer({
   currentRedPeriod,
   onClose,
   onSave,
+  onUniverseMarketChange,
+  universeMarketSaving,
   loadKuehlerUnits,
   onCreateKuehlerUnit,
   onUpdateKuehlerUnit,
@@ -1847,6 +1827,8 @@ function MarketDetailDrawer({
   market: MarketRecord; visits: MarketVisitLog[];
   currentRedPeriod: { start: string; end: string } | null;
   onClose: () => void; onSave: (updated: MarketRecord) => Promise<void> | void;
+  onUniverseMarketChange: (marketId: string, value: boolean) => Promise<void> | void;
+  universeMarketSaving: boolean;
   loadKuehlerUnits: (marketId: string) => Promise<KuehlerUnitRecord[]>;
   onCreateKuehlerUnit: (
     input: {
@@ -1907,6 +1889,9 @@ function MarketDetailDrawer({
   const [unitSaving, setUnitSaving] = useState(false);
 
   useEffect(() => { setDraft(market); setEditing(false); }, [market.id]);
+  useEffect(() => {
+    setDraft((current) => ({ ...current, universeMarket: market.universeMarket }));
+  }, [market.universeMarket]);
 
   const redPeriodStart = useMemo(() => {
     if (!currentRedPeriod) return null;
@@ -2231,7 +2216,17 @@ function MarketDetailDrawer({
                     </span>
                   )}
                 </div>
-                <InfoRow label="Universums-markt" value={market.universeMarket ? "Ja" : "Nein"} />
+                <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Universumsmarkt</span>
+                  <div style={{ width: 104 }}>
+                    <UniverseMarketDropdown
+                      value={market.universeMarket}
+                      disabled={universeMarketSaving}
+                      saving={universeMarketSaving}
+                      onChange={(value) => void onUniverseMarketChange(market.id, value)}
+                    />
+                  </div>
+                </div>
                 <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v, 10) || market.visitFrequencyPerYear })} />
               </InfoSection>
 
@@ -3000,7 +2995,7 @@ export default function MaerktePage() {
 
             {/* Column header */}
             <div style={{ display: "grid", gridTemplateColumns: MARKET_LIST_GRID, gap: MARKET_LIST_GAP, padding: "7px 18px", background: "rgba(0,0,0,0.018)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-              {["Markt", "Stammnr", "Universumsmarkt", "Info", "Adresse", "Region", "PLZ", "Ort", "EM/EH", "Verplant an", "IPP", "Freq."].map((h, i) => (
+              {["Markt", "Stammnr", "Info", "Adresse", "Region", "PLZ", "Ort", "EM/EH", "Verplant an", "IPP", "Freq."].map((h, i) => (
                 <span key={i} style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h}</span>
               ))}
             </div>
@@ -3010,8 +3005,6 @@ export default function MaerktePage() {
               items={filtered}
               selectedId={selectedId}
               onSelect={handleSelectMarket}
-              onUniverseMarketChange={handleUniverseMarketChange}
-              savingUniverseMarketId={savingUniverseMarketId}
               onOpenContextMenu={handleOpenMarketContextMenu}
               visitedSet={visitedInRedMonatSet}
               visitCounts={visitCountByMarket}
@@ -3238,6 +3231,8 @@ export default function MaerktePage() {
           currentRedPeriod={currentRedMonth ? { start: currentRedMonth.start, end: currentRedMonth.end } : null}
           onClose={() => setSelectedId(null)}
           onSave={handleSave}
+          onUniverseMarketChange={handleUniverseMarketChange}
+          universeMarketSaving={savingUniverseMarketId === selectedMarket.id}
           loadKuehlerUnits={handleLoadKuehlerUnits}
           onCreateKuehlerUnit={handleCreateKuehlerUnit}
           onUpdateKuehlerUnit={handleUpdateKuehlerUnit}

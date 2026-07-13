@@ -809,6 +809,7 @@ function DetailDrawer({
               </div>
               <InfoGrid rows={[
                 ["Markt", marketDisplayName(photo)],
+                ["Stammnr.", photo.market.cokeMasterNumber || photo.market.kuehlerStammnr || "-"],
                 ["Adresse", address],
                 ["Region", photo.market.region || "-"],
                 ["GM", photo.gm.name || "-"],

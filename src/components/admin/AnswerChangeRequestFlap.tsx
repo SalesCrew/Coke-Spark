@@ -1095,7 +1095,8 @@ export function AnswerChangeRequestFlap() {
           top: 16px;
           right: 0;
           z-index: 90;
-          font-family: var(--font-inter), Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          font-family: var(--font-inter), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          font-synthesis: none;
           color: #101828;
           display: flex;
           align-items: center;
@@ -1103,6 +1104,14 @@ export function AnswerChangeRequestFlap() {
           transform: translateX(var(--answer-panel-width));
           transition: transform 0.56s cubic-bezier(0.16, 0.92, 0.12, 1);
           will-change: transform;
+        }
+
+        .answer-flap *,
+        .answer-flap button,
+        .answer-flap input,
+        .answer-flap textarea,
+        .answer-flap select {
+          font-family: inherit;
         }
 
         .answer-flap:not(.is-open):hover {
@@ -1179,7 +1188,7 @@ export function AnswerChangeRequestFlap() {
           display: grid;
           place-items: center;
           font-size: 10px;
-          font-weight: 650;
+          font-weight: 600;
           color: rgba(16, 24, 40, 0.46);
           line-height: 1;
         }
@@ -1188,7 +1197,7 @@ export function AnswerChangeRequestFlap() {
           writing-mode: vertical-rl;
           transform: rotate(180deg);
           font-size: 10.5px;
-          font-weight: 620;
+          font-weight: 600;
           letter-spacing: 0.12em;
           text-transform: uppercase;
           color: rgba(16, 24, 40, 0.42);
@@ -1226,7 +1235,7 @@ export function AnswerChangeRequestFlap() {
         .answer-flap-eyebrow,
         .answer-pane-title {
           font-size: 9.5px;
-          font-weight: 760;
+          font-weight: 700;
           letter-spacing: 0.115em;
           text-transform: uppercase;
           color: rgba(16, 24, 40, 0.38);
@@ -1241,7 +1250,7 @@ export function AnswerChangeRequestFlap() {
         .answer-flap-header h2 {
           margin: 3px 0 0;
           font-size: 16px;
-          font-weight: 760;
+          font-weight: 700;
           letter-spacing: 0;
           color: rgba(16, 24, 40, 0.9);
         }
@@ -1249,7 +1258,7 @@ export function AnswerChangeRequestFlap() {
         .answer-person-header h3 {
           margin: 3px 0 0;
           font-size: 17px;
-          font-weight: 820;
+          font-weight: 700;
           letter-spacing: 0;
           color: rgba(16, 24, 40, 0.92);
           overflow: hidden;
@@ -1260,7 +1269,7 @@ export function AnswerChangeRequestFlap() {
         .answer-flap-title p {
           margin: 0;
           font-size: 10.5px;
-          font-weight: 620;
+          font-weight: 500;
           color: rgba(16, 24, 40, 0.44);
           white-space: nowrap;
         }
@@ -1282,7 +1291,7 @@ export function AnswerChangeRequestFlap() {
           color: rgba(215, 25, 32, 0.88);
           padding: 6px 9px;
           font-size: 10px;
-          font-weight: 780;
+          font-weight: 700;
           line-height: 1;
         }
 
@@ -1321,7 +1330,7 @@ export function AnswerChangeRequestFlap() {
           padding: 10px 12px;
           color: rgba(177, 24, 31, 0.92);
           font-size: 11px;
-          font-weight: 720;
+          font-weight: 600;
           line-height: 1.45;
         }
 
@@ -1341,7 +1350,7 @@ export function AnswerChangeRequestFlap() {
         .answer-section-heading {
           margin: 4px 2px 0;
           font-size: 9px;
-          font-weight: 820;
+          font-weight: 700;
           letter-spacing: 0.11em;
           text-transform: uppercase;
           color: rgba(16, 24, 40, 0.38);
@@ -1363,7 +1372,7 @@ export function AnswerChangeRequestFlap() {
           align-content: center;
           gap: 7px;
           font-size: 11px;
-          font-weight: 650;
+          font-weight: 500;
           text-align: center;
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
         }
@@ -1375,7 +1384,7 @@ export function AnswerChangeRequestFlap() {
 
         .answer-empty strong {
           font-size: 12px;
-          font-weight: 760;
+          font-weight: 600;
           color: rgba(16, 24, 40, 0.58);
         }
 
@@ -1444,7 +1453,7 @@ export function AnswerChangeRequestFlap() {
           place-items: center;
           color: #d71920;
           font-size: 11px;
-          font-weight: 950;
+          font-weight: 700;
           flex: 0 0 auto;
         }
 
@@ -1468,7 +1477,7 @@ export function AnswerChangeRequestFlap() {
           text-overflow: ellipsis;
           white-space: nowrap;
           font-size: 12px;
-          font-weight: 900;
+          font-weight: 700;
           color: #111827;
         }
 
@@ -1480,7 +1489,7 @@ export function AnswerChangeRequestFlap() {
           text-overflow: ellipsis;
           white-space: nowrap;
           font-size: 10px;
-          font-weight: 750;
+          font-weight: 500;
           color: rgba(16, 24, 40, 0.48);
         }
 
@@ -1499,7 +1508,7 @@ export function AnswerChangeRequestFlap() {
           margin: 11px 0 8px;
           font-size: 11px;
           line-height: 1.45;
-          font-weight: 800;
+          font-weight: 600;
           color: rgba(16, 24, 40, 0.75);
         }
 
@@ -1516,7 +1525,7 @@ export function AnswerChangeRequestFlap() {
           background: #f8fafc;
           padding: 9px 10px;
           font-size: 10px;
-          font-weight: 800;
+          font-weight: 600;
           color: rgba(16, 24, 40, 0.52);
         }
 
@@ -1537,7 +1546,7 @@ export function AnswerChangeRequestFlap() {
           border-radius: 11px;
           padding: 0 12px;
           font-size: 11px;
-          font-weight: 900;
+          font-weight: 700;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -1615,7 +1624,7 @@ export function AnswerChangeRequestFlap() {
           text-overflow: ellipsis;
           white-space: nowrap;
           font-size: 12px;
-          font-weight: 900;
+          font-weight: 700;
           color: rgba(16, 24, 40, 0.82);
         }
 
@@ -1624,7 +1633,7 @@ export function AnswerChangeRequestFlap() {
           text-overflow: ellipsis;
           white-space: nowrap;
           font-size: 10px;
-          font-weight: 760;
+          font-weight: 500;
           color: rgba(16, 24, 40, 0.42);
         }
 
@@ -1809,7 +1818,7 @@ export function AnswerChangeRequestFlap() {
           align-items: center;
           gap: 4px;
           font-size: 10px;
-          font-weight: 800;
+          font-weight: 600;
           color: rgba(16, 24, 40, 0.44);
           white-space: nowrap;
         }
@@ -1832,7 +1841,7 @@ export function AnswerChangeRequestFlap() {
 
         .answer-diff-grid span {
           font-size: 9px;
-          font-weight: 900;
+          font-weight: 700;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           color: rgba(16, 24, 40, 0.38);
@@ -1843,7 +1852,7 @@ export function AnswerChangeRequestFlap() {
           text-overflow: ellipsis;
           white-space: nowrap;
           font-size: 12px;
-          font-weight: 900;
+          font-weight: 700;
           color: #111827;
         }
 
@@ -1856,7 +1865,7 @@ export function AnswerChangeRequestFlap() {
           font-size: 11px;
           line-height: 1.45;
           color: rgba(16, 24, 40, 0.58);
-          font-weight: 750;
+          font-weight: 500;
         }
 
         .answer-spin {
@@ -1893,7 +1902,7 @@ export function AnswerChangeRequestFlap() {
         .answer-flap .answer-done-list .answer-section-heading {
           margin: 4px 2px 0;
           font-size: 9px;
-          font-weight: 820;
+          font-weight: 700;
           letter-spacing: 0.11em;
           text-transform: uppercase;
           color: rgba(16, 24, 40, 0.38);
@@ -1948,7 +1957,7 @@ export function AnswerChangeRequestFlap() {
           place-items: center;
           color: #d71920;
           font-size: 11px;
-          font-weight: 950;
+          font-weight: 700;
           flex: 0 0 auto;
         }
 
@@ -1965,7 +1974,7 @@ export function AnswerChangeRequestFlap() {
           text-overflow: ellipsis;
           white-space: nowrap;
           font-size: 12px;
-          font-weight: 900;
+          font-weight: 700;
           color: #111827;
         }
 
@@ -1975,7 +1984,7 @@ export function AnswerChangeRequestFlap() {
           text-overflow: ellipsis;
           white-space: nowrap;
           font-size: 10px;
-          font-weight: 750;
+          font-weight: 500;
           color: rgba(16, 24, 40, 0.48);
         }
 
@@ -1988,7 +1997,7 @@ export function AnswerChangeRequestFlap() {
           color: rgba(215, 25, 32, 0.88);
           padding: 6px 9px;
           font-size: 10px;
-          font-weight: 780;
+          font-weight: 700;
           line-height: 1;
           flex: 0 0 auto;
         }
@@ -2008,7 +2017,7 @@ export function AnswerChangeRequestFlap() {
           margin: 11px 0 8px;
           font-size: 11px;
           line-height: 1.45;
-          font-weight: 800;
+          font-weight: 600;
           color: rgba(16, 24, 40, 0.75);
         }
 
@@ -2025,7 +2034,7 @@ export function AnswerChangeRequestFlap() {
           background: #f8fafc;
           padding: 9px 10px;
           font-size: 10px;
-          font-weight: 800;
+          font-weight: 600;
           color: rgba(16, 24, 40, 0.52);
         }
 
@@ -2056,7 +2065,7 @@ export function AnswerChangeRequestFlap() {
 
         .answer-flap .answer-done-list .answer-diff-grid span {
           font-size: 9px;
-          font-weight: 840;
+          font-weight: 700;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           color: rgba(16, 24, 40, 0.36);
@@ -2065,7 +2074,7 @@ export function AnswerChangeRequestFlap() {
         .answer-flap .answer-done-list .answer-diff-grid strong {
           font-size: 11px;
           line-height: 1.35;
-          font-weight: 820;
+          font-weight: 700;
           color: rgba(16, 24, 40, 0.78);
         }
 
@@ -2078,7 +2087,7 @@ export function AnswerChangeRequestFlap() {
           padding: 10px 12px;
           color: rgba(177, 24, 31, 0.92);
           font-size: 11px;
-          font-weight: 720;
+          font-weight: 600;
           line-height: 1.45;
         }
       `}</style>

@@ -613,6 +613,8 @@ export function CollapsibleMenu({
                     }
                   : row.item;
               const isSelected = i === displayIndex;
+              const isKurti = row.type === "chat";
+              const isHighlighted = isSelected || isKurti;
               const isDanger = item.tone === "danger" || item.action === "logout";
               const dangerSoftBackground =
                 "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(254,226,226,0.94))";
@@ -632,14 +634,18 @@ export function CollapsibleMenu({
                     marginLeft: CARD_PADDING,
                     marginRight: CARD_PADDING,
                     gridTemplateColumns: "1fr auto 8px auto 1fr",
-                    backgroundColor: isSelected ? undefined : "transparent",
-                    background: isSelected
+                    backgroundColor: isHighlighted ? undefined : "transparent",
+                    background: isKurti
+                      ? "linear-gradient(135deg, rgba(239,68,68,0.13) 0%, rgba(220,38,38,0.075) 54%, rgba(185,28,28,0.1) 100%)"
+                      : isSelected
                       ? "linear-gradient(to bottom, #DC2626, #e84040)"
                       : isDanger
                         ? dangerSoftBackground
                         : undefined,
-                    boxShadow: isSelected
-                      ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
+                    boxShadow: isKurti
+                      ? "inset 0 1px 0.8px rgba(255,255,255,0.58), 0 0 0 1px rgba(220,38,38,0.14), 0 2px 7px rgba(185,28,28,0.065)"
+                      : isSelected
+                        ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
                       : isDanger
                         ? dangerSoftShadow
                         : undefined,
@@ -650,7 +656,7 @@ export function CollapsibleMenu({
                     className="transition-colors duration-200"
                     style={{
                       gridColumn: 2,
-                      color: isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.3)",
+                      color: isKurti ? "#b91c1c" : isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.3)",
                     }}
                   >
                     {item.icon}
@@ -659,15 +665,41 @@ export function CollapsibleMenu({
                   <span
                     className={cn(
                       "text-[11px] tracking-[-0.01em] transition-colors duration-200 whitespace-nowrap",
-                      isSelected ? "font-semibold" : "font-normal"
+                      isHighlighted ? "font-semibold" : "font-normal"
                     )}
                     style={{
                       gridColumn: 4,
-                      color: isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.45)",
+                      color: isKurti ? "#991b1b" : isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.45)",
                     }}
                   >
                     {item.label}
                   </span>
+                  {isKurti ? (
+                    <span
+                      style={{
+                        position: "absolute",
+                        right: 9,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        height: 15,
+                        padding: "0 6px",
+                        borderRadius: 999,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#b91c1c",
+                        background: "rgba(220,38,38,0.075)",
+                        border: "1px solid rgba(220,38,38,0.14)",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
+                        fontSize: 6.5,
+                        lineHeight: 1,
+                        fontWeight: 900,
+                        letterSpacing: "0.09em",
+                      }}
+                    >
+                      NEU
+                    </span>
+                  ) : null}
                 </div>
               );
             })}
@@ -805,17 +837,23 @@ export function CollapsibleMenu({
                     <div
                       aria-label="Kurti lädt"
                       style={{
-                        width: 84,
-                        height: 28,
-                        borderRadius: "12px 12px 12px 4px",
-                        background: "rgba(248,250,252,0.44)",
-                        border: "1px solid rgba(15,23,42,0.07)",
-                        backdropFilter: "blur(1.5px)",
-                        WebkitBackdropFilter: "blur(1.5px)",
+                        width: "fit-content",
+                        minWidth: 54,
+                        height: 30,
+                        flex: "0 0 30px",
+                        alignSelf: "flex-start",
+                        boxSizing: "border-box",
+                        padding: "0 12px",
+                        borderRadius: "13px 13px 13px 5px",
+                        background: "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(248,250,252,0.58))",
+                        border: "1px solid rgba(220,38,38,0.13)",
+                        boxShadow: "0 4px 12px rgba(15,23,42,0.055), inset 0 1px 0 rgba(255,255,255,0.72)",
+                        backdropFilter: "blur(3px)",
+                        WebkitBackdropFilter: "blur(3px)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        gap: 4,
+                        gap: 5,
                       }}
                     >
                       {[0, 1, 2].map((index) => (
@@ -866,18 +904,24 @@ export function CollapsibleMenu({
                     <div
                       aria-label="Kurti schreibt"
                       style={{
-                        width: 54,
-                        height: 28,
+                        width: "fit-content",
+                        minWidth: 54,
+                        height: 30,
+                        flex: "0 0 30px",
                         alignSelf: "flex-start",
-                        borderRadius: "12px 12px 12px 4px",
-                        background: "rgba(248,250,252,0.44)",
-                        border: "1px solid rgba(15,23,42,0.07)",
-                        backdropFilter: "blur(1.5px)",
-                        WebkitBackdropFilter: "blur(1.5px)",
+                        boxSizing: "border-box",
+                        padding: "0 12px",
+                        marginTop: 1,
+                        borderRadius: "13px 13px 13px 5px",
+                        background: "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(248,250,252,0.58))",
+                        border: "1px solid rgba(220,38,38,0.13)",
+                        boxShadow: "0 4px 12px rgba(15,23,42,0.055), inset 0 1px 0 rgba(255,255,255,0.72)",
+                        backdropFilter: "blur(3px)",
+                        WebkitBackdropFilter: "blur(3px)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        gap: 4,
+                        gap: 5,
                       }}
                     >
                       {[0, 1, 2].map((index) => (
@@ -1215,21 +1259,24 @@ export function CollapsibleMenu({
         }
 
         .gm-kurti-loading-dot {
-          width: 4px;
-          height: 4px;
+          display: block;
+          width: 5px;
+          height: 5px;
+          flex: 0 0 5px;
           border-radius: 999px;
-          background: rgba(71, 85, 105, 0.48);
-          animation: gm-kurti-dot 900ms ease-in-out infinite;
+          background: #dc2626;
+          box-shadow: 0 0 0 1px rgba(185,28,28,0.08);
+          animation: gm-kurti-dot 920ms cubic-bezier(0.4,0,0.2,1) infinite;
         }
 
         @keyframes gm-kurti-dot {
           0%, 60%, 100% {
-            opacity: 0.35;
-            transform: translateY(0);
+            opacity: 0.28;
+            transform: translateY(0) scale(0.74);
           }
           30% {
-            opacity: 0.9;
-            transform: translateY(-2px);
+            opacity: 1;
+            transform: translateY(-2px) scale(1);
           }
         }
 

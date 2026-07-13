@@ -11,6 +11,7 @@ import {
 import { Bot, ChevronLeft, Database, MessageCircle, Minimize2, SendHorizontal, ShieldCheck } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AdminKurtiChart } from "@/components/admin/AdminKurtiChart";
 import {
   fetchAdminKurtiMessages,
   fetchAdminKurtiWindowLayout,
@@ -174,7 +175,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typing, setTyping] = useState<TypingState | null>(null);
-  const [capabilityCount, setCapabilityCount] = useState(27);
+  const [capabilityCount, setCapabilityCount] = useState(28);
   const [memoryMinutes, setMemoryMinutes] = useState(480);
   const [panelRect, setPanelRect] = useState<PanelRect | null>(null);
   const [bubblePoint, setBubblePoint] = useState<Point | null>(null);
@@ -331,7 +332,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
         setMessages(payload.messages ?? []);
         setConfigured(payload.configured);
         setExpiresAt(payload.expiresAt);
-        setCapabilityCount(payload.capabilities?.toolCount ?? 27);
+        setCapabilityCount(payload.capabilities?.toolCount ?? 28);
         setMemoryMinutes(payload.capabilities?.memoryMinutes ?? 480);
       })
       .catch((caught) => {
@@ -841,13 +842,14 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
         {loading ? <TypingBubble label="Kurti lädt" /> : renderedMessages.map((message) => {
           const isUser = message.role === "user";
           const isTypingMessage = !isUser && typing?.messageId === message.id;
+          const showCharts = !isUser && !isTypingMessage && Boolean(message.charts?.length);
           const visibleContent = isTypingMessage ? typing.content.slice(0, typing.visibleLength) : message.content;
           return (
             <div
               key={message.id}
               aria-label={isTypingMessage ? message.content : undefined}
               style={{
-                maxWidth: isUser ? "78%" : "88%",
+                maxWidth: isUser ? "78%" : showCharts ? "96%" : "88%",
                 alignSelf: isUser ? "flex-end" : "flex-start",
                 borderRadius: isUser ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
                 padding: isUser ? "10px 13px" : "11px 13px",
@@ -864,7 +866,14 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
                 wordBreak: "break-word",
               }}
             >
-              {isUser ? visibleContent : <AdminKurtiMarkdown content={visibleContent} isTyping={isTypingMessage} />}
+              {isUser ? visibleContent : (
+                <>
+                  <AdminKurtiMarkdown content={visibleContent} isTyping={isTypingMessage} />
+                  {showCharts ? message.charts?.map((chart, index) => (
+                    <AdminKurtiChart key={`${message.id}-${index}-${chart.title}`} chart={chart} />
+                  )) : null}
+                </>
+              )}
             </div>
           );
         })}

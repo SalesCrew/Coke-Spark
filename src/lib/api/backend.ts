@@ -2822,7 +2822,29 @@ export type GmKurtiReplyPayload = {
   expiresAt: string | null;
 };
 
-export type AdminKurtiMessage = GmKurtiMessage;
+export type AdminKurtiChartSpec = {
+  type: "line" | "bar";
+  title: string;
+  subtitle: string | null;
+  xLabel: string | null;
+  yLabel: string | null;
+  valueFormat: "number" | "decimal" | "percent" | "currency";
+  series: Array<{
+    key: string;
+    label: string;
+  }>;
+  points: Array<{
+    label: string;
+    values: Array<{
+      seriesKey: string;
+      value: number | null;
+    }>;
+  }>;
+};
+
+export type AdminKurtiMessage = GmKurtiMessage & {
+  charts?: AdminKurtiChartSpec[];
+};
 
 export type AdminKurtiMessagesPayload = {
   messages: AdminKurtiMessage[];

@@ -17,6 +17,7 @@ const retentionRows = [
   ["Technische Telemetrie und Fehlerlogs", "Detaildaten grundsätzlich 90 Tage. Aggregierte technische Statistiken höchstens 12 Monate."],
   ["Excel-, Foto- und sonstige Exporte", "Arbeitskopien sind nach Zweckerfüllung zu löschen, grundsätzlich innerhalb von 30 Tagen, außer sie werden in einem freigegebenen geschützten Ablageort als Nachweis mit eigener Frist gespeichert."],
   ["Akzeptanz der Nutzungs-/Kontrollvereinbarung", "Für die Dauer des Einsatzes plus 3 Jahre als Nachweis der Information und Zustimmung, länger nur bei Streitfall, Prüfung oder Legal Hold."],
+  ["Frag-Kurti-Unterhaltung", "Chatnachrichten werden in Coke Spark 15 Minuten nach der letzten erfolgreichen Unterhaltung gelöscht. Für die Verarbeitung durch den KI-Dienstleister gelten dessen vertragliche Datenkontrollen; standardmäßig können API-Inhalte bis zu 30 Tage in Missbrauchs-/Sicherheitsprotokollen und verschlüsselte Prompt-Cache-Zwischendaten bis zu 24 Stunden verarbeitet werden, sofern keine strengeren Aufbewahrungskontrollen für das API-Projekt aktiviert sind."],
 ];
 
 const sections: PrivacyNoticeSection[] = [
@@ -105,14 +106,24 @@ const sections: PrivacyNoticeSection[] = [
     ],
   },
   {
-    title: "10. Automatisierte Auswertungen",
+    title: "10. KI-Assistent Frag Kurti",
+    body: [
+      "Frag Kurti ist eine freiwillig nutzbare Lese-, Navigations- und Supporthilfe. Kurti kann keine Einträge ändern, nichts absenden und keine Personal-, Bonus-, Prämien- oder sonstige Entscheidung treffen. Maßgeblich bleiben die in Coke Spark gespeicherten Daten und die Prüfung durch berechtigte interne Stellen.",
+      "Bei einer Nachricht werden der Chattext, der bisherige noch aktive 15-Minuten-Chatverlauf und ein begrenzter Kontext aus deinen eigenen Spark-Daten an die OpenAI Responses API übermittelt. Dieser Kontext kann eigene Profilangaben, Arbeitszeit-/KM-Zusammenfassungen, eigene Besuche, aktuelle Kampagnen, offene eigene Fragebögen, eigene Anfragestatus sowie den Status dieser Datenschutz-/Nutzungsinformation enthalten.",
+      "Kurti erhält keine Daten anderer GMs, keine Admin-Inhalte, keine Kunden-Zugangsdaten, keine Passwörter oder Tokens, keine technischen Rohlogs und keine direkten Datenbankzugriffe. Bitte gib auch selbst keine Passwörter, Tokens, privaten Unterlagen, Gesundheitsdetails oder andere für die Arbeitsfrage unnötige sensible Informationen in den Chat ein.",
+      "OpenAI wird als technischer KI-Dienstleister eingesetzt. Die Responses API wird mit deaktivierter Anwendungsspeicherung (store=false) verwendet. Nach den OpenAI API-Datenkontrollen werden API-Inhalte nicht zum Training verwendet, außer der Verantwortliche stimmt einer solchen Nutzung ausdrücklich zu. Davon getrennt können Inhalte standardmäßig bis zu 30 Tage in Missbrauchs-/Sicherheitsprotokollen und verschlüsselte Prompt-Cache-Zwischendaten bis zu 24 Stunden verarbeitet werden; für freigeschaltete Projekte können strengere Modified-Abuse-Monitoring- oder Zero-Data-Retention-Kontrollen gelten.",
+      "Die Kurti-Unterhaltung wird in Coke Spark 15 Minuten nach der letzten erfolgreichen Unterhaltung automatisch gelöscht. Kurti-Antworten können fehlerhaft oder unvollständig sein und ersetzen weder eine verbindliche Auskunft von Denise/Doris noch eine Datenschutz- oder Rechtsberatung.",
+    ],
+  },
+  {
+    title: "11. Automatisierte Auswertungen",
     body: [
       "Coke Spark berechnet Kennzahlen wie Besuchsfortschritt, IPP, Prämien-/Bonusfortschritt, Zeitverläufe und Kampagnenstatus.",
       "Soweit Kennzahlen Auswirkungen auf Prämien, Qualität oder operative Beurteilung haben, müssen sie intern nachvollziehbar und korrigierbar bleiben. Es ist keine ausschließlich automatisierte finale Entscheidung vorgesehen, die ohne menschliche Prüfmöglichkeit rechtliche oder vergleichbar erhebliche Wirkung entfaltet.",
     ],
   },
   {
-    title: "11. Rechte",
+    title: "12. Rechte",
     body: [
       "Betroffene Personen können Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch verlangen, soweit die gesetzlichen Voraussetzungen vorliegen.",
       "Bestimmte Daten können wegen gesetzlicher Aufbewahrungspflichten, Arbeitszeitnachweisen, Nachweisinteressen oder berechtigter Dokumentation nicht sofort gelöscht werden; in solchen Fällen kann eine Einschränkung oder Sperrung geprüft werden.",
@@ -123,7 +134,7 @@ const sections: PrivacyNoticeSection[] = [
     ],
   },
   {
-    title: "12. Sicherheit und Datenschutzvorfälle",
+    title: "13. Sicherheit und Datenschutzvorfälle",
     body: [
       "Coke Spark nutzt rollenbasierte Zugriffe, serverseitige Berechtigungsprüfungen, private Speicherbereiche, signierte Datei-URLs, Protokollierung und eine backend-only Datenbankzugriffsarchitektur.",
       "Direkte anonyme oder normale Client-Zugriffe auf die Datenbanktabellen sind nicht vorgesehen. Geschäftsdaten werden über die autorisierte Backend-API verarbeitet.",

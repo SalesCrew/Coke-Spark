@@ -2792,6 +2792,26 @@ export type GmDashboardCriticalPayload = {
   } | null;
 };
 
+export type GmKurtiMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type GmKurtiMessagesPayload = {
+  messages: GmKurtiMessage[];
+  configured: boolean;
+  expiresAt: string | null;
+};
+
+export type GmKurtiReplyPayload = {
+  messages: GmKurtiMessage[];
+  assistantMessage: GmKurtiMessage | null;
+  expiresAt: string | null;
+};
+
 export type DayPause = {
   id: string;
   daySessionId: string;
@@ -4705,6 +4725,17 @@ export async function fetchCurrentDaySession(): Promise<DaySessionCurrentPayload
 
 export async function fetchGmDashboardCritical(): Promise<GmDashboardCriticalPayload> {
   return (await authedFetch("/gm/dashboard/critical", { cache: "no-store" })) as GmDashboardCriticalPayload;
+}
+
+export async function fetchGmKurtiMessages(): Promise<GmKurtiMessagesPayload> {
+  return (await authedFetch("/gm/kurti/messages", { cache: "no-store" })) as GmKurtiMessagesPayload;
+}
+
+export async function sendGmKurtiMessage(message: string): Promise<GmKurtiReplyPayload> {
+  return (await authedFetch("/gm/kurti/messages", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  }, 60000)) as GmKurtiReplyPayload;
 }
 
 export async function fetchTodaySubmissions(): Promise<TodaySubmissionsPayload> {

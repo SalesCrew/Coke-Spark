@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   Search, X, ChevronDown, Check, FileSpreadsheet, Upload, Plus,
   MapPin, Edit2, Save, RotateCcw, Info, Calendar, Clock, User,
-  Building2, Tag, ArrowRight, AlertTriangle, CheckCircle2, Trash2,
+  Building2, Tag, ArrowRight, AlertTriangle, CheckCircle2, Trash2, Loader2,
 } from "lucide-react";
 import type { KuehlerUnitRecord, MarketRecord, MarketVisitLog, MarketFilters, SectionType } from "@/types/markets";
 import {
@@ -24,6 +24,7 @@ import {
   readAuthSession,
   softDeleteMarket,
   updateMarket,
+  updateMarketUniverseMarket,
   updateMarketKuehlerUnit,
   type NormalizeMarketRegionsResult,
 } from "@/lib/api/backend";
@@ -163,22 +164,186 @@ const FrequencyCircle = React.memo(function FrequencyCircle({ visited, frequency
 // ── Market row (memoized for virtual list) ─────────────────────
 
 const MARKET_ROW_H = 54; // px — must match the actual rendered row height
-const MARKET_LIST_GRID = "minmax(240px,1.55fr) minmax(82px,0.5fr) 34px minmax(140px,0.9fr) minmax(70px,0.45fr) 54px minmax(110px,0.75fr) 56px minmax(110px,0.75fr) 38px 40px";
+const MARKET_LIST_GRID = "minmax(240px,1.55fr) minmax(82px,0.5fr) 86px 34px minmax(140px,0.9fr) minmax(70px,0.45fr) 54px minmax(110px,0.75fr) 56px minmax(110px,0.75fr) 38px 40px";
 const MARKET_LIST_GAP = "0 10px";
+
+function UniverseMarketDropdown({
+  value,
+  disabled,
+  saving,
+  onChange,
+}: {
+  value: boolean;
+  disabled: boolean;
+  saving: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.max(96, rect.width);
+      setPosition({
+        top: rect.bottom + 4,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+        width,
+      });
+    };
+    updatePosition();
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!anchorRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        aria-label="Universumsmarkt ändern"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((current) => !current);
+        }}
+        onMouseDown={(event) => event.stopPropagation()}
+        style={{
+          width: "100%",
+          height: 28,
+          border: "none",
+          borderRadius: 7,
+          padding: "0 8px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 6,
+          background: open ? "rgba(220,38,38,0.055)" : "linear-gradient(to bottom,#fff,#f6f6f6)",
+          boxShadow: open
+            ? "inset 0 0 0 1px rgba(220,38,38,0.22), 0 1px 4px rgba(0,0,0,0.05)"
+            : "inset 0 1px 0.6px rgba(255,255,255,0.9), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 3px rgba(0,0,0,0.05)",
+          color: value ? "#166534" : "#6b7280",
+          fontFamily: "inherit",
+          fontSize: 10,
+          fontWeight: 700,
+          cursor: disabled ? "wait" : "pointer",
+          opacity: disabled && !saving ? 0.55 : 1,
+        }}
+      >
+        <span>{value ? "Ja" : "Nein"}</span>
+        {saving ? <Loader2 size={11} className="animate-spin" /> : <ChevronDown size={11} strokeWidth={2} color="rgba(0,0,0,0.34)" />}
+      </button>
+      {open && position && typeof document !== "undefined" ? createPortal(
+        <div
+          ref={menuRef}
+          role="listbox"
+          aria-label="Universumsmarkt"
+          style={{
+            position: "fixed",
+            top: position.top,
+            left: position.left,
+            width: position.width,
+            zIndex: 9999,
+            padding: 4,
+            borderRadius: 9,
+            border: "1px solid rgba(0,0,0,0.08)",
+            background: "#fff",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.11), 0 2px 6px rgba(0,0,0,0.04)",
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {([true, false] as const).map((option) => {
+            const selected = option === value;
+            return (
+              <button
+                key={String(option)}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => {
+                  setOpen(false);
+                  if (!selected) onChange(option);
+                }}
+                style={{
+                  width: "100%",
+                  minHeight: 30,
+                  padding: "0 9px",
+                  border: "none",
+                  borderRadius: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  background: selected ? "rgba(220,38,38,0.06)" : "transparent",
+                  color: selected ? R : "#374151",
+                  fontFamily: "inherit",
+                  fontSize: 10,
+                  fontWeight: selected ? 700 : 500,
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(event) => { if (!selected) event.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
+                onMouseLeave={(event) => { if (!selected) event.currentTarget.style.background = "transparent"; }}
+              >
+                {option ? "Ja" : "Nein"}
+                {selected ? <Check size={11} strokeWidth={2.5} color={R} /> : null}
+              </button>
+            );
+          })}
+        </div>,
+        document.body,
+      ) : null}
+    </>
+  );
+}
 
 const MarketRow = React.memo(function MarketRow({
   market,
   active,
   visited,
   visitCount,
+  universeMarketDisabled,
+  universeMarketSaving,
   onSelect,
+  onUniverseMarketChange,
   onOpenContextMenu,
 }: {
   market: MarketRecord;
   active: boolean;
   visited: boolean;
   visitCount: number;
+  universeMarketDisabled: boolean;
+  universeMarketSaving: boolean;
   onSelect: (id: string | null) => void;
+  onUniverseMarketChange: (marketId: string, value: boolean) => void;
   onOpenContextMenu?: (event: React.MouseEvent<HTMLDivElement>, marketId: string) => void;
 }) {
   const chainLabel = market.dbName.trim() || market.name.split(" ")[0].slice(0, 4);
@@ -214,6 +379,15 @@ const MarketRow = React.memo(function MarketRow({
       </div>
       {/* Stammnr */}
       <div style={{ minWidth: 0, fontSize: 11, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" }}>{market.cokeMasterNumber || market.kuehlerStammnr || ""}</div>
+      {/* Universumsmarkt */}
+      <div onClick={(event) => event.stopPropagation()} style={{ minWidth: 0 }}>
+        <UniverseMarketDropdown
+          value={market.universeMarket}
+          disabled={universeMarketDisabled}
+          saving={universeMarketSaving}
+          onChange={(value) => onUniverseMarketChange(market.id, value)}
+        />
+      </div>
       {/* Info dot */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
         {market.infoFlag && <span style={{ width: 6, height: 6, borderRadius: "50%", background: R, flexShrink: 0 }} title="Info vorhanden" />}
@@ -250,6 +424,8 @@ function VirtualMarketList({
   items,
   selectedId,
   onSelect,
+  onUniverseMarketChange,
+  savingUniverseMarketId,
   onOpenContextMenu,
   visitedSet,
   visitCounts,
@@ -257,6 +433,8 @@ function VirtualMarketList({
   items: MarketRecord[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  onUniverseMarketChange: (marketId: string, value: boolean) => void;
+  savingUniverseMarketId: string | null;
   onOpenContextMenu?: (event: React.MouseEvent<HTMLDivElement>, marketId: string) => void;
   visitedSet: Set<string>;
   visitCounts: Record<string, number>;
@@ -310,7 +488,10 @@ function VirtualMarketList({
             active={m.id === selectedId}
             visited={visitedSet.has(m.id)}
             visitCount={visitCounts[m.id] ?? 0}
+            universeMarketDisabled={savingUniverseMarketId !== null}
+            universeMarketSaving={savingUniverseMarketId === m.id}
             onSelect={onSelect}
+            onUniverseMarketChange={onUniverseMarketChange}
             onOpenContextMenu={onOpenContextMenu}
           />
         ))}
@@ -2209,6 +2390,7 @@ export default function MaerktePage() {
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [savingUniverseMarketId, setSavingUniverseMarketId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -2267,6 +2449,20 @@ export default function MaerktePage() {
       setSaveError(err instanceof Error ? err.message : "Markt konnte nicht gespeichert werden.");
     }
   }, []);
+
+  const handleUniverseMarketChange = useCallback(async (marketId: string, universeMarket: boolean) => {
+    if (savingUniverseMarketId) return;
+    setSaveError(null);
+    setSavingUniverseMarketId(marketId);
+    try {
+      const saved = await updateMarketUniverseMarket(marketId, universeMarket);
+      setMarkets((prev) => prev.map((market) => market.id === saved.id ? { ...market, universeMarket: saved.universeMarket } : market));
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Universumsmarkt konnte nicht gespeichert werden.");
+    } finally {
+      setSavingUniverseMarketId(null);
+    }
+  }, [savingUniverseMarketId]);
 
   const handleLoadKuehlerUnits = useCallback(async (marketId: string) => {
     return fetchMarketKuehlerUnits(marketId);
@@ -2804,7 +3000,7 @@ export default function MaerktePage() {
 
             {/* Column header */}
             <div style={{ display: "grid", gridTemplateColumns: MARKET_LIST_GRID, gap: MARKET_LIST_GAP, padding: "7px 18px", background: "rgba(0,0,0,0.018)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-              {["Markt", "Stammnr", "Info", "Adresse", "Region", "PLZ", "Ort", "EM/EH", "Verplant an", "IPP", "Freq."].map((h, i) => (
+              {["Markt", "Stammnr", "Universumsmarkt", "Info", "Adresse", "Region", "PLZ", "Ort", "EM/EH", "Verplant an", "IPP", "Freq."].map((h, i) => (
                 <span key={i} style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h}</span>
               ))}
             </div>
@@ -2814,6 +3010,8 @@ export default function MaerktePage() {
               items={filtered}
               selectedId={selectedId}
               onSelect={handleSelectMarket}
+              onUniverseMarketChange={handleUniverseMarketChange}
+              savingUniverseMarketId={savingUniverseMarketId}
               onOpenContextMenu={handleOpenMarketContextMenu}
               visitedSet={visitedInRedMonatSet}
               visitCounts={visitCountByMarket}

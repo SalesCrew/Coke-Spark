@@ -3837,6 +3837,19 @@ export async function updateMarket(payload: MarketRecord): Promise<MarketRecord>
   return next;
 }
 
+export async function updateMarketUniverseMarket(
+  marketId: string,
+  universeMarket: boolean,
+): Promise<{ id: string; universeMarket: boolean }> {
+  const data = (await authedFetch(`/admin/markets/${encodeURIComponent(marketId)}/universe-market`, {
+    method: "PATCH",
+    body: JSON.stringify({ universeMarket }),
+  })) as { market: { id: string; universeMarket: boolean } };
+
+  invalidateMarketsDirectoryCache();
+  return data.market;
+}
+
 export async function softDeleteMarket(marketId: string): Promise<void> {
   await authedFetch(`/admin/markets/${marketId}/delete`, { method: "PATCH" });
   invalidateMarketsDirectoryCache();

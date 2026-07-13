@@ -174,7 +174,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typing, setTyping] = useState<TypingState | null>(null);
-  const [capabilityCount, setCapabilityCount] = useState(24);
+  const [capabilityCount, setCapabilityCount] = useState(27);
   const [memoryMinutes, setMemoryMinutes] = useState(480);
   const [panelRect, setPanelRect] = useState<PanelRect | null>(null);
   const [bubblePoint, setBubblePoint] = useState<Point | null>(null);
@@ -331,7 +331,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
         setMessages(payload.messages ?? []);
         setConfigured(payload.configured);
         setExpiresAt(payload.expiresAt);
-        setCapabilityCount(payload.capabilities?.toolCount ?? 24);
+        setCapabilityCount(payload.capabilities?.toolCount ?? 27);
         setMemoryMinutes(payload.capabilities?.memoryMinutes ?? 480);
       })
       .catch((caught) => {

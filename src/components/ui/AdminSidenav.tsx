@@ -74,7 +74,7 @@ export function AdminSidenav() {
     router.replace("/");
     router.refresh();
   };
-  const isSidebarExpanded = hovered || overlayState !== "closed" || kurtiOpen;
+  const isSidebarExpanded = hovered || overlayState !== "closed";
 
   const displayName = useMemo(() => {
     const firstName = authUser?.firstName?.trim() ?? "";

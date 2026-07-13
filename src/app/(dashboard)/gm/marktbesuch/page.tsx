@@ -272,6 +272,16 @@ function normalizeTagSearchText(value: string): string {
     .trim();
 }
 
+function comparePhotoTagLabels(
+  left: { label: string },
+  right: { label: string },
+): number {
+  return left.label.localeCompare(right.label, "de-AT", {
+    sensitivity: "base",
+    numeric: true,
+  });
+}
+
 function isoToDisplayDate(value: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return value;
@@ -2718,12 +2728,14 @@ function QuestionCard({
         const configuredTagIds: string[] = tagsEnabled ? (cfg.tagIds as string[]) : [];
 
         // Resolve tag labels from backend-provided config metadata
-        const resolvedTags = configuredTagIds.map((id) => {
-          const configTagMeta = Array.isArray(cfg?.tagMeta)
-            ? (cfg.tagMeta as Array<{ id: string; label: string; deletedAt: string | null }>).find((entry) => entry.id === id)
-            : null;
-          return configTagMeta ?? { id, label: id, deletedAt: null };
-        });
+        const resolvedTags = configuredTagIds
+          .map((id) => {
+            const configTagMeta = Array.isArray(cfg?.tagMeta)
+              ? (cfg.tagMeta as Array<{ id: string; label: string; deletedAt: string | null }>).find((entry) => entry.id === id)
+              : null;
+            return configTagMeta ?? { id, label: id, deletedAt: null };
+          })
+          .sort(comparePhotoTagLabels);
 
         const tagMode = resolvePhotoTagMode(photoState);
         const photoKeys = photos.map((src, index) => resolvePhotoUiKey(photos, index) || photoCommittedMeta[index]?.storagePath || src || `photo-${index}`);

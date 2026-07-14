@@ -32,6 +32,7 @@ const KURTI_THINKING_VIDEO = "/kurti-thinking.mp4";
 type AdminKurtiPanelProps = {
   open: boolean;
   sidebarExpanded: boolean;
+  adminUserId: string | null;
   onOpen: () => void;
   onClose: () => void;
 };
@@ -54,6 +55,14 @@ type PanelRect = {
 type Point = {
   x: number;
   y: number;
+};
+
+type StoredWindowLayout = {
+  panelRect: PanelRect;
+  bubblePoint: Point;
+  bubbleDismissed: boolean;
+  isCollapsed: boolean;
+  updatedAtMs: number;
 };
 
 type ResizeEdge = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
@@ -187,7 +196,7 @@ function inferVisualizationSkeletonKind(message: string): AdminKurtiVisualizatio
   return "series";
 }
 
-export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: AdminKurtiPanelProps) {
+export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, onClose }: AdminKurtiPanelProps) {
   const [messages, setMessages] = useState<AdminKurtiMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -210,10 +219,17 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const interactionRef = useRef<WindowInteraction | null>(null);
   const layoutReadyRef = useRef(false);
+  const storedLayoutRef = useRef<StoredWindowLayout | null>(null);
+  const panelRectRef = useRef<PanelRect | null>(null);
+  const bubblePointRef = useRef<Point | null>(null);
+  const collapsedRef = useRef(false);
+  const bubbleDismissedRef = useRef(false);
+  const serverLayoutLoadedRef = useRef(false);
   const wasOpenRef = useRef(false);
   const openRef = useRef(open);
   const ignoreBubbleClickRef = useRef(false);
   const layoutSaveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const layoutStorageKey = `${LAYOUT_STORAGE_KEY}:${adminUserId ?? "unknown-admin"}`;
 
   const enqueueLayoutSave = useCallback((layout: AdminKurtiWindowLayoutInput) => {
     layoutSaveChainRef.current = layoutSaveChainRef.current
@@ -229,14 +245,16 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
       let storedBubble: Point | null = null;
       let storedBubbleDismissed = false;
       let storedCollapsed = false;
+      let storedUpdatedAtMs = 0;
       try {
-        const rawLayout = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+        const rawLayout = window.localStorage.getItem(layoutStorageKey);
         if (rawLayout) {
           const parsed = JSON.parse(rawLayout) as {
             panelRect?: Partial<PanelRect>;
             bubblePoint?: Partial<Point>;
             bubbleDismissed?: boolean;
             isCollapsed?: boolean;
+            updatedAt?: string;
           };
           if (
             parsed.panelRect
@@ -254,17 +272,34 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
           }
           storedBubbleDismissed = parsed.bubbleDismissed === true;
           storedCollapsed = parsed.isCollapsed === true;
+          const parsedUpdatedAtMs = Date.parse(parsed.updatedAt ?? "");
+          storedUpdatedAtMs = Number.isFinite(parsedUpdatedAtMs) ? parsedUpdatedAtMs : 0;
         }
       } catch {
         // Invalid local layout data falls back to the default window position.
       }
       const initialRect = storedRect ? clampPanelRect(storedRect) : createDefaultPanelRect(sidebarExpanded);
-      setPanelRect(initialRect);
-      setBubblePoint(storedBubble
+      const initialBubblePoint = storedBubble
         ? clampBubblePoint(storedBubble)
-        : clampBubblePoint({ x: initialRect.x + initialRect.width - BUBBLE_SIZE, y: initialRect.y }));
+        : clampBubblePoint({ x: initialRect.x + initialRect.width - BUBBLE_SIZE, y: initialRect.y });
+      const initialCollapsed = !open && storedCollapsed && !storedBubbleDismissed;
+      if (storedRect && storedBubble) {
+        storedLayoutRef.current = {
+          panelRect: initialRect,
+          bubblePoint: initialBubblePoint,
+          bubbleDismissed: storedBubbleDismissed,
+          isCollapsed: initialCollapsed,
+          updatedAtMs: storedUpdatedAtMs,
+        };
+      }
+      panelRectRef.current = initialRect;
+      bubblePointRef.current = initialBubblePoint;
+      bubbleDismissedRef.current = storedBubbleDismissed;
+      collapsedRef.current = initialCollapsed;
+      setPanelRect(initialRect);
+      setBubblePoint(initialBubblePoint);
       setBubbleDismissed(storedBubbleDismissed);
-      setCollapsed(!open && storedCollapsed && !storedBubbleDismissed);
+      setCollapsed(initialCollapsed);
       layoutReadyRef.current = true;
       return;
     }
@@ -275,31 +310,41 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
     }
 
     if (!wasOpenRef.current) {
+      collapsedRef.current = false;
       setCollapsed(false);
       wasOpenRef.current = true;
     }
 
-    setPanelRect((current) => current ? clampPanelRect(current) : createDefaultPanelRect(sidebarExpanded));
-    setBubblePoint((current) => current ? clampBubblePoint(current) : current);
-  }, [open, sidebarExpanded]);
+    setPanelRect((current) => {
+      const next = current ? clampPanelRect(current) : createDefaultPanelRect(sidebarExpanded);
+      panelRectRef.current = next;
+      return next;
+    });
+    setBubblePoint((current) => {
+      const next = current ? clampBubblePoint(current) : current;
+      bubblePointRef.current = next;
+      return next;
+    });
+  }, [layoutStorageKey, open, sidebarExpanded]);
 
   useEffect(() => {
     openRef.current = open;
   }, [open]);
 
   useEffect(() => {
-    if (!layoutReadyRef.current || !panelRect || !bubblePoint) return;
+    if (!layoutReadyRef.current || !serverLayoutLoaded || !panelRect || !bubblePoint) return;
     try {
-      window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({
+      window.localStorage.setItem(layoutStorageKey, JSON.stringify({
         panelRect,
         bubblePoint,
         bubbleDismissed,
         isCollapsed: collapsed,
+        updatedAt: new Date().toISOString(),
       }));
     } catch {
       // The layout remains usable even when browser storage is unavailable.
     }
-  }, [bubbleDismissed, bubblePoint, collapsed, panelRect]);
+  }, [bubbleDismissed, bubblePoint, collapsed, layoutStorageKey, panelRect, serverLayoutLoaded]);
 
   useEffect(() => {
     if (!layoutReadyRef.current) return;
@@ -308,17 +353,45 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
     fetchAdminKurtiWindowLayout()
       .then((payload) => {
         if (cancelled) return;
-        if (payload.layout) {
-          setPanelRect(clampPanelRect(payload.layout.panel));
-          setBubblePoint(clampBubblePoint(payload.layout.bubble));
-          setBubbleDismissed(payload.layout.bubbleDismissed);
-          setCollapsed(!openRef.current && payload.layout.isCollapsed && !payload.layout.bubbleDismissed);
+        const serverUpdatedAtMs = Date.parse(payload.layout?.updatedAt ?? "");
+        const storedLayout = storedLayoutRef.current;
+        const useStoredLayout = Boolean(
+          storedLayout
+          && storedLayout.updatedAtMs > (Number.isFinite(serverUpdatedAtMs) ? serverUpdatedAtMs : 0),
+        );
+        if (payload.layout && !useStoredLayout) {
+          const nextPanelRect = clampPanelRect(payload.layout.panel);
+          const nextBubblePoint = clampBubblePoint(payload.layout.bubble);
+          const nextBubbleDismissed = payload.layout.bubbleDismissed;
+          const nextCollapsed = !openRef.current && payload.layout.isCollapsed && !nextBubbleDismissed;
+          panelRectRef.current = nextPanelRect;
+          bubblePointRef.current = nextBubblePoint;
+          bubbleDismissedRef.current = nextBubbleDismissed;
+          collapsedRef.current = nextCollapsed;
+          setPanelRect(nextPanelRect);
+          setBubblePoint(nextBubblePoint);
+          setBubbleDismissed(nextBubbleDismissed);
+          setCollapsed(nextCollapsed);
+        } else if (storedLayout) {
+          const nextCollapsed = !openRef.current && storedLayout.isCollapsed && !storedLayout.bubbleDismissed;
+          panelRectRef.current = storedLayout.panelRect;
+          bubblePointRef.current = storedLayout.bubblePoint;
+          bubbleDismissedRef.current = storedLayout.bubbleDismissed;
+          collapsedRef.current = nextCollapsed;
+          setPanelRect(storedLayout.panelRect);
+          setBubblePoint(storedLayout.bubblePoint);
+          setBubbleDismissed(storedLayout.bubbleDismissed);
+          setCollapsed(nextCollapsed);
         }
+        serverLayoutLoadedRef.current = true;
         setServerLayoutLoaded(true);
       })
       .catch(() => {
         // Local layout remains available when the preference endpoint cannot be reached.
-        if (!cancelled) setServerLayoutLoaded(true);
+        if (!cancelled) {
+          serverLayoutLoadedRef.current = true;
+          setServerLayoutLoaded(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -336,8 +409,16 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
   useEffect(() => {
     if (!open) return;
     const keepInsideViewport = () => {
-      setPanelRect((current) => current ? clampPanelRect(current) : current);
-      setBubblePoint((current) => current ? clampBubblePoint(current) : current);
+      setPanelRect((current) => {
+        const next = current ? clampPanelRect(current) : current;
+        panelRectRef.current = next;
+        return next;
+      });
+      setBubblePoint((current) => {
+        const next = current ? clampBubblePoint(current) : current;
+        bubblePointRef.current = next;
+        return next;
+      });
     };
     window.addEventListener("resize", keepInsideViewport);
     return () => window.removeEventListener("resize", keepInsideViewport);
@@ -516,19 +597,23 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
 
     if (interaction.kind === "bubble") {
       if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) interaction.moved = true;
-      setBubblePoint(clampBubblePoint({
+      const nextBubblePoint = clampBubblePoint({
         x: interaction.startPoint.x + deltaX,
         y: interaction.startPoint.y + deltaY,
-      }));
+      });
+      bubblePointRef.current = nextBubblePoint;
+      setBubblePoint(nextBubblePoint);
       return;
     }
 
     if (interaction.kind === "move") {
-      setPanelRect(clampPanelRect({
+      const nextPanelRect = clampPanelRect({
         ...interaction.startRect,
         x: interaction.startRect.x + deltaX,
         y: interaction.startRect.y + deltaY,
-      }));
+      });
+      panelRectRef.current = nextPanelRect;
+      setPanelRect(nextPanelRect);
       return;
     }
 
@@ -547,7 +632,9 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
     if (edge.includes("s")) bottom = clamp(bottom + deltaY, top + minimumHeight, viewportBottom);
     if (edge.includes("n")) top = clamp(top + deltaY, PANEL_MARGIN, bottom - minimumHeight);
 
-    setPanelRect({ x: left, y: top, width: right - left, height: bottom - top });
+    const nextPanelRect = { x: left, y: top, width: right - left, height: bottom - top };
+    panelRectRef.current = nextPanelRect;
+    setPanelRect(nextPanelRect);
   }, []);
 
   const endWindowInteraction = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -558,33 +645,47 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
     }
     interactionRef.current = null;
     setWindowInteracting(false);
+    const currentPanelRect = panelRectRef.current;
+    const currentBubblePoint = bubblePointRef.current;
+    if (serverLayoutLoadedRef.current && currentPanelRect && currentBubblePoint) {
+      enqueueLayoutSave(createWindowLayoutInput(
+        currentPanelRect,
+        currentBubblePoint,
+        bubbleDismissedRef.current,
+        collapsedRef.current,
+      ));
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-  }, []);
+  }, [enqueueLayoutSave]);
 
   const collapsePanel = useCallback(() => {
-    if (!panelRect) return;
-    const nextBubblePoint = clampBubblePoint({
-      x: panelRect.x + panelRect.width - BUBBLE_SIZE,
-      y: panelRect.y,
-    });
-    setBubblePoint(nextBubblePoint);
+    if (!panelRect || !bubblePoint) return;
+    bubblePointRef.current = bubblePoint;
+    bubbleDismissedRef.current = false;
+    collapsedRef.current = true;
     setBubbleDismissed(false);
     setCollapsed(true);
-    enqueueLayoutSave(createWindowLayoutInput(panelRect, nextBubblePoint, false, true));
-  }, [enqueueLayoutSave, panelRect]);
+    enqueueLayoutSave(createWindowLayoutInput(panelRect, bubblePoint, false, true));
+  }, [bubblePoint, enqueueLayoutSave, panelRect]);
 
   const expandPanel = useCallback(() => {
-    if (!bubblePoint) return;
+    const currentPanelRect = panelRectRef.current;
+    if (!bubblePoint || !currentPanelRect) return;
     onOpen();
-    setPanelRect((current) => current ? clampPanelRect({
-      ...current,
-      x: bubblePoint.x + BUBBLE_SIZE - current.width,
+    const nextPanelRect = clampPanelRect({
+      ...currentPanelRect,
+      x: bubblePoint.x + BUBBLE_SIZE - currentPanelRect.width,
       y: bubblePoint.y,
-    }) : current);
+    });
+    panelRectRef.current = nextPanelRect;
+    setPanelRect(nextPanelRect);
+    enqueueLayoutSave(createWindowLayoutInput(nextPanelRect, bubblePoint, false, false));
+    bubbleDismissedRef.current = false;
+    collapsedRef.current = false;
     setCollapsed(false);
-  }, [bubblePoint, onOpen]);
+  }, [bubblePoint, enqueueLayoutSave, onOpen]);
 
   const submit = useCallback(async () => {
     const text = input.trim();
@@ -660,6 +761,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, onOpen, onClose }: Admi
         onContextMenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          bubbleDismissedRef.current = true;
           setBubbleDismissed(true);
           enqueueLayoutSave(createWindowLayoutInput(panelRect, bubblePoint, true, true));
           onClose();

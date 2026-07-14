@@ -1017,11 +1017,11 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
       }}
     >
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] font-semibold" style={{ color: "#DC2626" }}>
+        <span className="text-[11px] font-semibold" style={{ color: "#DC2626", fontSize: 11 }}>
           RED Monat endet in {daysLeft} Tagen
         </span>
-        <span className="text-[11px] font-medium text-gray-500">
-          Märkte besucht <span className="font-semibold text-gray-700">{visitedMarkets}/{totalMarkets}</span>
+        <span className="text-[11px] font-medium text-gray-500" style={{ fontSize: 11 }}>
+          Märkte besucht <span className="font-semibold text-gray-700" style={{ fontSize: 11 }}>{visitedMarkets}/{totalMarkets}</span>
         </span>
       </div>
 
@@ -1040,6 +1040,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
           className="w-full text-[10px] text-gray-600 placeholder-gray-300 outline-none"
           style={{
             padding: "5px 10px 5px 24px",
+            fontSize: 10,
             backgroundColor: "transparent",
             borderBottom: "1px solid rgba(0,0,0,0.06)",
             borderTop: "none",
@@ -1082,6 +1083,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
                   className="shrink-0 text-[9px] font-semibold uppercase"
                   style={{
                     padding: "2px 8px",
+                    fontSize: 9,
                     borderRadius: 5,
                     backgroundColor: chainColors(m.chain).bg,
                     color: chainColors(m.chain).text,
@@ -1098,22 +1100,22 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
                 <div className="min-w-0 flex-1">
                   {revealedId === m.id && m.nextSM ? (
                     <>
-                      <span className="block text-[10px] font-medium truncate" style={{ color: "#DC2626" }} title={`Naechster SM: ${m.nextSM}`}>
+                      <span className="block text-[10px] font-medium truncate" style={{ color: "#DC2626", fontSize: 10 }} title={`Naechster SM: ${m.nextSM}`}>
                         Naechster SM: {m.nextSM}
                       </span>
                       {m.address && (
-                        <span className="block text-[9px] font-medium truncate" style={{ color: "rgba(15,23,42,0.34)", marginTop: 1 }} title={m.address}>
+                        <span className="block text-[9px] font-medium truncate" style={{ color: "rgba(15,23,42,0.34)", marginTop: 1, fontSize: 9 }} title={m.address}>
                           {m.address}
                         </span>
                       )}
                     </>
                   ) : (
                     <>
-                      <span className="block text-[10px] font-medium text-gray-600 truncate" title={m.name}>
+                      <span className="block text-[10px] font-medium text-gray-600 truncate" style={{ fontSize: 10 }} title={m.name}>
                         {m.name}
                       </span>
                       {m.address && (
-                        <span className="block text-[9px] font-medium truncate" style={{ color: "rgba(15,23,42,0.34)", marginTop: 1 }} title={m.address}>
+                        <span className="block text-[9px] font-medium truncate" style={{ color: "rgba(15,23,42,0.34)", marginTop: 1, fontSize: 9 }} title={m.address}>
                           {m.address}
                         </span>
                       )}
@@ -1151,6 +1153,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
                 {stammnr && (
                   <span
                     className="shrink-0 text-[9px] font-semibold text-gray-400 tabular-nums"
+                    style={{ fontSize: 9 }}
                     title={`Stammnr: ${stammnr}`}
                   >
                     {stammnr}
@@ -1170,7 +1173,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
                       strokeDasharray={`${(m.visited / m.frequency) * 94.25} 94.25`}
                     />
                   </svg>
-                  <span className="text-[8px] font-semibold text-gray-700 tabular-nums" style={{ position: "relative", zIndex: 1 }}>
+                  <span className="text-[8px] font-semibold text-gray-700 tabular-nums" style={{ position: "relative", zIndex: 1, fontSize: 8 }}>
                     {m.visited}/{m.frequency}
                   </span>
                 </div>
@@ -1187,14 +1190,14 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
 
         {!isLoading && loadError && (
           <div className="text-center py-8">
-            <span className="text-[10px] text-gray-400">Märkte konnten nicht geladen werden</span>
+            <span className="text-[10px] text-gray-400" style={{ fontSize: 10 }}>Märkte konnten nicht geladen werden</span>
           </div>
         )}
 
         {!isLoading && !loadError && markets.length === 0 && (
           <div className="text-center py-10">
-            <div className="text-[11px] font-medium text-gray-500">Noch keine zugewiesenen Märkte</div>
-            <div className="mt-1 text-[10px] text-gray-400">
+            <div className="text-[11px] font-medium text-gray-500" style={{ fontSize: 11 }}>Noch keine zugewiesenen Märkte</div>
+            <div className="mt-1 text-[10px] text-gray-400" style={{ fontSize: 10 }}>
               Sobald aktive Kampagnen-Märkte für dich zugewiesen sind, erscheinen sie hier.
             </div>
           </div>
@@ -1202,7 +1205,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
 
         {!isLoading && !loadError && markets.length > 0 && filtered.length === 0 && (
           <div className="text-center py-4">
-            <span className="text-[10px] text-gray-400">Keine Märkte gefunden</span>
+            <span className="text-[10px] text-gray-400" style={{ fontSize: 10 }}>Keine Märkte gefunden</span>
           </div>
         )}
       </div>

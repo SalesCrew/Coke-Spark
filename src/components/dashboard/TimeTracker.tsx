@@ -34,6 +34,7 @@ interface TimeTrackerProps {
   currentPhase?: string; // exposed for debug panel
   daySessionPayload?: DaySessionCurrentPayload | null;
   daySessionLoading?: boolean;
+  onPauseStateChange?: (paused: boolean) => void;
 }
 
 interface DaySummarySnapshot {
@@ -323,7 +324,7 @@ function TimeField({ value, onOpenClock }: { value: string; onOpenClock: () => v
   );
 }
 
-export function TimeTracker({ daySessionPayload, daySessionLoading = false }: TimeTrackerProps) {
+export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPauseStateChange }: TimeTrackerProps) {
   const trackerTimezone = "Europe/Vienna";
   const authSession = readAuthSession();
   const gmDisplayName =
@@ -1167,23 +1168,25 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false }: Ti
     if (!running || persistBusy) return;
     setPersistBusy(true);
     setPersistError(null);
+    const nextPaused = !paused;
+    onPauseStateChange?.(nextPaused);
     try {
-      if (!paused) {
+      if (nextPaused) {
         await startDayPause();
-        setPaused(true);
-        await hydrateTodaySubmissions();
       } else {
         await endDayPause();
-        setPaused(false);
-        await hydrateTodaySubmissions();
       }
+      setPaused(nextPaused);
+      notifyDaySessionUpdated();
+      await hydrateTodaySubmissions();
     } catch (error) {
+      onPauseStateChange?.(paused);
       const message = error instanceof Error ? error.message : "Pause konnte nicht gespeichert werden.";
       setPersistError(message);
     } finally {
       setPersistBusy(false);
     }
-  }, [running, persistBusy, paused, hydrateTodaySubmissions]);
+  }, [hydrateTodaySubmissions, notifyDaySessionUpdated, onPauseStateChange, paused, persistBusy, running]);
 
   // ── Debug: force forgotEnd ────────────────────────────────────────────────
   const forceDebugForgotEnd = useCallback(() => {

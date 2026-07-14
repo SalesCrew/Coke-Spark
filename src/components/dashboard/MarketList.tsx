@@ -64,6 +64,7 @@ interface MarketListProps {
   visited?: number;
   total?: number;
   activeVisitLocked?: boolean;
+  pauseActive?: boolean;
   daySessionPayload?: DaySessionCurrentPayload | null;
   daySessionLoading?: boolean;
 }
@@ -396,6 +397,7 @@ export function GmMarketDetailModal({
   dayStarted,
   dayGateLoading,
   activeVisitLocked = false,
+  pauseActive = false,
   launchError,
   onToggleCampaign,
   onSelectCampaignChoice,
@@ -415,6 +417,7 @@ export function GmMarketDetailModal({
   dayStarted: boolean;
   dayGateLoading: boolean;
   activeVisitLocked?: boolean;
+  pauseActive?: boolean;
   launchError: string | null;
   onToggleCampaign: (campaignId: string) => void;
   onSelectCampaignChoice?: (choice: GmMarketDetailCampaignChoice) => void;
@@ -460,6 +463,7 @@ export function GmMarketDetailModal({
     dayGateLoading ||
     !dayStarted ||
     activeVisitLocked ||
+    pauseActive ||
     selectedCampaignIds.length === 0 ||
     (hasCampaignChoices
       ? !selectedCampaignChoice || selectedCampaignChoice.done || selectedCampaignChoice.isStartable === false || selectableCampaignChoiceCount === 0
@@ -593,7 +597,7 @@ export function GmMarketDetailModal({
                 <button
                   key={draft.sessionId}
                   type="button"
-                  disabled={!dayStarted || dayGateLoading || isLaunching}
+                  disabled={!dayStarted || dayGateLoading || pauseActive || isLaunching}
                   onClick={() => onContinueDraft(draft.sessionId, draft.campaignIds)}
                   style={{
                     border: "1px solid rgba(22,163,74,0.16)",
@@ -604,8 +608,8 @@ export function GmMarketDetailModal({
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: 10,
-                    cursor: !dayStarted || dayGateLoading || isLaunching ? "not-allowed" : "pointer",
-                    opacity: !dayStarted || dayGateLoading ? 0.58 : 1,
+                    cursor: !dayStarted || dayGateLoading || pauseActive || isLaunching ? "not-allowed" : "pointer",
+                    opacity: !dayStarted || dayGateLoading || pauseActive ? 0.58 : 1,
                     fontFamily: "inherit",
                   }}
                 >
@@ -637,7 +641,7 @@ export function GmMarketDetailModal({
                     key={choice.key}
                     choice={choice}
                     selected={selectedCampaignChoiceKey === choice.key}
-                    disabled={dayGateLoading || !dayStarted || activeVisitLocked || choice.isStartable === false || Boolean(choice.done) || isLaunching}
+                    disabled={dayGateLoading || !dayStarted || activeVisitLocked || pauseActive || choice.isStartable === false || Boolean(choice.done) || isLaunching}
                     onSelect={() => onSelectCampaignChoice?.(choice)}
                   />
                 ))
@@ -647,7 +651,7 @@ export function GmMarketDetailModal({
                     key={campaign.campaignId}
                     campaign={campaign}
                     selected={selectedCampaignIds.includes(campaign.campaignId)}
-                    disabled={dayGateLoading || !dayStarted || activeVisitLocked || !campaign.isStartable || isLaunching}
+                    disabled={dayGateLoading || !dayStarted || activeVisitLocked || pauseActive || !campaign.isStartable || isLaunching}
                     onToggle={() => onToggleCampaign(campaign.campaignId)}
                   />
                 ))
@@ -658,11 +662,13 @@ export function GmMarketDetailModal({
               )}
               <DashboardGateOverlay
                 loading={dayGateLoading}
-                locked={!dayStarted || activeVisitLocked}
-                lockTitle={!dayStarted ? "Arbeitstag nicht gestartet" : "Aktiver Fragebogen offen"}
+                locked={!dayStarted || pauseActive || activeVisitLocked}
+                lockTitle={!dayStarted ? "Arbeitstag nicht gestartet" : pauseActive ? "Pause" : "Aktiver Fragebogen offen"}
                 lockText={
                   !dayStarted
                     ? "Starte zuerst deinen Arbeitstag, dann kannst du den Fragebogen beginnen."
+                    : pauseActive
+                      ? "Beende zuerst deine Pause. Danach kannst du den Fragebogen wieder beginnen."
                     : "Schliesse den laufenden Fragebogen ab, bevor du einen neuen Marktbesuch startest."
                 }
                 readyTitle="Arbeitstag aktiv"
@@ -726,7 +732,7 @@ export function GmMarketDetailModal({
   );
 }
 
-export function MarketList({ visited, total, activeVisitLocked = false, daySessionPayload, daySessionLoading = false }: MarketListProps) {
+export function MarketList({ visited, total, activeVisitLocked = false, pauseActive = false, daySessionPayload, daySessionLoading = false }: MarketListProps) {
   const router = useRouter();
   const { current } = useRedMonth();
   const [search, setSearch] = useState("");
@@ -927,6 +933,10 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
         setLaunchError("Bitte zuerst den Arbeitstag starten.");
         return;
       }
+      if (pauseActive) {
+        setLaunchError("Bitte zuerst die aktive Pause beenden.");
+        return;
+      }
       if (campaignIds.length === 0) {
         setLaunchError("Bitte mindestens eine Kampagne auswählen.");
         return;
@@ -974,7 +984,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
         setLaunchError("Marktbesuch konnte nicht vorbereitet werden. Bitte erneut versuchen.");
       }
     },
-    [dayStarted, router],
+    [dayStarted, pauseActive, router],
   );
 
   const handleStartSelected = useCallback(() => {
@@ -1005,6 +1015,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
     <div
       ref={cardRef}
       style={{
+        position: "relative",
         backgroundColor: "#ffffff",
         borderRadius: 14,
         boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
@@ -1222,11 +1233,21 @@ export function MarketList({ visited, total, activeVisitLocked = false, daySessi
           dayStarted={dayStarted}
           dayGateLoading={dayGateLoading}
           activeVisitLocked={activeVisitLocked}
+          pauseActive={pauseActive}
           launchError={launchError}
           onToggleCampaign={toggleCampaign}
           onStart={handleStartSelected}
           onContinueDraft={handleContinueDraft}
           onClose={closeDetail}
+        />
+      )}
+      {!dayGateLoading && dayStarted && pauseActive && (
+        <DashboardGateOverlay
+          loading={false}
+          locked
+          lockTitle="Pause"
+          lockText="Beende zuerst deine Pause. Danach kannst du Standard-Marktbesuche wieder starten."
+          inset={10}
         />
       )}
       <ActiveFragebogenBlockModal

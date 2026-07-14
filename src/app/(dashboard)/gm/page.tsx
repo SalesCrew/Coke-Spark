@@ -76,6 +76,21 @@ export default function GMDashboard() {
   const [bonusLoading, setBonusLoading] = useState(true);
   const criticalLastLoadedAtRef = useRef(0);
   const criticalInFlightRef = useRef<Promise<void> | null>(null);
+  const pauseActive = Boolean(dashboardCritical?.daySession.gate.pauseOpen);
+
+  const handlePauseStateChange = useCallback((pauseOpen: boolean) => {
+    setDashboardCritical((current) =>
+      current
+        ? {
+            ...current,
+            daySession: {
+              ...current.daySession,
+              gate: { ...current.daySession.gate, pauseOpen },
+            },
+          }
+        : current,
+    );
+  }, []);
 
   const rememberActiveVisitPayload = useCallback((
     payload: GmVisitSessionReadPayload,
@@ -500,9 +515,11 @@ export default function GMDashboard() {
             <TimeTracker
               daySessionPayload={dashboardCritical?.daySession}
               daySessionLoading={dashboardCriticalLoading}
+              onPauseStateChange={handlePauseStateChange}
             />
             <MarketList
               activeVisitLocked={Boolean(activeVisitSummary)}
+              pauseActive={pauseActive}
               daySessionPayload={dashboardCritical?.daySession}
               daySessionLoading={dashboardCriticalLoading}
             />
@@ -531,6 +548,7 @@ export default function GMDashboard() {
             <div className="mt-4" style={{ position: "relative", zIndex: 20 }}>
               <KuehlerInventurCard
                 activeVisitLocked={Boolean(activeVisitSummary)}
+                pauseActive={pauseActive}
                 daySessionPayload={dashboardCritical?.daySession}
                 daySessionLoading={dashboardCriticalLoading}
                 initialProgressData={kuehlerMhdProgress}
@@ -539,6 +557,8 @@ export default function GMDashboard() {
 
             <ActivityLauncher
               activeVisitLocked={Boolean(activeVisitSummary)}
+              pauseActive={pauseActive}
+              onPauseStateChange={handlePauseStateChange}
               daySessionPayload={dashboardCritical?.daySession}
               daySessionLoading={dashboardCriticalLoading}
               activeDrafts={dashboardCriticalLoading ? [] : dashboardCritical?.activeTimeTrackingDrafts}

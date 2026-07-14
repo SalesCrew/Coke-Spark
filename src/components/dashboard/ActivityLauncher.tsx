@@ -487,6 +487,8 @@ interface AccordionRowProps {
   dayStartedAt?: string | null;
   initialDraft?: TimeTrackingEntry | null;
   onRunningLockChange?: (activityKey: TimeTrackingActivityType, locked: boolean) => void;
+  pauseActive: boolean;
+  onPauseStateChange?: (paused: boolean) => void;
 }
 
 function AccordionRow({
@@ -500,6 +502,8 @@ function AccordionRow({
   dayStartedAt,
   initialDraft,
   onRunningLockChange,
+  pauseActive,
+  onPauseStateChange,
 }: AccordionRowProps) {
   const Icon = activity.icon;
   const isManualOnly = activity.manualOnly === true;
@@ -619,6 +623,10 @@ function AccordionRow({
     if (!onRunningLockChange || isManualOnly || activity.key === "pause") return;
     onRunningLockChange(activity.key, running);
   }, [activity.key, isManualOnly, onRunningLockChange, running]);
+
+  useEffect(() => {
+    if (running) setPaused(pauseActive);
+  }, [pauseActive, running]);
 
   function formatTimeInput(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 4);
@@ -794,6 +802,7 @@ function AccordionRow({
     try {
       if (paused) {
         await endDayPause();
+        onPauseStateChange?.(false);
       }
       const stopIso = new Date().toISOString();
       const result = await endTimeTrackingDraft(activeDraftId, { endAt: stopIso });
@@ -816,18 +825,20 @@ function AccordionRow({
     if (!running || isPersistingLive || isPersistingPause) return;
     setIsPersistingPause(true);
     setLiveError(null);
+    const nextPaused = !paused;
+    onPauseStateChange?.(nextPaused);
     try {
-      if (paused) {
+      if (!nextPaused) {
         await endDayPause();
-        setPaused(false);
       } else {
         await startDayPause();
-        setPaused(true);
       }
+      setPaused(nextPaused);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
       }
     } catch (error) {
+      onPauseStateChange?.(paused);
       const message = error instanceof Error ? error.message : "Pause konnte nicht gespeichert werden.";
       setLiveError(message || "Pause konnte nicht gespeichert werden.");
     } finally {
@@ -1803,11 +1814,15 @@ function AccordionRow({
 
 export function ActivityLauncher({
   activeVisitLocked = false,
+  pauseActive = false,
+  onPauseStateChange,
   daySessionPayload,
   activeDrafts,
   daySessionLoading = false,
 }: {
   activeVisitLocked?: boolean;
+  pauseActive?: boolean;
+  onPauseStateChange?: (paused: boolean) => void;
   daySessionPayload?: DaySessionCurrentPayload | null;
   activeDrafts?: TimeTrackingEntry[] | null;
   daySessionLoading?: boolean;
@@ -2030,6 +2045,9 @@ export function ActivityLauncher({
     if (!dayStarted) {
       throw new Error("Bitte zuerst den Arbeitstag starten.");
     }
+    if (pauseActive) {
+      throw new Error("Bitte zuerst die aktive Pause beenden.");
+    }
     const dayStartDate = currentDayStartedAt ? new Date(currentDayStartedAt) : null;
     const baseDate = dayStartDate && Number.isFinite(dayStartDate.getTime()) ? dayStartDate : new Date();
     const startIso = toIsoForLocalTime(baseDate, input.fromHm);
@@ -2062,16 +2080,16 @@ export function ActivityLauncher({
     }
     await endTimeTrackingDraft(started.entry.id, { endAt: endIso });
     await submitTimeTrackingEntry(started.entry.id);
-  }, [currentDayStartedAt, dayStarted]);
+  }, [currentDayStartedAt, dayStarted, pauseActive]);
 
   const handleMarketSelect = useCallback((market: Market) => {
-    if (isLaunching) return;
+    if (isLaunching || pauseActive) return;
     setMarketSearch("");
     setLaunchError(null);
     setSelectedMarket(market);
     setSelectedSectionIds([]);
     setView("selectSections");
-  }, [isLaunching]);
+  }, [isLaunching, pauseActive]);
 
   const toggleSection = useCallback((sectionId: string) => {
     if (isLaunching) return;
@@ -2114,7 +2132,7 @@ export function ActivityLauncher({
   }, [blockedActiveOpening, blockedActiveVisit, router]);
 
   const handleConfirmSections = useCallback(() => {
-    if (!selectedMarket || selectedSectionIds.length === 0 || isLaunching) return;
+    if (!selectedMarket || selectedSectionIds.length === 0 || isLaunching || pauseActive) return;
     const requestSeq = ++launchRequestSeqRef.current;
     if (launchIntervalRef.current) clearInterval(launchIntervalRef.current);
     if (launchTimeoutRef.current) clearTimeout(launchTimeoutRef.current);
@@ -2180,9 +2198,9 @@ export function ActivityLauncher({
         setLaunchError("Marktbesuch konnte nicht vorbereitet werden. Bitte erneut versuchen.");
       }
     })();
-  }, [isLaunching, router, selectedMarket, selectedSectionIds]);
+  }, [isLaunching, pauseActive, router, selectedMarket, selectedSectionIds]);
 
-  const canConfirmSections = selectedSectionIds.length > 0 && !isLaunching && !!selectedMarket;
+  const canConfirmSections = selectedSectionIds.length > 0 && !isLaunching && !pauseActive && !!selectedMarket;
 
   return (
     <div
@@ -2226,12 +2244,12 @@ export function ActivityLauncher({
           </div>
           <button
             onClick={() => {
-              if (!dayStarted || dayGateLoading || activeVisitLocked) return;
+              if (!dayStarted || dayGateLoading || activeVisitLocked || pauseActive) return;
               setSelectedMarket(null);
               setSelectedSectionIds([]);
               setView("selectMarket");
             }}
-            disabled={!dayStarted || dayGateLoading || activeVisitLocked}
+            disabled={!dayStarted || dayGateLoading || activeVisitLocked || pauseActive}
             style={{
               padding: "4px 14px",
               fontSize: 10,
@@ -2240,12 +2258,12 @@ export function ActivityLauncher({
               background: "linear-gradient(to bottom, #DC2626, #e84040)",
               border: "none",
               borderRadius: 7,
-              cursor: !dayStarted || dayGateLoading || activeVisitLocked ? "not-allowed" : "pointer",
+              cursor: !dayStarted || dayGateLoading || activeVisitLocked || pauseActive ? "not-allowed" : "pointer",
               boxShadow:
                 "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)",
               transition: "all 0.15s ease",
               letterSpacing: "0.01em",
-              opacity: !dayStarted || dayGateLoading || activeVisitLocked ? 0.6 : 1,
+              opacity: !dayStarted || dayGateLoading || activeVisitLocked || pauseActive ? 0.6 : 1,
             }}
           >
             Starten
@@ -2285,6 +2303,8 @@ export function ActivityLauncher({
                 dayStarted={dayStarted}
                 dayStartedAt={currentDayStartedAt}
                 initialDraft={a.key === "pause" ? null : activeDraftsByActivity[a.key] ?? null}
+                pauseActive={pauseActive}
+                onPauseStateChange={onPauseStateChange}
                 onRunningLockChange={
                   a.key === "pause"
                     ? undefined
@@ -2320,6 +2340,17 @@ export function ActivityLauncher({
           lockTitle="Aktiver Fragebogen offen"
           lockText="Schliesse den laufenden Fragebogen ab, bevor du einen neuen Marktbesuch startest."
           inset={10}
+        />
+      )}
+
+      {!dayGateLoading && dayStarted && pauseActive && (
+        <DashboardGateOverlay
+          loading={false}
+          locked
+          lockTitle="Pause"
+          lockText="Beende zuerst deine Pause. Danach kannst du Marktbesuche und Zusatzzeiten wieder erfassen."
+          inset={10}
+          zIndex={9}
         />
       )}
 

@@ -30,6 +30,7 @@ import {
   type GmDashboardMarket,
 } from "./MarketList";
 import { GmSkeletonMarketRows } from "./GmDashboardSkeleton";
+import { DashboardGateOverlay } from "./DashboardLockOverlay";
 
 interface KuehlerMarket {
   marketId?: string;
@@ -143,6 +144,7 @@ interface KuehlerInventurCardProps {
   markets?: KuehlerMarket[];
   mhdMarkets?: KuehlerMarket[];
   activeVisitLocked?: boolean;
+  pauseActive?: boolean;
   daySessionPayload?: DaySessionCurrentPayload | null;
   daySessionLoading?: boolean;
   initialProgressData?: GmKuehlerMhdProgressPayload | null;
@@ -158,6 +160,7 @@ export function KuehlerInventurCard({
   markets = defaultKuehlerMarkets,
   mhdMarkets = defaultMhdMarkets,
   activeVisitLocked = false,
+  pauseActive = false,
   daySessionPayload,
   daySessionLoading = false,
   initialProgressData,
@@ -537,6 +540,10 @@ export function KuehlerInventurCard({
         setLaunchError("Bitte zuerst den Arbeitstag starten.");
         return;
       }
+      if (pauseActive) {
+        setLaunchError("Bitte zuerst die aktive Pause beenden.");
+        return;
+      }
       if (campaignIds.length === 0) {
         setLaunchError("Bitte mindestens eine Kampagne auswählen.");
         return;
@@ -587,7 +594,7 @@ export function KuehlerInventurCard({
         setLaunchError("Marktbesuch konnte nicht vorbereitet werden. Bitte erneut versuchen.");
       }
     },
-    [dayStarted, router],
+    [dayStarted, pauseActive, router],
   );
 
   const handleStartSelected = useCallback(() => {
@@ -929,6 +936,15 @@ export function KuehlerInventurCard({
             )}
           </div>
         </div>
+        {!dayGateLoading && dayStarted && pauseActive && (
+          <DashboardGateOverlay
+            loading={false}
+            locked
+            lockTitle="Pause"
+            lockText="Beende zuerst deine Pause. Danach kannst du Kühler- und MHD-Besuche wieder starten."
+            inset={10}
+          />
+        )}
       </div>
       {selectedMarket && (
         <GmMarketDetailModal
@@ -944,6 +960,7 @@ export function KuehlerInventurCard({
           dayStarted={dayStarted}
           dayGateLoading={dayGateLoading}
           activeVisitLocked={activeVisitLocked}
+          pauseActive={pauseActive}
           launchError={launchError}
           onToggleCampaign={toggleCampaign}
           onSelectCampaignChoice={selectKuehlerChoice}

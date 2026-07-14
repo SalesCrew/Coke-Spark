@@ -698,7 +698,10 @@ function DetailDrawer({
   const originalSrc = originalUrl?.signedUrl ?? "";
   const imageSrc = originalSrc || previewSrc;
   const meta = photo ? TYPE_META[photo.campaign.type] : TYPE_META.standard;
-  const address = photo ? `${photo.market.address}, ${photo.market.postalCode} ${photo.market.city}` : "";
+  const address = photo
+    ? [photo.market.address, `${photo.market.postalCode} ${photo.market.city}`.trim()].filter(Boolean).join(", ")
+    : "";
+  const masterNumber = photo ? photo.market.cokeMasterNumber || photo.market.kuehlerStammnr : "";
 
   useEffect(() => {
     if (photo && !originalSrc) onOriginalNeeded(photo.id);
@@ -751,9 +754,16 @@ function DetailDrawer({
     <div style={{ position: "fixed", inset: 0, zIndex: 1800, background: "rgba(15,23,42,0.20)", backdropFilter: "blur(8px)", display: "flex", justifyContent: "flex-end" }} onClick={onClose}>
       <aside onClick={(event) => event.stopPropagation()} style={{ width: "min(520px, calc(100vw - 28px))", height: "100%", background: "#fff", borderLeft: "1px solid rgba(0,0,0,0.08)", boxShadow: "-24px 0 60px rgba(15,23,42,0.16)", padding: 18, overflowY: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div>
+          <div style={{ minWidth: 0, paddingRight: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Fotodetail</div>
-            <h2 style={{ margin: "3px 0 0", fontSize: 20, lineHeight: 1.05, letterSpacing: "-0.04em", color: "#111827" }}>{photo ? marketDisplayName(photo) : "Foto wird geladen"}</h2>
+            <h2 style={{ margin: "3px 0 0", fontSize: 20, lineHeight: 1.15, letterSpacing: "-0.035em", color: "#111827", overflowWrap: "anywhere" }}>
+              {photo ? [masterNumber, marketDisplayName(photo)].filter(Boolean).join(" · ") : "Foto wird geladen"}
+            </h2>
+            {photo && address ? (
+              <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.35, fontWeight: 500, color: "rgba(17,24,39,0.56)", overflowWrap: "anywhere" }}>
+                {address}
+              </div>
+            ) : null}
           </div>
           <button type="button" onClick={onClose} style={iconButtonStyle}><X size={15} /></button>
         </div>
@@ -809,7 +819,7 @@ function DetailDrawer({
               </div>
               <InfoGrid rows={[
                 ["Markt", marketDisplayName(photo)],
-                ["Stammnr.", photo.market.cokeMasterNumber || photo.market.kuehlerStammnr || "-"],
+                ["Stammnr.", masterNumber || "-"],
                 ["Adresse", address],
                 ["Region", photo.market.region || "-"],
                 ["GM", photo.gm.name || "-"],

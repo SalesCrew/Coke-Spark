@@ -136,6 +136,49 @@ function marketDisplayName(photo: AdminPhotoArchiveItem): string {
   return [photo.market.address, `${photo.market.postalCode} ${photo.market.city}`.trim()].filter(Boolean).join(", ");
 }
 
+const PHOTO_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
+  "image/avif": ".avif",
+  "image/gif": ".gif",
+  "image/heic": ".heic",
+  "image/heif": ".heif",
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/tiff": ".tiff",
+  "image/webp": ".webp",
+};
+
+function photoFileExtension(photo: AdminPhotoArchiveItem): string {
+  const pathFileName = photo.storagePath.split("/").pop() ?? "";
+  const pathExtension = pathFileName.match(/\.[a-z0-9]{2,5}$/i)?.[0];
+  if (pathExtension) return pathExtension.toLocaleLowerCase("en-US");
+  return PHOTO_EXTENSION_BY_MIME_TYPE[photo.mimeType?.toLocaleLowerCase("en-US") ?? ""] ?? ".jpg";
+}
+
+function photoDownloadFileName(photo: AdminPhotoArchiveItem): string {
+  const address = [photo.market.address, `${photo.market.postalCode} ${photo.market.city}`.trim()].filter(Boolean).join(", ");
+  const masterNumber = photo.market.cokeMasterNumber || photo.market.kuehlerStammnr;
+  const baseName = [masterNumber, marketDisplayName(photo), address]
+    .filter(Boolean)
+    .join(" - ")
+    .replace(/[<>:\"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "")
+    .trim();
+  const extension = photoFileExtension(photo);
+  return `${baseName.slice(0, 180).replace(/[. ]+$/g, "") || "Foto"}${extension}`;
+}
+
+function photoDownloadUrl(signedUrl: string, fileName: string): string {
+  if (!signedUrl) return "";
+  try {
+    const url = new URL(signedUrl);
+    url.searchParams.set("download", fileName);
+    return url.toString();
+  } catch {
+    return signedUrl;
+  }
+}
+
 function isSignedUrlFresh(entry: PhotoSignedUrlState | undefined): boolean {
   if (!entry) return false;
   const expiresAtMs = new Date(entry.expiresAt).getTime();
@@ -702,6 +745,8 @@ function DetailDrawer({
     ? [photo.market.address, `${photo.market.postalCode} ${photo.market.city}`.trim()].filter(Boolean).join(", ")
     : "";
   const masterNumber = photo ? photo.market.cokeMasterNumber || photo.market.kuehlerStammnr : "";
+  const downloadFileName = photo ? photoDownloadFileName(photo) : "";
+  const downloadUrl = photoDownloadUrl(originalSrc, downloadFileName);
 
   useEffect(() => {
     if (photo && !originalSrc) onOriginalNeeded(photo.id);
@@ -788,7 +833,7 @@ function DetailDrawer({
             </div>
 
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <a href={originalSrc || undefined} download style={{ textDecoration: "none" }}>
+              <a href={downloadUrl || undefined} download={downloadFileName || undefined} style={{ textDecoration: "none" }}>
                 <button type="button" disabled={!originalSrc} style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 700, opacity: originalSrc ? 1 : 0.55 }}>
                   <Download size={13} /> Download
                 </button>

@@ -13,6 +13,11 @@ interface Goal {
   maxPoints?: number;
   isManual?: boolean;
   isPending?: boolean;
+  earnedRewardEur?: number;
+  maxRewardEur?: number;
+  metricValues?: Record<string, number>;
+  achievedTierLabels?: string[];
+  nextTierLabel?: string | null;
 }
 
 // ── Point maxima per pillar (from admin Prämien seed data) ─────────────────
@@ -101,6 +106,7 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
   const [showPts, setShowPts] = useState(true); // points mode by default
   const hasActiveWave = summary?.hasActiveWave ?? true;
   const isEmpty = !hasActiveWave || goals.length === 0;
+  const isTierModel = summary?.rewardModel === "pillar_tiers";
   const activeGoals = goals.filter((goal) => !goal.isPending);
   const pendingGoalNames = goals.filter((goal) => goal.isPending).map((goal) => goal.name);
   const pointThresholds: PointThresholdNode[] = (summary?.thresholds?.length ?? 0) > 0
@@ -208,7 +214,7 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {/* Toggle button */}
-            <button
+            {!isTierModel && <button
               onClick={() => setShowPts(p => !p)}
               style={{
                 padding: "5px 11px",
@@ -224,7 +230,7 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
             >
               {showPts ? "%" : "Punkte"}
-            </button>
+            </button>}
             <button
               onClick={onClose}
               style={{
@@ -252,6 +258,8 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
               </div>
             </div>
           </div>
+        ) : isTierModel ? (
+          <TieredBonusContent goals={goals} summary={summary} />
         ) : (
           <>
             {/* Cluster track */}
@@ -391,6 +399,69 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
 
   if (typeof document === "undefined") return null;
   return createPortal(modal, document.body);
+}
+
+function TieredBonusContent({ goals, summary }: { goals: Goal[]; summary?: PraemienGmBonusSummary | null }) {
+  const earned = summary?.currentRewardEur ?? goals.reduce((sum, goal) => sum + (goal.earnedRewardEur ?? 0), 0);
+  const maximum = summary?.fullRewardEur ?? goals.reduce((sum, goal) => sum + (goal.maxRewardEur ?? 0), 0);
+  const overallPercent = maximum > 0 ? Math.min(100, Math.round((earned / maximum) * 100)) : 0;
+
+  return (
+    <div style={{ padding: "18px 20px 20px" }}>
+      <div style={{ padding: "14px 16px", borderRadius: 13, border: "1px solid rgba(5,150,105,0.16)", background: "linear-gradient(135deg,rgba(5,150,105,0.07),rgba(255,255,255,0.96))", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 11, background: "rgba(5,150,105,0.11)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Award size={19} strokeWidth={1.6} color="#059669" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 650, color: "rgba(0,0,0,0.38)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Dein Quartalsbonus</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 3 }}>
+            <span style={{ fontSize: 25, fontWeight: 900, color: "#059669", letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums" }}>{earned.toLocaleString("de-AT")} €</span>
+            <span style={{ fontSize: 11, color: "rgba(0,0,0,0.32)" }}>von {maximum.toLocaleString("de-AT")} €</span>
+          </div>
+        </div>
+        <div style={{ width: 44, height: 44, borderRadius: "50%", border: "3px solid rgba(5,150,105,0.2)", display: "flex", alignItems: "center", justifyContent: "center", color: "#059669", fontSize: 10, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{overallPercent}%</div>
+      </div>
+
+      <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+        {goals.map((goal) => {
+          const goalEarned = goal.earnedRewardEur ?? 0;
+          const goalMaximum = goal.maxRewardEur ?? 0;
+          const rewardPercent = goalMaximum > 0 ? Math.min(100, (goalEarned / goalMaximum) * 100) : 0;
+          const achievedLabels = goal.achievedTierLabels ?? [];
+          return (
+            <div key={goal.name} style={{ padding: "11px 12px", borderRadius: 11, border: "1px solid rgba(0,0,0,0.065)", background: "rgba(0,0,0,0.018)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 4, height: 32, borderRadius: 4, background: goal.color || "#DC2626", flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 750, color: "#1f1f1f" }}>{goal.name}</div>
+                  <div style={{ fontSize: 9, color: "rgba(0,0,0,0.4)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {goal.isPending
+                      ? "Bewertung noch offen"
+                      : achievedLabels.length > 0
+                        ? `Erreicht: ${achievedLabels.join(", ")}`
+                        : goal.nextTierLabel
+                          ? `Nächstes Ziel: ${goal.nextTierLabel}`
+                          : "Noch keine Auszahlungsstufe erreicht"}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 850, color: goalEarned > 0 ? "#059669" : "rgba(0,0,0,0.3)", fontVariantNumeric: "tabular-nums" }}>{goalEarned.toLocaleString("de-AT")} €</div>
+                  <div style={{ fontSize: 8.5, color: "rgba(0,0,0,0.3)", marginTop: 1 }}>von {goalMaximum.toLocaleString("de-AT")} €</div>
+                </div>
+              </div>
+              <div style={{ height: 4, borderRadius: 99, background: "rgba(0,0,0,0.06)", overflow: "hidden", marginTop: 9 }}>
+                <div style={{ width: `${rewardPercent}%`, height: "100%", borderRadius: 99, background: goal.color || "#DC2626", transition: "width 0.35s ease" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "rgba(0,0,0,0.025)", color: "rgba(0,0,0,0.46)", fontSize: 9.5, lineHeight: 1.5 }}>
+        Jede Säule wird für sich bewertet. Zusätzliche Leistung in einer Säule ersetzt kein fehlendes Ziel in einer anderen Säule.
+      </div>
+    </div>
+  );
 }
 
 /* ── Cluster track ── */

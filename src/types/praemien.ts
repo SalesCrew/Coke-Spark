@@ -24,11 +24,55 @@ export interface PraemienSourceRef {
   distributionFreqRule?: "lt8" | "gt8"; // only set when assigned to Distributionsziel
 }
 
+export type PraemienRewardModel = "global_thresholds" | "pillar_targets" | "pillar_tiers";
+export type PraemienPayoutMode = "highest_tier" | "sum_earned_tiers";
+export type PraemienMetricUnit = "points" | "percent" | "count" | "currency";
+export type PraemienMetricValueSource =
+  | "contribution_points"
+  | "contribution_percent"
+  | "quality_zeiterfassung"
+  | "quality_reporting"
+  | "quality_accuracy"
+  | "quality_average"
+  | "flex_total_points"
+  | "flex_component";
+
+export interface PraemienPillarMetric {
+  id: string;
+  key: string;
+  label: string;
+  unit: PraemienMetricUnit;
+  valueSource: PraemienMetricValueSource;
+  sourceKey?: string | null;
+  orderIndex: number;
+}
+
+export interface PraemienPillarTierCondition {
+  id: string;
+  metricKey: string;
+  operator: "gte" | "lte" | "eq";
+  thresholdValue: number;
+  orderIndex: number;
+}
+
+export interface PraemienPillarTier {
+  id: string;
+  label: string;
+  orderIndex: number;
+  rewardEur: number;
+  conditions: PraemienPillarTierCondition[];
+}
+
 export interface PraemienPillar {
   id: string;
   name: string;
   description: string;
   color: string;
+  isManual?: boolean;
+  payoutMode: PraemienPayoutMode;
+  maxRewardEur: number;
+  metrics: PraemienPillarMetric[];
+  tiers: PraemienPillarTier[];
   sourceRefs: PraemienSourceRef[];
 }
 
@@ -51,6 +95,7 @@ export interface PraemienFlexSubmission {
   gmId: string;
   gmName: string;
   totalPoints: number; // 0-100, filled later by admin like quality
+  componentValues: Record<string, number>;
   note?: string;
   updatedAt: string;
 }
@@ -64,6 +109,7 @@ export interface PraemienQuarter {
   startDate: string;
   endDate: string;
   description: string;
+  rewardModel: PraemienRewardModel;
   pillars: PraemienPillar[];
   thresholds: PraemienThreshold[];
   qualitySubmissions: PraemienQualitySubmission[];
@@ -82,6 +128,11 @@ export interface PraemienGmGoalProgress {
   percent: number;
   isManual?: boolean;
   isPending?: boolean;
+  earnedRewardEur?: number;
+  maxRewardEur?: number;
+  metricValues?: Record<string, number>;
+  achievedTierLabels?: string[];
+  nextTierLabel?: string | null;
 }
 
 export interface PraemienGmBonusSummary {
@@ -92,6 +143,7 @@ export interface PraemienGmBonusSummary {
   quarter: number | null;
   startDate: string | null;
   endDate: string | null;
+  rewardModel?: PraemienRewardModel | null;
   totalPoints: number;
   totalMaxPoints: number;
   currentRewardEur: number;

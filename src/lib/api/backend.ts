@@ -1073,6 +1073,31 @@ type BackendPraemienPillar = {
   name: string;
   description: string;
   color: string;
+  isManual: boolean;
+  payoutMode: "highest_tier" | "sum_earned_tiers";
+  maxRewardEur: number;
+  metrics: Array<{
+    id: string;
+    key: string;
+    label: string;
+    unit: "points" | "percent" | "count" | "currency";
+    valueSource: "contribution_points" | "contribution_percent" | "quality_zeiterfassung" | "quality_reporting" | "quality_accuracy" | "quality_average" | "flex_total_points" | "flex_component";
+    sourceKey?: string | null;
+    orderIndex: number;
+  }>;
+  tiers: Array<{
+    id: string;
+    label: string;
+    orderIndex: number;
+    rewardEur: number;
+    conditions: Array<{
+      id: string;
+      metricKey: string;
+      operator: "gte" | "lte" | "eq";
+      thresholdValue: number;
+      orderIndex: number;
+    }>;
+  }>;
   sourceRefs: BackendPraemienSourceRef[];
 };
 
@@ -1093,6 +1118,7 @@ type BackendPraemienFlexSubmission = {
   gmId: string;
   gmName: string;
   totalPoints: number;
+  componentValues: Record<string, number>;
   note?: string;
   updatedAt: string;
 };
@@ -1107,6 +1133,7 @@ type BackendPraemienWave = {
   endDate: string;
   description: string;
   timezone: string;
+  rewardModel: "global_thresholds" | "pillar_targets" | "pillar_tiers";
   thresholds: BackendPraemienThreshold[];
   pillars: BackendPraemienPillar[];
   qualitySubmissions: BackendPraemienQualitySubmission[];
@@ -1154,6 +1181,7 @@ type PraemienWaveWriteMetadata = {
   endDate?: string;
   description?: string;
   timezone?: string;
+  rewardModel?: "global_thresholds" | "pillar_targets" | "pillar_tiers";
   expectedUpdatedAt?: string;
 };
 
@@ -1172,6 +1200,30 @@ type PraemienPillarWrite = {
   color?: string;
   orderIndex: number;
   isManual?: boolean;
+  payoutMode: "highest_tier" | "sum_earned_tiers";
+  maxRewardEur: number;
+  metrics: Array<{
+    id?: string;
+    key: string;
+    label: string;
+    unit: "points" | "percent" | "count" | "currency";
+    valueSource: "contribution_points" | "contribution_percent" | "quality_zeiterfassung" | "quality_reporting" | "quality_accuracy" | "quality_average" | "flex_total_points" | "flex_component";
+    sourceKey?: string | null;
+    orderIndex: number;
+  }>;
+  tiers: Array<{
+    id?: string;
+    label: string;
+    orderIndex: number;
+    rewardEur: number;
+    conditions: Array<{
+      id?: string;
+      metricKey: string;
+      operator: "gte" | "lte" | "eq";
+      thresholdValue: number;
+      orderIndex: number;
+    }>;
+  }>;
 };
 
 type PraemienSourceWrite = {
@@ -1205,6 +1257,7 @@ type PraemienFlexWrite = {
   id?: string;
   gmUserId: string;
   totalPoints: number;
+  componentValues?: Record<string, number>;
   note?: string | null;
 };
 
@@ -1235,6 +1288,7 @@ function mapPraemienWaveToQuarter(wave: BackendPraemienWave): PraemienQuarter {
     startDate: wave.startDate,
     endDate: wave.endDate,
     description: wave.description ?? "",
+    rewardModel: wave.rewardModel ?? "global_thresholds",
     timezone: wave.timezone,
     thresholds: (wave.thresholds ?? []).map((entry) => ({
       id: entry.id,
@@ -1247,6 +1301,31 @@ function mapPraemienWaveToQuarter(wave: BackendPraemienWave): PraemienQuarter {
       name: pillar.name,
       description: pillar.description ?? "",
       color: pillar.color ?? "#DC2626",
+      isManual: Boolean(pillar.isManual),
+      payoutMode: pillar.payoutMode ?? "highest_tier",
+      maxRewardEur: Number(pillar.maxRewardEur ?? 0),
+      metrics: (pillar.metrics ?? []).map((metric) => ({
+        id: metric.id,
+        key: metric.key,
+        label: metric.label,
+        unit: metric.unit,
+        valueSource: metric.valueSource,
+        sourceKey: metric.sourceKey ?? null,
+        orderIndex: Number(metric.orderIndex ?? 0),
+      })),
+      tiers: (pillar.tiers ?? []).map((tier) => ({
+        id: tier.id,
+        label: tier.label,
+        orderIndex: Number(tier.orderIndex ?? 0),
+        rewardEur: Number(tier.rewardEur ?? 0),
+        conditions: (tier.conditions ?? []).map((condition) => ({
+          id: condition.id,
+          metricKey: condition.metricKey,
+          operator: condition.operator,
+          thresholdValue: Number(condition.thresholdValue ?? 0),
+          orderIndex: Number(condition.orderIndex ?? 0),
+        })),
+      })),
       sourceRefs: (pillar.sourceRefs ?? []).map((source) => ({
         id: source.id,
         catalogKey: buildPraemienSourceCatalogKey({
@@ -1286,6 +1365,7 @@ function mapPraemienWaveToQuarter(wave: BackendPraemienWave): PraemienQuarter {
       gmId: entry.gmId,
       gmName: entry.gmName ?? "",
       totalPoints: Number(entry.totalPoints ?? 0),
+      componentValues: entry.componentValues ?? {},
       note: entry.note ?? undefined,
       updatedAt: entry.updatedAt,
     })),
@@ -1333,6 +1413,7 @@ export async function createAdminPraemienWave(input: {
   endDate: string;
   description?: string;
   timezone?: string;
+  rewardModel?: "global_thresholds" | "pillar_targets" | "pillar_tiers";
   thresholds?: PraemienThresholdWrite[];
   pillars?: PraemienPillarWrite[];
 }): Promise<PraemienQuarter> {
@@ -1431,6 +1512,7 @@ export async function fetchGmBonusSummary(): Promise<PraemienGmBonusSummary> {
     quarter: typeof data.quarter === "number" ? data.quarter : null,
     startDate: data.startDate ?? null,
     endDate: data.endDate ?? null,
+    rewardModel: data.rewardModel ?? null,
     totalPoints: Number(data.totalPoints ?? 0),
     totalMaxPoints: Number(data.totalMaxPoints ?? 0),
     currentRewardEur: Number(data.currentRewardEur ?? 0),
@@ -1445,6 +1527,11 @@ export async function fetchGmBonusSummary(): Promise<PraemienGmBonusSummary> {
           percent: Number(goal.percent ?? 0),
           isManual: Boolean(goal.isManual),
           isPending: Boolean(goal.isPending),
+          earnedRewardEur: Number(goal.earnedRewardEur ?? 0),
+          maxRewardEur: Number(goal.maxRewardEur ?? 0),
+          metricValues: goal.metricValues ?? {},
+          achievedTierLabels: Array.isArray(goal.achievedTierLabels) ? goal.achievedTierLabels.map(String) : [],
+          nextTierLabel: goal.nextTierLabel ?? null,
         }))
       : [],
     thresholds: Array.isArray(data.thresholds)

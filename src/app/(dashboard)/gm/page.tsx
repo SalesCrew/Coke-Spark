@@ -234,10 +234,17 @@ export default function GMDashboard() {
     maxPoints: goal.maxPoints,
     isManual: goal.isManual,
     isPending: goal.isPending,
+    earnedRewardEur: goal.earnedRewardEur,
+    maxRewardEur: goal.maxRewardEur,
+    metricValues: goal.metricValues,
+    achievedTierLabels: goal.achievedTierLabels,
+    nextTierLabel: goal.nextTierLabel,
   })) ?? [];
-  const personalBonusPercent = bonusSummary && bonusSummary.totalMaxPoints > 0
-    ? Math.max(0, Math.min(100, Math.round((bonusSummary.totalPoints / bonusSummary.totalMaxPoints) * 100)))
-    : 0;
+  const personalBonusPercent = bonusSummary?.rewardModel === "pillar_tiers" && bonusSummary.fullRewardEur > 0
+    ? Math.max(0, Math.min(100, Math.round((bonusSummary.currentRewardEur / bonusSummary.fullRewardEur) * 100)))
+    : bonusSummary && bonusSummary.totalMaxPoints > 0
+      ? Math.max(0, Math.min(100, Math.round((bonusSummary.totalPoints / bonusSummary.totalMaxPoints) * 100)))
+      : 0;
   const kuehlerCurrent = kuehlerMhdProgress?.kuehler.current ?? 0;
   const kuehlerTotal = kuehlerMhdProgress?.kuehler.total ?? 0;
   const kuehlerPercent = kuehlerMhdProgress?.kuehler.percent ?? 0;

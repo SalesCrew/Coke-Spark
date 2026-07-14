@@ -79,7 +79,73 @@ function isUuid(value: string | null | undefined): boolean {
 }
 
 function buildDefaultPillars(): PraemienPillar[] {
-  return PILLAR_DEFAULTS.map(d => ({ id: uid(), ...d, sourceRefs: [] }));
+  return PILLAR_DEFAULTS.map((definition) => {
+    const base = { id: uid(), ...definition, sourceRefs: [] };
+    if (definition.name === "SchÃ¼tten / Displays") {
+      return {
+        ...base,
+        payoutMode: "highest_tier" as const,
+        maxRewardEur: 550,
+        metrics: [{ id: uid(), key: "achievement_percent", label: "Zielerreichung", unit: "percent" as const, valueSource: "contribution_percent" as const, orderIndex: 0 }],
+        tiers: [
+          { id: uid(), label: "50 % der Säule", orderIndex: 0, rewardEur: 275, conditions: [{ id: uid(), metricKey: "achievement_percent", operator: "gte" as const, thresholdValue: 70, orderIndex: 0 }] },
+          { id: uid(), label: "80 % der Säule", orderIndex: 1, rewardEur: 440, conditions: [{ id: uid(), metricKey: "achievement_percent", operator: "gte" as const, thresholdValue: 80, orderIndex: 0 }] },
+          { id: uid(), label: "100 % der Säule", orderIndex: 2, rewardEur: 550, conditions: [{ id: uid(), metricKey: "achievement_percent", operator: "gte" as const, thresholdValue: 95, orderIndex: 0 }] },
+        ],
+      };
+    }
+    if (definition.name === "Distributionsziel") {
+      return {
+        ...base,
+        payoutMode: "highest_tier" as const,
+        maxRewardEur: 165,
+        metrics: [{ id: uid(), key: "availability_percent", label: "Verfügbarkeit", unit: "percent" as const, valueSource: "contribution_percent" as const, orderIndex: 0 }],
+        tiers: [
+          { id: uid(), label: "50 % der Säule", orderIndex: 0, rewardEur: 82.5, conditions: [{ id: uid(), metricKey: "availability_percent", operator: "gte" as const, thresholdValue: 80, orderIndex: 0 }] },
+          { id: uid(), label: "100 % der Säule", orderIndex: 1, rewardEur: 165, conditions: [{ id: uid(), metricKey: "availability_percent", operator: "gte" as const, thresholdValue: 90, orderIndex: 0 }] },
+        ],
+      };
+    }
+    if (definition.name === "Flexziel") {
+      return {
+        ...base,
+        payoutMode: "highest_tier" as const,
+        maxRewardEur: 165,
+        metrics: [
+          { id: uid(), key: "cooler_points", label: "Kühler", unit: "points" as const, valueSource: "flex_component" as const, sourceKey: "cooler_points", orderIndex: 0 },
+          { id: uid(), key: "red_points", label: "RED / IR", unit: "points" as const, valueSource: "flex_component" as const, sourceKey: "red_points", orderIndex: 1 },
+          { id: uid(), key: "total_points", label: "Gesamt", unit: "points" as const, valueSource: "flex_total_points" as const, orderIndex: 2 },
+        ],
+        tiers: [
+          { id: uid(), label: "50 % der Säule", orderIndex: 0, rewardEur: 82.5, conditions: [
+            { id: uid(), metricKey: "cooler_points", operator: "gte" as const, thresholdValue: 5, orderIndex: 0 },
+            { id: uid(), metricKey: "red_points", operator: "gte" as const, thresholdValue: 5, orderIndex: 1 },
+            { id: uid(), metricKey: "total_points", operator: "gte" as const, thresholdValue: 10, orderIndex: 2 },
+          ] },
+          { id: uid(), label: "100 % der Säule", orderIndex: 1, rewardEur: 165, conditions: [
+            { id: uid(), metricKey: "cooler_points", operator: "gte" as const, thresholdValue: 5, orderIndex: 0 },
+            { id: uid(), metricKey: "red_points", operator: "gte" as const, thresholdValue: 5, orderIndex: 1 },
+            { id: uid(), metricKey: "total_points", operator: "gte" as const, thresholdValue: 15, orderIndex: 2 },
+          ] },
+        ],
+      };
+    }
+    return {
+      ...base,
+      payoutMode: "sum_earned_tiers" as const,
+      maxRewardEur: 220,
+      metrics: [
+        { id: uid(), key: "reporting_percent", label: "Reporting", unit: "percent" as const, valueSource: "quality_reporting" as const, orderIndex: 0 },
+        { id: uid(), key: "survey_percent", label: "Survey / Bilder", unit: "percent" as const, valueSource: "quality_accuracy" as const, orderIndex: 1 },
+        { id: uid(), key: "time_percent", label: "Zeitmanagement", unit: "percent" as const, valueSource: "quality_zeiterfassung" as const, orderIndex: 2 },
+      ],
+      tiers: [
+        { id: uid(), label: "Reporting", orderIndex: 0, rewardEur: 55, conditions: [{ id: uid(), metricKey: "reporting_percent", operator: "gte" as const, thresholdValue: 25, orderIndex: 0 }] },
+        { id: uid(), label: "Survey / Bilder", orderIndex: 1, rewardEur: 55, conditions: [{ id: uid(), metricKey: "survey_percent", operator: "gte" as const, thresholdValue: 25, orderIndex: 0 }] },
+        { id: uid(), label: "Zeitmanagement", orderIndex: 2, rewardEur: 110, conditions: [{ id: uid(), metricKey: "time_percent", operator: "gte" as const, thresholdValue: 25, orderIndex: 0 }] },
+      ],
+    };
+  });
 }
 
 function isDistributionPillar(pillars: PraemienPillar[], pillarId: string): boolean {
@@ -190,6 +256,7 @@ function toCreatePayload(input: {
     endDate: input.endDate,
     description: input.description,
     timezone: input.timezone ?? "Europe/Vienna",
+    rewardModel: "pillar_tiers" as const,
     thresholds: input.thresholds.map((entry, index) => ({
       label: entry.label,
       orderIndex: index,
@@ -202,6 +269,27 @@ function toCreatePayload(input: {
       color: entry.color,
       orderIndex: index,
       isManual: isManualPillar(entry),
+      payoutMode: entry.payoutMode,
+      maxRewardEur: entry.maxRewardEur,
+      metrics: entry.metrics.map((metric, metricIndex) => ({
+        key: metric.key,
+        label: metric.label,
+        unit: metric.unit,
+        valueSource: metric.valueSource,
+        sourceKey: metric.sourceKey ?? null,
+        orderIndex: metricIndex,
+      })),
+      tiers: entry.tiers.map((tier, tierIndex) => ({
+        label: tier.label,
+        orderIndex: tierIndex,
+        rewardEur: tier.rewardEur,
+        conditions: tier.conditions.map((condition, conditionIndex) => ({
+          metricKey: condition.metricKey,
+          operator: condition.operator,
+          thresholdValue: condition.thresholdValue,
+          orderIndex: conditionIndex,
+        })),
+      })),
     })),
   };
 }
@@ -215,6 +303,7 @@ function toPatchPayload(quarter: PraemienQuarter): {
   endDate: string;
   description: string;
   timezone: string;
+  rewardModel: PraemienQuarter["rewardModel"];
   expectedUpdatedAt?: string;
 } {
   return {
@@ -226,6 +315,7 @@ function toPatchPayload(quarter: PraemienQuarter): {
     endDate: quarter.endDate,
     description: quarter.description,
     timezone: quarter.timezone ?? "Europe/Vienna",
+    rewardModel: quarter.rewardModel,
     expectedUpdatedAt: quarter.updatedAt,
   };
 }
@@ -243,7 +333,7 @@ function toThresholdsPayload(quarter: PraemienQuarter): { thresholds: Array<{ id
   };
 }
 
-function toPillarsPayload(quarter: PraemienQuarter): { pillars: Array<{ id?: string; name: string; description: string; color: string; orderIndex: number; isManual: boolean }>; expectedUpdatedAt?: string } {
+function toPillarsPayload(quarter: PraemienQuarter) {
   return {
     expectedUpdatedAt: quarter.updatedAt,
     pillars: quarter.pillars.map((entry, index) => ({
@@ -253,6 +343,30 @@ function toPillarsPayload(quarter: PraemienQuarter): { pillars: Array<{ id?: str
       color: entry.color,
       orderIndex: index,
       isManual: isManualPillar(entry),
+      payoutMode: entry.payoutMode,
+      maxRewardEur: entry.maxRewardEur,
+      metrics: entry.metrics.map((metric, metricIndex) => ({
+        id: isUuid(metric.id) ? metric.id : undefined,
+        key: metric.key,
+        label: metric.label,
+        unit: metric.unit,
+        valueSource: metric.valueSource,
+        sourceKey: metric.sourceKey ?? null,
+        orderIndex: metricIndex,
+      })),
+      tiers: entry.tiers.map((tier, tierIndex) => ({
+        id: isUuid(tier.id) ? tier.id : undefined,
+        label: tier.label,
+        orderIndex: tierIndex,
+        rewardEur: tier.rewardEur,
+        conditions: tier.conditions.map((condition, conditionIndex) => ({
+          id: isUuid(condition.id) ? condition.id : undefined,
+          metricKey: condition.metricKey,
+          operator: condition.operator,
+          thresholdValue: condition.thresholdValue,
+          orderIndex: conditionIndex,
+        })),
+      })),
     })),
   };
 }
@@ -296,7 +410,7 @@ function toQualityPayload(quarter: PraemienQuarter): { qualityScores: Array<{ gm
   };
 }
 
-function toFlexPayload(quarter: PraemienQuarter): { flexScores: Array<{ gmUserId: string; totalPoints: number; note: string | null }>; expectedUpdatedAt?: string } {
+function toFlexPayload(quarter: PraemienQuarter): { flexScores: Array<{ gmUserId: string; totalPoints: number; componentValues: Record<string, number>; note: string | null }>; expectedUpdatedAt?: string } {
   return {
     expectedUpdatedAt: quarter.updatedAt,
     flexScores: (quarter.flexSubmissions ?? [])
@@ -304,6 +418,7 @@ function toFlexPayload(quarter: PraemienQuarter): { flexScores: Array<{ gmUserId
       .map((entry) => ({
         gmUserId: entry.gmId,
         totalPoints: entry.totalPoints,
+        componentValues: entry.componentValues ?? {},
         note: entry.note ?? null,
       })),
   };
@@ -324,6 +439,10 @@ function stablePillarStructureSignature(entries: PraemienPillar[]): string {
     name: entry.name,
     description: entry.description,
     color: entry.color,
+    payoutMode: entry.payoutMode,
+    maxRewardEur: entry.maxRewardEur,
+    metrics: entry.metrics,
+    tiers: entry.tiers,
   })));
 }
 
@@ -358,6 +477,7 @@ function stableFlexSignature(entries: PraemienFlexSubmission[]): string {
   return JSON.stringify(entries.map((entry) => ({
     gmId: entry.gmId,
     totalPoints: entry.totalPoints,
+    componentValues: entry.componentValues,
     note: entry.note ?? null,
   })));
 }
@@ -372,6 +492,7 @@ function detectDirtySections(previous: PraemienQuarter, next: PraemienQuarter): 
     previous.startDate !== next.startDate ||
     previous.endDate !== next.endDate ||
     previous.description !== next.description ||
+    previous.rewardModel !== next.rewardModel ||
     (previous.timezone ?? "Europe/Vienna") !== (next.timezone ?? "Europe/Vienna")
   ) {
     dirty.add("metadata");
@@ -456,6 +577,7 @@ function applySectionPayloadSnapshot(
       endDate: metadata.endDate,
       description: metadata.description,
       timezone: metadata.timezone,
+      rewardModel: metadata.rewardModel,
     };
   }
   if (section === "thresholds") {
@@ -481,6 +603,14 @@ function applySectionPayloadSnapshot(
         name: entry.name,
         description: entry.description,
         color: entry.color,
+        payoutMode: entry.payoutMode,
+        maxRewardEur: entry.maxRewardEur,
+        metrics: entry.metrics.map((metric) => ({ ...metric, id: metric.id ?? uid() })),
+        tiers: entry.tiers.map((tier) => ({
+          ...tier,
+          id: tier.id ?? uid(),
+          conditions: tier.conditions.map((condition) => ({ ...condition, id: condition.id ?? uid() })),
+        })),
         sourceRefs: sourceRefsById.get(entry.id ?? "") ?? sourceRefsByName.get(entry.name) ?? [],
       })),
     };
@@ -509,6 +639,7 @@ function applySectionPayloadSnapshot(
           gmId: entry.gmUserId,
           gmName: existing?.gmName ?? "",
           totalPoints: entry.totalPoints,
+          componentValues: entry.componentValues ?? {},
           note: entry.note ?? undefined,
           updatedAt: existing?.updatedAt ?? new Date().toISOString(),
         };
@@ -1670,19 +1801,20 @@ function QualityCompletionPill({ done }: { done: boolean }) {
 }
 
 function QualityScoreSlider({
-  label, hint, value, onChange,
+  label, hint, value, onChange, max = 100, step = 1,
 }: {
-  label: string; hint: string; value: number; onChange: (v: number) => void;
+  label: string; hint: string; value: number; onChange: (v: number) => void; max?: number; step?: number;
 }) {
-  const pct = value;
+  const pct = max > 0 ? (value / max) * 100 : 0;
   const barRef = useRef<HTMLDivElement>(null);
 
   const valueFromEvent = (clientX: number) => {
     const bar = barRef.current;
     if (!bar) return;
     const { left, width } = bar.getBoundingClientRect();
-    const raw = Math.round(((clientX - left) / width) * 100);
-    onChange(Math.min(100, Math.max(0, raw)));
+    const raw = ((clientX - left) / width) * max;
+    const stepped = Math.round(raw / step) * step;
+    onChange(Math.min(max, Math.max(0, stepped)));
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1732,7 +1864,7 @@ function QualityScoreSlider({
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
         <span style={{ fontSize: 8, color: "rgba(0,0,0,0.25)", fontWeight: 600 }}>0</span>
-        <span style={{ fontSize: 8, color: "rgba(0,0,0,0.25)", fontWeight: 600 }}>100</span>
+        <span style={{ fontSize: 8, color: "rgba(0,0,0,0.25)", fontWeight: 600 }}>{max}</span>
       </div>
     </div>
   );
@@ -2058,7 +2190,8 @@ function FlexGoalsModal({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "open" | "done">("all");
   const [selectedGmId, setSelectedGmId] = useState<string>(gms[0]?.id ?? "");
-  const [draftPoints, setDraftPoints] = useState(0);
+  const [draftCoolerPoints, setDraftCoolerPoints] = useState(0);
+  const [draftRedPoints, setDraftRedPoints] = useState(0);
   const [draftNote, setDraftNote] = useState("");
   const [localSubs, setLocalSubs] = useState<PraemienFlexSubmission[]>(subs);
   const [unsaved, setUnsaved] = useState(false);
@@ -2075,10 +2208,12 @@ function FlexGoalsModal({
   useEffect(() => {
     const existing = localSubs.find(s => s.gmId === selectedGmId);
     if (existing) {
-      setDraftPoints(existing.totalPoints);
+      setDraftCoolerPoints(existing.componentValues?.cooler_points ?? 0);
+      setDraftRedPoints(existing.componentValues?.red_points ?? 0);
       setDraftNote(existing.note ?? "");
     } else {
-      setDraftPoints(0);
+      setDraftCoolerPoints(0);
+      setDraftRedPoints(0);
       setDraftNote("");
     }
     setUnsaved(false);
@@ -2089,7 +2224,8 @@ function FlexGoalsModal({
     const newSub: PraemienFlexSubmission = {
       gmId: selectedGmId,
       gmName: gms.find(g => g.id === selectedGmId)?.name ?? selectedGmId,
-      totalPoints: draftPoints,
+      totalPoints: draftCoolerPoints + draftRedPoints,
+      componentValues: { cooler_points: draftCoolerPoints, red_points: draftRedPoints },
       note: draftNote || undefined,
       updatedAt: new Date().toISOString(),
     };
@@ -2101,7 +2237,8 @@ function FlexGoalsModal({
   };
 
   const handleReset = () => {
-    setDraftPoints(0);
+    setDraftCoolerPoints(0);
+    setDraftRedPoints(0);
     setDraftNote("");
     setUnsaved(true);
   };
@@ -2121,7 +2258,8 @@ function FlexGoalsModal({
   });
 
   const doneCount = localSubs.length;
-  const scoreColor = draftPoints >= 80 ? "#16a34a" : draftPoints >= 50 ? "#D97706" : "#DC2626";
+  const draftPoints = draftCoolerPoints + draftRedPoints;
+  const scoreColor = draftPoints >= 15 ? "#16a34a" : draftPoints >= 10 ? "#D97706" : "#DC2626";
   const selectedGm = gms.find(g => g.id === selectedGmId);
   const selectedSub = localSubs.find(s => s.gmId === selectedGmId);
 
@@ -2185,7 +2323,7 @@ function FlexGoalsModal({
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: active ? "#16a34a" : "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{gm.name}</div>
                       {sub
-                        ? <div style={{ fontSize: 9, fontWeight: 600, color: "#16a34a" }}>{sub.totalPoints} / 100 P</div>
+                        ? <div style={{ fontSize: 9, fontWeight: 600, color: "#16a34a" }}>{sub.totalPoints} / 20 P</div>
                         : <div style={{ fontSize: 9, color: "rgba(0,0,0,0.3)" }}>Nicht bewertet</div>
                       }
                     </div>
@@ -2211,7 +2349,7 @@ function FlexGoalsModal({
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "-0.04em", color: scoreColor, fontVariantNumeric: "tabular-nums", transition: "color 0.2s ease" }}>{draftPoints}</div>
-                  <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)" }}>/ 100 Punkte</div>
+                  <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)" }}>/ 20 Punkte</div>
                 </div>
               </div>
               {unsaved && (
@@ -2224,10 +2362,20 @@ function FlexGoalsModal({
 
             <div style={{ padding: "16px 20px 8px", display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
               <QualityScoreSlider
-                label="Flexziel"
-                hint="Wird nachgeliefert und erst dann in die Prämie eingerechnet"
-                value={draftPoints}
-                onChange={v => { setDraftPoints(v); setUnsaved(true); }}
+                label="Kühler-Nettoaufbau"
+                hint="0, 5 oder 10 Punkte"
+                value={draftCoolerPoints}
+                max={10}
+                step={5}
+                onChange={v => { setDraftCoolerPoints(v); setUnsaved(true); }}
+              />
+              <QualityScoreSlider
+                label="RED / IR-Nutzung"
+                hint="0, 5 oder 10 Punkte"
+                value={draftRedPoints}
+                max={10}
+                step={5}
+                onChange={v => { setDraftRedPoints(v); setUnsaved(true); }}
               />
               <div>
                 <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.28)", marginBottom: 5 }}>Notiz (optional)</div>
@@ -2257,6 +2405,110 @@ function FlexGoalsModal({
       </div>
     </div>,
     document.body
+  );
+}
+
+function PillarRewardEditor({ pillar, onChange }: { pillar: PraemienPillar; onChange: (pillar: PraemienPillar) => void }) {
+  const metricByKey = new Map(pillar.metrics.map((metric) => [metric.key, metric]));
+  const updateTier = (tierId: string, update: (tier: PraemienPillar["tiers"][number]) => PraemienPillar["tiers"][number]) => {
+    onChange({ ...pillar, tiers: pillar.tiers.map((tier) => tier.id === tierId ? update(tier) : tier) });
+  };
+  const removeTier = (tierId: string) => {
+    onChange({ ...pillar, tiers: pillar.tiers.filter((tier) => tier.id !== tierId).map((tier, index) => ({ ...tier, orderIndex: index })) });
+  };
+  const addTier = () => {
+    const firstMetric = pillar.metrics[0];
+    if (!firstMetric) return;
+    onChange({
+      ...pillar,
+      tiers: [...pillar.tiers, {
+        id: uid(),
+        label: "Neue Stufe",
+        orderIndex: pillar.tiers.length,
+        rewardEur: 0,
+        conditions: [{ id: uid(), metricKey: firstMetric.key, operator: "gte", thresholdValue: 0, orderIndex: 0 }],
+      }],
+    });
+  };
+  const fmtUnit = (key: string) => {
+    const unit = metricByKey.get(key)?.unit;
+    if (unit === "percent") return "%";
+    if (unit === "currency") return "€";
+    return unit === "count" ? "Anz." : "P";
+  };
+
+  return (
+    <div style={{ margin: "0 0 12px 16px", borderRadius: 11, border: "1px solid rgba(0,0,0,0.07)", background: "rgba(0,0,0,0.018)", overflow: "hidden" }}>
+      <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid rgba(0,0,0,0.055)" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 750, color: "#202020" }}>Eigene Auszahlungslogik</div>
+          <div style={{ fontSize: 8.5, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>
+            {pillar.payoutMode === "sum_earned_tiers" ? "Erreichte Teilziele werden addiert" : "Es gilt die höchste vollständig erreichte Stufe"}
+          </div>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "rgba(0,0,0,0.45)" }}>
+          Maximum
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            value={pillar.maxRewardEur}
+            onChange={(event) => onChange({ ...pillar, maxRewardEur: Math.max(0, Number(event.target.value) || 0) })}
+            style={{ width: 70, height: 26, borderRadius: 7, border: "1px solid rgba(0,0,0,0.1)", background: "#fff", textAlign: "right", padding: "0 7px", fontSize: 10, fontWeight: 750, outline: "none" }}
+          />
+          €
+        </label>
+      </div>
+      <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+        {pillar.tiers.map((tier) => (
+          <div key={tier.id} style={{ display: "grid", gridTemplateColumns: "minmax(112px,0.75fr) minmax(210px,1.8fr) 86px 22px", alignItems: "center", gap: 8, padding: "7px 8px", borderRadius: 8, background: "rgba(255,255,255,0.82)", border: "1px solid rgba(0,0,0,0.05)" }}>
+            <input
+              value={tier.label}
+              onChange={(event) => updateTier(tier.id, (current) => ({ ...current, label: event.target.value }))}
+              style={{ minWidth: 0, border: "none", outline: "none", background: "transparent", fontSize: 9.5, fontWeight: 700, color: "#242424" }}
+            />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {tier.conditions.map((condition) => (
+                <label key={condition.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 24, padding: "0 6px", borderRadius: 6, background: "rgba(0,0,0,0.035)", fontSize: 8.5, color: "rgba(0,0,0,0.55)" }}>
+                  <span style={{ fontWeight: 650 }}>{metricByKey.get(condition.metricKey)?.label ?? condition.metricKey}</span>
+                  <span style={{ color: "rgba(0,0,0,0.3)" }}>{condition.operator === "gte" ? "≥" : condition.operator === "lte" ? "≤" : "="}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={condition.thresholdValue}
+                    onChange={(event) => updateTier(tier.id, (current) => ({
+                      ...current,
+                      conditions: current.conditions.map((entry) => entry.id === condition.id
+                        ? { ...entry, thresholdValue: Math.max(0, Number(event.target.value) || 0) }
+                        : entry),
+                    }))}
+                    style={{ width: 38, border: "none", outline: "none", background: "transparent", textAlign: "right", fontSize: 9, fontWeight: 750 }}
+                  />
+                  <span>{fmtUnit(condition.metricKey)}</span>
+                </label>
+              ))}
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, color: "#15803d", fontSize: 9, fontWeight: 700 }}>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={tier.rewardEur}
+                onChange={(event) => updateTier(tier.id, (current) => ({ ...current, rewardEur: Math.max(0, Number(event.target.value) || 0) }))}
+                style={{ width: 62, height: 24, borderRadius: 6, border: "1px solid rgba(22,163,74,0.18)", background: "rgba(22,163,74,0.035)", textAlign: "right", padding: "0 5px", outline: "none", color: "#15803d", fontSize: 9.5, fontWeight: 750 }}
+              />€
+            </label>
+            <button type="button" onClick={() => removeTier(tier.id)} title="Stufe entfernen" style={{ width: 22, height: 22, borderRadius: 6, border: "none", background: "transparent", color: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              <X size={10} strokeWidth={2.2} />
+            </button>
+          </div>
+        ))}
+        <button type="button" onClick={addTier} disabled={pillar.metrics.length === 0} style={{ alignSelf: "flex-start", border: "none", background: "transparent", color: pillar.color, fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", gap: 4, cursor: pillar.metrics.length ? "pointer" : "default", opacity: pillar.metrics.length ? 0.8 : 0.35, padding: "3px 6px" }}>
+          <Plus size={10} strokeWidth={2.4} /> Stufe hinzufügen
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -2303,6 +2555,13 @@ function FlexPillarCard({
 
       <div style={{ maxHeight: expanded ? 520 : 0, overflow: "hidden", transition: "max-height 0.28s cubic-bezier(0.4,0,0.2,1)" }}>
         <div style={{ padding: "0 16px 14px" }}>
+          <PillarRewardEditor
+            pillar={pillar}
+            onChange={(updatedPillar) => onUpdateQuarter({
+              ...quarter,
+              pillars: quarter.pillars.map((entry) => entry.id === updatedPillar.id ? updatedPillar : entry),
+            })}
+          />
           <div style={{ padding: "12px 14px", borderRadius: 10, background: complete ? "rgba(22,163,74,0.05)" : "rgba(217,119,6,0.04)", border: `1px solid ${complete ? "rgba(22,163,74,0.2)" : "rgba(217,119,6,0.14)"}`, display: "flex", alignItems: "center", gap: 14, marginBottom: 10, transition: "all 0.3s ease" }}>
             <Zap size={18} strokeWidth={1.5} color={complete ? "#16a34a" : "#D97706"} style={{ flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
@@ -2311,7 +2570,7 @@ function FlexPillarCard({
               </div>
               <div style={{ fontSize: 9, color: "rgba(0,0,0,0.4)", fontWeight: 500 }}>
                 {flexPersistenceReady
-                  ? `${doneCount} von ${gms.length} GMs bewertet · Ø ${avgPts} / 100 Punkte`
+                  ? `${doneCount} von ${gms.length} GMs bewertet · Ø ${avgPts} / 20 Punkte`
                   : "GM-Daten werden geladen. Flexziel ist vorübergehend schreibgeschützt."}
               </div>
             </div>
@@ -2335,7 +2594,7 @@ function FlexPillarCard({
           {subs.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {subs.map(sub => {
-                const scoreColor = sub.totalPoints >= 80 ? "#16a34a" : sub.totalPoints >= 50 ? "#D97706" : R;
+                const scoreColor = sub.totalPoints >= 15 ? "#16a34a" : sub.totalPoints >= 10 ? "#D97706" : R;
                 return (
                   <div key={sub.gmId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.045)" }}>
                     <div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(22,163,74,0.09)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#16a34a", flexShrink: 0 }}>
@@ -2418,6 +2677,13 @@ function QualityPillarCard({
       {/* Expanded body */}
       <div style={{ maxHeight: expanded ? 600 : 0, overflow: "hidden", transition: "max-height 0.28s cubic-bezier(0.4,0,0.2,1)" }}>
         <div style={{ padding: "0 16px 14px" }}>
+          <PillarRewardEditor
+            pillar={pillar}
+            onChange={(updatedPillar) => onUpdateQuarter({
+              ...quarter,
+              pillars: quarter.pillars.map((entry) => entry.id === updatedPillar.id ? updatedPillar : entry),
+            })}
+          />
           {/* Status strip + CTA */}
           <div style={{ padding: "12px 14px", borderRadius: 10, background: complete ? "rgba(22,163,74,0.05)" : "rgba(217,119,6,0.04)", border: `1px solid ${complete ? "rgba(22,163,74,0.2)" : "rgba(217,119,6,0.14)"}`, display: "flex", alignItems: "center", gap: 14, marginBottom: 10, transition: "all 0.3s ease" }}>
             <Award size={18} strokeWidth={1.5} color={complete ? "#16a34a" : "#D97706"} style={{ flexShrink: 0 }} />
@@ -2568,6 +2834,7 @@ function PillarCard({
           {pillar.description && (
             <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", margin: "0 0 12px 16px", lineHeight: 1.5 }}>{pillar.description}</p>
           )}
+          <PillarRewardEditor pillar={pillar} onChange={onChange} />
           {pillar.sourceRefs.length === 0 ? (
             <div style={{ padding: "16px 16px", textAlign: "center", borderRadius: 9, background: "rgba(0,0,0,0.02)", border: "1px dashed rgba(0,0,0,0.1)" }}>
               <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Keine Quellen — weise Quellen über den Explorer zu.</span>
@@ -4782,9 +5049,27 @@ export default function PraemienPage() {
               issues={issues.length}
             />
 
-            <ThresholdDesignerCard quarter={activeQuarter} onChange={updateQuarter} />
-            {sectionErrors.thresholds && (
-              <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>Schwellen: {sectionErrors.thresholds}</div>
+            {activeQuarter.rewardModel === "pillar_tiers" ? (
+              <Card style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 14, background: "linear-gradient(135deg,rgba(220,38,38,0.045),rgba(255,255,255,0.92))", border: "1px solid rgba(220,38,38,0.11)" }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(220,38,38,0.09)", display: "flex", alignItems: "center", justifyContent: "center", color: R, flexShrink: 0 }}>
+                  <Award size={16} strokeWidth={1.8} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 750, color: "#1f1f1f" }}>Unabhängige Säulen-Auszahlung</div>
+                  <div style={{ fontSize: 9.5, color: "rgba(0,0,0,0.43)", marginTop: 3, lineHeight: 1.45 }}>Jede Säule hat ihre eigenen Ziele und Beträge. Mehrleistung in einer Säule kann keine andere Säule freischalten.</div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 18, fontWeight: 850, color: R, fontVariantNumeric: "tabular-nums" }}>{activeQuarter.pillars.reduce((sum, pillar) => sum + pillar.maxRewardEur, 0).toLocaleString("de-AT")} €</div>
+                  <div style={{ fontSize: 8, color: "rgba(0,0,0,0.32)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Quartalsmaximum</div>
+                </div>
+              </Card>
+            ) : (
+              <>
+                <ThresholdDesignerCard quarter={activeQuarter} onChange={updateQuarter} />
+                {sectionErrors.thresholds && (
+                  <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>Schwellen: {sectionErrors.thresholds}</div>
+                )}
+              </>
             )}
 
             {/* Pillars grid */}
@@ -4793,7 +5078,9 @@ export default function PraemienPage() {
               <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>4 Säulen · Boni-Gewichtung</span>
                 <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>
-                  Punkte pro Antwort — Ziel: {activeQuarter.thresholds.find((t) => t.label === "Voller Bonus")?.minPoints ?? [...activeQuarter.thresholds].sort((a, b) => a.minPoints - b.minPoints).at(-1)?.minPoints ?? 0} P
+                  {activeQuarter.rewardModel === "pillar_tiers"
+                    ? `${activeQuarter.pillars.reduce((sum, pillar) => sum + pillar.maxRewardEur, 0).toLocaleString("de-AT")} € maximal · jede Säule separat`
+                    : `Punkte pro Antwort — Ziel: ${activeQuarter.thresholds.find((t) => t.label === "Voller Bonus")?.minPoints ?? [...activeQuarter.thresholds].sort((a, b) => a.minPoints - b.minPoints).at(-1)?.minPoints ?? 0} P`}
                 </span>
               </div>
               {/* White inner card */}

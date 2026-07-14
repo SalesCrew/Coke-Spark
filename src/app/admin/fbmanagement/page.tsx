@@ -16,8 +16,10 @@ import {
   deleteCampaign,
   fetchCampaignAssignedMarkets,
   fetchCampaignMarketVisitDetail,
+  fetchCampaignMarketVisitExportDetails,
   fetchCampaignMarketVisitStatuses,
   fetchCampaigns,
+  fetchAdminZeiterfassungDays,
   fetchFragebogen,
   fetchGmUsers,
   fetchMarkets,
@@ -33,7 +35,11 @@ import {
   updateCampaign,
 } from "@/lib/api/backend";
 import type { CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
-import { exportFbManagementExcel } from "@/lib/exports/planningExports";
+import {
+  exportFbManagementExcel,
+  prepareFbManagementExportVisitRow,
+  type FbManagementExportVisitRow,
+} from "@/lib/exports/planningExports";
 
 type FragebogenOption = {
   id: string;
@@ -58,7 +64,9 @@ const VISIT_STATUS_BATCH_SIZE = 50;
 const VISIT_STATUS_MAX_CONCURRENT_BATCHES = 2;
 const VISIT_STATUS_BACKGROUND_BATCH_SIZE = 2;
 const VISIT_STATUS_BACKGROUND_BATCH_DELAY_MS = 120;
-const VISIT_DETAIL_EXPORT_MAX_CONCURRENT = 3;
+const VISIT_DETAIL_EXPORT_BATCH_SIZE = 12;
+const VISIT_DETAIL_EXPORT_MAX_CONCURRENT_BATCHES = 2;
+const EXPORT_TIME_DATA_MAX_DAYS_PER_BATCH = 7;
 const HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT = "Ich bin mir sicher, dass ich alle Daten zu dieser Kampagne Löschen will!";
 
 type CampaignContextMenuState = {
@@ -327,6 +335,35 @@ function chunkArray<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(index, index + size));
   }
   return chunks;
+}
+
+function buildExportDateRanges(dates: string[], maxDays: number): Array<{ from: string; to: string }> {
+  const uniqueDates = Array.from(new Set(dates.filter(Boolean))).sort();
+  if (uniqueDates.length === 0) return [];
+  const ranges: Array<{ from: string; to: string }> = [];
+  let from = uniqueDates[0];
+  let to = uniqueDates[0];
+  let previousTime = Date.parse(`${uniqueDates[0]}T00:00:00Z`);
+  let fromTime = previousTime;
+
+  for (const date of uniqueDates.slice(1)) {
+    const currentTime = Date.parse(`${date}T00:00:00Z`);
+    const isConsecutive = currentTime - previousTime <= 86400000;
+    const staysWithinBatch = currentTime - fromTime < Math.max(1, maxDays) * 86400000;
+    if (!isConsecutive || !staysWithinBatch) {
+      ranges.push({ from, to });
+      from = date;
+      fromTime = currentTime;
+    }
+    to = date;
+    previousTime = currentTime;
+  }
+  ranges.push({ from, to });
+  return ranges;
+}
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
 function toggleListValue<T extends string>(items: T[], value: T): T[] {
@@ -8324,8 +8361,7 @@ export default function FbManagementPage() {
       }
 
       const detailTargets = Array.from(detailTargetsByKey.values());
-      const loadedDetails: CampaignMarketVisitSummary[] = [];
-      const loadedDetailByKey: CampaignVisitDetailByKey = {};
+      const preparedVisitRows: FbManagementExportVisitRow[] = [];
       const detailErrors: Array<{
         campaignId: string;
         campaignName: string;
@@ -8346,51 +8382,163 @@ export default function FbManagementPage() {
           detail: "Der Export enthält Kampagnen- und Zielmarkt-Daten ohne Antwortzeilen.",
         });
       }
+
       let loadedDetailCount = 0;
+      const reportLoadedDetailProgress = () => {
+        setExportProgress({
+          percent: Math.min(86, 34 + Math.round((loadedDetailCount / Math.max(1, detailTargets.length)) * 50)),
+          headline: "Antworten werden geladen",
+          detail: `${loadedDetailCount} von ${detailTargets.length} Besuch${detailTargets.length === 1 ? "" : "en"} geladen.`,
+        });
+      };
+      const appendPreparedVisit = (
+        target: (typeof detailTargets)[number],
+        detail: CampaignMarketVisitSummary,
+      ) => {
+        const prepared = prepareFbManagementExportVisitRow({
+          visit: detail,
+          market: exportMarketById.get(target.marketId) ?? null,
+          campaignName: target.campaignName,
+        });
+        if (prepared) {
+          preparedVisitRows.push(prepared);
+          return;
+        }
+        detailErrors.push({
+          campaignId: target.campaignId,
+          campaignName: target.campaignName,
+          marketId: target.marketId,
+          marketName: target.marketName,
+          reason: "Der eingereichte Besuch enthielt keine exportierbaren Antwortdetails.",
+        });
+      };
+
+      const uncachedTargets: typeof detailTargets = [];
+      for (const target of detailTargets) {
+        const cached = visitDetailByKey[target.key];
+        if (cached) {
+          appendPreparedVisit(target, cached);
+          loadedDetailCount += 1;
+        } else {
+          uncachedTargets.push(target);
+        }
+      }
+      if (loadedDetailCount > 0) reportLoadedDetailProgress();
+
+      const pendingTargetsByCampaign = new Map<string, typeof detailTargets>();
+      for (const target of uncachedTargets) {
+        const targets = pendingTargetsByCampaign.get(target.campaignId) ?? [];
+        targets.push(target);
+        pendingTargetsByCampaign.set(target.campaignId, targets);
+      }
+      const detailBatches = Array.from(pendingTargetsByCampaign.entries()).flatMap(([campaignId, targets]) =>
+        chunkArray(targets, VISIT_DETAIL_EXPORT_BATCH_SIZE).map((batchTargets) => ({ campaignId, targets: batchTargets })),
+      );
+
       await mapWithConcurrency(
-        detailTargets,
-        VISIT_DETAIL_EXPORT_MAX_CONCURRENT,
-        async (target) => {
-          const cached = visitDetailByKey[target.key];
-          if (cached) {
-            loadedDetails.push(cached);
-            loadedDetailCount += 1;
-            setExportProgress({
-              percent: Math.min(86, 34 + Math.round((loadedDetailCount / Math.max(1, detailTargets.length)) * 50)),
-              headline: "Antworten werden geladen",
-              detail: `${loadedDetailCount} von ${detailTargets.length} Besuch${detailTargets.length === 1 ? "" : "en"} geladen.`,
-            });
-            return;
-          }
+        detailBatches,
+        VISIT_DETAIL_EXPORT_MAX_CONCURRENT_BATCHES,
+        async (batch) => {
           try {
-            const detail = await fetchCampaignMarketVisitDetail({
-              campaignId: target.campaignId,
-              marketId: target.marketId,
-              sessionId: target.sessionId,
-            }, { timeoutMs: 45000 });
-            loadedDetails.push(detail);
-            loadedDetailByKey[target.key] = detail;
-          } catch (error) {
-            detailErrors.push({
-              campaignId: target.campaignId,
-              campaignName: target.campaignName,
-              marketId: target.marketId,
-              marketName: target.marketName,
-              reason: error instanceof Error ? error.message : "Antwortdetails konnten nicht geladen werden.",
+            const details = await fetchCampaignMarketVisitExportDetails({
+              campaignId: batch.campaignId,
+              visits: batch.targets.map((target) => ({ marketId: target.marketId, sessionId: target.sessionId })),
             });
+            const detailByVisit = new Map(
+              details.map((detail) => [`${detail.marketId}:${detail.sessionId ?? ""}`, detail]),
+            );
+            for (const target of batch.targets) {
+              const detail = detailByVisit.get(`${target.marketId}:${target.sessionId}`);
+              if (detail) {
+                appendPreparedVisit(target, detail);
+              } else {
+                detailErrors.push({
+                  campaignId: target.campaignId,
+                  campaignName: target.campaignName,
+                  marketId: target.marketId,
+                  marketName: target.marketName,
+                  reason: "Antwortdetails wurden vom Export-Endpunkt nicht zurückgegeben.",
+                });
+              }
+            }
+          } catch {
+            for (const target of batch.targets) {
+              try {
+                const detail = await fetchCampaignMarketVisitDetail({
+                  campaignId: target.campaignId,
+                  marketId: target.marketId,
+                  sessionId: target.sessionId,
+                  includePhotoSignedUrls: false,
+                }, { timeoutMs: 60000 });
+                appendPreparedVisit(target, detail);
+              } catch (error) {
+                detailErrors.push({
+                  campaignId: target.campaignId,
+                  campaignName: target.campaignName,
+                  marketId: target.marketId,
+                  marketName: target.marketName,
+                  reason: error instanceof Error ? error.message : "Antwortdetails konnten nicht geladen werden.",
+                });
+              }
+            }
           } finally {
-            loadedDetailCount += 1;
-            setExportProgress({
-              percent: Math.min(86, 34 + Math.round((loadedDetailCount / Math.max(1, detailTargets.length)) * 50)),
-              headline: "Antworten werden geladen",
-              detail: `${loadedDetailCount} von ${detailTargets.length} Besuch${detailTargets.length === 1 ? "" : "en"} geladen.`,
-            });
+            loadedDetailCount += batch.targets.length;
+            reportLoadedDetailProgress();
+            await yieldToBrowser();
           }
         },
       );
 
-      if (Object.keys(loadedDetailByKey).length > 0) {
-        setVisitDetailByKey((current) => ({ ...current, ...loadedDetailByKey }));
+      const travelByVisitSessionId: Record<string, { start: string; end: string; durationMin: number }> = {};
+      if (preparedVisitRows.length > 0) {
+        setExportProgress({
+          percent: 88,
+          headline: "Fahrtzeiten werden berechnet",
+          detail: "Die kanonischen Tagesverläufe der exportierten Besuche werden abgeglichen.",
+        });
+
+        const visitSessionIds = new Set(preparedVisitRows.map((visit) => visit.sessionId));
+        const visitDates = preparedVisitRows
+          .map((visit) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Vienna" }).format(new Date(visit.startedAt)))
+          .sort();
+        const gmUserIds = Array.from(new Set(preparedVisitRows.map((visit) => visit.gmUserId).filter((id): id is string => Boolean(id))));
+        const timeRanges = gmUserIds.length > 0
+          ? buildExportDateRanges(visitDates, EXPORT_TIME_DATA_MAX_DAYS_PER_BATCH)
+          : [];
+
+        for (let rangeIndex = 0; rangeIndex < timeRanges.length; rangeIndex += 1) {
+          const range = timeRanges[rangeIndex];
+          try {
+            const timeData = await fetchAdminZeiterfassungDays({
+              from: range.from,
+              to: range.to,
+              gmUserIds,
+              includeLive: false,
+              timezone: "Europe/Vienna",
+            });
+            for (const day of timeData.sessions) {
+              for (let index = 0; index < day.timeline.length; index += 1) {
+                const segment = day.timeline[index];
+                if (!segment || segment.kind !== "marktbesuch" || !visitSessionIds.has(segment.id)) continue;
+                const previous = day.timeline[index - 1];
+                if (!previous || (previous.kind !== "fahrtzeit" && previous.kind !== "anfahrt")) continue;
+                travelByVisitSessionId[segment.id] = {
+                  start: previous.start,
+                  end: previous.end,
+                  durationMin: previous.durationMin,
+                };
+              }
+            }
+          } catch {
+            // Fahrtzeiten are optional enrichment; answer rows must still finish exporting.
+          }
+          setExportProgress({
+            percent: Math.min(91, 88 + Math.round(((rangeIndex + 1) / Math.max(1, timeRanges.length)) * 3)),
+            headline: "Fahrtzeiten werden berechnet",
+            detail: `${rangeIndex + 1} von ${timeRanges.length} Zeitabschnitt${timeRanges.length === 1 ? "" : "en"} abgeglichen.`,
+          });
+          await yieldToBrowser();
+        }
       }
 
       setExportProgress({
@@ -8402,10 +8550,11 @@ export default function FbManagementPage() {
         campaigns: filteredCampaigns,
         markets: exportMarketsData,
         visitStatusByCampaignId: filteredVisitStatusByCampaignId,
-        visitDetails: loadedDetails,
+        preparedVisitRows,
         visitDetailErrors: detailErrors,
         fragebogenByScope,
         modulesByScope,
+        travelByVisitSessionId,
         exportedBy: readAuthSession()?.user.email ?? "",
       });
       setExportProgress({

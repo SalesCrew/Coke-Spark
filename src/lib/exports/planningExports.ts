@@ -36,7 +36,7 @@ type ExportBaseMeta = {
   note?: string;
 };
 
-type CampaignExportMarket = {
+export type CampaignExportMarket = {
   id: string;
   name: string;
   chain: string;
@@ -347,6 +347,13 @@ type SaraQuestionColumn = {
 
 type SaraCellValue = string | number | boolean;
 
+export type FbManagementExportVisitRow = {
+  sessionId: string;
+  startedAt: string;
+  gmUserId: string | null;
+  cells: SaraCellValue[];
+};
+
 const SARA_BASE_COLUMN_COUNT = 22;
 
 function getSaraEinsaetzeColumns(): SaraEinsaetzeColumn[] {
@@ -588,6 +595,84 @@ function appendSaraCellValue(row: SaraCellValue[], index: number, value: SaraCel
   }
 }
 
+let saraExportLayoutCache: {
+  columns: SaraEinsaetzeColumn[];
+  questionColumns: Map<string, SaraQuestionColumn[]>;
+} | null = null;
+
+function getSaraExportLayout() {
+  if (saraExportLayoutCache) return saraExportLayoutCache;
+  const columns = getSaraEinsaetzeColumns();
+  saraExportLayoutCache = {
+    columns,
+    questionColumns: getSaraQuestionColumns(columns),
+  };
+  return saraExportLayoutCache;
+}
+
+export function prepareFbManagementExportVisitRow(input: {
+  visit: CampaignMarketVisitSummary;
+  market: CampaignExportMarket | null;
+  campaignName?: string | null;
+}): FbManagementExportVisitRow | null {
+  const { visit } = input;
+  if (!visit.hasSubmittedVisit || !visit.sessionId || !visit.startedAt) return null;
+
+  const primarySection = visit.sections[0] ?? null;
+  const { columns, questionColumns } = getSaraExportLayout();
+  const row: SaraCellValue[] = Array.from({ length: columns.length }, () => "");
+  const photoCount = visit.sections.reduce(
+    (total, section) =>
+      total + section.questions.reduce((sectionTotal, question) => sectionTotal + (question.answer?.photos.length ?? 0), 0),
+    0,
+  );
+
+  row[0] = saraTargetObject(input.market);
+  row[1] = saraExternalId(input.market);
+  row[2] = formatSaraDateTime(visit.startedAt, "date");
+  row[3] = formatSaraDateTime(visit.startedAt, "time");
+  row[4] = input.campaignName ?? primarySection?.fragebogenName ?? "";
+  row[5] = saraInternalId(input.market);
+  row[6] = saraExternalId(input.market);
+  row[7] = visit.gmName ?? "";
+  row[8] = photoCount;
+  row[13] = formatSaraDateTime(visit.startedAt, "time");
+  row[14] = formatSaraDateTime(visit.submittedAt, "time");
+  row[15] = visit.durationMinutes ?? "";
+  row[17] = primarySection ? sectionLabel(primarySection.section) : "";
+  row[18] = 0;
+  row[20] = false;
+
+  for (const section of visit.sections) {
+    for (const question of section.questions) {
+      const mappedColumns = resolveSaraQuestionColumns(question, questionColumns);
+      if (mappedColumns.length === 0) continue;
+      const value = saraAnswerValue(question);
+      const numericValue = saraNumberFromString(question.answer?.valueNumber ?? saraAnswerRawValue(question));
+      const availabilityBucket = saraAvailabilityBucket(question);
+      for (const column of mappedColumns) {
+        if (column.kind === "value") appendSaraCellValue(row, column.index, value);
+        if (column.kind === "comment") appendSaraCellValue(row, column.index, question.comment ?? "");
+        if (column.kind === "number") appendSaraCellValue(row, column.index, numericValue);
+        if (column.kind === "availability") {
+          if (!availabilityBucket && column.availabilityBucket === "top") {
+            appendSaraCellValue(row, column.index, "Keine Antwort");
+          } else {
+            appendSaraCellValue(row, column.index, availabilityBucket === column.availabilityBucket ? "X" : "");
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    sessionId: visit.sessionId,
+    startedAt: visit.startedAt,
+    gmUserId: visit.gmUserId,
+    cells: row,
+  };
+}
+
 function appendSaraEinsaetzeSheet(
   XLSX: typeof import("xlsx-js-style"),
   wb: ReturnType<(typeof import("xlsx-js-style"))["utils"]["book_new"]>,
@@ -609,11 +694,35 @@ export async function exportFbManagementExcel(input: {
   markets: CampaignExportMarket[];
   visitStatusByCampaignId: Record<string, Record<string, CampaignExportStatus>>;
   visitDetails?: CampaignMarketVisitSummary[];
+  preparedVisitRows?: FbManagementExportVisitRow[];
   visitDetailErrors?: CampaignVisitDetailExportError[];
   fragebogenByScope?: Record<string, Fragebogen[]>;
   modulesByScope?: Record<string, Module[]>;
+  travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>;
   exportedBy?: string;
 }) {
+  const filename = `CokeSpark_FB_Management_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
+  if (input.preparedVisitRows) {
+    const saraRows = input.preparedVisitRows
+      .slice()
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+      .map((prepared) => {
+        const row = prepared.cells.slice();
+        const travel = input.travelByVisitSessionId?.[prepared.sessionId];
+        row[9] = travel?.start ?? "";
+        row[10] = travel?.end ?? "";
+        row[11] = travel?.durationMin ?? "";
+        return row;
+      });
+    await buildAndDownloadWorkbook({
+      filename,
+      build: ({ XLSX, wb }) => {
+        appendSaraEinsaetzeSheet(XLSX, wb, saraRows);
+      },
+    });
+    return;
+  }
+
   const campaigns = input.campaigns.slice().sort((a, b) =>
     a.section.localeCompare(b.section, "de") ||
     a.name.localeCompare(b.name, "de"),
@@ -650,8 +759,6 @@ export async function exportFbManagementExcel(input: {
       }));
     }),
   );
-  const filename = `CokeSpark_FB_Management_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
-
   const saraColumns = getSaraEinsaetzeColumns();
   const saraQuestionColumns = getSaraQuestionColumns(saraColumns);
   const saraRows: SaraCellValue[][] = (input.visitDetails ?? [])
@@ -678,6 +785,10 @@ export async function exportFbManagementExcel(input: {
       row[6] = saraExternalId(market);
       row[7] = visit.gmName ?? "";
       row[8] = photoCount;
+      const travel = visit.sessionId ? input.travelByVisitSessionId?.[visit.sessionId] : null;
+      row[9] = travel?.start ?? "";
+      row[10] = travel?.end ?? "";
+      row[11] = travel?.durationMin ?? "";
       row[13] = formatSaraDateTime(visit.startedAt, "time");
       row[14] = formatSaraDateTime(visit.submittedAt, "time");
       row[15] = visit.durationMinutes ?? "";

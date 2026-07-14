@@ -4473,6 +4473,24 @@ export async function fetchCampaignMarketVisitStatuses(campaignIds: string[]): P
   return data.campaigns ?? [];
 }
 
+export async function fetchCampaignMarketVisitExportDetails(input: {
+  campaignId: string;
+  visits: Array<{ marketId: string; sessionId: string }>;
+}): Promise<CampaignMarketVisitSummary[]> {
+  if (input.visits.length === 0) return [];
+  const data = (await authedFetch(
+    `/admin/campaigns/${encodeURIComponent(input.campaignId)}/market-visits/export-details`,
+    {
+      method: "POST",
+      body: JSON.stringify({ visits: input.visits }),
+    },
+    60000,
+  )) as {
+    markets?: BackendCampaignMarketVisitSummary[];
+  };
+  return data.markets ?? [];
+}
+
 export async function fetchCampaignMarketVisitSummaries(
   campaignId: string,
   options?: { timeoutMs?: number },
@@ -4488,11 +4506,12 @@ export async function fetchCampaignMarketVisitSummaries(
 }
 
 export async function fetchCampaignMarketVisitDetail(
-  input: { campaignId: string; marketId: string; sessionId?: string | null },
+  input: { campaignId: string; marketId: string; sessionId?: string | null; includePhotoSignedUrls?: boolean },
   options?: { timeoutMs?: number },
 ): Promise<CampaignMarketVisitSummary> {
   const params = new URLSearchParams();
   if (input.sessionId) params.set("sessionId", input.sessionId);
+  if (input.includePhotoSignedUrls === false) params.set("includePhotoSignedUrls", "false");
   const query = params.toString() ? `?${params.toString()}` : "";
   const data = (await authedFetch(
     `/admin/campaigns/${encodeURIComponent(input.campaignId)}/markets/${encodeURIComponent(input.marketId)}/visit-detail${query}`,

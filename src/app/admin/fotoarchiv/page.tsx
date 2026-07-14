@@ -3,10 +3,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  Archive,
   Calendar,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   Copy,
   Download,
   ExternalLink,
@@ -25,6 +28,7 @@ import {
   fetchAdminPhotoFacets,
   fetchAdminPhotos,
   fetchAdminPhotoSignedUrls,
+  fetchCampaigns,
   fetchPhotoTags,
   fetchRedMonthCalendar,
   readAuthSession,
@@ -36,6 +40,7 @@ import {
   type AdminPhotoCampaignType,
 } from "@/lib/api/backend";
 import { exportFotoarchivImagesZip } from "@/lib/exports/analysisExports";
+import type { Campaign } from "@/types/campaign";
 import type { RedMonthPeriod } from "@/types/red-month";
 
 const R = "#DC2626";
@@ -55,6 +60,18 @@ const TYPE_META: Record<AdminPhotoCampaignType, { label: string; color: string; 
 type ViewMode = "grid" | "list";
 type Filters = AdminPhotoArchiveFilters & { redMonthId?: string };
 type PhotoSignedUrlState = Pick<AdminPhotoSignedUrl, "signedUrl" | "expiresAt">;
+type ExportTimeframeMode = "all" | "week" | "redMonth";
+type ExportSelection = {
+  campaignId?: string;
+  timeframeMode: ExportTimeframeMode;
+  week?: string;
+  redMonthId?: string;
+};
+type ExportCampaignOption = AdminPhotoArchiveFacets["campaigns"][number] & {
+  historical: boolean;
+  startDate: string | null;
+  endDate: string | null;
+};
 
 const EMPTY_FACETS: AdminPhotoArchiveFacets = {
   campaigns: [],
@@ -219,6 +236,55 @@ function recentWeeks(): Array<{ value: string; label: string }> {
     const value = `${tmp.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
     if (!result.some((entry) => entry.value === value)) result.push({ value, label: `KW ${weekNo} / ${tmp.getUTCFullYear()}` });
   }
+  return result;
+}
+
+function startOfIsoWeek(date: Date): Date {
+  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = result.getDay() || 7;
+  result.setDate(result.getDate() - day + 1);
+  result.setHours(12, 0, 0, 0);
+  return result;
+}
+
+function isoWeekValue(date: Date): { value: string; week: number; year: number } {
+  const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - day);
+  const year = utc.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil((((utc.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return { value: `${year}-W${String(week).padStart(2, "0")}`, week, year };
+}
+
+function exportWeekOptions(campaigns: Campaign[]): Array<{ value: string; label: string }> {
+  const today = new Date();
+  const candidates = campaigns
+    .flatMap((campaign) => [campaign.startDate, campaign.endDate, campaign.createdAt])
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(`${value.slice(0, 10)}T12:00:00`))
+    .filter((value) => Number.isFinite(value.getTime()));
+  const minimum = candidates.length > 0
+    ? new Date(Math.min(...candidates.map((value) => value.getTime())))
+    : new Date(today.getFullYear() - 1, 0, 1, 12);
+  const maximum = candidates.length > 0
+    ? new Date(Math.max(today.getTime(), ...candidates.map((value) => value.getTime())))
+    : today;
+  const first = startOfIsoWeek(minimum);
+  const cursor = startOfIsoWeek(maximum);
+  const result: Array<{ value: string; label: string }> = [];
+
+  for (let index = 0; index < 520 && cursor >= first; index += 1) {
+    const end = new Date(cursor);
+    end.setDate(end.getDate() + 6);
+    const iso = isoWeekValue(cursor);
+    result.push({
+      value: iso.value,
+      label: `KW ${iso.week} / ${iso.year} · ${fmtDate(ymd(cursor))} – ${fmtDate(ymd(end))}`,
+    });
+    cursor.setDate(cursor.getDate() - 7);
+  }
+
   return result;
 }
 
@@ -506,6 +572,307 @@ function FilterModal({
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
           <button type="button" onClick={onClose} style={{ height: 34, borderRadius: 8, border: "none", background: "linear-gradient(to bottom, #fff, #f5f5f5)", boxShadow: BUTTON_SHADOW, padding: "0 14px", fontSize: 11, fontWeight: 800, color: "rgba(0,0,0,0.62)", cursor: "pointer" }}>Schließen</button>
           <button type="button" onClick={() => { onApply(compact(draft)); onClose(); }} style={{ height: 34, borderRadius: 8, border: "none", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)", padding: "0 16px", fontSize: 11, fontWeight: 800, color: "#fff", cursor: "pointer" }}>Filter anwenden</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExportDropdown({
+  label,
+  value,
+  placeholder,
+  options,
+  onChange,
+  searchable = false,
+}: {
+  label: string;
+  value?: string;
+  placeholder: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  searchable?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+  const visibleOptions = options.filter((option) => option.label.toLocaleLowerCase("de-AT").includes(search.trim().toLocaleLowerCase("de-AT")));
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} style={{ position: "relative", minWidth: 0 }}>
+      <span style={{ display: "block", marginBottom: 6, fontSize: 9, fontWeight: 800, color: "rgba(15,23,42,0.38)", letterSpacing: "0.085em", textTransform: "uppercase" }}>{label}</span>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => { setOpen((current) => !current); setSearch(""); }}
+        style={{ width: "100%", height: 38, borderRadius: 10, border: open ? "1px solid rgba(220,38,38,0.26)" : "1px solid rgba(15,23,42,0.09)", background: "linear-gradient(to bottom, #fff, #fafafa)", boxShadow: open ? "0 0 0 3px rgba(220,38,38,0.055), 0 2px 8px rgba(15,23,42,0.06)" : "0 1px 3px rgba(15,23,42,0.045)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 11px", color: selected ? "#111827" : "rgba(15,23,42,0.42)", fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer", textAlign: "left" }}
+      >
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected?.label ?? placeholder}</span>
+        <ChevronDown size={13} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }} />
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: 62, left: 0, right: 0, zIndex: 20, borderRadius: 12, border: "1px solid rgba(15,23,42,0.10)", background: "rgba(255,255,255,0.985)", boxShadow: "0 18px 44px rgba(15,23,42,0.16)", padding: 6, overflow: "hidden" }}>
+          {searchable && (
+            <label style={{ height: 34, marginBottom: 5, display: "flex", alignItems: "center", gap: 7, borderRadius: 8, border: "1px solid rgba(15,23,42,0.08)", background: "#f8fafc", padding: "0 9px" }}>
+              <Search size={12} color="rgba(15,23,42,0.35)" />
+              <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Suchen..." style={{ width: "100%", border: 0, outline: 0, background: "transparent", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: "#111827" }} />
+            </label>
+          )}
+          <div className="fotoExportScrollbar" style={{ maxHeight: 238, overflowY: "auto", paddingRight: 2 }}>
+            {visibleOptions.length === 0 ? (
+              <div style={{ padding: "16px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "rgba(15,23,42,0.42)" }}>Keine Auswahl gefunden</div>
+            ) : visibleOptions.map((option) => {
+              const active = option.value === value;
+              return (
+                <button key={option.value} type="button" onClick={() => { onChange(option.value); setOpen(false); }} style={{ width: "100%", minHeight: 34, border: 0, borderRadius: 8, background: active ? "rgba(220,38,38,0.07)" : "transparent", color: active ? R : "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 9px", fontFamily: "inherit", fontSize: 10.5, lineHeight: 1.25, fontWeight: active ? 800 : 650, textAlign: "left", cursor: "pointer" }}>
+                  <span>{option.label}</span>
+                  {active && <Check size={12} strokeWidth={2.4} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExportCampaignPicker({
+  campaigns,
+  value,
+  onChange,
+}: {
+  campaigns: ExportCampaignOption[];
+  value?: string;
+  onChange: (value?: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const needle = search.trim().toLocaleLowerCase("de-AT");
+  const matches = (campaign: ExportCampaignOption) => !needle || campaign.name.toLocaleLowerCase("de-AT").includes(needle);
+  const current = campaigns.filter((campaign) => !campaign.historical && matches(campaign));
+  const historical = campaigns.filter((campaign) => campaign.historical && matches(campaign));
+
+  const campaignRow = (campaign: ExportCampaignOption) => {
+    const selected = campaign.id === value;
+    const meta = TYPE_META[campaign.type];
+    return (
+      <button key={campaign.id} type="button" onClick={() => onChange(campaign.id)} style={{ width: "100%", minHeight: 42, border: 0, borderLeft: selected ? `2px solid ${R}` : "2px solid transparent", borderRadius: 5, background: selected ? "rgba(220,38,38,0.045)" : "transparent", display: "grid", gridTemplateColumns: "18px minmax(0,1fr) 64px", alignItems: "center", gap: 8, padding: "6px 8px 6px 6px", color: selected ? R : "#111827", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
+        <span style={{ width: 15, height: 15, borderRadius: 999, border: selected ? `4px solid ${R}` : "1.5px solid rgba(15,23,42,0.20)", background: "#fff", boxSizing: "border-box" }} />
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10.5, fontWeight: selected ? 800 : 700 }}>{campaign.name}</span>
+          <span style={{ display: "block", marginTop: 2, fontSize: 8.5, fontWeight: 600, color: "rgba(15,23,42,0.38)" }}>{campaign.startDate && campaign.endDate ? `${fmtDate(campaign.startDate)} – ${fmtDate(campaign.endDate)}` : "Ohne festen Zeitraum"}</span>
+        </span>
+        <span style={{ width: 64, display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 5, color: meta.color, fontSize: 7.5, fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.055em" }}>
+          {meta.label}
+          <span style={{ width: 3, height: 14, borderRadius: 2, background: meta.color, opacity: 0.72, flexShrink: 0 }} />
+        </span>
+      </button>
+    );
+  };
+
+  return (
+    <div style={{ borderRadius: 13, border: "1px solid rgba(15,23,42,0.08)", background: "rgba(248,250,252,0.68)", padding: 8 }}>
+      <label style={{ height: 34, display: "flex", alignItems: "center", gap: 7, borderRadius: 9, border: "1px solid rgba(15,23,42,0.08)", background: "#fff", padding: "0 9px", boxShadow: "0 1px 2px rgba(15,23,42,0.03)" }}>
+        <Search size={12} color="rgba(15,23,42,0.34)" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Kampagne suchen..." style={{ width: "100%", border: 0, outline: 0, background: "transparent", fontFamily: "inherit", fontSize: 10.5, fontWeight: 600, color: "#111827" }} />
+      </label>
+      <div className="fotoExportHiddenScrollbar" style={{ height: 286, marginTop: 7, overflowY: "auto", overscrollBehavior: "contain" }}>
+        <button type="button" onClick={() => onChange(undefined)} style={{ width: "100%", minHeight: 40, border: 0, borderLeft: !value ? `2px solid ${R}` : "2px solid transparent", borderRadius: 5, background: !value ? "rgba(220,38,38,0.045)" : "transparent", display: "grid", gridTemplateColumns: "18px minmax(0,1fr) auto", alignItems: "center", gap: 8, padding: "6px 8px 6px 6px", color: !value ? R : "#111827", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
+          <span style={{ width: 15, height: 15, borderRadius: 999, border: !value ? `4px solid ${R}` : "1.5px solid rgba(15,23,42,0.20)", background: "#fff", boxSizing: "border-box" }} />
+          <span style={{ fontSize: 10.5, fontWeight: !value ? 800 : 700 }}>Alle Kampagnen</span>
+          <span style={{ fontSize: 8.5, fontWeight: 700, color: "rgba(15,23,42,0.34)" }}>{campaigns.length}</span>
+        </button>
+
+        <div style={{ padding: "8px 8px 4px", fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Aktiv & geplant · {current.length}</div>
+        {current.map(campaignRow)}
+        {current.length === 0 && <div style={{ padding: "9px", fontSize: 10, color: "rgba(15,23,42,0.40)" }}>Keine passenden aktuellen Kampagnen.</div>}
+
+        <div style={{ marginTop: 5, padding: "9px 8px 4px", borderTop: "1px solid rgba(15,23,42,0.06)", fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Historisch · {historical.length}</div>
+        {historical.map(campaignRow)}
+        {historical.length === 0 && <div style={{ padding: "9px", fontSize: 10, color: "rgba(15,23,42,0.40)" }}>Keine historischen Kampagnen gefunden.</div>}
+      </div>
+    </div>
+  );
+}
+
+function FotoExportModal({
+  open,
+  campaigns,
+  photoCampaigns,
+  redMonths,
+  exporting,
+  error,
+  onClose,
+  onExport,
+}: {
+  open: boolean;
+  campaigns: Campaign[];
+  photoCampaigns: AdminPhotoArchiveFacets["campaigns"];
+  redMonths: RedMonthPeriod[];
+  exporting: boolean;
+  error: string | null;
+  onClose: () => void;
+  onExport: (filters: AdminPhotoArchiveFilters) => void;
+}) {
+  const [selection, setSelection] = useState<ExportSelection>({ timeframeMode: "all" });
+  const weekOptions = useMemo(() => exportWeekOptions(campaigns), [campaigns]);
+  const campaignOptions = useMemo<ExportCampaignOption[]>(() => {
+    const byId = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+    const today = ymd(new Date());
+    return photoCampaigns
+      .map((campaign) => {
+        const source = byId.get(campaign.id);
+        const endDate = source?.endDate ?? null;
+        return {
+          ...campaign,
+          historical: source?.status === "inactive" || Boolean(endDate && endDate < today),
+          startDate: source?.startDate ?? null,
+          endDate,
+        };
+      })
+      .sort((a, b) => Number(a.historical) - Number(b.historical) || (b.endDate ?? "").localeCompare(a.endDate ?? "") || a.name.localeCompare(b.name, "de"));
+  }, [campaigns, photoCampaigns]);
+  const redMonthOptions = useMemo(() => redMonths
+    .slice()
+    .sort((a, b) => b.start.localeCompare(a.start))
+    .map((period) => ({ value: period.id, label: `${period.label} · ${fmtDate(period.start)} – ${fmtDate(period.end)}` })), [redMonths]);
+
+  useEffect(() => {
+    if (open) setSelection({ timeframeMode: "all" });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !exporting) onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [exporting, onClose, open]);
+
+  if (!open) return null;
+
+  const selectMode = (mode: ExportTimeframeMode) => {
+    if (mode === "week") {
+      setSelection((current) => ({ ...current, timeframeMode: mode, week: current.week ?? weekOptions[0]?.value, redMonthId: undefined }));
+      return;
+    }
+    if (mode === "redMonth") {
+      const currentRedMonth = redMonths.find((period) => period.isCurrent)?.id ?? redMonthOptions[0]?.value;
+      setSelection((current) => ({ ...current, timeframeMode: mode, redMonthId: current.redMonthId ?? currentRedMonth, week: undefined }));
+      return;
+    }
+    setSelection((current) => ({ ...current, timeframeMode: mode, week: undefined, redMonthId: undefined }));
+  };
+
+  const selectionComplete = selection.timeframeMode === "all" || (selection.timeframeMode === "week" ? Boolean(selection.week) : Boolean(selection.redMonthId));
+  const selectedCampaign = campaignOptions.find((campaign) => campaign.id === selection.campaignId);
+  const selectedRedMonth = redMonths.find((period) => period.id === selection.redMonthId);
+  const timeframeSummary = selection.timeframeMode === "week"
+    ? weekOptions.find((option) => option.value === selection.week)?.label ?? "Kalenderwoche wählen"
+    : selection.timeframeMode === "redMonth"
+      ? redMonthOptions.find((option) => option.value === selection.redMonthId)?.label ?? "RED Month wählen"
+      : "Gesamter Zeitraum";
+
+  const submit = () => {
+    if (!selectionComplete || exporting) return;
+    const exportFilters: AdminPhotoArchiveFilters = {};
+    if (selection.campaignId) exportFilters.campaignId = selection.campaignId;
+    if (selection.timeframeMode === "week" && selection.week) exportFilters.week = selection.week;
+    if (selection.timeframeMode === "redMonth" && selectedRedMonth) {
+      exportFilters.dateFrom = selectedRedMonth.start;
+      exportFilters.dateTo = selectedRedMonth.end;
+    }
+    onExport(exportFilters);
+  };
+
+  return (
+    <div onMouseDown={(event) => { if (event.target === event.currentTarget && !exporting) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 2200, background: "rgba(15,23,42,0.25)", backdropFilter: "blur(11px)", display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "74px 24px 32px" }}>
+      <div style={{ width: "min(900px, calc(100vw - 32px))", borderRadius: 19, border: "1px solid rgba(255,255,255,0.88)", background: "rgba(255,255,255,0.985)", boxShadow: "0 26px 80px rgba(15,23,42,0.25)", overflow: "visible", fontFamily: ADMIN_FONT_STACK }}>
+        <div style={{ minHeight: 76, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "16px 18px", borderBottom: "1px solid rgba(15,23,42,0.065)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, display: "grid", placeItems: "center", color: R, background: "linear-gradient(145deg, rgba(220,38,38,0.105), rgba(220,38,38,0.035))", border: "1px solid rgba(220,38,38,0.13)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9)" }}><Archive size={17} strokeWidth={1.8} /></div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.36)", letterSpacing: "0.095em", textTransform: "uppercase" }}>Fotoexport vorbereiten</div>
+              <h2 style={{ margin: "3px 0 0", fontSize: 18, lineHeight: 1.05, letterSpacing: "-0.03em", color: "#111827" }}>Fotos gezielt exportieren</h2>
+            </div>
+          </div>
+          <button type="button" aria-label="Schließen" disabled={exporting} onClick={onClose} style={{ ...iconButtonStyle, opacity: exporting ? 0.45 : 1, cursor: exporting ? "default" : "pointer" }}><X size={14} /></button>
+        </div>
+
+        <div className="fotoExportGrid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.08fr) minmax(300px, 0.92fr)", gap: 16, padding: 18 }}>
+          <section style={{ minWidth: 0 }}>
+            <div style={{ marginBottom: 9 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: "#111827" }}>Kampagne</div>
+              <div style={{ marginTop: 3, fontSize: 9.5, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.44)" }}>Aktuelle und historische Kampagnen gemeinsam durchsuchen und direkt auswählen.</div>
+            </div>
+            <ExportCampaignPicker campaigns={campaignOptions} value={selection.campaignId} onChange={(campaignId) => setSelection((current) => ({ ...current, campaignId }))} />
+          </section>
+
+          <section style={{ minWidth: 0 }}>
+            <div style={{ marginBottom: 9 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: "#111827" }}>Zeitraum</div>
+              <div style={{ marginTop: 3, fontSize: 9.5, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.44)" }}>Nach Kalenderwoche oder nach dem hinterlegten RED-Month-Kalender filtern.</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", borderBottom: "1px solid rgba(15,23,42,0.09)" }}>
+              {([
+                ["all", "Alle"],
+                ["week", "Woche"],
+                ["redMonth", "RED Month"],
+              ] as Array<[ExportTimeframeMode, string]>).map(([mode, label]) => {
+                const active = selection.timeframeMode === mode;
+                return <button key={mode} type="button" onClick={() => selectMode(mode)} style={{ height: 34, marginBottom: -1, border: 0, borderBottom: active ? `2px solid ${R}` : "2px solid transparent", background: "transparent", color: active ? R : "rgba(15,23,42,0.44)", fontFamily: "inherit", fontSize: 9.5, fontWeight: active ? 850 : 750, cursor: "pointer" }}>{label}</button>;
+              })}
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              {selection.timeframeMode === "week" && <ExportDropdown label="Kalenderwoche" value={selection.week} placeholder="Woche wählen" options={weekOptions} searchable onChange={(week) => setSelection((current) => ({ ...current, week }))} />}
+              {selection.timeframeMode === "redMonth" && <ExportDropdown label="RED Month" value={selection.redMonthId} placeholder="RED Month wählen" options={redMonthOptions} searchable onChange={(redMonthId) => setSelection((current) => ({ ...current, redMonthId }))} />}
+              {selection.timeframeMode === "all" && (
+                <div style={{ minHeight: 76, borderRadius: 12, border: "1px dashed rgba(15,23,42,0.11)", background: "rgba(248,250,252,0.56)", display: "flex", alignItems: "center", gap: 10, padding: 12 }}>
+                  <Clock3 size={16} color="rgba(15,23,42,0.34)" />
+                  <div><div style={{ fontSize: 10.5, fontWeight: 750, color: "rgba(15,23,42,0.68)" }}>Kein Zeitfilter</div><div style={{ marginTop: 2, fontSize: 9, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Alle vorhandenen Fotos der Kampagnenauswahl werden berücksichtigt.</div></div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 16, borderRadius: 13, border: "1px solid rgba(220,38,38,0.10)", background: "linear-gradient(145deg, rgba(220,38,38,0.052), rgba(248,250,252,0.74))", padding: 13 }}>
+              <div style={{ fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.36)", letterSpacing: "0.085em", textTransform: "uppercase" }}>Exportauswahl</div>
+              <div style={{ marginTop: 8, display: "grid", gap: 7 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Kampagne</span><span style={{ fontWeight: 800, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedCampaign?.name ?? "Alle Kampagnen"}</span></div>
+                <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Zeitraum</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{timeframeSummary}</span></div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {error && <div style={{ margin: "0 18px 12px", borderRadius: 10, border: "1px solid rgba(220,38,38,0.16)", background: "rgba(220,38,38,0.055)", color: R, padding: "9px 11px", fontSize: 10.5, lineHeight: 1.4, fontWeight: 750 }}>{error}</div>}
+        <div style={{ minHeight: 64, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 18px", borderTop: "1px solid rgba(15,23,42,0.065)", background: "rgba(248,250,252,0.58)", borderRadius: "0 0 19px 19px" }}>
+          <div style={{ maxWidth: 430, fontSize: 9, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Der Download startet erst nach „Gefilterte Fotos exportieren“. Es werden ausschließlich Fotos dieser Auswahl geladen.</div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button type="button" disabled={exporting} onClick={onClose} style={{ height: 35, borderRadius: 9, border: 0, background: "linear-gradient(to bottom, #fff, #f5f5f5)", boxShadow: BUTTON_SHADOW, padding: "0 13px", color: "rgba(15,23,42,0.60)", fontFamily: "inherit", fontSize: 10.5, fontWeight: 800, cursor: exporting ? "default" : "pointer", opacity: exporting ? 0.5 : 1 }}>Abbrechen</button>
+            <button type="button" disabled={!selectionComplete || exporting} onClick={submit} style={{ height: 35, borderRadius: 9, border: 0, background: "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), 0 0 0 1px #a91b1b, 0 4px 12px rgba(180,20,20,0.14)", display: "inline-flex", alignItems: "center", gap: 7, padding: "0 14px", color: "#fff", fontFamily: "inherit", fontSize: 10.5, fontWeight: 850, cursor: !selectionComplete || exporting ? "default" : "pointer", opacity: !selectionComplete || exporting ? 0.58 : 1 }}>
+              {exporting ? <Loader2 size={13} className="photoArchiveSpin" /> : <Download size={13} />}
+              {exporting ? "Export wird erstellt..." : "Gefilterte Fotos exportieren"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -962,12 +1329,14 @@ export default function FotoarchivPage() {
   const [stats, setStats] = useState({ visitedMarkets: 0, campaigns: 0 });
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [redMonths, setRedMonths] = useState<RedMonthPeriod[]>([]);
+  const [campaignCatalog, setCampaignCatalog] = useState<Campaign[]>([]);
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<AdminPhotoArchiveItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -996,10 +1365,30 @@ export default function FotoarchivPage() {
   }, [searchDraft]);
 
   useEffect(() => {
-    const now = new Date();
-    const from = `${now.getFullYear() - 1}-01-01`;
-    const to = `${now.getFullYear() + 1}-12-31`;
-    void fetchRedMonthCalendar({ from, to }).then(setRedMonths).catch(() => setRedMonths([]));
+    let cancelled = false;
+    void fetchCampaigns()
+      .catch(() => [] as Campaign[])
+      .then(async (nextCampaigns) => {
+        if (!cancelled) setCampaignCatalog(nextCampaigns);
+        const now = new Date();
+        const years = nextCampaigns
+          .flatMap((campaign) => [campaign.startDate, campaign.endDate, campaign.createdAt])
+          .filter((value): value is string => Boolean(value))
+          .map((value) => Number(value.slice(0, 4)))
+          .filter((value) => Number.isFinite(value));
+        const earliestYear = Math.max(2000, Math.min(now.getFullYear() - 1, ...years));
+        const latestYear = Math.max(now.getFullYear() + 1, ...years);
+        return fetchRedMonthCalendar({ from: `${earliestYear}-01-01`, to: `${latestYear}-12-31` });
+      })
+      .then((periods) => {
+        if (!cancelled) setRedMonths(periods);
+      })
+      .catch(() => {
+        if (!cancelled) setRedMonths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1143,7 +1532,7 @@ export default function FotoarchivPage() {
     void fetchAdminPhotoFacets().then(setFacets).catch(() => {});
   }, []);
 
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(async (exportFilters: AdminPhotoArchiveFilters) => {
     if (isExporting) return;
     setIsExporting(true);
     setExportError(null);
@@ -1153,37 +1542,52 @@ export default function FotoarchivPage() {
       let expectedTotal = 0;
       const allPhotos: AdminPhotoArchiveItem[] = [];
       while (page === 1 || allPhotos.length < expectedTotal) {
-        const response = await fetchAdminPhotos({ ...filters, page, pageSize });
+        const response = await fetchAdminPhotos({ ...exportFilters, page, pageSize });
         expectedTotal = response.total;
         allPhotos.push(...response.photos);
         if (response.photos.length === 0) break;
         page += 1;
       }
       await exportFotoarchivImagesZip({
-        photos: allPhotos,
+        photos: dedupePhotosById(allPhotos),
         exportedBy: readAuthSession()?.user.email ?? "",
       });
+      setExportOpen(false);
     } catch (err) {
       setExportError(err instanceof Error ? err.message : "Fotoarchiv-Export konnte nicht erstellt werden.");
     } finally {
       setIsExporting(false);
     }
-  }, [filters, isExporting]);
+  }, [isExporting]);
 
   useEffect(() => {
-    const handler = () => { void handleExport(); };
+    const handler = () => {
+      setExportError(null);
+      setExportOpen(true);
+    };
     window.addEventListener("admin:fotoarchiv:export", handler);
     return () => window.removeEventListener("admin:fotoarchiv:export", handler);
-  }, [handleExport]);
+  }, []);
 
   return (
     <main style={{ minHeight: "calc(100vh - 80px)", padding: 18, background: "#f5f5f7", fontFamily: ADMIN_FONT_STACK }}>
       <style>{`
         @keyframes photoArchiveShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+        @keyframes photoArchiveSpin { to { transform: rotate(360deg); } }
         .photoArchiveSkeleton {
           background: linear-gradient(90deg, rgba(0,0,0,0.045), rgba(255,255,255,0.95), rgba(0,0,0,0.045));
           background-size: 220% 100%;
           animation: photoArchiveShimmer 1.15s ease-in-out infinite;
+        }
+        .photoArchiveSpin { animation: photoArchiveSpin 0.8s linear infinite; }
+        .fotoExportScrollbar { scrollbar-width: thin; scrollbar-color: rgba(15,23,42,0.16) transparent; }
+        .fotoExportScrollbar::-webkit-scrollbar { width: 5px; }
+        .fotoExportScrollbar::-webkit-scrollbar-track { background: transparent; }
+        .fotoExportScrollbar::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.14); border-radius: 999px; }
+        .fotoExportHiddenScrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+        .fotoExportHiddenScrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+        @media (max-width: 760px) {
+          .fotoExportGrid { grid-template-columns: minmax(0, 1fr) !important; }
         }
       `}</style>
 
@@ -1365,6 +1769,18 @@ export default function FotoarchivPage() {
         onClose={() => setFilterOpen(false)}
         onApply={applyFilters}
         onReset={() => applyFilters({ page: 1, pageSize: 30 })}
+      />
+      <FotoExportModal
+        open={exportOpen}
+        campaigns={campaignCatalog}
+        photoCampaigns={facets.campaigns}
+        redMonths={redMonths}
+        exporting={isExporting}
+        error={exportError}
+        onClose={() => {
+          if (!isExporting) setExportOpen(false);
+        }}
+        onExport={(exportFilters) => { void handleExport(exportFilters); }}
       />
       <DetailDrawer
         photo={selectedPhoto}

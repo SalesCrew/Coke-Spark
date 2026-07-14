@@ -64,8 +64,8 @@ function HandelskettenSelector({
       return;
     }
     if (alleActive) {
-      // turn off → pre-select all so user can deselect
-      onUpdate({ ...question, chains: [...chainOptions] });
+      // Turn off with an empty selection so only relevant chains need to be picked.
+      onUpdate({ ...question, chains: [] });
     } else {
       onUpdate({ ...question, chains: undefined });
     }

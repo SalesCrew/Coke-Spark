@@ -38,7 +38,7 @@ export function HandelskettenSelector({
       return;
     }
     if (allChainsActive) {
-      onUpdate({ ...question, chains: [...chainOptions] });
+      onUpdate({ ...question, chains: [] });
     } else {
       onUpdate({ ...question, chains: undefined });
     }

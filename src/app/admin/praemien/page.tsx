@@ -2695,12 +2695,17 @@ const DIST_COLOR = "#2563eb";
 const FREQ_LABELS: Record<"lt8" | "gt8", string> = { lt8: "Freq. <8", gt8: "Freq. >8" };
 
 function PillarSelect({
-  value, pillars, onChange, currentFreqRule,
+  value, pillars, onChange, currentFreqRule, onContextMenu, disabled = false,
+  placeholder = "– Nicht zugewiesen", unassignedLabel = "– Nicht zugewiesen",
 }: {
   value: string;
   pillars: PraemienPillar[];
   onChange: (id: string, freqRule?: "lt8" | "gt8") => void;
   currentFreqRule?: "lt8" | "gt8";
+  onContextMenu?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  unassignedLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -2765,7 +2770,7 @@ function PillarSelect({
   };
 
   // Build the trigger label
-  let triggerLabel = current ? current.name : "– Nicht zugewiesen";
+  let triggerLabel = current ? current.name : placeholder;
   if (isCurrentlyDist && currentFreqRule) {
     triggerLabel = `${current!.name} · ${FREQ_LABELS[currentFreqRule]}`;
   }
@@ -2774,18 +2779,26 @@ function PillarSelect({
     <>
       <button
         ref={btnRef}
+        type="button"
+        disabled={disabled}
         onClick={toggleOpen}
+        onContextMenu={(event) => {
+          if (!onContextMenu) return;
+          setOpen(false);
+          onContextMenu(event);
+        }}
         style={{
           display: "flex", alignItems: "center", gap: 6, minWidth: 138, justifyContent: "space-between",
-          padding: "5px 10px", borderRadius: 7, border: "none", cursor: "pointer",
+          padding: "5px 10px", borderRadius: 7, border: "none", cursor: disabled ? "default" : "pointer",
           fontSize: 10, fontWeight: 600, whiteSpace: "nowrap",
           background: current ? `${current.color}0e` : "rgba(0,0,0,0.035)",
           color: current ? current.color : "rgba(0,0,0,0.45)",
           boxShadow: current ? `0 0 0 1px ${current.color}30` : "0 0 0 1px rgba(0,0,0,0.09)",
-          transition: "all 0.15s ease",
+          transition: "all 0.15s ease", opacity: disabled ? 0.62 : 1,
+          pointerEvents: disabled ? "none" : "auto",
         }}
-        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.8"; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+        onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.opacity = "0.8"; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = disabled ? "0.62" : "1"; }}
       >
         <span style={{ display: "flex", alignItems: "center", gap: 5, overflow: "hidden" }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: current ? current.color : "rgba(0,0,0,0.18)", flexShrink: 0 }} />
@@ -2809,7 +2822,7 @@ function PillarSelect({
             onMouseLeave={e => { if (current) e.currentTarget.style.background = "transparent"; }}
           >
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(0,0,0,0.15)", flexShrink: 0 }} />
-            <span style={{ flex: 1 }}>– Nicht zugewiesen</span>
+            <span style={{ flex: 1 }}>{unassignedLabel}</span>
             {!current && <Check size={10} strokeWidth={3} color="rgba(0,0,0,0.4)" />}
           </button>
 
@@ -2922,6 +2935,13 @@ function BonusSourceExplorer({
   const [search, setSearch] = useState("");
   const [filterSection, setFilterSection] = useState<SectionType | null>(null);
   const [filterAssigned, setFilterAssigned] = useState<"all" | "assigned" | "unassigned">("all");
+  const [multiSelectActive, setMultiSelectActive] = useState(false);
+  const [selectedSourceKeys, setSelectedSourceKeys] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setMultiSelectActive(false);
+    setSelectedSourceKeys(new Set());
+  }, [quarter.id]);
 
   // Map source.catalogKey → pillarId
   const assignmentMap: Record<string, string> = {};
@@ -2941,8 +2961,7 @@ function BonusSourceExplorer({
     return true;
   });
 
-  const assignToPillar = (src: BonusSource, pillarId: string, freqRule?: "lt8" | "gt8") => {
-    const ref: PraemienSourceRef = {
+  const createSourceRef = (src: BonusSource, pillarId: string, freqRule?: "lt8" | "gt8"): PraemienSourceRef => ({
       id: src.key,
       catalogKey: src.key,
       sectionType: src.sectionType,
@@ -2958,7 +2977,10 @@ function BonusSourceExplorer({
       displayLabel: src.displayLabel,
       // Only store rule when assigning to Distributionsziel
       ...(freqRule && isDistributionPillar(quarter.pillars, pillarId) ? { distributionFreqRule: freqRule } : {}),
-    };
+  });
+
+  const assignToPillar = (src: BonusSource, pillarId: string, freqRule?: "lt8" | "gt8") => {
+    const ref = createSourceRef(src, pillarId, freqRule);
     // Remove from any existing pillar first
     const cleanedPillars = quarter.pillars.map(p => ({
       ...p,
@@ -2974,6 +2996,50 @@ function BonusSourceExplorer({
     onChange({ ...quarter, pillars: newPillars });
   };
 
+  const cancelMultiSelect = () => {
+    setMultiSelectActive(false);
+    setSelectedSourceKeys(new Set());
+  };
+
+  const startMultiSelect = (event: ReactMouseEvent<HTMLButtonElement>, sourceKey: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMultiSelectActive(true);
+    setSelectedSourceKeys((current) => {
+      if (current.has(sourceKey)) return current;
+      const next = new Set(current);
+      next.add(sourceKey);
+      return next;
+    });
+  };
+
+  const toggleSourceSelection = (sourceKey: string) => {
+    setSelectedSourceKeys((current) => {
+      const next = new Set(current);
+      if (next.has(sourceKey)) next.delete(sourceKey);
+      else next.add(sourceKey);
+      return next;
+    });
+  };
+
+  const assignSelectedToPillar = (pillarId: string, freqRule?: "lt8" | "gt8") => {
+    if (selectedSourceKeys.size === 0) return;
+    const refs = sources
+      .filter((source) => selectedSourceKeys.has(source.key))
+      .map((source) => createSourceRef(source, pillarId, freqRule));
+    const cleanedPillars = quarter.pillars.map((pillar) => ({
+      ...pillar,
+      sourceRefs: pillar.sourceRefs.filter((ref) => !selectedSourceKeys.has(ref.catalogKey)),
+    }));
+    const nextPillars = pillarId
+      ? cleanedPillars.map((pillar) => (
+          pillar.id === pillarId ? { ...pillar, sourceRefs: [...pillar.sourceRefs, ...refs] } : pillar
+        ))
+      : cleanedPillars;
+    onChange({ ...quarter, pillars: nextPillars });
+    cancelMultiSelect();
+  };
+
   // Group by fragebogenName
   const grouped: Record<string, BonusSource[]> = {};
   for (const s of filtered) {
@@ -2986,7 +3052,9 @@ function BonusSourceExplorer({
       {/* Grey header area */}
       <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>Bonus-Quellen ({filtered.length} / {sources.length})</span>
-        <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Aus Fragebögen · Boni-Werte</span>
+        <span style={{ fontSize: 9, color: multiSelectActive ? R : "rgba(0,0,0,0.3)", fontWeight: multiSelectActive ? 700 : 500 }}>
+          {multiSelectActive ? "Fragen anklicken und gemeinsam zuordnen" : "Rechtsklick auf Zuordnung · Mehrfachauswahl"}
+        </span>
       </div>
 
       {/* White inner card */}
@@ -3031,6 +3099,46 @@ function BonusSourceExplorer({
         </div>
       </div>
 
+      {multiSelectActive && (
+        <div style={{
+          minHeight: 48, padding: "8px 18px", display: "flex", alignItems: "center", gap: 10,
+          borderBottom: "1px solid rgba(220,38,38,0.12)", background: "rgba(220,38,38,0.035)",
+          boxShadow: "inset 3px 0 0 rgba(220,38,38,0.72)",
+        }}>
+          <div style={{
+            width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+            background: selectedSourceKeys.size > 0 ? R : "rgba(0,0,0,0.08)", color: "#fff",
+            fontSize: 10, fontWeight: 800, fontVariantNumeric: "tabular-nums", flexShrink: 0,
+          }}>
+            {selectedSourceKeys.size}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a" }}>Mehrfachauswahl aktiv</div>
+            <div style={{ fontSize: 9, color: "rgba(0,0,0,0.42)", marginTop: 1 }}>Jede gewünschte Frage anklicken, danach rechts die Säule wählen.</div>
+          </div>
+          <PillarSelect
+            value=""
+            pillars={quarter.pillars}
+            disabled={selectedSourceKeys.size === 0}
+            placeholder="Säule auswählen"
+            unassignedLabel="Zuordnung entfernen"
+            onChange={assignSelectedToPillar}
+          />
+          <button
+            type="button"
+            onClick={cancelMultiSelect}
+            style={{
+              height: 28, padding: "0 10px", borderRadius: 7, border: "1px solid rgba(0,0,0,0.09)",
+              background: "rgba(255,255,255,0.82)", color: "rgba(0,0,0,0.52)", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 650,
+            }}
+          >
+            <X size={10} strokeWidth={2.4} />
+            Abbrechen
+          </button>
+        </div>
+      )}
+
       {/* Source list */}
       <div className="map-scroll" style={{ maxHeight: 480, overflowY: "auto" } as React.CSSProperties}>
         {Object.keys(grouped).length === 0 ? (
@@ -3050,14 +3158,40 @@ function BonusSourceExplorer({
 
             {fbSources.map(src => {
               const currentPillarId = assignmentMap[src.key];
-              const currentPillar = quarter.pillars.find(p => p.id === currentPillarId);
+              const selected = selectedSourceKeys.has(src.key);
 
               return (
                 <div key={src.key}
-                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 18px", borderBottom: "1px solid rgba(0,0,0,0.035)", transition: "background 0.1s ease" }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.015)"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                  role={multiSelectActive ? "button" : undefined}
+                  tabIndex={multiSelectActive ? 0 : undefined}
+                  aria-pressed={multiSelectActive ? selected : undefined}
+                  onClick={() => { if (multiSelectActive) toggleSourceSelection(src.key); }}
+                  onKeyDown={(event) => {
+                    if (!multiSelectActive || (event.key !== "Enter" && event.key !== " ")) return;
+                    event.preventDefault();
+                    toggleSourceSelection(src.key);
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 12, padding: "10px 18px",
+                    borderBottom: "1px solid rgba(0,0,0,0.035)", transition: "background 0.1s ease, box-shadow 0.1s ease",
+                    cursor: multiSelectActive ? "pointer" : "default",
+                    background: selected ? "rgba(220,38,38,0.045)" : "transparent",
+                    boxShadow: selected ? "inset 3px 0 0 rgba(220,38,38,0.68)" : "inset 3px 0 0 transparent",
+                    outline: "none",
+                  }}
+                  onMouseEnter={e => { if (!selected) (e.currentTarget as HTMLElement).style.background = multiSelectActive ? "rgba(220,38,38,0.022)" : "rgba(0,0,0,0.015)"; }}
+                  onMouseLeave={e => { if (!selected) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 >
+                  {multiSelectActive && (
+                    <div style={{
+                      width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: selected ? R : "#fff", color: "#fff",
+                      boxShadow: selected ? `0 0 0 1px ${R}` : "0 0 0 1px rgba(0,0,0,0.18)",
+                    }}>
+                      {selected && <Check size={10} strokeWidth={3} />}
+                    </div>
+                  )}
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{src.questionText}</div>
@@ -3075,8 +3209,10 @@ function BonusSourceExplorer({
                     <PillarSelect
                       value={currentPillarId ?? ""}
                       pillars={quarter.pillars}
+                      disabled={multiSelectActive}
                       currentFreqRule={(quarter.pillars.find(p => p.id === currentPillarId)?.sourceRefs.find(r => r.catalogKey === src.key))?.distributionFreqRule}
                       onChange={(id, freqRule) => assignToPillar(src, id, freqRule)}
+                      onContextMenu={(event) => startMultiSelect(event, src.key)}
                     />
                   </div>
                 </div>

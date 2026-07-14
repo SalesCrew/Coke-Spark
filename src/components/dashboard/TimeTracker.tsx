@@ -10,6 +10,7 @@ import {
   fetchTodaySubmissions,
   fetchCurrentDaySession,
   readAuthSession,
+  reopenEndedDaySession,
   setDaySessionEndKm,
   setDaySessionStartKm,
   startDayPause,
@@ -379,6 +380,9 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
   const [reviewEditingKey, setReviewEditingKey] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewProblemKey, setReviewProblemKey] = useState<string | null>(null);
+  const [reviewProblemPulse, setReviewProblemPulse] = useState(0);
+  const reviewSegmentRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const startKmRef = useRef<HTMLInputElement>(null);
   const endKmRef   = useRef<HTMLInputElement>(null);
@@ -684,6 +688,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     setReviewDrafts({});
     setReviewEditingKey(null);
     setReviewError(null);
+    setReviewProblemKey(null);
     setReviewSaving(false);
     setEarlyEndConfirmation(null);
     transitionTo("idle");
@@ -731,6 +736,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     setReviewDrafts(drafts);
     setReviewEditingKey(null);
     setReviewError(null);
+    setReviewProblemKey(null);
   }
 
   function ensureDayEndReviewSegment(
@@ -777,6 +783,10 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
   }
 
   function updateReviewDraft(key: string, patch: Partial<ReviewDraft>) {
+    if (reviewProblemKey === key) {
+      setReviewProblemKey(null);
+      setReviewError(null);
+    }
     setReviewDrafts((current) => ({
       ...current,
       [key]: {
@@ -787,12 +797,65 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     }));
   }
 
+  function showReviewProblem(key: string, message: string) {
+    setReviewError(message);
+    setReviewProblemKey(key);
+    setReviewProblemPulse((current) => current + 1);
+    setReviewEditingKey(key);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        reviewSegmentRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    });
+  }
+
+  function validateReviewActivitySpacing(): boolean {
+    const activitySegments = reviewSegments.filter(
+      (segment) =>
+        isEditableReviewSegment(segment) &&
+        (segment.kind === "marktbesuch" || segment.kind === "pause" || segment.kind === "zusatzzeit"),
+    );
+
+    let previous: { segment: AdminZeiterfassungTimelineSegment; endTime: string } | null = null;
+    for (const segment of activitySegments) {
+      const key = reviewSegmentKey(segment);
+      const draft = reviewDrafts[key] ?? { startTime: segment.start, endTime: segment.end };
+      if (!isValidHm(draft.startTime) || !isValidHm(draft.endTime)) {
+        showReviewProblem(key, "Bitte gültige Uhrzeiten im Format HH:MM eingeben.");
+        return false;
+      }
+
+      const startMinute = toMinutes(draft.startTime);
+      const endMinute = toMinutes(draft.endTime);
+      if (endMinute <= startMinute) {
+        showReviewProblem(key, "Endzeit muss mindestens eine Minute nach der Startzeit liegen.");
+        return false;
+      }
+
+      if (previous && startMinute <= toMinutes(previous.endTime)) {
+        const earliestStartMinute = toMinutes(previous.endTime) + 1;
+        const earliestStart = `${String(Math.floor(earliestStartMinute / 60)).padStart(2, "0")}:${String(earliestStartMinute % 60).padStart(2, "0")}`;
+        showReviewProblem(
+          key,
+          `Zwischen „${previous.segment.title}“ und „${segment.title}“ muss mindestens eine Minute liegen. Frühester Start: ${earliestStart}.`,
+        );
+        return false;
+      }
+
+      previous = { segment, endTime: draft.endTime };
+    }
+
+    return true;
+  }
+
   async function handleDayReviewSubmit() {
     if (reviewSaving || persistBusy || !daySession?.id) return;
     setReviewSaving(true);
     setPersistBusy(true);
     setReviewError(null);
     try {
+      if (!validateReviewActivitySpacing()) return;
+
       const edits: DaySessionReviewEdit[] = [];
       const hasHeimfahrtSegment = reviewSegments.some((segment) => segment.kind === "heimfahrt");
       for (const segment of reviewSegments) {
@@ -1045,10 +1108,36 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     if (!earlyEndConfirmation || persistBusy) return;
     void completeEndDay(earlyEndConfirmation.endAt);
   }, [completeEndDay, earlyEndConfirmation, persistBusy]);
-  const handleEndKmCancel = useCallback(() => {
-    setOpenEndKmOnly(false);
-    setRunning(true); setPaused(false); transitionTo("recording");
-  }, []);
+  const handleEndKmCancel = useCallback(async () => {
+    if (persistBusy) return;
+
+    if (openEndKmOnly) {
+      setOpenEndKmOnly(false);
+      setRunning(true);
+      setPaused(false);
+      transitionTo("recording");
+      return;
+    }
+
+    setPersistBusy(true);
+    setPersistError(null);
+    try {
+      const { session } = await reopenEndedDaySession();
+      persistLocalDaySessionFromBackend(session);
+      setDaySession(session);
+      setOpenEndKmOnly(false);
+      setEndKmInput("");
+      setRunning(true);
+      setPaused(false);
+      transitionTo("recording");
+      notifyDaySessionUpdated();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Der Arbeitstag konnte nicht fortgesetzt werden.";
+      setPersistError(message);
+    } finally {
+      setPersistBusy(false);
+    }
+  }, [notifyDaySessionUpdated, openEndKmOnly, persistBusy]);
   const knownStartKmForEnd = confirmedStartKm ?? daySession?.startKm ?? null;
   const needsStartKmForEnd = knownStartKmForEnd === null;
   const pendingStartKmForEnd = parseInt(startKmInput, 10);
@@ -1492,6 +1581,10 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
                 from { opacity: 0; transform: scale(0.97) translateY(8px); }
                 to { opacity: 1; transform: scale(1) translateY(0); }
               }
+              @keyframes gmDayReviewProblemFlash {
+                0%, 100% { background-color: #fff; box-shadow: 0 1px 5px rgba(15,23,42,0.035); }
+                20%, 58% { background-color: rgba(220,38,38,0.09); box-shadow: 0 0 0 1px rgba(220,38,38,0.18), 0 8px 22px rgba(220,38,38,0.08); }
+              }
             `}</style>
 
             <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid rgba(15,23,42,0.06)" }}>
@@ -1532,6 +1625,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
                     const editing = reviewEditingKey === key;
                     const draft = reviewDrafts[key] ?? { startTime: segment.start, endTime: segment.end };
                     const dirty = editable && (draft.startTime !== segment.start || draft.endTime !== segment.end);
+                    const isProblem = reviewProblemKey === key;
                     const canEditSoloDayBounds = segment.kind === "anfahrt" && !reviewHasHeimfahrtSegment && reviewSegments.length === 1;
                     const showStartInput = editableKind !== "day_end";
                     const showEndInput = editableKind !== "day_start" || canEditSoloDayBounds;
@@ -1545,13 +1639,15 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
                             : "rgba(0,0,0,0.35)";
                     return (
                       <div
-                        key={`${key}-${segment.start}-${segment.end}`}
+                        key={`${key}-${segment.start}-${segment.end}-${isProblem ? reviewProblemPulse : 0}`}
+                        ref={(node) => { reviewSegmentRefs.current[key] = node; }}
                         style={{
                           background: "#fff",
                           borderRadius: 14,
                           border: dirty ? "1px solid rgba(220,38,38,0.18)" : "1px solid rgba(15,23,42,0.055)",
                           boxShadow: dirty ? "0 8px 22px rgba(220,38,38,0.08)" : "0 1px 5px rgba(15,23,42,0.035)",
                           padding: "11px 12px",
+                          animation: isProblem ? "gmDayReviewProblemFlash 1.55s ease-out both" : undefined,
                         }}
                       >
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   X,
   GripVertical,
@@ -15,11 +15,22 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import type { QuestionType, Question, ConditionalRule, ScoringWeight } from "@/types/fragebogen";
+import type {
+  QuestionType,
+  Question,
+  ConditionalRule,
+  ScoringWeight,
+  SingleChoiceAvailabilityType,
+} from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
 import { useFragebogen } from "@/context/FragebogenContext";
 import { QuestionTypeContextMenu } from "@/components/admin/QuestionTypeContextMenu";
 import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
+import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
+import { HandelskettenSelector } from "@/components/admin/HandelskettenSelector";
+import { AvailabilityTypeModal } from "@/components/admin/AvailabilityTypeModal";
+import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
+import { fetchMarketChains } from "@/lib/api/backend";
 
 let _sqid = 0;
 function nextId(): string {
@@ -30,6 +41,7 @@ function nextId(): string {
 const TRIGGER_ELIGIBLE: QuestionType[] = [
   "single", "yesno", "yesnomulti", "multiple", "likert", "numeric", "slider", "matrix",
 ];
+const SINGLE_CHOICE_AVAILABILITY_OPTIONS = ["Voll", "Mittel", "Leer"] as const;
 
 function operatorsForType(t: QuestionType): { value: string; label: string }[] {
   const base = [
@@ -318,25 +330,32 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 // ── Type Config editors ───────────────────────────────────────
 
-function ChoiceConfig({ options, onChange }: { options: string[]; onChange: (o: string[]) => void }) {
+function ChoiceConfig({ options, onChange, disabled = false }: { options: string[]; onChange: (o: string[]) => void; disabled?: boolean }) {
   return (
     <div style={{ marginTop: 10 }}>
       <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)" }}>Optionen</span>
       <div style={{ marginTop: 6 }}>
         {options.map((opt, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-            <input type="text" value={opt} onChange={(e) => { const next = [...options]; next[i] = e.target.value; onChange(next); }} placeholder={`Option ${i + 1}`} style={{ flex: 1, fontSize: 11, padding: "4px 0", border: "none", borderBottom: "1px solid rgba(0,0,0,0.08)", outline: "none", color: "#374151", backgroundColor: "transparent" }} />
-            {options.length > 1 && (
+            <input type="text" value={opt} disabled={disabled} onChange={(e) => { const next = [...options]; next[i] = e.target.value; onChange(next); }} placeholder={`Option ${i + 1}`} style={{ flex: 1, fontSize: 11, padding: "4px 0", border: "none", borderBottom: "1px solid rgba(0,0,0,0.08)", outline: "none", color: "#374151", backgroundColor: "transparent", opacity: disabled ? 0.65 : 1 }} />
+            {!disabled && options.length > 1 && (
               <button onClick={() => onChange(options.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "rgba(0,0,0,0.25)", transition: "color 0.15s ease" }} onMouseEnter={(e) => (e.currentTarget.style.color = "#DC2626")} onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(0,0,0,0.25)")}>
                 <X size={11} strokeWidth={2} />
               </button>
             )}
           </div>
         ))}
-        <button onClick={() => onChange([...options, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: "#DC2626", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-          <Plus size={10} strokeWidth={2} />
-          Option hinzufügen
-        </button>
+        {!disabled && (
+          <button onClick={() => onChange([...options, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: "#DC2626", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            <Plus size={10} strokeWidth={2} />
+            Option hinzufügen
+          </button>
+        )}
+        {disabled && (
+          <div style={{ marginTop: 6, fontSize: 9, color: "rgba(0,0,0,0.35)" }}>
+            Optionen sind bei aktiver Verfügbarkeitsabfrage fixiert.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -375,12 +394,7 @@ function SliderConfig({ config, onChange }: { config: Record<string, unknown>; o
 }
 
 function PhotoConfig({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  return (
-    <div style={{ marginTop: 10 }}>
-      <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)" }}>Anweisung</span>
-      <input type="text" value={String(config.instruction ?? "")} onChange={(e) => onChange({ ...config, instruction: e.target.value })} placeholder="z.B. Foto vom Display aufnehmen" style={{ display: "block", width: "100%", marginTop: 4, fontSize: 11, padding: "4px 0", border: "none", borderBottom: "1px solid rgba(0,0,0,0.08)", outline: "none", color: "#374151", backgroundColor: "transparent" }} />
-    </div>
-  );
+  return <PhotoTagsConfig config={config} onChange={onChange} accentColor="#DC2626" />;
 }
 
 function ListEditor({ label, items, onChange }: { label: string; items: string[]; onChange: (items: string[]) => void }) {
@@ -407,13 +421,47 @@ function ListEditor({ label, items, onChange }: { label: string; items: string[]
   );
 }
 
+const MATRIX_SUBTYPES = [
+  { value: "toggle", label: "Auswahl" },
+  { value: "datum", label: "Datum" },
+  { value: "freitext", label: "Freitext" },
+] as const;
+
 function MatrixConfig({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const rows = (config.rows as string[]) || [""];
   const columns = (config.columns as string[]) || ["", ""];
+  const subtype = (config.matrixSubtype as string) || "toggle";
   return (
-    <div style={{ marginTop: 10, display: "flex", gap: 20 }}>
-      <ListEditor label="Zeilen" items={rows} onChange={(r) => onChange({ ...config, rows: r })} />
-      <ListEditor label="Spalten" items={columns} onChange={(c) => onChange({ ...config, columns: c })} />
+    <div style={{ marginTop: 10 }}>
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "rgba(0,0,0,0.35)" }}>Matrix-Typ</span>
+        <div style={{ display: "flex", gap: 0, marginTop: 5, background: "rgba(0,0,0,0.04)", borderRadius: 7, padding: 2, width: "fit-content" }}>
+          {MATRIX_SUBTYPES.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => onChange({ ...config, matrixSubtype: option.value })}
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                padding: "3px 12px",
+                borderRadius: 5,
+                border: "none",
+                cursor: "pointer",
+                background: subtype === option.value ? "white" : "transparent",
+                color: subtype === option.value ? "#DC2626" : "rgba(0,0,0,0.35)",
+                boxShadow: subtype === option.value ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 20 }}>
+        <ListEditor label="Zeilen" items={rows} onChange={(r) => onChange({ ...config, rows: r })} />
+        <ListEditor label="Spalten" items={columns} onChange={(c) => onChange({ ...config, columns: c })} />
+      </div>
     </div>
   );
 }
@@ -506,7 +554,12 @@ function YesNoMultiConfig({ config, onChange }: { config: Record<string, unknown
 function TypeConfig({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
   const setConfig = (c: Record<string, unknown>) => onUpdate({ ...question, config: c });
   switch (question.type) {
-    case "single":
+    case "single": {
+      const options = question.singleChoiceAvailability === true
+        ? [...SINGLE_CHOICE_AVAILABILITY_OPTIONS]
+        : ((question.config.options as string[]) || [""]);
+      return <ChoiceConfig options={options} disabled={question.singleChoiceAvailability === true} onChange={(o) => setConfig({ ...question.config, options: o })} />;
+    }
     case "multiple":
       return <ChoiceConfig options={(question.config.options as string[]) || [""]} onChange={(o) => setConfig({ ...question.config, options: o })} />;
     case "yesnomulti":
@@ -528,7 +581,7 @@ function TypeConfig({ question, onUpdate }: { question: Question; onUpdate: (q: 
 
 // ── Scoring Editor ─────────────────────────────────────────────
 
-const SCORING_TYPES = new Set(["single", "multiple", "numeric"]);
+const SCORING_TYPES = new Set(["single", "multiple", "yesno", "yesnomulti", "likert", "numeric", "slider"]);
 
 function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
   const [open, setOpen] = useState(false);
@@ -536,9 +589,32 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
 
   if (!SCORING_TYPES.has(question.type)) return null;
 
-  const isChoice = question.type === "single" || question.type === "multiple";
-  const options = isChoice ? ((question.config.options as string[]) ?? []) : [];
+  const isNumericFactor = question.type === "numeric" || question.type === "slider";
+  const scoringOptions = (() => {
+    switch (question.type) {
+      case "single":
+      case "multiple":
+        return ((question.config.options as string[]) ?? []).filter((option) => option.length > 0);
+      case "yesno":
+        return ["Ja", "Nein"];
+      case "yesnomulti":
+        return ((question.config.answers as string[]) ?? ["Ja", "Nein"]).filter((option) => option.length > 0);
+      case "likert": {
+        const min = Number(question.config.min ?? 1);
+        const max = Number(question.config.max ?? 5);
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return [];
+        const values: string[] = [];
+        for (let value = min; value <= max; value += 1) values.push(String(value));
+        return values;
+      }
+      default:
+        return [];
+    }
+  })();
   const hasIPP = Object.values(scoring).some((w) => w.ipp !== undefined && w.ipp !== null && String(w.ipp) !== "");
+  const hasZweitplatzierung = Object.values(scoring).some(
+    (w) => w.zweitplatzierung !== undefined && w.zweitplatzierung !== null && String(w.zweitplatzierung) !== "",
+  );
   const hasMitbewerberabfrage = Object.values(scoring).some(
     (w) =>
       w.mitbewerberabfrage !== undefined
@@ -547,7 +623,7 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
   );
   const hasBoni = Object.values(scoring).some((w) => w.boni !== undefined && w.boni !== null && String(w.boni) !== "");
 
-  function setWeight(key: string, field: "ipp" | "mitbewerberabfrage" | "boni", raw: string) {
+  function setWeight(key: string, field: "ipp" | "zweitplatzierung" | "mitbewerberabfrage" | "boni", raw: string) {
     const num = raw === "" ? undefined : parseFloat(raw);
     const existing: ScoringWeight = scoring[key] ?? {};
     const next: ScoringWeight = { ...existing, [field]: num };
@@ -559,44 +635,50 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
 
   return (
     <div style={{ marginTop: 14 }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 0 6px", fontSize: 11, fontWeight: 600, color: (hasIPP || hasMitbewerberabfrage || hasBoni) ? "#DC2626" : "rgba(0,0,0,0.35)", background: "none", border: "none", cursor: "pointer", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 0 6px", fontSize: 11, fontWeight: 600, color: (hasIPP || hasZweitplatzierung || hasMitbewerberabfrage || hasBoni) ? "#DC2626" : "rgba(0,0,0,0.35)", background: "none", border: "none", cursor: "pointer", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
         <Trophy size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
         <span style={{ flex: 1, textAlign: "left" }}>Bewertung</span>
         {hasIPP && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(220,38,38,0.08)", color: "#DC2626" }}>IPP</span>}
-        {hasMitbewerberabfrage && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(16,185,129,0.12)", color: "#047857" }}>Mitbewerber</span>}
         {hasBoni && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(234,179,8,0.10)", color: "#a16207" }}>Boni</span>}
+        {hasZweitplatzierung && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(59,130,246,0.10)", color: "#2563eb" }}>Zweitplatzierung</span>}
+        {hasMitbewerberabfrage && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(16,185,129,0.12)", color: "#047857" }}>Mitbewerber</span>}
         <ChevronDown size={12} strokeWidth={2} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }} />
       </button>
       <div style={{ maxHeight: open ? 1200 : 0, opacity: open ? 1 : 0, overflow: "hidden", transition: "max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease" }}>
         <div style={{ paddingTop: 8, paddingBottom: 4 }}>
-          {isChoice && (
+          {!isNumericFactor && (
             <>
               <div style={{ display: "flex", alignItems: "center", marginBottom: 6, paddingRight: 2 }}>
                 <span style={{ flex: 1 }} />
                 <span style={labelColStyle}>IPP</span>
                 <span style={{ width: 8 }} />
-                <span style={labelColStyle}>Mitbewerber</span>
-                <span style={{ width: 8 }} />
                 <span style={labelColStyle}>Boni</span>
+                <span style={{ width: 8 }} />
+                <span style={labelColStyle}>Zweitplatz.</span>
+                <span style={{ width: 8 }} />
+                <span style={labelColStyle}>Mitbewerber</span>
               </div>
-              {options.map((opt, i) => {
+              {scoringOptions.map((opt, i) => {
                 const key = opt || `__opt_${i}__`;
                 const w = scoring[key] ?? {};
+                const optionLabel = question.singleChoiceAvailability ? formatAvailabilityLabel(opt) : opt;
                 return (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                    <span style={{ flex: 1, fontSize: 11, color: opt ? "#374151" : "rgba(0,0,0,0.28)", fontStyle: opt ? "normal" : "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{opt || `Option ${i + 1}`}</span>
+                    <span style={{ flex: 1, fontSize: 11, color: opt ? "#374151" : "rgba(0,0,0,0.28)", fontStyle: opt ? "normal" : "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{optionLabel || `Option ${i + 1}`}</span>
                     <input type="number" step="0.1" value={w.ipp !== undefined ? String(w.ipp) : ""} onChange={(e) => setWeight(key, "ipp", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
                     <span style={{ width: 8 }} />
-                    <input type="number" step="0.1" value={w.mitbewerberabfrage !== undefined ? String(w.mitbewerberabfrage) : ""} onChange={(e) => setWeight(key, "mitbewerberabfrage", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
-                    <span style={{ width: 8 }} />
                     <input type="number" step="0.1" value={w.boni !== undefined ? String(w.boni) : ""} onChange={(e) => setWeight(key, "boni", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
+                    <span style={{ width: 8 }} />
+                    <input type="number" step="0.1" value={w.zweitplatzierung !== undefined ? String(w.zweitplatzierung) : ""} onChange={(e) => setWeight(key, "zweitplatzierung", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
+                    <span style={{ width: 8 }} />
+                    <input type="number" step="0.1" value={w.mitbewerberabfrage !== undefined ? String(w.mitbewerberabfrage) : ""} onChange={(e) => setWeight(key, "mitbewerberabfrage", e.target.value)} placeholder="–" style={{ ...inputStyle }} onClick={(e) => e.stopPropagation()} />
                   </div>
                 );
               })}
-              {options.length === 0 && <span style={{ fontSize: 10, color: "rgba(0,0,0,0.28)", fontStyle: "italic" }}>Zuerst Optionen hinzufügen.</span>}
+              {scoringOptions.length === 0 && <span style={{ fontSize: 10, color: "rgba(0,0,0,0.28)", fontStyle: "italic" }}>Zuerst Optionen hinzufügen.</span>}
             </>
           )}
-          {question.type === "numeric" && (
+          {isNumericFactor && (
             <>
               <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginBottom: 10, lineHeight: 1.5 }}>Der eingegebene Zahlenwert wird mit dem Faktor multipliziert.</div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
@@ -607,6 +689,10 @@ function ScoringEditor({ question, onUpdate }: { question: Question; onUpdate: (
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>Boni Faktor</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Wert ×</span><input type="number" step="0.1" value={(scoring["__value__"]?.boni) !== undefined ? String(scoring["__value__"]?.boni) : ""} onChange={(e) => setWeight("__value__", "boni", e.target.value)} placeholder="–" style={{ ...inputStyle, width: 70 }} onClick={(e) => e.stopPropagation()} /></div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>Zweitplatzierung Faktor</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>Wert ×</span><input type="number" step="0.1" value={(scoring["__value__"]?.zweitplatzierung) !== undefined ? String(scoring["__value__"]?.zweitplatzierung) : ""} onChange={(e) => setWeight("__value__", "zweitplatzierung", e.target.value)} placeholder="–" style={{ ...inputStyle, width: 70 }} onClick={(e) => e.stopPropagation()} /></div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: "rgba(0,0,0,0.3)", marginBottom: 4 }}>Mitbewerber Faktor</div>
@@ -775,16 +861,46 @@ function ImageAttachment({
 
 function QuestionCard({
   question, index, isExpanded, onToggle, onUpdate, onDelete,
-  onDragStart, onDragOver, onDrop, onContextTypeMenu, dropTarget, allQuestions,
+  onDragStart, onDragOver, onDrop, onContextTypeMenu, dropTarget, allQuestions, availableChains,
 }: {
   question: Question; index: number; isExpanded: boolean; onToggle: () => void;
   onUpdate: (q: Question) => void; onDelete: () => void;
   onDragStart: (i: number) => void; onDragOver: (i: number) => void; onDrop: () => void;
   onContextTypeMenu: (questionId: string, x: number, y: number) => void;
-  dropTarget: boolean; allQuestions: Question[];
+  dropTarget: boolean; allQuestions: Question[]; availableChains: string[];
 }) {
   const badge = typeBadgeColor(question.type);
   const [logicOpen, setLogicOpen] = useState(false);
+  const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
+  const [pendingAvailabilityType, setPendingAvailabilityType] = useState<SingleChoiceAvailabilityType | null>(
+    question.singleChoiceAvailabilityType ?? null,
+  );
+
+  const disableAvailability = () => {
+    onUpdate({
+      ...question,
+      singleChoiceAvailability: false,
+      singleChoiceAvailabilityType: null,
+    });
+    setAvailabilityModalOpen(false);
+    setPendingAvailabilityType(null);
+  };
+
+  const openAvailabilityModal = () => {
+    setPendingAvailabilityType(question.singleChoiceAvailabilityType ?? null);
+    setAvailabilityModalOpen(true);
+  };
+
+  const confirmAvailabilityModal = () => {
+    if (!pendingAvailabilityType) return;
+    onUpdate({
+      ...question,
+      singleChoiceAvailability: true,
+      singleChoiceAvailabilityType: pendingAvailabilityType,
+      config: { ...question.config, options: [...SINGLE_CHOICE_AVAILABILITY_OPTIONS] },
+    });
+    setAvailabilityModalOpen(false);
+  };
 
   return (
     <div style={{ position: "relative" }}>
@@ -855,8 +971,52 @@ function QuestionCard({
               <Toggle value={question.required} onChange={(v) => onUpdate({ ...question, required: v })} />
               <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Pflichtfrage</span>
             </div>
+            {question.type === "yesno" && (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                <Toggle value={question.redSurvey === true} onChange={(value) => onUpdate({ ...question, redSurvey: value })} />
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Red Survey</span>
+              </div>
+            )}
+            {question.type === "single" && (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Toggle
+                  value={question.singleChoiceAvailability === true}
+                  onChange={(value) => {
+                    if (!value) {
+                      disableAvailability();
+                      return;
+                    }
+                    openAvailabilityModal();
+                  }}
+                />
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#6b7280" }}>Verfügbarkeitsabfrage</span>
+                {question.singleChoiceAvailability === true && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openAvailabilityModal();
+                    }}
+                    style={{
+                      height: 22,
+                      padding: "0 8px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(220,38,38,0.2)",
+                      backgroundColor: "rgba(220,38,38,0.06)",
+                      color: "#DC2626",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Typ: {question.singleChoiceAvailabilityType ?? "wählen"}
+                  </button>
+                )}
+              </div>
+            )}
             <TypeConfig question={question} onUpdate={onUpdate} />
             <ScoringEditor question={question} onUpdate={onUpdate} />
+            <HandelskettenSelector question={question} onUpdate={onUpdate} availableChains={availableChains} />
             <div style={{ marginTop: 14 }}>
               <button onClick={(e) => { e.stopPropagation(); setLogicOpen(!logicOpen); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 0 6px", fontSize: 11, fontWeight: 600, color: question.rules.length > 0 ? "#DC2626" : "rgba(0,0,0,0.35)", background: "none", border: "none", cursor: "pointer", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
                 <Zap size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
@@ -881,6 +1041,17 @@ function QuestionCard({
           </div>
         </div>
       </div>
+      <AvailabilityTypeModal
+        open={availabilityModalOpen}
+        accentColor="#DC2626"
+        selectedType={pendingAvailabilityType}
+        onSelect={setPendingAvailabilityType}
+        onCancel={() => {
+          setAvailabilityModalOpen(false);
+          setPendingAvailabilityType(question.singleChoiceAvailabilityType ?? null);
+        }}
+        onConfirm={confirmAvailabilityModal}
+      />
     </div>
   );
 }
@@ -898,14 +1069,35 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
   const { fragebogenList } = useFragebogen();
 
   const [questions, setQuestions] = useState<Question[]>(
-    (existingQuestions ?? []).map((q) => ({ ...q, scoring: q.scoring ?? {} }))
+    (existingQuestions ?? []).map((q) => ({
+      ...q,
+      scoring: q.scoring ?? {},
+      redSurvey: q.redSurvey ?? null,
+      singleChoiceAvailability: q.singleChoiceAvailability ?? null,
+      singleChoiceAvailabilityType: q.singleChoiceAvailabilityType ?? null,
+    }))
   );
+  const [availableChains, setAvailableChains] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [typeMenu, setTypeMenu] = useState<{ questionId: string; x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetchMarketChains()
+      .then((chains) => {
+        if (active) setAvailableChains(chains);
+      })
+      .catch(() => {
+        if (active) setAvailableChains([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Collect all existing spezialfragen from other Fragebogen for reuse
   const existingSpezialfragen: { question: Question; fragebogenName: string }[] = fragebogenList.flatMap((fb) =>
@@ -914,14 +1106,32 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
 
   const addQuestion = useCallback((type: QuestionType) => {
     const id = nextId();
-    const q: Question = { id, type, text: "", required: true, config: defaultConfig(type), rules: [], scoring: {} };
+    const q: Question = {
+      id,
+      type,
+      text: "",
+      required: true,
+      redSurvey: false,
+      singleChoiceAvailability: false,
+      singleChoiceAvailabilityType: null,
+      config: defaultConfig(type),
+      rules: [],
+      scoring: {},
+    };
     setQuestions((prev) => [...prev, q]);
     setExpandedId(id);
     setTimeout(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, 50);
   }, []);
 
   const importSpezialfrage = useCallback((q: Question) => {
-    const copy: Question = { ...q, id: nextId(), scoring: q.scoring ?? {} };
+    const copy: Question = {
+      ...q,
+      id: nextId(),
+      scoring: q.scoring ?? {},
+      redSurvey: q.redSurvey ?? null,
+      singleChoiceAvailability: q.singleChoiceAvailability ?? null,
+      singleChoiceAvailabilityType: q.singleChoiceAvailabilityType ?? null,
+    };
     setQuestions((prev) => [...prev, copy]);
     setExpandedId(copy.id);
     setTimeout(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, 50);
@@ -1130,6 +1340,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
                 onContextTypeMenu={(questionId, x, y) => setTypeMenu({ questionId, x, y })}
                 dropTarget={dropIdx === i && dragIdx !== null && dragIdx !== i}
                 allQuestions={questions}
+                availableChains={availableChains}
               />
             ))}
 

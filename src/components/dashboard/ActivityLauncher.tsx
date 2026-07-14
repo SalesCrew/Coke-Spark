@@ -561,10 +561,19 @@ function AccordionRow({
   }, [active]);
 
   useEffect(() => {
-    if (isOpen && contentRef.current) {
-      setContentH(contentRef.current.scrollHeight);
-    }
-  }, [awaitingLiveDecision, doctorConfirmationError, doctorConfirmationFile, isOpen, mode, running]);
+    if (!isOpen || !contentRef.current) return;
+
+    const content = contentRef.current;
+    const updateHeight = () => setContentH(content.scrollHeight);
+    const frameId = window.requestAnimationFrame(updateHeight);
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(content);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      observer.disconnect();
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {

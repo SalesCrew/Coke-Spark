@@ -63,11 +63,15 @@ const SECTION_META: Record<SectionType, { label: string; color: string; bg: stri
   mhd:      { label: "MHD",       color: "#7C3AED", bg: "rgba(124,58,237,0.08)", Icon: FlaskConical },
 };
 
-const PILLAR_DEFAULTS: Pick<PraemienPillar, "name" | "description" | "color">[] = [
-  { name: "Schütten / Displays",  description: "Korrekte Aufstellung und Befüllung von Schüttenregalen und Displays.",  color: "#DC2626" },
-  { name: "Distributionsziel",    description: "Zielerreichung bei der Listung und Verfügbarkeit der Kernprodukte.",    color: "#2563eb" },
-  { name: "Flexziel",             description: "Ergebnisse aus Flexbesuchen und saisonalen Aktionszielen.",             color: "#16a34a" },
-  { name: "Qualitätsziele",       description: "Qualität der Marktbesuche anhand von Bewertungsfragen.",                color: "#D97706" },
+type PillarDefaultDefinition = Pick<PraemienPillar, "name" | "description" | "color"> & {
+  kind: "execution" | "distribution" | "flex" | "quality";
+};
+
+const PILLAR_DEFAULTS: PillarDefaultDefinition[] = [
+  { kind: "execution",    name: "Schütten / Displays", description: "Korrekte Aufstellung und Befüllung von Schüttenregalen und Displays.", color: "#DC2626" },
+  { kind: "distribution", name: "Distributionsziel",   description: "Zielerreichung bei der Listung und Verfügbarkeit der Kernprodukte.",   color: "#2563eb" },
+  { kind: "flex",         name: "Flexziel",            description: "Ergebnisse aus Flexbesuchen und saisonalen Aktionszielen.",            color: "#16a34a" },
+  { kind: "quality",      name: "Qualitätsziele",      description: "Qualität der Marktbesuche anhand von Bewertungsfragen.",               color: "#D97706" },
 ];
 
 
@@ -80,8 +84,9 @@ function isUuid(value: string | null | undefined): boolean {
 
 function buildDefaultPillars(): PraemienPillar[] {
   return PILLAR_DEFAULTS.map((definition) => {
-    const base = { id: uid(), ...definition, sourceRefs: [] };
-    if (definition.name === "SchÃ¼tten / Displays") {
+    const { kind, ...pillarDefinition } = definition;
+    const base = { id: uid(), ...pillarDefinition, sourceRefs: [] };
+    if (kind === "execution") {
       return {
         ...base,
         payoutMode: "highest_tier" as const,
@@ -94,7 +99,7 @@ function buildDefaultPillars(): PraemienPillar[] {
         ],
       };
     }
-    if (definition.name === "Distributionsziel") {
+    if (kind === "distribution") {
       return {
         ...base,
         payoutMode: "highest_tier" as const,
@@ -106,7 +111,7 @@ function buildDefaultPillars(): PraemienPillar[] {
         ],
       };
     }
-    if (definition.name === "Flexziel") {
+    if (kind === "flex") {
       return {
         ...base,
         payoutMode: "highest_tier" as const,

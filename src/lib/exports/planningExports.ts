@@ -800,6 +800,7 @@ export async function exportFbManagementExcel(input: {
   visitStatusByCampaignId: Record<string, Record<string, CampaignExportStatus>>;
   visitDetails?: CampaignMarketVisitSummary[];
   preparedVisitRows?: FbManagementExportVisitRow[];
+  expectedPreparedVisitCount?: number;
   visitDetailErrors?: CampaignVisitDetailExportError[];
   fragebogenByScope?: Record<string, Fragebogen[]>;
   modulesByScope?: Record<string, Module[]>;
@@ -808,6 +809,14 @@ export async function exportFbManagementExcel(input: {
 }) {
   const filename = `CokeSpark_FB_Management_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
   if (input.preparedVisitRows) {
+    if (
+      input.expectedPreparedVisitCount != null &&
+      input.preparedVisitRows.length !== input.expectedPreparedVisitCount
+    ) {
+      throw new Error(
+        `Der Export ist unvollst\u00e4ndig (${input.preparedVisitRows.length}/${input.expectedPreparedVisitCount} Besuche).`,
+      );
+    }
     const preparedExport = buildPreparedFbManagementExportRows(
       input.preparedVisitRows,
       input.travelByVisitSessionId,

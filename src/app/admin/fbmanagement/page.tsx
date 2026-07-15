@@ -413,6 +413,21 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+async function retryExportRequest<T>(operation: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= Math.max(1, maxAttempts); attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, Math.min(1000, attempt * 250)));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Exportdaten konnten nicht geladen werden.");
+}
+
 function getVisitDetailKey(campaignId: string, marketId: string, sessionId: string | null | undefined): string {
   return `${campaignId}:${marketId}:${sessionId ?? "latest"}`;
 }
@@ -8370,7 +8385,7 @@ export default function FbManagementPage() {
       }
 
       const detailTargets = Array.from(detailTargetsByKey.values());
-      const preparedVisitRows: FbManagementExportVisitRow[] = [];
+      const preparedVisitByTargetKey = new Map<string, FbManagementExportVisitRow>();
       const detailErrors: Array<{
         campaignId: string;
         campaignName: string;
@@ -8403,30 +8418,30 @@ export default function FbManagementPage() {
       const appendPreparedVisit = (
         target: (typeof detailTargets)[number],
         detail: CampaignMarketVisitSummary,
-      ) => {
+      ): boolean => {
+        if (
+          !detail.hasSubmittedVisit ||
+          detail.marketId !== target.marketId ||
+          detail.sessionId !== target.sessionId
+        ) {
+          return false;
+        }
         const prepared = prepareFbManagementExportVisitRow({
           visit: detail,
           market: exportMarketById.get(target.marketId) ?? null,
           campaignName: target.campaignName,
         });
         if (prepared) {
-          preparedVisitRows.push(prepared);
-          return;
+          preparedVisitByTargetKey.set(target.key, prepared);
+          return true;
         }
-        detailErrors.push({
-          campaignId: target.campaignId,
-          campaignName: target.campaignName,
-          marketId: target.marketId,
-          marketName: target.marketName,
-          reason: "Der eingereichte Besuch enthielt keine exportierbaren Antwortdetails.",
-        });
+        return false;
       };
 
       const uncachedTargets: typeof detailTargets = [];
       for (const target of detailTargets) {
         const cached = visitDetailByKey[target.key];
-        if (cached) {
-          appendPreparedVisit(target, cached);
+        if (cached && appendPreparedVisit(target, cached)) {
           loadedDetailCount += 1;
         } else {
           uncachedTargets.push(target);
@@ -8448,12 +8463,13 @@ export default function FbManagementPage() {
         detailBatches,
         VISIT_DETAIL_EXPORT_MAX_CONCURRENT_BATCHES,
         async (batch) => {
+          let detailByVisit = new Map<string, CampaignMarketVisitSummary>();
           try {
-            const details = await fetchCampaignMarketVisitExportDetails({
+            const details = await retryExportRequest(() => fetchCampaignMarketVisitExportDetails({
               campaignId: batch.campaignId,
               visits: batch.targets.map((target) => ({ marketId: target.marketId, sessionId: target.sessionId })),
-            });
-            const detailByVisit = new Map(
+            }), 2);
+            detailByVisit = new Map(
               details.map((detail) => [`${detail.marketId}:${detail.sessionId ?? ""}`, detail]),
             );
             for (const target of batch.targets) {
@@ -8473,12 +8489,15 @@ export default function FbManagementPage() {
           } catch {
             for (const target of batch.targets) {
               try {
-                const detail = await fetchCampaignMarketVisitDetail({
-                  campaignId: target.campaignId,
-                  marketId: target.marketId,
-                  sessionId: target.sessionId,
-                  includePhotoSignedUrls: false,
-                }, { timeoutMs: 60000 });
+                const detail = await retryExportRequest(
+                  () => fetchCampaignMarketVisitDetail({
+                    campaignId: target.campaignId,
+                    marketId: target.marketId,
+                    sessionId: target.sessionId,
+                    includePhotoSignedUrls: false,
+                  }, { timeoutMs: 60000 }),
+                  3,
+                );
                 appendPreparedVisit(target, detail);
               } catch (error) {
                 detailErrors.push({
@@ -8497,6 +8516,19 @@ export default function FbManagementPage() {
           }
         },
       );
+
+      const missingDetailTargets = detailTargets.filter((target) => !preparedVisitByTargetKey.has(target.key));
+      if (missingDetailTargets.length > 0 || detailErrors.length > 0) {
+        const firstFailure = detailErrors[0];
+        const failureHint = firstFailure
+          ? ` Erster betroffener Markt: ${firstFailure.marketName}. ${firstFailure.reason}`
+          : "";
+        throw new Error(
+          `${missingDetailTargets.length} von ${detailTargets.length} Besuchen konnten nicht vollst\u00e4ndig geladen werden. ` +
+          `Es wurde kein unvollst\u00e4ndiger Excel-Export erstellt.${failureHint}`,
+        );
+      }
+      const preparedVisitRows = detailTargets.map((target) => preparedVisitByTargetKey.get(target.key)!);
 
       const travelByVisitSessionId: Record<string, { start: string; end: string; durationMin: number }> = {};
       if (preparedVisitRows.length > 0) {
@@ -8560,6 +8592,7 @@ export default function FbManagementPage() {
         markets: exportMarketsData,
         visitStatusByCampaignId: filteredVisitStatusByCampaignId,
         preparedVisitRows,
+        expectedPreparedVisitCount: detailTargets.length,
         visitDetailErrors: detailErrors,
         fragebogenByScope,
         modulesByScope,

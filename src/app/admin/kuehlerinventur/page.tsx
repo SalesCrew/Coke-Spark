@@ -25,7 +25,7 @@ import type { QuestionType } from "@/types/fragebogen";
 import { useKuehlerModules } from "@/app/admin/adminContexts";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
-import { SpezialfragenFragebogenAction } from "@/components/admin/SpezialfragenFragebogenAction";
+import { SpezialfragenFragebogenAction, SpezialfragenFragebogenCountPill } from "@/components/admin/SpezialfragenFragebogenAction";
 
 // ── Yellow accent colours ──────────────────────────────────────
 const Y = "#F59E0B";
@@ -704,6 +704,8 @@ function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplic
               <span style={{ fontSize: 9, fontWeight: 700, color: statusConfig.text, letterSpacing: "0.03em" }}>{statusConfig.label}</span>
             </div>
 
+            <SpezialfragenFragebogenCountPill fragebogen={fragebogen} />
+
             {/* Edit button */}
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
@@ -774,8 +776,6 @@ function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplic
             <SpezialfragenFragebogenAction
               fragebogen={fragebogen}
               onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
-              accentColor={YD}
-              accentBackground={Y_BG}
             />
           </div>
         </div>

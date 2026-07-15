@@ -13,7 +13,7 @@ import { useModules } from "@/context/ModuleContext";
 import { useFlexModules } from "@/app/admin/adminContexts";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
-import { SpezialfragenFragebogenAction } from "@/components/admin/SpezialfragenFragebogenAction";
+import { SpezialfragenFragebogenAction, SpezialfragenFragebogenCountPill } from "@/components/admin/SpezialfragenFragebogenAction";
 
 // ── Color theme ──────────────────────────────────────────────
 const T   = "#0891B2";
@@ -604,6 +604,7 @@ function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDupli
             </span>
           </div>
         </div>
+        <SpezialfragenFragebogenCountPill fragebogen={fragebogen} />
         <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
           style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "rgba(0,0,0,0.25)", flexShrink: 0 }}
           onMouseEnter={(e) => (e.currentTarget.style.color = T)}
@@ -651,8 +652,6 @@ function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDupli
         <SpezialfragenFragebogenAction
           fragebogen={fragebogen}
           onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
-          accentColor={TD}
-          accentBackground={T_BG}
         />
       </div>
 

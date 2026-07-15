@@ -1080,6 +1080,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
   );
   const [availableChains, setAvailableChains] = useState<string[]>([]);
   const [libraryQuestions, setLibraryQuestions] = useState<Question[]>([]);
+  const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
@@ -1110,6 +1111,9 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
       })
       .catch(() => {
         if (active) setLibraryQuestions([]);
+      })
+      .finally(() => {
+        if (active) setIsLibraryLoading(false);
       });
     return () => {
       active = false;
@@ -1268,8 +1272,32 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
             Gemeinsamer Fragenpool
           </div>
 
+          {isLibraryLoading && (
+            <div className="animate-pulse" aria-label="Gemeinsamer Fragenpool wird geladen" aria-busy="true">
+              <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "12px 6px" }} />
+              <div style={{ height: 8, width: 112, borderRadius: 4, backgroundColor: "rgba(17,24,39,0.08)", margin: "0 6px 8px" }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {[0, 1, 2].map((item) => (
+                  <div
+                    key={item}
+                    style={{
+                      border: "1px solid rgba(17,24,39,0.045)",
+                      backgroundColor: "rgba(17,24,39,0.018)",
+                      borderRadius: 7,
+                      padding: "8px",
+                    }}
+                  >
+                    <div style={{ height: 9, width: item === 1 ? 46 : 58, borderRadius: 3, backgroundColor: "rgba(5,150,105,0.11)", marginBottom: 7 }} />
+                    <div style={{ height: 8, width: item === 2 ? "72%" : "88%", borderRadius: 4, backgroundColor: "rgba(17,24,39,0.08)", marginBottom: 5 }} />
+                    <div style={{ height: 8, width: item === 0 ? "61%" : "76%", borderRadius: 4, backgroundColor: "rgba(17,24,39,0.055)" }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Existing spezialfragen reuse section */}
-          {existingSpezialfragen.length > 0 && (
+          {!isLibraryLoading && existingSpezialfragen.length > 0 && (
             <>
               <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "12px 6px" }} />
               <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "rgba(0,0,0,0.35)", padding: "0 6px", display: "block", marginBottom: 8 }}>

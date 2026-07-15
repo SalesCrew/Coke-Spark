@@ -25,7 +25,7 @@ import type { QuestionType } from "@/types/fragebogen";
 import { useMhdModules } from "@/app/admin/adminContexts";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
-import { SpezialfragenFragebogenAction } from "@/components/admin/SpezialfragenFragebogenAction";
+import { SpezialfragenFragebogenAction, SpezialfragenFragebogenCountPill } from "@/components/admin/SpezialfragenFragebogenAction";
 
 // ── Purple accent colours ──────────────────────────────────────
 const P = "#8b5cf6";
@@ -691,6 +691,8 @@ function MhdFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate,
               <span style={{ fontSize: 9, fontWeight: 700, color: statusConfig.text, letterSpacing: "0.03em" }}>{statusConfig.label}</span>
             </div>
 
+            <SpezialfragenFragebogenCountPill fragebogen={fragebogen} />
+
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
               style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", transition: "color 0.15s ease", borderRadius: 6 }}
@@ -757,8 +759,6 @@ function MhdFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate,
             <SpezialfragenFragebogenAction
               fragebogen={fragebogen}
               onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
-              accentColor={PD}
-              accentBackground={P_BG}
             />
           </div>
         </div>

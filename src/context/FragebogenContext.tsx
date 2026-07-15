@@ -11,7 +11,7 @@ import {
 interface FragebogenContextValue {
   fragebogenList: Fragebogen[];
   addFragebogen: (f: Fragebogen) => void;
-  updateFragebogen: (f: Fragebogen) => void;
+  updateFragebogen: (f: Fragebogen, options?: { persist?: boolean }) => Promise<Fragebogen>;
   deleteFragebogen: (id: string) => void;
   editFragebogen: (f: Fragebogen) => void;
   setEditHandler: (handler: (f: Fragebogen) => void) => void;
@@ -33,11 +33,11 @@ export function FragebogenProvider({ children }: { children: React.ReactNode }) 
     }
   }, []);
 
-  const updateFragebogen = useCallback((f: Fragebogen) => {
-    setFragebogenList((prev) => prev.map((old) => (old.id === f.id ? f : old)));
-    if (uuidRegex.test(f.id)) {
-      void updateFragebogenBackend("main", f);
-    }
+  const updateFragebogen = useCallback(async (f: Fragebogen, options: { persist?: boolean } = {}) => {
+    const shouldPersist = options.persist !== false && uuidRegex.test(f.id);
+    const persisted = shouldPersist ? await updateFragebogenBackend("main", f) : f;
+    setFragebogenList((prev) => prev.map((old) => (old.id === f.id ? persisted : old)));
+    return persisted;
   }, []);
 
   const deleteFragebogen = useCallback((id: string) => {

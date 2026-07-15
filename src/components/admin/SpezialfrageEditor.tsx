@@ -34,6 +34,9 @@ import { fetchMarketChains } from "@/lib/api/backend";
 
 let _sqid = 0;
 function nextId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
   _sqid += 1;
   return `sq-${_sqid}-${Date.now()}`;
 }
@@ -1082,6 +1085,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [typeMenu, setTypeMenu] = useState<{ questionId: string; x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -1195,23 +1199,33 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
             </span>
           </div>
         </div>
-        <button
-          onClick={async () => {
-            if (isSaving) return;
-            setIsSaving(true);
-            try {
-              await onSave(questions);
-            } finally {
-              setIsSaving(false);
-            }
-          }}
-          disabled={isSaving}
-          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 18px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #059669, #047857)", border: "none", borderRadius: 7, cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.8 : 1, transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.18), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 0 1px #036647, 0 1px 6px rgba(5,150,105,0.28)" }}
-          onMouseEnter={(e) => { if (isSaving) return; e.currentTarget.style.opacity = "0.88"; }}
-          onMouseLeave={(e) => { if (isSaving) return; e.currentTarget.style.opacity = "1"; }}
-        >
-          {isSaving ? "Speichern..." : "Speichern"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+          {saveError && (
+            <span role="alert" style={{ maxWidth: 420, fontSize: 10, lineHeight: 1.35, color: "#b91c1c", textAlign: "right" }}>
+              {saveError}
+            </span>
+          )}
+          <button
+            onClick={async () => {
+              if (isSaving) return;
+              setSaveError(null);
+              setIsSaving(true);
+              try {
+                await onSave(questions);
+              } catch (error) {
+                setSaveError(error instanceof Error ? error.message : "Spezialfragen konnten nicht gespeichert werden.");
+              } finally {
+                setIsSaving(false);
+              }
+            }}
+            disabled={isSaving}
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 18px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #059669, #047857)", border: "none", borderRadius: 7, cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.8 : 1, transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.18), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 0 1px #036647, 0 1px 6px rgba(5,150,105,0.28)", flexShrink: 0 }}
+            onMouseEnter={(e) => { if (isSaving) return; e.currentTarget.style.opacity = "0.88"; }}
+            onMouseLeave={(e) => { if (isSaving) return; e.currentTarget.style.opacity = "1"; }}
+          >
+            {isSaving ? "Speichern..." : "Speichern"}
+          </button>
+        </div>
       </div>
 
       {/* Body */}

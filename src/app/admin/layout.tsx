@@ -193,7 +193,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     const persisted = editingFb
       ? await updateFragebogenBackend("main", { ...f, sectionKeywords: ["standard"] })
       : await createFragebogen("main", { ...f, sectionKeywords: ["standard"] });
-    editingFb ? updateFragebogen(persisted) : addFragebogen(persisted);
+    if (editingFb) await updateFragebogen(persisted, { persist: false });
+    else addFragebogen(persisted);
     setFbEditorOpen(false);
     setEditingFb(null);
   };

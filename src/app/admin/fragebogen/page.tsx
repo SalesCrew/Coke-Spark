@@ -1278,6 +1278,7 @@ function SpezialfrageAbwaehlenModal({
     () => new Set(questions.map((q) => q.id))
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1299,9 +1300,12 @@ function SpezialfrageAbwaehlenModal({
   async function handleSave() {
     if (isSaving) return;
     const kept = questions.filter((q) => selectedIds.has(q.id));
+    setSaveError(null);
     setIsSaving(true);
     try {
       await onSave(kept);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Spezialfragen konnten nicht gespeichert werden.");
     } finally {
       setIsSaving(false);
     }
@@ -1538,10 +1542,10 @@ function SpezialfrageAbwaehlenModal({
           borderTop: "1px solid rgba(0,0,0,0.06)",
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
-          <span style={{ fontSize: 10, color: removedCount > 0 ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.25)", fontWeight: 400 }}>
-            {removedCount > 0
+          <span role={saveError ? "alert" : undefined} style={{ maxWidth: 240, fontSize: 10, color: saveError ? "#b91c1c" : removedCount > 0 ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.25)", fontWeight: 400 }}>
+            {saveError ?? (removedCount > 0
               ? `${removedCount} ${removedCount === 1 ? "Frage wird" : "Fragen werden"} entfernt`
-              : "Alle Fragen ausgewählt"}
+              : "Alle Fragen ausgewählt")}
           </span>
           <div style={{ display: "flex", gap: 8 }}>
             <button
@@ -1823,7 +1827,7 @@ function FragebogenCard({
   campaignNames: string[];
   availableModules: Module[];
   onEdit: () => void;
-  onUpdate: (f: Fragebogen) => void;
+  onUpdate: (f: Fragebogen) => Promise<Fragebogen>;
   onDuplicate: () => void;
   onDuplicateToFlex: () => void;
   onDuplicateToBilla: () => void;
@@ -2078,8 +2082,8 @@ function FragebogenCard({
       {spezialEditorOpen && (
         <SpezialfrageEditor
           onClose={() => setSpezialEditorOpen(false)}
-          onSave={(questions) => {
-            onUpdate({ ...fragebogen, spezialfragen: questions });
+          onSave={async (questions) => {
+            await onUpdate({ ...fragebogen, spezialfragen: questions });
             setSpezialEditorOpen(false);
           }}
           existingQuestions={fragebogen.spezialfragen}
@@ -2090,8 +2094,8 @@ function FragebogenCard({
         <SpezialfrageAbwaehlenModal
           fragebogen={fragebogen}
           onClose={() => setAbwaehlenOpen(false)}
-          onSave={(kept) => {
-            onUpdate({ ...fragebogen, spezialfragen: kept });
+          onSave={async (kept) => {
+            await onUpdate({ ...fragebogen, spezialfragen: kept });
             setAbwaehlenOpen(false);
           }}
         />

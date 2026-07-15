@@ -4454,11 +4454,17 @@ export async function updateFragebogenBackend(
   fragebogen: Fragebogen & { sectionKeywords?: Array<"standard" | "flex" | "billa"> },
 ): Promise<Fragebogen> {
   const payload = toFragebogenWritePayload(fragebogen);
-  const data = (await authedFetch(`/admin/fragebogen/${scope}/${fragebogen.id}`, {
+  const data = await authedFetch(`/admin/fragebogen/${scope}/${fragebogen.id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
-  })) as { fragebogen: Fragebogen };
-  return normalizeFragebogen(data.fragebogen);
+  });
+  const persisted = data && typeof data === "object" && "fragebogen" in data
+    ? (data as { fragebogen?: Fragebogen }).fragebogen
+    : undefined;
+
+  // A successful PATCH has already committed the submitted state. Keep the
+  // editor usable if an intermediary returns an empty/non-JSON success body.
+  return normalizeFragebogen(persisted ?? fragebogen);
 }
 
 export async function deleteFragebogenBackend(scope: FragebogenScope, fragebogenId: string): Promise<void> {

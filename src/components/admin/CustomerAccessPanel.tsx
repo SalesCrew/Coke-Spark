@@ -1198,18 +1198,17 @@ async function exportCustomerImportRows(rows: CustomerImportResultRow[]) {
     Name: row.fullName,
     Vorname: row.firstName,
     Nachname: row.lastName,
-    Email: row.email,
-    Login: row.email,
-    Passwort: row.password ?? "",
+    "E-Mail": row.email,
+    Initialpasswort: row.password ?? "",
     Seiten: Object.keys(row.permissions).length,
     Rechte: countPermissionActions(row.permissions),
-    Zugriffe: describePermissions(row.permissions),
+    Zugangsberechtigungen: describePermissions(row.permissions),
   }));
   const worksheet = XLSX.utils.json_to_sheet(exportRows);
-  worksheet["!cols"] = [{ wch: 24 }, { wch: 18 }, { wch: 18 }, { wch: 34 }, { wch: 34 }, { wch: 18 }, { wch: 10 }, { wch: 10 }, { wch: 80 }];
+  worksheet["!cols"] = [{ wch: 24 }, { wch: 18 }, { wch: 18 }, { wch: 34 }, { wch: 18 }, { wch: 10 }, { wch: 10 }, { wch: 80 }];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Kundenzugaenge");
-  XLSX.writeFile(workbook, `kundenzugaenge-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(workbook, `kundenzugaenge-zugangsdaten-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 async function exportCustomerAccessUsers(
@@ -1363,6 +1362,7 @@ function CustomerAccessImportModal({ onClose, onImported }: { onClose: () => voi
     setExportError(null);
     const workingRows = importRows.map((row) => ({ ...row }));
     const createdUsers: CustomerAccessUser[] = [];
+    const createdCredentialRows: CustomerImportResultRow[] = [];
 
     for (let index = 0; index < workingRows.length; index += 1) {
       const row = workingRows[index];
@@ -1379,14 +1379,16 @@ function CustomerAccessImportModal({ onClose, onImported }: { onClose: () => voi
           isActive: true,
           permissions: normalizePermissions(row.permissions),
         });
-        workingRows[index] = {
+        const createdRow: CustomerImportResultRow = {
           ...row,
           status: "created",
           password: created.oneTimePassword ?? "",
           error: null,
           createdUserId: created.user.id,
         };
+        workingRows[index] = createdRow;
         createdUsers.push(created.user);
+        createdCredentialRows.push(createdRow);
       } catch (err) {
         workingRows[index] = {
           ...row,
@@ -1401,15 +1403,26 @@ function CustomerAccessImportModal({ onClose, onImported }: { onClose: () => voi
     if (createdUsers.length > 0) onImported(createdUsers);
 
     const allCreated = workingRows.length > 0 && workingRows.every((row) => row.status === "created");
-    if (!allCreated) {
-      setExportError("Einige Accounts konnten nicht erstellt werden. Fehler prüfen und erneut starten.");
-      return;
+    const rowsToExport =
+      createdCredentialRows.length > 0
+        ? createdCredentialRows
+        : workingRows.filter((row) => row.status === "created" && Boolean(row.password));
+
+    if (rowsToExport.length > 0) {
+      try {
+        await exportCustomerImportRows(rowsToExport);
+      } catch {
+        setExportError("Accounts wurden erstellt, aber die Excel-Datei konnte nicht heruntergeladen werden. Erstellen erneut drücken, um den Export zu wiederholen.");
+        return;
+      }
     }
 
-    try {
-      await exportCustomerImportRows(workingRows);
-    } catch {
-      setExportError("Excel-Export konnte nicht erstellt werden.");
+    if (!allCreated) {
+      setExportError(
+        rowsToExport.length > 0
+          ? "Die Zugangsdaten der erstellten Accounts wurden heruntergeladen. Fehlgeschlagene Zeilen prüfen und erneut starten."
+          : "Einige Accounts konnten nicht erstellt werden. Fehler prüfen und erneut starten.",
+      );
     }
   }, [canCreateAccounts, importRows, onImported]);
 

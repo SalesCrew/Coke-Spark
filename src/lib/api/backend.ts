@@ -4550,10 +4550,15 @@ export async function updateAdminPhotoTags(photoId: string, photoTagIds: string[
   return data.tags ?? [];
 }
 
-export async function fetchCampaignMarketVisitStatuses(campaignIds: string[]): Promise<CampaignMarketVisitStatusBatch[]> {
+export async function fetchCampaignMarketVisitStatuses(
+  campaignIds: string[],
+  dateRange?: { dateFrom?: string; dateTo?: string },
+): Promise<CampaignMarketVisitStatusBatch[]> {
   const uniqueCampaignIds = Array.from(new Set(campaignIds.map((entry) => entry.trim()).filter(Boolean)));
   if (uniqueCampaignIds.length === 0) return [];
   const params = new URLSearchParams({ campaignIds: uniqueCampaignIds.join(",") });
+  if (dateRange?.dateFrom) params.set("dateFrom", dateRange.dateFrom);
+  if (dateRange?.dateTo) params.set("dateTo", dateRange.dateTo);
   const data = (await authedFetch(`/admin/campaigns/market-visit-status?${params.toString()}`)) as {
     campaigns?: CampaignMarketVisitStatusBatch[];
   };

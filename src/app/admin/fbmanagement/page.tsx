@@ -24,6 +24,7 @@ import {
   fetchGmUsers,
   fetchMarkets,
   fetchModules,
+  fetchRedMonthCalendar,
   getCampaignOverlapConflicts,
   hardDeleteCampaign,
   migrateCampaignMarkets,
@@ -35,6 +36,7 @@ import {
   updateCampaign,
 } from "@/lib/api/backend";
 import type { CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
+import type { RedMonthPeriod } from "@/types/red-month";
 import {
   exportFbManagementExcel,
   prepareFbManagementExportVisitRow,
@@ -136,7 +138,12 @@ type FbManagementExportFilters = {
   gmNames: string[];
   regions: string[];
   onlySubmitted: boolean;
+  timeframeMode: FbManagementExportTimeframeMode;
+  week?: string;
+  redMonthId?: string;
 };
+
+type FbManagementExportTimeframeMode = "all" | "week" | "redMonth";
 
 type FbManagementExportProgress = {
   percent: number;
@@ -152,6 +159,7 @@ const DEFAULT_FB_MANAGEMENT_EXPORT_FILTERS: FbManagementExportFilters = {
   gmNames: [],
   regions: [],
   onlySubmitted: true,
+  timeframeMode: "all",
 };
 
 const MARKET_CATALOG: MarketCatalogItem[] = [
@@ -247,6 +255,100 @@ function toLocalYmd(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function startOfIsoCalendarWeek(date: Date): Date {
+  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12);
+  const day = result.getDay() || 7;
+  result.setDate(result.getDate() - day + 1);
+  return result;
+}
+
+function getIsoCalendarWeek(date: Date): { value: string; week: number; year: number } {
+  const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - day);
+  const year = utc.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil((((utc.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return { value: `${year}-W${String(week).padStart(2, "0")}`, week, year };
+}
+
+function formatExportDate(dateYmd: string): string {
+  return new Date(`${dateYmd}T12:00:00`).toLocaleDateString("de-AT");
+}
+
+function buildFbManagementExportWeekOptions(campaigns: Campaign[]): Array<{ value: string; label: string }> {
+  const today = new Date();
+  const candidates = campaigns
+    .flatMap((campaign) => [campaign.startDate, campaign.endDate, campaign.createdAt])
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(`${value.slice(0, 10)}T12:00:00`))
+    .filter((value) => Number.isFinite(value.getTime()));
+  const minimum = candidates.length > 0
+    ? new Date(Math.min(...candidates.map((value) => value.getTime())))
+    : new Date(today.getFullYear() - 1, 0, 1, 12);
+  const maximum = candidates.length > 0
+    ? new Date(Math.max(today.getTime(), ...candidates.map((value) => value.getTime())))
+    : today;
+  const first = startOfIsoCalendarWeek(minimum);
+  const cursor = startOfIsoCalendarWeek(maximum);
+  const result: Array<{ value: string; label: string }> = [];
+
+  for (let index = 0; index < 520 && cursor >= first; index += 1) {
+    const end = new Date(cursor);
+    end.setDate(end.getDate() + 6);
+    const iso = getIsoCalendarWeek(cursor);
+    result.push({
+      value: iso.value,
+      label: `KW ${iso.week} / ${iso.year} · ${formatExportDate(toLocalYmd(cursor))} – ${formatExportDate(toLocalYmd(end))}`,
+    });
+    cursor.setDate(cursor.getDate() - 7);
+  }
+
+  return result;
+}
+
+function parseFbManagementExportWeekRange(value: string | undefined): { dateFrom: string; dateTo: string } | null {
+  const match = /^(\d{4})-W(\d{2})$/.exec(value ?? "");
+  if (!match) return null;
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(week) || week < 1 || week > 53) return null;
+  const januaryFourth = new Date(year, 0, 4, 12);
+  const start = startOfIsoCalendarWeek(januaryFourth);
+  start.setDate(start.getDate() + (week - 1) * 7);
+  if (getIsoCalendarWeek(start).value !== value) return null;
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  return { dateFrom: toLocalYmd(start), dateTo: toLocalYmd(end) };
+}
+
+function resolveFbManagementExportDateRange(
+  filters: FbManagementExportFilters,
+  redMonths: RedMonthPeriod[],
+): { dateFrom: string; dateTo: string } | null {
+  if (filters.timeframeMode === "week") return parseFbManagementExportWeekRange(filters.week);
+  if (filters.timeframeMode === "redMonth") {
+    const period = redMonths.find((entry) => entry.id === filters.redMonthId);
+    return period ? { dateFrom: period.start, dateTo: period.end } : null;
+  }
+  return null;
+}
+
+function isCampaignStatusWithinDateRange(
+  status: CampaignMarketVisitStatus,
+  dateRange: { dateFrom: string; dateTo: string } | null,
+): boolean {
+  if (!dateRange) return true;
+  if (!status.submittedAt) return false;
+  const submittedYmd = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Vienna",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(status.submittedAt));
+  return submittedYmd >= dateRange.dateFrom && submittedYmd <= dateRange.dateTo;
 }
 
 function formatShortDate(date: Date): string {
@@ -426,6 +528,89 @@ async function retryExportRequest<T>(operation: () => Promise<T>, maxAttempts = 
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Exportdaten konnten nicht geladen werden.");
+}
+
+function FbManagementExportDropdown({
+  label,
+  value,
+  placeholder,
+  options,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  value?: string;
+  placeholder: string;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+  const needle = search.trim().toLocaleLowerCase("de-AT");
+  const visibleOptions = options.filter((option) => !needle || option.label.toLocaleLowerCase("de-AT").includes(needle));
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  return (
+    <div ref={rootRef} style={{ position: "relative", minWidth: 0 }}>
+      <span style={{ display: "block", marginBottom: 6, fontSize: 9, fontWeight: 800, color: "rgba(15,23,42,0.38)", letterSpacing: "0.085em", textTransform: "uppercase" }}>{label}</span>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-expanded={open}
+        onClick={() => {
+          setOpen((current) => !current);
+          setSearch("");
+        }}
+        style={{ width: "100%", height: 38, borderRadius: 10, border: open ? "1px solid rgba(220,38,38,0.26)" : "1px solid rgba(15,23,42,0.09)", background: "linear-gradient(to bottom,#fff,#fafafa)", boxShadow: open ? "0 0 0 3px rgba(220,38,38,0.055),0 2px 8px rgba(15,23,42,0.06)" : "0 1px 3px rgba(15,23,42,0.045)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 11px", color: selected ? "#111827" : "rgba(15,23,42,0.42)", fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", textAlign: "left", opacity: disabled ? 0.55 : 1 }}
+      >
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected?.label ?? placeholder}</span>
+        <ChevronDown size={13} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }} />
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: 62, left: 0, right: 0, zIndex: 30, borderRadius: 12, border: "1px solid rgba(15,23,42,0.10)", background: "rgba(255,255,255,0.985)", boxShadow: "0 18px 44px rgba(15,23,42,0.16)", padding: 6, overflow: "hidden" }}>
+          <label style={{ height: 34, marginBottom: 5, display: "flex", alignItems: "center", gap: 7, borderRadius: 8, border: "1px solid rgba(15,23,42,0.08)", background: "#f8fafc", padding: "0 9px" }}>
+            <Search size={12} color="rgba(15,23,42,0.35)" />
+            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Suchen..." style={{ width: "100%", border: 0, outline: 0, background: "transparent", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: "#111827" }} />
+          </label>
+          <div className="fbm-export-hidden-scroll" style={{ maxHeight: 238, overflowY: "auto" }}>
+            {visibleOptions.length === 0 ? (
+              <div style={{ padding: "16px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "rgba(15,23,42,0.42)" }}>Keine Auswahl gefunden</div>
+            ) : visibleOptions.map((option) => {
+              const active = option.value === value;
+              return (
+                <button key={option.value} type="button" onClick={() => { onChange(option.value); setOpen(false); }} style={{ width: "100%", minHeight: 34, border: 0, borderRadius: 8, background: active ? "rgba(220,38,38,0.07)" : "transparent", color: active ? "#DC2626" : "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 9px", fontFamily: "inherit", fontSize: 10.5, lineHeight: 1.25, fontWeight: active ? 800 : 650, textAlign: "left", cursor: "pointer" }}>
+                  <span>{option.label}</span>
+                  {active ? <Check size={12} strokeWidth={2.4} /> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function getVisitDetailKey(campaignId: string, marketId: string, sessionId: string | null | undefined): string {
@@ -6994,6 +7179,9 @@ export default function FbManagementPage() {
   const [exportCampaignSearch, setExportCampaignSearch] = useState("");
   const [exportCampaignStatusFilter, setExportCampaignStatusFilter] = useState<FbManagementExportCampaignStatusFilter>("all");
   const [exportGmSearch, setExportGmSearch] = useState("");
+  const [exportRedMonths, setExportRedMonths] = useState<RedMonthPeriod[]>([]);
+  const [exportRedMonthsLoading, setExportRedMonthsLoading] = useState(false);
+  const [exportRedMonthsError, setExportRedMonthsError] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<FbManagementExportProgress | null>(null);
   const [switchingCampaignId, setSwitchingCampaignId] = useState<string | null>(null);
   const [campaignPendingOps, setCampaignPendingOps] = useState<Record<string, number>>({});
@@ -7941,6 +8129,27 @@ export default function FbManagementPage() {
     },
     [campaignsData, exportCampaignSearch, exportCampaignStatusFilter, exportDialogOpen],
   );
+  const exportWeekOptions = useMemo(
+    () => buildFbManagementExportWeekOptions(campaignsData),
+    [campaignsData],
+  );
+  const exportRedMonthOptions = useMemo(
+    () => exportRedMonths
+      .slice()
+      .sort((a, b) => b.start.localeCompare(a.start))
+      .map((period) => ({ value: period.id, label: `${period.label} · ${formatExportDate(period.start)} – ${formatExportDate(period.end)}` })),
+    [exportRedMonths],
+  );
+  const exportDateRange = useMemo(
+    () => resolveFbManagementExportDateRange(exportFilters, exportRedMonths),
+    [exportFilters, exportRedMonths],
+  );
+  const exportTimeframeComplete = exportFilters.timeframeMode === "all" || Boolean(exportDateRange);
+  const exportTimeframeLabel = exportFilters.timeframeMode === "week"
+    ? exportWeekOptions.find((option) => option.value === exportFilters.week)?.label ?? "Kalenderwoche wählen"
+    : exportFilters.timeframeMode === "redMonth"
+      ? exportRedMonthOptions.find((option) => option.value === exportFilters.redMonthId)?.label ?? "RED Month wählen"
+      : "Gesamter Zeitraum";
   const exportGmOptions = useMemo(() => {
     if (!exportDialogOpen) return [];
     const namesByDisplay = new Map<string, string>();
@@ -7987,7 +8196,8 @@ export default function FbManagementPage() {
       const statuses = visitStatusByCampaignId[entry.id] ?? {};
       for (const assignment of entry.assignments) {
         const market = marketById.get(assignment.marketId);
-        const matchingStatuses = getCampaignVisitStatusesForMarket(statuses, assignment.marketId);
+        const matchingStatuses = getCampaignVisitStatusesForMarket(statuses, assignment.marketId)
+          .filter((status) => isCampaignStatusWithinDateRange(status, exportDateRange));
         const status = matchingStatuses[0] ?? null;
         const gmCandidates = [
           normalizeExportFilterValue(assignment.gmName),
@@ -7995,14 +8205,19 @@ export default function FbManagementPage() {
         ];
         const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
         const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
-        const submittedOk = !exportFilters.onlySubmitted || matchingStatuses.some((entry) => entry.hasSubmittedVisit);
+        const submittedOk = exportDateRange
+          ? matchingStatuses.some((entry) => entry.hasSubmittedVisit)
+          : !exportFilters.onlySubmitted || matchingStatuses.some((entry) => entry.hasSubmittedVisit);
         if (!gmOk || !regionOk || !submittedOk) continue;
         assignmentCount += 1;
-        submittedCount += matchingStatuses.reduce((sum, entry) => sum + (entry.hasSubmittedVisit ? Math.max(1, entry.submittedVisitCount || 1) : 0), 0);
+        submittedCount += matchingStatuses.reduce(
+          (sum, entry) => sum + (entry.hasSubmittedVisit ? (exportDateRange ? 1 : Math.max(1, entry.submittedVisitCount || 1)) : 0),
+          0,
+        );
       }
     }
     return { campaignCount, assignmentCount, submittedCount };
-  }, [campaignsData, exportCampaignStatusFilter, exportDialogOpen, exportFilters, marketById, visitStatusByCampaignId]);
+  }, [campaignsData, exportCampaignStatusFilter, exportDateRange, exportDialogOpen, exportFilters, marketById, visitStatusByCampaignId]);
   const selectedRegionGms = useMemo(() => {
     if (!selectedRegion || !campaign) return [];
     const marketsInRegion = assignedMarkets.filter((market) => market.region === selectedRegion);
@@ -8277,6 +8492,10 @@ export default function FbManagementPage() {
       detail: "Filter und Kampagnen werden geprüft.",
     });
     try {
+      const dateRange = resolveFbManagementExportDateRange(filters, exportRedMonths);
+      if (filters.timeframeMode !== "all" && !dateRange) {
+        throw new Error(filters.timeframeMode === "week" ? "Bitte eine Kalenderwoche auswählen." : "Bitte einen RED Month auswählen.");
+      }
       const exportMarketsData = await ensureMarketDirectoryLoaded();
       const exportMarketById = new Map(exportMarketsData.map((market) => [market.id, market]));
       const campaignIdSet = filters.campaignIds.length ? new Set(filters.campaignIds) : null;
@@ -8294,7 +8513,9 @@ export default function FbManagementPage() {
         throw new Error("Für diese Exportfilter wurden keine Kampagnen gefunden.");
       }
 
-      const exportVisitStatusByCampaignId: Record<string, CampaignVisitStatusByMarket> = { ...visitStatusByCampaignId };
+      const exportVisitStatusByCampaignId: Record<string, CampaignVisitStatusByMarket> = dateRange
+        ? {}
+        : { ...visitStatusByCampaignId };
       const campaignIdsForExport = baseCampaigns.map((entry) => entry.id);
       if (campaignIdsForExport.length > 0) {
         setExportProgress({
@@ -8305,7 +8526,7 @@ export default function FbManagementPage() {
         const statusBatchGroups = await mapWithConcurrency(
           chunkArray(campaignIdsForExport, VISIT_STATUS_BATCH_SIZE),
           VISIT_STATUS_MAX_CONCURRENT_BATCHES,
-          async (chunk) => fetchCampaignMarketVisitStatuses(chunk),
+          async (chunk) => fetchCampaignMarketVisitStatuses(chunk, dateRange ?? undefined),
         );
         for (const batchGroup of statusBatchGroups) {
           for (const batch of batchGroup) {
@@ -8314,7 +8535,9 @@ export default function FbManagementPage() {
             );
           }
         }
-        setVisitStatusByCampaignId((current) => ({ ...current, ...exportVisitStatusByCampaignId }));
+        if (!dateRange) {
+          setVisitStatusByCampaignId((current) => ({ ...current, ...exportVisitStatusByCampaignId }));
+        }
       }
 
       setExportProgress({
@@ -8322,7 +8545,7 @@ export default function FbManagementPage() {
         headline: "Filter werden angewendet",
         detail: "Märkte, GMs und eingereichte Besuche werden eingegrenzt.",
       });
-      const marketLevelFiltersActive = gmSet.size > 0 || regionSet.size > 0 || filters.onlySubmitted;
+      const marketLevelFiltersActive = gmSet.size > 0 || regionSet.size > 0 || filters.onlySubmitted || Boolean(dateRange);
       const filteredCampaigns = baseCampaigns
         .map((exportCampaign) => {
           const statuses = exportVisitStatusByCampaignId[exportCampaign.id] ?? {};
@@ -8336,7 +8559,9 @@ export default function FbManagementPage() {
             ];
             const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
             const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
-            const submittedOk = !filters.onlySubmitted || matchingStatuses.some((entry) => entry.hasSubmittedVisit);
+            const submittedOk = dateRange
+              ? matchingStatuses.some((entry) => entry.hasSubmittedVisit)
+              : !filters.onlySubmitted || matchingStatuses.some((entry) => entry.hasSubmittedVisit);
             return gmOk && regionOk && submittedOk;
           });
           const marketIds = Array.from(new Set(assignments.map((assignment) => assignment.marketId)));
@@ -8349,7 +8574,7 @@ export default function FbManagementPage() {
         const marketIdSet = new Set(exportCampaign.marketIds);
         filteredVisitStatusByCampaignId[exportCampaign.id] = Object.fromEntries(
           Object.entries(exportVisitStatusByCampaignId[exportCampaign.id] ?? {}).filter(([, status]) =>
-            marketIdSet.has(status.marketId) && (!filters.onlySubmitted || Boolean(status.hasSubmittedVisit)),
+            marketIdSet.has(status.marketId) && (!filters.onlySubmitted && !dateRange || Boolean(status.hasSubmittedVisit)),
           ),
         );
       }
@@ -8614,7 +8839,47 @@ export default function FbManagementPage() {
     } finally {
       setIsExportingFbManagement(false);
     }
-  }, [campaignsData, ensureMarketDirectoryLoaded, exportCampaignStatusFilter, fragebogenByScope, isExportingFbManagement, modulesByScope, visitDetailByKey, visitStatusByCampaignId]);
+  }, [campaignsData, ensureMarketDirectoryLoaded, exportCampaignStatusFilter, exportRedMonths, fragebogenByScope, isExportingFbManagement, modulesByScope, visitDetailByKey, visitStatusByCampaignId]);
+
+  useEffect(() => {
+    if (!exportDialogOpen) return;
+    let cancelled = false;
+    const now = new Date();
+    const years = campaignsData
+      .flatMap((entry) => [entry.startDate, entry.endDate, entry.createdAt])
+      .filter((value): value is string => Boolean(value))
+      .map((value) => Number(value.slice(0, 4)))
+      .filter((value) => Number.isFinite(value));
+    const earliestYear = Math.max(2000, Math.min(now.getFullYear() - 1, ...years));
+    const latestYear = Math.max(now.getFullYear() + 1, ...years);
+
+    setExportRedMonthsLoading(true);
+    setExportRedMonthsError(null);
+    void fetchRedMonthCalendar({ from: `${earliestYear}-01-01`, to: `${latestYear}-12-31` })
+      .then((periods) => {
+        if (!cancelled) {
+          setExportRedMonths(periods);
+          setExportFilters((current) => {
+            if (current.timeframeMode !== "redMonth" || current.redMonthId) return current;
+            const defaultRedMonthId = periods.find((period) => period.isCurrent)?.id ?? periods[0]?.id;
+            return defaultRedMonthId ? { ...current, redMonthId: defaultRedMonthId } : current;
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setExportRedMonths([]);
+          setExportRedMonthsError("RED-Monate konnten nicht geladen werden.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setExportRedMonthsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignsData, exportDialogOpen]);
 
   useEffect(() => {
     const handler = () => {
@@ -8869,6 +9134,30 @@ export default function FbManagementPage() {
     }));
   };
 
+  const selectExportTimeframe = (mode: FbManagementExportTimeframeMode) => {
+    if (isExportingFbManagement) return;
+    setExportFilters((current) => {
+      if (mode === "week") {
+        return {
+          ...current,
+          timeframeMode: mode,
+          week: current.week ?? exportWeekOptions[0]?.value,
+          redMonthId: undefined,
+        };
+      }
+      if (mode === "redMonth") {
+        return {
+          ...current,
+          timeframeMode: mode,
+          week: undefined,
+          redMonthId: current.redMonthId ?? exportRedMonths.find((period) => period.isCurrent)?.id ?? exportRedMonthOptions[0]?.value,
+        };
+      }
+      return { ...current, timeframeMode: mode, week: undefined, redMonthId: undefined };
+    });
+    setExportError(null);
+  };
+
   const resetExportFilters = () => {
     if (isExportingFbManagement) return;
     setExportFilters(DEFAULT_FB_MANAGEMENT_EXPORT_FILTERS);
@@ -9007,6 +9296,65 @@ export default function FbManagementPage() {
                 <div style={{ fontSize: 11, lineHeight: 1.45, color: "rgba(15,23,42,0.56)", fontWeight: 560 }}>
                   Hoher Payload: Antwortdetails, Foto-Metadaten und Statusdaten werden erst beim Export zusammengesetzt. Währenddessen bitte die Seite offen lassen.
                 </div>
+              </div>
+
+              <div style={{ borderRadius: 14, border: "1px solid rgba(0,0,0,0.075)", background: "#fff", padding: 12 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)" }}>Zeitraum</div>
+                    <div style={{ marginTop: 3, fontSize: 10.5, lineHeight: 1.4, color: "rgba(15,23,42,0.46)", fontWeight: 560 }}>Wie im Fotoarchiv nach Kalenderwoche oder RED Month eingrenzen.</div>
+                  </div>
+                  <div style={{ maxWidth: 330, fontSize: 9.5, lineHeight: 1.35, fontWeight: 720, color: exportTimeframeComplete ? "rgba(15,23,42,0.50)" : "#DC2626", textAlign: "right" }}>{exportTimeframeLabel}</div>
+                </div>
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", borderBottom: "1px solid rgba(15,23,42,0.09)" }}>
+                  {([[
+                    "all",
+                    "Alle",
+                  ], [
+                    "week",
+                    "Woche",
+                  ], [
+                    "redMonth",
+                    "RED Month",
+                  ]] as Array<[FbManagementExportTimeframeMode, string]>).map(([mode, label]) => {
+                    const active = exportFilters.timeframeMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={isExportingFbManagement}
+                        onClick={() => selectExportTimeframe(mode)}
+                        style={{ height: 32, marginBottom: -1, border: 0, borderBottom: active ? "2px solid #DC2626" : "2px solid transparent", background: "transparent", color: active ? "#DC2626" : "rgba(15,23,42,0.44)", fontFamily: "inherit", fontSize: 9.5, fontWeight: active ? 850 : 750, cursor: isExportingFbManagement ? "not-allowed" : "pointer" }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {exportFilters.timeframeMode !== "all" ? (
+                  <div style={{ marginTop: 10 }}>
+                    {exportFilters.timeframeMode === "week" ? (
+                      <FbManagementExportDropdown
+                        label="Kalenderwoche"
+                        value={exportFilters.week}
+                        placeholder="Woche wählen"
+                        options={exportWeekOptions}
+                        disabled={isExportingFbManagement}
+                        onChange={(week) => setExportFilters((current) => ({ ...current, week }))}
+                      />
+                    ) : (
+                      <FbManagementExportDropdown
+                        label="RED Month"
+                        value={exportFilters.redMonthId}
+                        placeholder={exportRedMonthsLoading ? "RED-Monate werden geladen..." : "RED Month wählen"}
+                        options={exportRedMonthOptions}
+                        disabled={isExportingFbManagement || exportRedMonthsLoading}
+                        onChange={(redMonthId) => setExportFilters((current) => ({ ...current, redMonthId }))}
+                      />
+                    )}
+                    {exportFilters.timeframeMode === "redMonth" && exportRedMonthsError ? <div style={{ marginTop: 7, fontSize: 9.5, fontWeight: 700, color: "#DC2626" }}>{exportRedMonthsError}</div> : null}
+                  </div>
+                ) : null}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 14, alignItems: "start" }}>
@@ -9288,7 +9636,7 @@ export default function FbManagementPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={isExportingFbManagement || campaignsData.length === 0}
+                  disabled={isExportingFbManagement || campaignsData.length === 0 || !exportTimeframeComplete}
                   onClick={() => void handleExportFbManagement(exportFilters)}
                   style={{
                     height: 36,
@@ -9299,7 +9647,8 @@ export default function FbManagementPage() {
                     color: "#fff",
                     fontSize: 11,
                     fontWeight: 820,
-                    cursor: isExportingFbManagement || campaignsData.length === 0 ? "not-allowed" : "pointer",
+                    cursor: isExportingFbManagement || campaignsData.length === 0 || !exportTimeframeComplete ? "not-allowed" : "pointer",
+                    opacity: !exportTimeframeComplete ? 0.58 : 1,
                     boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.34), inset 0 -1px 0 rgba(0,0,0,0.10), 0 0 0 1px rgba(185,28,28,0.92), 0 2px 8px rgba(220,38,38,0.20)",
                     minWidth: 126,
                   }}

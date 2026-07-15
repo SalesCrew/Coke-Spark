@@ -3,21 +3,30 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  ChevronDown, Clock, Store, Car, Coffee,
+  Check, ChevronDown, Clock, Store, Car, Coffee,
   GraduationCap, Wrench, Home, Warehouse, Star, Search,
   Pencil, X,
 } from "lucide-react";
 import {
   fetchAdminDiaetenExport,
+  fetchAdminZeitenaufstellungExport,
   fetchAdminZeiterfassungDays,
   fetchAdminZeiterfassungGmAggregates,
+  fetchRedMonthCalendar,
   patchAdminZeiterfassungDaySession,
   patchAdminZeiterfassungSegment,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
 import { DoctorConfirmationProofButton } from "@/components/dashboard/DoctorConfirmationProofButton";
 import { exportAdminDiaeten, MONTH_LABELS } from "@/lib/exports/diaetenExport";
-import { exportAdminZeiterfassung, getMonthBoundsForZeiterfassungExport } from "@/lib/exports/zeiterfassungExport";
+import { exportAdminZeiterfassung } from "@/lib/exports/zeiterfassungExport";
+import {
+  exportAdminZeitenaufstellung,
+  getZeitenaufstellungMonthRange,
+  getZeitenaufstellungWeekRange,
+  type ZeitenaufstellungExportRange,
+} from "@/lib/exports/zeitenaufstellungExport";
+import type { RedMonthPeriod } from "@/types/red-month";
 import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 
 // ── Constants ─────────────────────────────────────────────────
@@ -53,6 +62,33 @@ function fmtKm(km: number | null): string {
 }
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+function isoWeekValue(date: Date): { value: string; week: number; year: number } {
+  const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - day);
+  const year = utc.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil((((utc.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
+  return { value: `${year}-W${String(week).padStart(2, "0")}`, week, year };
+}
+function buildExportWeekOptions(now: Date): Array<{ value: string; label: string }> {
+  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+  const weekday = cursor.getDay() || 7;
+  cursor.setDate(cursor.getDate() - weekday + 1);
+  const result: Array<{ value: string; label: string }> = [];
+  for (let index = 0; index < 160; index += 1) {
+    const monday = new Date(cursor);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const iso = isoWeekValue(monday);
+    result.push({
+      value: iso.value,
+      label: `KW ${String(iso.week).padStart(2, "0")} / ${iso.year} · ${monday.toLocaleDateString("de-AT")} – ${sunday.toLocaleDateString("de-AT")}`,
+    });
+    cursor.setDate(cursor.getDate() - 7);
+  }
+  return result;
 }
 function fmtDateLabel(dateISO: string): { weekday: string; date: string } {
   const d = new Date(dateISO + "T12:00:00");
@@ -1088,11 +1124,18 @@ export default function ZeiterfassungPage() {
   const currentDate = useMemo(() => new Date(), []);
   const currentYear = currentDate.getFullYear();
   const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [exportKind, setExportKind] = useState<"zeiterfassung" | "diaeten">("diaeten");
+  const [exportKind, setExportKind] = useState<"zeiterfassung" | "diaeten" | "zeitenaufstellung">("diaeten");
   const [exportMonth, setExportMonth] = useState(currentDate.getMonth());
   const [exportYear, setExportYear] = useState(currentYear);
+  const [exportPeriodMode, setExportPeriodMode] = useState<"month" | "week" | "redMonth">("month");
+  const [exportWeek, setExportWeek] = useState(() => isoWeekValue(currentDate).value);
+  const [exportRedMonths, setExportRedMonths] = useState<RedMonthPeriod[]>([]);
+  const [exportRedMonthId, setExportRedMonthId] = useState("");
+  const [exportRedMonthsLoading, setExportRedMonthsLoading] = useState(false);
+  const [exportRedMonthsError, setExportRedMonthsError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const exportWeekOptions = useMemo(() => buildExportWeekOptions(currentDate), [currentDate]);
 
   const openExportModal = useCallback(() => {
     setExportKind("zeiterfassung");
@@ -1166,12 +1209,60 @@ export default function ZeiterfassungPage() {
     return () => window.removeEventListener("zeiterfassung:openExport", openExportModal);
   }, [openExportModal]);
 
+  useEffect(() => {
+    if (!exportModalOpen || exportRedMonths.length > 0) return;
+    let cancelled = false;
+    setExportRedMonthsLoading(true);
+    setExportRedMonthsError(null);
+    void fetchRedMonthCalendar({
+      from: `${currentYear - 3}-01-01`,
+      to: `${currentYear + 1}-12-31`,
+    })
+      .then((periods) => {
+        if (cancelled) return;
+        const sorted = periods.slice().sort((left, right) => right.start.localeCompare(left.start));
+        setExportRedMonths(sorted);
+        setExportRedMonthId((current) => current || sorted.find((period) => period.isCurrent)?.id || sorted[0]?.id || "");
+      })
+      .catch(() => {
+        if (!cancelled) setExportRedMonthsError("RED-Monate konnten nicht geladen werden.");
+      })
+      .finally(() => {
+        if (!cancelled) setExportRedMonthsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentYear, exportModalOpen, exportRedMonths.length]);
+
   const handleExport = useCallback(async () => {
-    if (exportKind === "zeiterfassung") {
-      setExporting(true);
-      setExportError(null);
-      try {
-        const range = getMonthBoundsForZeiterfassungExport(exportYear, exportMonth);
+    setExporting(true);
+    setExportError(null);
+    try {
+      let range: ZeitenaufstellungExportRange;
+      if (exportPeriodMode === "week") {
+        range = getZeitenaufstellungWeekRange(exportWeek);
+      } else if (exportPeriodMode === "redMonth") {
+        const period = exportRedMonths.find((entry) => entry.id === exportRedMonthId);
+        if (!period) throw new Error("Bitte einen RED-Monat auswählen.");
+        range = {
+          from: period.start,
+          to: period.end,
+          label: period.label,
+          filenameLabel: period.label,
+        };
+      } else {
+        range = getZeitenaufstellungMonthRange(exportYear, exportMonth);
+      }
+
+      if (exportKind === "zeitenaufstellung") {
+        const payload = await fetchAdminZeitenaufstellungExport({
+          from: range.from,
+          to: range.to,
+          timezone: "Europe/Vienna",
+        });
+        await exportAdminZeitenaufstellung({ rows: payload.rows, range });
+      } else if (exportKind === "zeiterfassung") {
         const payload = await fetchAdminZeiterfassungDays({
           from: range.from,
           to: range.to,
@@ -1183,28 +1274,14 @@ export default function ZeiterfassungPage() {
           range,
           timezone: payload.meta.timezone,
         });
-        setExportModalOpen(false);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Export konnte nicht erstellt werden.";
-        setExportError(message || "Export konnte nicht erstellt werden.");
-      } finally {
-        setExporting(false);
+      } else {
+        const payload = await fetchAdminDiaetenExport({
+          from: range.from,
+          to: range.to,
+          timezone: "Europe/Vienna",
+        });
+        await exportAdminDiaeten(payload);
       }
-      return;
-    }
-    if (exportKind !== "diaeten") {
-      setExportError("Bitte Diäten auswählen.");
-      return;
-    }
-    setExporting(true);
-    setExportError(null);
-    try {
-      const payload = await fetchAdminDiaetenExport({
-        month: exportMonth,
-        year: exportYear,
-        timezone: "Europe/Vienna",
-      });
-      await exportAdminDiaeten(payload);
       setExportModalOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Export konnte nicht erstellt werden.";
@@ -1212,7 +1289,7 @@ export default function ZeiterfassungPage() {
     } finally {
       setExporting(false);
     }
-  }, [exportKind, exportMonth, exportYear]);
+  }, [exportKind, exportMonth, exportPeriodMode, exportRedMonthId, exportRedMonths, exportWeek, exportYear]);
 
   // Daily view: group by date, newest first
   const dateGroups = useMemo(() => {
@@ -1400,11 +1477,18 @@ export default function ZeiterfassungPage() {
         </div>
       </div>
       {exportModalOpen && typeof document !== "undefined" && createPortal(
-        <DiaetenExportModal
+        <ZeiterfassungExportModal
           exportKind={exportKind}
           month={exportMonth}
           year={exportYear}
-          yearOptions={[currentYear - 1, currentYear]}
+          yearOptions={[currentYear - 3, currentYear - 2, currentYear - 1, currentYear, currentYear + 1]}
+          periodMode={exportPeriodMode}
+          week={exportWeek}
+          weekOptions={exportWeekOptions}
+          redMonthId={exportRedMonthId}
+          redMonths={exportRedMonths}
+          redMonthsLoading={exportRedMonthsLoading}
+          redMonthsError={exportRedMonthsError}
           exporting={exporting}
           error={exportError}
           onKindChange={(kind) => {
@@ -1413,6 +1497,9 @@ export default function ZeiterfassungPage() {
           }}
           onMonthChange={setExportMonth}
           onYearChange={setExportYear}
+          onPeriodModeChange={setExportPeriodMode}
+          onWeekChange={setExportWeek}
+          onRedMonthChange={setExportRedMonthId}
           onClose={() => {
             if (!exporting) setExportModalOpen(false);
           }}
@@ -1424,28 +1511,172 @@ export default function ZeiterfassungPage() {
   );
 }
 
-function DiaetenExportModal({
+type ExportDropdownOption = { value: string; label: string };
+
+function ExportPeriodDropdown({
+  label,
+  value,
+  placeholder,
+  options,
+  onChange,
+  searchable = false,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  options: ExportDropdownOption[];
+  onChange: (value: string) => void;
+  searchable?: boolean;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+  const normalizedQuery = query.trim().toLocaleLowerCase("de-AT");
+  const visibleOptions = normalizedQuery
+    ? options.filter((option) => option.label.toLocaleLowerCase("de-AT").includes(normalizedQuery))
+    : options;
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  return (
+      <div ref={rootRef} style={{ position: "relative", minWidth: 0 }}>
+        <span style={{ display: "block", marginBottom: 6, fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.38)", letterSpacing: "0.085em", textTransform: "uppercase" }}>
+          {label}
+        </span>
+        <button
+          className="zeitExportDropdownTrigger"
+          type="button"
+          aria-expanded={open}
+          disabled={disabled}
+          onClick={() => {
+            setOpen((current) => !current);
+            setQuery("");
+          }}
+          style={{
+            width: "100%",
+            height: 38,
+            borderRadius: 10,
+            border: open ? "1px solid rgba(220,38,38,0.26)" : "1px solid rgba(15,23,42,0.09)",
+            background: "linear-gradient(to bottom, #fff, #fafafa)",
+            boxShadow: open ? "0 0 0 3px rgba(220,38,38,0.055), 0 2px 8px rgba(15,23,42,0.06)" : "0 1px 3px rgba(15,23,42,0.045)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "0 11px",
+            color: selected ? "#111827" : "rgba(15,23,42,0.42)",
+            fontFamily: "inherit",
+            fontSize: 10.5,
+            fontWeight: 750,
+            cursor: disabled ? "default" : "pointer",
+            textAlign: "left",
+            opacity: disabled ? 0.58 : 1,
+            outline: "none",
+          }}
+        >
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected?.label ?? placeholder}</span>
+          <ChevronDown size={13} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }} />
+        </button>
+        <div
+          aria-hidden={!open}
+          style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, width: "100%", zIndex: 12, borderRadius: 12, border: "1px solid rgba(15,23,42,0.10)", background: "#fff", boxShadow: "0 18px 44px rgba(15,23,42,0.16)", padding: 6, overflow: "hidden", opacity: open ? 1 : 0, visibility: open ? "visible" : "hidden", pointerEvents: open ? "auto" : "none", transform: open ? "translateY(0)" : "translateY(-3px)", transition: "opacity 120ms ease, transform 120ms ease, visibility 120ms ease" }}
+        >
+          {searchable && (
+            <label style={{ height: 34, marginBottom: 5, display: "flex", alignItems: "center", gap: 7, borderRadius: 8, border: "1px solid rgba(15,23,42,0.08)", background: "#f8fafc", padding: "0 9px" }}>
+              <Search size={12} color="rgba(15,23,42,0.35)" />
+              <input autoFocus={open} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Suchen..." style={{ width: "100%", border: 0, outline: 0, background: "transparent", fontFamily: "inherit", fontSize: 10.5, fontWeight: 650, color: "#111827" }} />
+            </label>
+          )}
+          <div className="zeitExportDropdownScroll" style={{ maxHeight: 238, overflowY: "auto", overscrollBehavior: "contain", paddingRight: 2 }}>
+            {visibleOptions.length === 0 ? (
+              <div style={{ padding: "16px 10px", textAlign: "center", fontSize: 10.5, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>Keine Auswahl gefunden</div>
+            ) : visibleOptions.map((option) => {
+              const active = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  style={{ width: "100%", minHeight: 34, border: 0, borderRadius: 8, background: active ? "rgba(220,38,38,0.07)" : "transparent", color: active ? R : "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 9px", fontFamily: "inherit", fontSize: 10.5, lineHeight: 1.25, fontWeight: active ? 850 : 650, textAlign: "left", cursor: "pointer" }}
+                >
+                  <span>{option.label}</span>
+                  {active && <Check size={12} strokeWidth={2.5} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+  );
+}
+
+function ZeiterfassungExportModal({
   exportKind,
   month,
   year,
   yearOptions,
+  periodMode,
+  week,
+  weekOptions,
+  redMonthId,
+  redMonths,
+  redMonthsLoading,
+  redMonthsError,
   exporting,
   error,
   onKindChange,
   onMonthChange,
   onYearChange,
+  onPeriodModeChange,
+  onWeekChange,
+  onRedMonthChange,
   onClose,
   onExport,
 }: {
-  exportKind: "zeiterfassung" | "diaeten";
+  exportKind: "zeiterfassung" | "diaeten" | "zeitenaufstellung";
   month: number;
   year: number;
   yearOptions: number[];
+  periodMode: "month" | "week" | "redMonth";
+  week: string;
+  weekOptions: Array<{ value: string; label: string }>;
+  redMonthId: string;
+  redMonths: RedMonthPeriod[];
+  redMonthsLoading: boolean;
+  redMonthsError: string | null;
   exporting: boolean;
   error: string | null;
-  onKindChange: (kind: "zeiterfassung" | "diaeten") => void;
+  onKindChange: (kind: "zeiterfassung" | "diaeten" | "zeitenaufstellung") => void;
   onMonthChange: (month: number) => void;
   onYearChange: (year: number) => void;
+  onPeriodModeChange: (mode: "month" | "week" | "redMonth") => void;
+  onWeekChange: (week: string) => void;
+  onRedMonthChange: (redMonthId: string) => void;
   onClose: () => void;
   onExport: () => void;
 }) {
@@ -1459,6 +1690,7 @@ function DiaetenExportModal({
     cursor: "pointer",
     boxShadow: active ? "0 10px 26px rgba(220,38,38,0.08), inset 0 1px 0 rgba(255,255,255,0.9)" : "0 2px 8px rgba(0,0,0,0.04)",
     fontFamily: "inherit",
+    outline: "none",
   });
 
   return (
@@ -1470,23 +1702,29 @@ function DiaetenExportModal({
         position: "fixed",
         inset: 0,
         zIndex: 12000,
-        background: "rgba(17,24,39,0.22)",
-        backdropFilter: "blur(8px)",
+        background: "rgba(17,24,39,0.30)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: 24,
       }}
     >
+      <style>{`
+        .zeitExportDropdownScroll { scrollbar-width: thin; scrollbar-color: rgba(15,23,42,0.16) transparent; }
+        .zeitExportDropdownScroll::-webkit-scrollbar { width: 4px; }
+        .zeitExportDropdownScroll::-webkit-scrollbar-track { background: transparent; }
+        .zeitExportDropdownScroll::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.15); border-radius: 999px; }
+        .zeitExportChoice:focus-visible, .zeitExportTab:focus-visible, .zeitExportDropdownTrigger:focus-visible { outline: 2px solid rgba(220,38,38,0.42) !important; outline-offset: 2px; }
+      `}</style>
       <div
         onMouseDown={(event) => event.stopPropagation()}
         style={{
-          width: "min(560px, 100%)",
+          width: "min(720px, 100%)",
           background: "#fff",
           borderRadius: 18,
           border: "1px solid rgba(0,0,0,0.08)",
           boxShadow: "0 24px 80px rgba(15,23,42,0.20), 0 2px 8px rgba(15,23,42,0.08)",
-          overflow: "hidden",
+          overflow: "visible",
           fontFamily: "inherit",
         }}
       >
@@ -1498,8 +1736,8 @@ function DiaetenExportModal({
             <div style={{ fontSize: 20, fontWeight: 850, letterSpacing: "-0.04em", color: "#111827" }}>
               Zeiterfassung exportieren
             </div>
-            <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.55, color: "rgba(17,24,39,0.48)", maxWidth: 390 }}>
-              Wähle den Exporttyp. Zeiterfassung exportiert alle Einträge inklusive berechneter Fahrtzeiten.
+            <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.55, color: "rgba(17,24,39,0.48)", maxWidth: 500 }}>
+              Wähle den passenden Export. Die Zeitenaufstellung bildet das Referenzblatt „Gesamt“ mit allen Besuchs- und Zusatzzeitzeilen nach.
             </div>
           </div>
           <button
@@ -1523,50 +1761,90 @@ function DiaetenExportModal({
         </div>
 
         <div style={{ padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button type="button" onClick={() => onKindChange("zeiterfassung")} style={choiceStyle(exportKind === "zeiterfassung")}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+            <button className="zeitExportChoice" type="button" onClick={() => onKindChange("zeiterfassung")} style={choiceStyle(exportKind === "zeiterfassung")}>
               <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", marginBottom: 4 }}>Zeiterfassung</div>
-              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Filterbare Monatsdatei mit Einträgen, Fahrtzeiten, Tages- und GM-Summen.</div>
+              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Filterbare Datei mit Einträgen, Fahrtzeiten, Tages- und GM-Summen.</div>
             </button>
-            <button type="button" onClick={() => onKindChange("diaeten")} style={choiceStyle(exportKind === "diaeten")}>
+            <button className="zeitExportChoice" type="button" onClick={() => onKindChange("diaeten")} style={choiceStyle(exportKind === "diaeten")}>
               <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", marginBottom: 4 }}>Diäten</div>
-              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Monatsdatei mit Taggeld, KM und Pausenformeln.</div>
+              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Zeitraumdateien mit Taggeld, KM und Pausenformeln.</div>
+            </button>
+            <button className="zeitExportChoice" type="button" onClick={() => onKindChange("zeitenaufstellung")} style={choiceStyle(exportKind === "zeitenaufstellung")}>
+              <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", marginBottom: 4 }}>Zeitenaufstellung</div>
+              <div style={{ fontSize: 10, color: "rgba(17,24,39,0.45)", lineHeight: 1.45 }}>Originalgetreues Blatt „Gesamt“ für Monat, Woche oder RED-Monat.</div>
             </button>
           </div>
 
-          {exportKind === "diaeten" || exportKind === "zeiterfassung" ? (
-            <div style={{ border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, background: "rgba(0,0,0,0.018)", padding: 14 }}>
-              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(17,24,39,0.35)", marginBottom: 10 }}>
-                Zeitraum
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 0.55fr", gap: 10 }}>
-                <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  <span style={{ fontSize: 9, fontWeight: 750, color: "rgba(17,24,39,0.45)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Monat</span>
-                  <select
-                    value={month}
-                    onChange={(event) => onMonthChange(Number(event.target.value))}
-                    style={{ height: 34, borderRadius: 9, border: "1px solid rgba(0,0,0,0.09)", background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#111827", outline: "none", fontFamily: "inherit" }}
-                  >
-                    {MONTH_LABELS.map((label, index) => (
-                      <option key={label} value={index}>{label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  <span style={{ fontSize: 9, fontWeight: 750, color: "rgba(17,24,39,0.45)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Jahr</span>
-                  <select
-                    value={year}
-                    onChange={(event) => onYearChange(Number(event.target.value))}
-                    style={{ height: 34, borderRadius: 9, border: "1px solid rgba(0,0,0,0.09)", background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#111827", outline: "none", fontFamily: "inherit" }}
-                  >
-                    {yearOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+          <div style={{ border: "1px solid rgba(15,23,42,0.075)", borderRadius: 14, background: "rgba(248,250,252,0.68)", padding: 14, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.92)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ fontSize: 9, fontWeight: 850, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>Zeitraum</div>
+              <div style={{ fontSize: 9, fontWeight: 650, color: "rgba(15,23,42,0.36)" }}>Gilt für den gewählten Export</div>
             </div>
-          ) : null}
+
+            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", borderBottom: "1px solid rgba(15,23,42,0.085)" }}>
+              {([
+                ["month", "Kalendermonat"],
+                ["week", "Kalenderwoche"],
+                ["redMonth", "RED-Monat"],
+              ] as Array<["month" | "week" | "redMonth", string]>).map(([mode, label]) => {
+                const active = periodMode === mode;
+                return (
+                  <button
+                    className="zeitExportTab"
+                    key={mode}
+                    type="button"
+                    disabled={exporting}
+                    onClick={() => onPeriodModeChange(mode)}
+                    style={{ height: 34, marginBottom: -1, border: 0, borderBottom: active ? `2px solid ${R}` : "2px solid transparent", background: "transparent", color: active ? R : "rgba(15,23,42,0.46)", fontFamily: "inherit", fontSize: 9.5, fontWeight: active ? 850 : 750, cursor: exporting ? "default" : "pointer", transition: "color 150ms ease, border-color 150ms ease", outline: "none" }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {periodMode === "month" ? (
+              <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(150px,0.45fr)", gap: 10 }}>
+                <ExportPeriodDropdown
+                  key="calendar-month"
+                  label="Monat"
+                  value={String(month)}
+                  placeholder="Monat wählen"
+                  options={MONTH_LABELS.map((option, index) => ({ value: String(index), label: option }))}
+                  onChange={(value) => onMonthChange(Number(value))}
+                  disabled={exporting}
+                />
+                <ExportPeriodDropdown
+                  key="calendar-year"
+                  label="Jahr"
+                  value={String(year)}
+                  placeholder="Jahr wählen"
+                  options={yearOptions.map((option) => ({ value: String(option), label: String(option) }))}
+                  onChange={(value) => onYearChange(Number(value))}
+                  disabled={exporting}
+                />
+              </div>
+            ) : periodMode === "week" ? (
+              <div style={{ marginTop: 12 }}>
+                <ExportPeriodDropdown key="calendar-week" label="Kalenderwoche" value={week} placeholder="Kalenderwoche wählen" options={weekOptions} onChange={onWeekChange} searchable disabled={exporting} />
+              </div>
+            ) : (
+              <div style={{ marginTop: 12 }}>
+                <ExportPeriodDropdown
+                  key="red-month"
+                  label="RED-Monat"
+                  value={redMonthId}
+                  placeholder={redMonthsLoading ? "RED-Monate werden geladen..." : "RED-Monat wählen"}
+                  options={redMonths.map((period) => ({ value: period.id, label: `${period.label} · ${period.start} – ${period.end}` }))}
+                  onChange={onRedMonthChange}
+                  searchable
+                  disabled={exporting || redMonthsLoading}
+                />
+                {redMonthsError ? <div style={{ marginTop: 7, fontSize: 9.5, fontWeight: 750, color: R }}>{redMonthsError}</div> : null}
+              </div>
+            )}
+          </div>
 
           {error && (
             <div style={{ border: "1px solid rgba(220,38,38,0.20)", borderRadius: 12, background: "rgba(220,38,38,0.055)", padding: "9px 11px", fontSize: 10, fontWeight: 700, color: "#b91c1c" }}>
@@ -1574,7 +1852,7 @@ function DiaetenExportModal({
             </div>
           )}
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, paddingTop: 2 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 9, paddingTop: 2 }}>
             <button
               type="button"
               onClick={onClose}
@@ -1586,7 +1864,7 @@ function DiaetenExportModal({
             <button
               type="button"
               onClick={onExport}
-              disabled={exporting}
+              disabled={exporting || (periodMode === "redMonth" && !redMonthId)}
               style={{
                 height: 34,
                 borderRadius: 10,
@@ -1596,8 +1874,8 @@ function DiaetenExportModal({
                 padding: "0 16px",
                 fontSize: 10.5,
                 fontWeight: 850,
-                cursor: exporting ? "default" : "pointer",
-                opacity: exporting ? 0.6 : 1,
+                cursor: exporting || (periodMode === "redMonth" && !redMonthId) ? "default" : "pointer",
+                opacity: exporting || (periodMode === "redMonth" && !redMonthId) ? 0.6 : 1,
                 boxShadow: "0 8px 18px rgba(220,38,38,0.18), inset 0 1px 0 rgba(255,255,255,0.28)",
                 fontFamily: "inherit",
               }}

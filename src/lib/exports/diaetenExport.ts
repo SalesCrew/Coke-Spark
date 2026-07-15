@@ -71,12 +71,19 @@ function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-function ymd(year: number, month: number, day: number): string {
-  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month + 1, 0, 12)).getUTCDate();
+export function getDiaetenExportDates(from: string, to: string): string[] {
+  const cursor = new Date(`${from}T12:00:00.000Z`);
+  const end = new Date(`${to}T12:00:00.000Z`);
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime()) || cursor.getTime() > end.getTime()) {
+    throw new Error("Der gewählte Diäten-Zeitraum ist ungültig.");
+  }
+  const result: string[] = [];
+  while (cursor.getTime() <= end.getTime()) {
+    result.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    if (result.length > 370) throw new Error("Der Diäten-Zeitraum darf höchstens 370 Tage umfassen.");
+  }
+  return result;
 }
 
 function toViennaYmd(value: string | Date): string {
@@ -179,7 +186,7 @@ function fileSafeName(value: string): string {
 }
 
 function buildDayRows(payload: AdminDiaetenExportPayload, gm: DiaetenGm): DailyExportRow[] {
-  const days = daysInMonth(payload.year, payload.month);
+  const dates = getDiaetenExportDates(payload.range.from, payload.range.to);
   const eventsByDate = new Map<string, AwayEvent[]>();
   const trackingByDate = new Map<string, DiaetenGm["dayTrackings"][number]>();
 
@@ -243,8 +250,7 @@ function buildDayRows(payload: AdminDiaetenExportPayload, gm: DiaetenGm): DailyE
   }
 
   const result: DailyExportRow[] = [];
-  for (let day = 1; day <= days; day += 1) {
-    const date = ymd(payload.year, payload.month, day);
+  for (const date of dates) {
     const events = [...(eventsByDate.get(date) ?? [])].sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
     const tracking = trackingByDate.get(date);
     const startCandidates = events.map((event) => event.startAt);
@@ -450,8 +456,8 @@ function buildWorkbook(payload: AdminDiaetenExportPayload, gm: DiaetenGm, XLSX: 
   setCell(3, 7, "", noBorder);
 
   setCell(4, 0, "Abrechnungszeitraum", { ...noBorder, font: { sz: 10, bold: true, color: { rgb: "000000" } } });
-  setCell(4, 2, excelDateSerial(ymd(payload.year, payload.month, 1)), purpleNoBorderCell, { t: "n", z: "DD.MM.YYYY" });
-  setCell(4, 6, "← Bitte Monat auswählen!", {
+  setCell(4, 2, excelDateSerial(payload.range.from), purpleNoBorderCell, { t: "n", z: "DD.MM.YYYY" });
+  setCell(4, 6, `bis ${payload.range.to.split("-").reverse().join(".")}`, {
     ...noBorder,
     font: { sz: 9, italic: true, color: { rgb: "999999" } },
   });
@@ -568,7 +574,7 @@ function buildWorkbook(payload: AdminDiaetenExportPayload, gm: DiaetenGm, XLSX: 
   setCell(payoutRow, 0, "Auszahlungsbetrag für Verpflegungsmehraufwendungen mit der nächsten Lohn- & Gehaltsabrechnung:", { ...noBorder, font: { sz: 10, bold: true, color: { rgb: "000000" } } });
   setFormula(payoutRow, 14, `SUM(O${footerStart + 1}:O${footerStart + 2})`, { ...noBorder, font: { sz: 12, bold: true, color: { rgb: "000000" } } }, '#,##0.00" €"');
 
-  setCell(signatureDateRow, 0, excelDateSerial(ymd(payload.year, payload.month, dayRows.length)), noBorder, { t: "n", z: "DD.MM.YYYY" });
+  setCell(signatureDateRow, 0, excelDateSerial(payload.range.to), noBorder, { t: "n", z: "DD.MM.YYYY" });
   setCell(signatureLabelRow, 0, "Datum", noBorder);
   setCell(signatureLabelRow, 1, "Unterschrift\nMitarbeiter", { ...noBorder, alignment: { vertical: "center", wrapText: true } });
   setCell(signatureLabelRow, 13, "Stempel/Unterschrift Zeichner", { ...noBorder, alignment: { vertical: "center", horizontal: "center", wrapText: true } });
@@ -633,14 +639,22 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function payloadPeriodFileLabel(payload: AdminDiaetenExportPayload): string {
+  return payload.range.from === `${payload.year}-${pad2(payload.month + 1)}-01`
+    && payload.range.to === new Date(Date.UTC(payload.year, payload.month + 1, 0, 12)).toISOString().slice(0, 10)
+    ? `${pad2(payload.month + 1)}_${payload.year}`
+    : `${payload.range.from}_bis_${payload.range.to}`;
+}
+
 function workbookFileName(payload: AdminDiaetenExportPayload, gm: DiaetenGm): string {
   const fullName = fileSafeName(`${gm.firstName} ${gm.lastName}`);
-  return `${pad2(payload.month + 1)}_${payload.year}_Diäten_${fullName}.xlsx`;
+  const period = payloadPeriodFileLabel(payload);
+  return `${period}_Diäten_${fullName}.xlsx`;
 }
 
 export async function exportAdminDiaeten(payload: AdminDiaetenExportPayload): Promise<void> {
   if (payload.gls.length === 0) {
-    throw new Error("Für diesen Monat gibt es keine Diäten-Daten.");
+    throw new Error("Für diesen Zeitraum gibt es keine Diäten-Daten.");
   }
   const XLSX = await import("xlsx-js-style");
   const workbooks = payload.gls.map((gm) => ({
@@ -667,7 +681,7 @@ export async function exportAdminDiaeten(payload: AdminDiaetenExportPayload): Pr
     zip.file(item.fileName, array);
   }
   const zipBlob = await zip.generateAsync({ type: "blob" });
-  downloadBlob(zipBlob, `Diäten_${pad2(payload.month + 1)}_${payload.year}.zip`);
+  downloadBlob(zipBlob, `Diäten_${payloadPeriodFileLabel(payload)}.zip`);
 }
 
 export { MONTH_LABELS };

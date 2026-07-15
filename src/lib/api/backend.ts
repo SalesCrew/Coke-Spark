@@ -3278,6 +3278,32 @@ export type AdminDiaetenExportPayload = {
   }>;
 };
 
+export type AdminZeitenaufstellungExportRow = {
+  targetObject: string;
+  customerNumber: string;
+  visitDate: string;
+  visitStartTime: string;
+  person: string;
+  imageCount: number;
+  travelDurationMin: number | null;
+  visitDurationMin: number | null;
+  calculatedFillDurationMin: number;
+  comment: string;
+  notEvaluable: boolean;
+  reason: string;
+  questionnaire: string;
+};
+
+export type AdminZeitenaufstellungExportPayload = {
+  rows: AdminZeitenaufstellungExportRow[];
+  meta: {
+    from: string;
+    to: string;
+    timezone: string;
+    totalRows: number;
+  };
+};
+
 export async function fetchGmVisitStartPayload(
   marketId: string,
   campaignIds: string[],
@@ -5193,17 +5219,27 @@ export async function fetchAdminZeiterfassungGmAggregates(input?: {
 }
 
 export async function fetchAdminDiaetenExport(input: {
-  month: number;
-  year: number;
+  from: string;
+  to: string;
   timezone?: string;
 }): Promise<AdminDiaetenExportPayload> {
-  const params = new URLSearchParams();
-  params.set("month", String(input.month));
-  params.set("year", String(input.year));
+  const params = new URLSearchParams({ from: input.from, to: input.to });
   if (input.timezone) params.set("timezone", input.timezone);
   return (await authedFetch(`/admin/zeiterfassung/diaeten-export?${params.toString()}`, {
     cache: "no-store",
   })) as AdminDiaetenExportPayload;
+}
+
+export async function fetchAdminZeitenaufstellungExport(input: {
+  from: string;
+  to: string;
+  timezone?: string;
+}): Promise<AdminZeitenaufstellungExportPayload> {
+  const params = new URLSearchParams({ from: input.from, to: input.to });
+  if (input.timezone) params.set("timezone", input.timezone);
+  return (await authedFetch(`/admin/zeiterfassung/zeitenaufstellung-export?${params.toString()}`, {
+    cache: "no-store",
+  }, 60000)) as AdminZeitenaufstellungExportPayload;
 }
 
 export async function startDaySession(input?: { timezone?: string; startedAt?: string }): Promise<{ session: DaySession }> {

@@ -178,6 +178,15 @@ function timeKindLabel(request: TimeEntryChangeRequest): string {
   return "Zusatz";
 }
 
+function settledActionError(
+  results: PromiseSettledResult<unknown>[],
+  fallback: string,
+): string | null {
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (!failed) return null;
+  return failed.reason instanceof Error ? failed.reason.message : fallback;
+}
+
 export function AnswerChangeRequestFlap() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -192,9 +201,9 @@ export function AnswerChangeRequestFlap() {
   const [compactDoneOpen, setCompactDoneOpen] = useState(false);
   const [expandedDoneOpen, setExpandedDoneOpen] = useState(false);
 
-  const loadRequests = useCallback(async () => {
+  const loadRequests = useCallback(async (options?: { preserveError?: boolean }) => {
     setLoading(true);
-    setError(null);
+    if (!options?.preserveError) setError(null);
     try {
       const [nextAnswerRequests, nextTimeRequests, nextDeleteRequests] = await Promise.all([
         fetchAdminAnswerChangeRequests(),
@@ -205,7 +214,8 @@ export function AnswerChangeRequestFlap() {
       setTimeRequests(sortTimeRequests(nextTimeRequests));
       setDeleteRequests(sortDeleteRequests(nextDeleteRequests));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "?nderungsanfragen konnten nicht geladen werden.");
+      const message = err instanceof Error ? err.message : "Änderungsanfragen konnten nicht geladen werden.";
+      setError((current) => options?.preserveError && current ? `${current} Aktualisierung fehlgeschlagen: ${message}` : message);
     } finally {
       setLoading(false);
     }
@@ -444,17 +454,15 @@ export function AnswerChangeRequestFlap() {
             : rejectAdminAnswerChangeRequest(id),
         ),
       );
-      const failed = results.filter((result) => result.status === "rejected");
-      if (failed.length > 0) {
-        const reason = failed[0] as PromiseRejectedResult;
-        setError(reason.reason instanceof Error ? reason.reason.message : "Ein Teil der Anfragen konnte nicht verarbeitet werden.");
-      }
+      const actionError = settledActionError(results, "Ein Teil der Anfragen konnte nicht verarbeitet werden.");
+      if (actionError) setError(actionError);
+      const succeededIds = uniqueIds.filter((_, index) => results[index]?.status === "fulfilled");
       setSelectedIds((current) => {
         const next = new Set(current);
-        uniqueIds.forEach((id) => next.delete(id));
+        succeededIds.forEach((id) => next.delete(id));
         return next;
       });
-      await loadRequests();
+      await loadRequests({ preserveError: Boolean(actionError) });
     } finally {
       setBusy(uniqueIds, false);
     }
@@ -473,12 +481,9 @@ export function AnswerChangeRequestFlap() {
             : rejectAdminTimeEntryChangeRequest(id),
         ),
       );
-      const failed = results.filter((result) => result.status === "rejected");
-      if (failed.length > 0) {
-        const reason = failed[0] as PromiseRejectedResult;
-        setError(reason.reason instanceof Error ? reason.reason.message : "Ein Teil der Zeitanfragen konnte nicht verarbeitet werden.");
-      }
-      await loadRequests();
+      const actionError = settledActionError(results, "Ein Teil der Zeitanfragen konnte nicht verarbeitet werden.");
+      if (actionError) setError(actionError);
+      await loadRequests({ preserveError: Boolean(actionError) });
     } finally {
       setBusy(uniqueIds, false);
     }
@@ -497,12 +502,9 @@ export function AnswerChangeRequestFlap() {
             : rejectAdminVisitSessionDeleteRequest(id),
         ),
       );
-      const failed = results.filter((result) => result.status === "rejected");
-      if (failed.length > 0) {
-        const reason = failed[0] as PromiseRejectedResult;
-        setError(reason.reason instanceof Error ? reason.reason.message : "Ein Teil der Loeschanfragen konnte nicht verarbeitet werden.");
-      }
-      await loadRequests();
+      const actionError = settledActionError(results, "Ein Teil der Löschanfragen konnte nicht verarbeitet werden.");
+      if (actionError) setError(actionError);
+      await loadRequests({ preserveError: Boolean(actionError) });
     } finally {
       setBusy(uniqueIds, false);
     }

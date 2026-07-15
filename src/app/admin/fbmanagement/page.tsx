@@ -17,6 +17,7 @@ import {
   fetchCampaignAssignedMarkets,
   fetchCampaignMarketVisitDetail,
   fetchCampaignMarketVisitExportDetails,
+  fetchCampaignMarketVisitExportIndex,
   fetchCampaignMarketVisitStatuses,
   fetchCampaigns,
   fetchAdminZeiterfassungDays,
@@ -35,7 +36,7 @@ import {
   switchCampaignFragebogen,
   updateCampaign,
 } from "@/lib/api/backend";
-import type { CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
+import type { CampaignMarketVisitExportIndexItem, CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
 import type { RedMonthPeriod } from "@/types/red-month";
 import {
   exportFbManagementExcel,
@@ -66,7 +67,7 @@ const VISIT_STATUS_BATCH_SIZE = 50;
 const VISIT_STATUS_MAX_CONCURRENT_BATCHES = 2;
 const VISIT_STATUS_BACKGROUND_BATCH_SIZE = 2;
 const VISIT_STATUS_BACKGROUND_BATCH_DELAY_MS = 120;
-const VISIT_DETAIL_EXPORT_BATCH_SIZE = 12;
+const VISIT_DETAIL_EXPORT_BATCH_SIZE = 20;
 const VISIT_DETAIL_EXPORT_MAX_CONCURRENT_BATCHES = 2;
 const EXPORT_TIME_DATA_MAX_DAYS_PER_BATCH = 7;
 const HARD_DELETE_CAMPAIGN_CONFIRMATION_TEXT = "Ich bin mir sicher, dass ich alle Daten zu dieser Kampagne Löschen will!";
@@ -7182,6 +7183,7 @@ export default function FbManagementPage() {
   const [exportRedMonths, setExportRedMonths] = useState<RedMonthPeriod[]>([]);
   const [exportRedMonthsLoading, setExportRedMonthsLoading] = useState(false);
   const [exportRedMonthsError, setExportRedMonthsError] = useState<string | null>(null);
+  const [exportFilterMarketsLoading, setExportFilterMarketsLoading] = useState(false);
   const [exportProgress, setExportProgress] = useState<FbManagementExportProgress | null>(null);
   const [switchingCampaignId, setSwitchingCampaignId] = useState<string | null>(null);
   const [campaignPendingOps, setCampaignPendingOps] = useState<Record<string, number>>({});
@@ -8194,9 +8196,18 @@ export default function FbManagementPage() {
       if (exportCampaignStatusFilter === "inactive" && entry.status !== "inactive") continue;
       campaignCount += 1;
       const statuses = visitStatusByCampaignId[entry.id] ?? {};
+      const statusesByMarket = new Map<string, CampaignMarketVisitStatus[]>();
+      for (const status of Object.values(statuses)) {
+        const keys = new Set([status.marketId, getCampaignVisitStatusRowId(status)]);
+        for (const key of keys) {
+          const bucket = statusesByMarket.get(key) ?? [];
+          bucket.push(status);
+          statusesByMarket.set(key, bucket);
+        }
+      }
       for (const assignment of entry.assignments) {
         const market = marketById.get(assignment.marketId);
-        const matchingStatuses = getCampaignVisitStatusesForMarket(statuses, assignment.marketId)
+        const matchingStatuses = (statusesByMarket.get(assignment.marketId) ?? [])
           .filter((status) => isCampaignStatusWithinDateRange(status, exportDateRange));
         const status = matchingStatuses[0] ?? null;
         const gmCandidates = [
@@ -8496,8 +8507,6 @@ export default function FbManagementPage() {
       if (filters.timeframeMode !== "all" && !dateRange) {
         throw new Error(filters.timeframeMode === "week" ? "Bitte eine Kalenderwoche auswählen." : "Bitte einen RED Month auswählen.");
       }
-      const exportMarketsData = await ensureMarketDirectoryLoaded();
-      const exportMarketById = new Map(exportMarketsData.map((market) => [market.id, market]));
       const campaignIdSet = filters.campaignIds.length ? new Set(filters.campaignIds) : null;
       const sectionSet = filters.sections.length ? new Set(filters.sections) : null;
       const gmSet = new Set(filters.gmNames.map(normalizeExportFilterValue));
@@ -8513,31 +8522,65 @@ export default function FbManagementPage() {
         throw new Error("Für diese Exportfilter wurden keine Kampagnen gefunden.");
       }
 
-      const exportVisitStatusByCampaignId: Record<string, CampaignVisitStatusByMarket> = dateRange
-        ? {}
-        : { ...visitStatusByCampaignId };
       const campaignIdsForExport = baseCampaigns.map((entry) => entry.id);
-      if (campaignIdsForExport.length > 0) {
-        setExportProgress({
-          percent: 16,
-          headline: "Besuchsstatus wird geladen",
-          detail: `${campaignIdsForExport.length} Kampagne${campaignIdsForExport.length === 1 ? "" : "n"} werden abgeglichen.`,
-        });
-        const statusBatchGroups = await mapWithConcurrency(
-          chunkArray(campaignIdsForExport, VISIT_STATUS_BATCH_SIZE),
+      const campaignIdChunks = chunkArray(campaignIdsForExport, VISIT_STATUS_BATCH_SIZE);
+      setExportProgress({
+        percent: 12,
+        headline: "Exportdaten werden eingegrenzt",
+        detail: `${campaignIdsForExport.length} Kampagne${campaignIdsForExport.length === 1 ? "" : "n"} und ihre Besuche werden gezielt geladen.`,
+      });
+
+      const visitIndexPromise = mapWithConcurrency(
+        campaignIdChunks,
+        VISIT_STATUS_MAX_CONCURRENT_BATCHES,
+        async (chunk) => retryExportRequest(
+          () => fetchCampaignMarketVisitExportIndex(chunk, dateRange ?? undefined),
+          3,
+        ),
+      );
+
+      let exportMarketsData: MarketCatalogItem[];
+      try {
+        const marketBatchGroups = await mapWithConcurrency(
+          campaignIdChunks,
           VISIT_STATUS_MAX_CONCURRENT_BATCHES,
-          async (chunk) => fetchCampaignMarketVisitStatuses(chunk, dateRange ?? undefined),
+          async (chunk) => retryExportRequest(() => fetchCampaignAssignedMarkets(chunk), 3),
         );
-        for (const batchGroup of statusBatchGroups) {
-          for (const batch of batchGroup) {
-            exportVisitStatusByCampaignId[batch.campaignId] = Object.fromEntries(
-              batch.markets.map((status) => [getCampaignVisitStatusRowId(status), status]),
-            );
-          }
+        const scopedMarketsById = new Map<string, MarketCatalogItem>();
+        for (const market of marketBatchGroups.flat().map(toMarketCatalogItem)) {
+          scopedMarketsById.set(market.id, market);
         }
-        if (!dateRange) {
-          setVisitStatusByCampaignId((current) => ({ ...current, ...exportVisitStatusByCampaignId }));
-        }
+        exportMarketsData = Array.from(scopedMarketsById.values());
+      } catch {
+        exportMarketsData = await ensureMarketDirectoryLoaded();
+      }
+
+      const expectedMarketIds = new Set(baseCampaigns.flatMap((entry) => entry.assignments.map((assignment) => assignment.marketId)));
+      let exportMarketById = new Map(exportMarketsData.map((market) => [market.id, market]));
+      let missingMarketIds = Array.from(expectedMarketIds).filter((marketId) => !exportMarketById.has(marketId));
+      if (missingMarketIds.length > 0) {
+        const fallbackMarkets = marketDirectoryLoaded ? marketsData : await ensureMarketDirectoryLoaded();
+        exportMarketsData = Array.from(new Map(
+          [...exportMarketsData, ...fallbackMarkets].map((market) => [market.id, market]),
+        ).values());
+        exportMarketById = new Map(exportMarketsData.map((market) => [market.id, market]));
+        missingMarketIds = Array.from(expectedMarketIds).filter((marketId) => !exportMarketById.has(marketId));
+      }
+      if (missingMarketIds.length > 0) {
+        throw new Error(`${missingMarketIds.length} Zielmärkte konnten nicht vollständig geladen werden. Es wurde kein unvollständiger Export erstellt.`);
+      }
+
+      const visitIndex = (await visitIndexPromise).flat();
+      const visitsByCampaignMarket = new Map<string, CampaignMarketVisitExportIndexItem[]>();
+      const visitsByCampaign = new Map<string, CampaignMarketVisitExportIndexItem[]>();
+      for (const visit of visitIndex) {
+        const key = `${visit.campaignId}:${visit.marketId}`;
+        const bucket = visitsByCampaignMarket.get(key) ?? [];
+        bucket.push(visit);
+        visitsByCampaignMarket.set(key, bucket);
+        const campaignBucket = visitsByCampaign.get(visit.campaignId) ?? [];
+        campaignBucket.push(visit);
+        visitsByCampaign.set(visit.campaignId, campaignBucket);
       }
 
       setExportProgress({
@@ -8548,36 +8591,22 @@ export default function FbManagementPage() {
       const marketLevelFiltersActive = gmSet.size > 0 || regionSet.size > 0 || filters.onlySubmitted || Boolean(dateRange);
       const filteredCampaigns = baseCampaigns
         .map((exportCampaign) => {
-          const statuses = exportVisitStatusByCampaignId[exportCampaign.id] ?? {};
           const assignments = exportCampaign.assignments.filter((assignment) => {
-            const matchingStatuses = getCampaignVisitStatusesForMarket(statuses, assignment.marketId);
-            const status = matchingStatuses[0] ?? null;
+            const matchingVisits = visitsByCampaignMarket.get(`${exportCampaign.id}:${assignment.marketId}`) ?? [];
             const market = exportMarketById.get(assignment.marketId);
             const gmCandidates = [
               normalizeExportFilterValue(assignment.gmName),
-              normalizeExportFilterValue(status?.gmName),
+              ...matchingVisits.map((visit) => normalizeExportFilterValue(visit.gmName)),
             ];
             const gmOk = gmSet.size === 0 || gmCandidates.some((candidate) => candidate && gmSet.has(candidate));
             const regionOk = regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(market?.region));
-            const submittedOk = dateRange
-              ? matchingStatuses.some((entry) => entry.hasSubmittedVisit)
-              : !filters.onlySubmitted || matchingStatuses.some((entry) => entry.hasSubmittedVisit);
+            const submittedOk = (!filters.onlySubmitted && !dateRange) || matchingVisits.length > 0;
             return gmOk && regionOk && submittedOk;
           });
           const marketIds = Array.from(new Set(assignments.map((assignment) => assignment.marketId)));
           return { ...exportCampaign, assignments, marketIds };
         })
         .filter((entry) => entry.assignments.length > 0 || !marketLevelFiltersActive);
-
-      const filteredVisitStatusByCampaignId: Record<string, CampaignVisitStatusByMarket> = {};
-      for (const exportCampaign of filteredCampaigns) {
-        const marketIdSet = new Set(exportCampaign.marketIds);
-        filteredVisitStatusByCampaignId[exportCampaign.id] = Object.fromEntries(
-          Object.entries(exportVisitStatusByCampaignId[exportCampaign.id] ?? {}).filter(([, status]) =>
-            marketIdSet.has(status.marketId) && (!filters.onlySubmitted && !dateRange || Boolean(status.hasSubmittedVisit)),
-          ),
-        );
-      }
 
       const assignmentTotal = filteredCampaigns.reduce((sum, entry) => sum + entry.assignments.length, 0);
       if (filteredCampaigns.length === 0 || assignmentTotal === 0) {
@@ -8593,23 +8622,33 @@ export default function FbManagementPage() {
         key: string;
       }>();
       for (const exportCampaign of filteredCampaigns) {
-        const statuses = filteredVisitStatusByCampaignId[exportCampaign.id] ?? {};
-        for (const status of Object.values(statuses)) {
-          if (!status.sessionId || !status.hasSubmittedVisit) continue;
-          const market = exportMarketById.get(status.marketId);
-          const key = getVisitDetailKey(exportCampaign.id, status.marketId, status.sessionId);
+        const allowedMarketIds = new Set(exportCampaign.marketIds);
+        for (const visit of visitsByCampaign.get(exportCampaign.id) ?? []) {
+          if (!allowedMarketIds.has(visit.marketId)) continue;
+          if (gmSet.size > 0) {
+            const visitGm = normalizeExportFilterValue(visit.gmName);
+            const assignmentGmMatches = exportCampaign.assignments.some((assignment) =>
+              assignment.marketId === visit.marketId && gmSet.has(normalizeExportFilterValue(assignment.gmName)),
+            );
+            if (visitGm ? !gmSet.has(visitGm) : !assignmentGmMatches) continue;
+          }
+          const market = exportMarketById.get(visit.marketId);
+          const key = getVisitDetailKey(exportCampaign.id, visit.marketId, visit.sessionId);
           detailTargetsByKey.set(key, {
             campaignId: exportCampaign.id,
             campaignName: exportCampaign.name,
-            marketId: status.marketId,
-            marketName: market?.name ?? status.marketId,
-            sessionId: status.sessionId,
+            marketId: visit.marketId,
+            marketName: market?.name ?? visit.marketId,
+            sessionId: visit.sessionId,
             key,
           });
         }
       }
 
       const detailTargets = Array.from(detailTargetsByKey.values());
+      if (detailTargets.length === 0 && (filters.onlySubmitted || Boolean(dateRange))) {
+        throw new Error("Für diesen Zeitraum und diese Filter wurden keine eingereichten Besuche gefunden.");
+      }
       const preparedVisitByTargetKey = new Map<string, FbManagementExportVisitRow>();
       const detailErrors: Array<{
         campaignId: string;
@@ -8815,7 +8854,7 @@ export default function FbManagementPage() {
       await exportFbManagementExcel({
         campaigns: filteredCampaigns,
         markets: exportMarketsData,
-        visitStatusByCampaignId: filteredVisitStatusByCampaignId,
+        visitStatusByCampaignId: {},
         preparedVisitRows,
         expectedPreparedVisitCount: detailTargets.length,
         visitDetailErrors: detailErrors,
@@ -8839,7 +8878,7 @@ export default function FbManagementPage() {
     } finally {
       setIsExportingFbManagement(false);
     }
-  }, [campaignsData, ensureMarketDirectoryLoaded, exportCampaignStatusFilter, exportRedMonths, fragebogenByScope, isExportingFbManagement, modulesByScope, visitDetailByKey, visitStatusByCampaignId]);
+  }, [campaignsData, ensureMarketDirectoryLoaded, exportCampaignStatusFilter, exportRedMonths, fragebogenByScope, isExportingFbManagement, marketDirectoryLoaded, marketsData, modulesByScope, visitDetailByKey]);
 
   useEffect(() => {
     if (!exportDialogOpen) return;
@@ -8882,15 +8921,54 @@ export default function FbManagementPage() {
   }, [campaignsData, exportDialogOpen]);
 
   useEffect(() => {
+    if (!exportDialogOpen) return;
+    const selectedCampaignIds = exportFilters.campaignIds.length > 0
+      ? new Set(exportFilters.campaignIds)
+      : null;
+    const campaignIds = campaignsData
+      .filter((entry) => {
+        if (selectedCampaignIds && !selectedCampaignIds.has(entry.id)) return false;
+        if (exportCampaignStatusFilter === "active") return entry.status !== "inactive";
+        if (exportCampaignStatusFilter === "inactive") return entry.status === "inactive";
+        return true;
+      })
+      .map((entry) => entry.id);
+    if (campaignIds.length === 0) {
+      setExportFilterMarketsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setExportFilterMarketsLoading(true);
+    void mapWithConcurrency(
+      chunkArray(campaignIds, VISIT_STATUS_BATCH_SIZE),
+      VISIT_STATUS_MAX_CONCURRENT_BATCHES,
+      (chunk) => fetchCampaignAssignedMarkets(chunk),
+    )
+      .then((groups) => {
+        if (!cancelled) mergeMarketCatalogItems(groups.flat().map(toMarketCatalogItem));
+      })
+      .catch(() => {
+        // Regions are an optional filter; the export itself retries and validates market metadata.
+      })
+      .finally(() => {
+        if (!cancelled) setExportFilterMarketsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignsData, exportCampaignStatusFilter, exportDialogOpen, exportFilters.campaignIds, mergeMarketCatalogItems]);
+
+  useEffect(() => {
     const handler = () => {
       setExportError(null);
       setExportProgress(null);
-      void ensureMarketDirectoryLoaded().catch(() => undefined);
       setExportDialogOpen(true);
     };
     window.addEventListener("admin:fbmanagement:export", handler);
     return () => window.removeEventListener("admin:fbmanagement:export", handler);
-  }, [ensureMarketDirectoryLoaded]);
+  }, []);
 
   if (loading) {
     return (
@@ -9523,6 +9601,9 @@ export default function FbManagementPage() {
                   <div style={{ borderRadius: 14, border: "1px solid rgba(0,0,0,0.075)", background: "#fff", padding: 12 }}>
                     <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(15,23,42,0.36)", marginBottom: 9 }}>Regionen</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {exportFilterMarketsLoading && exportRegionOptions.length === 0 ? (
+                        <span style={{ fontSize: 9.5, fontWeight: 620, color: "rgba(15,23,42,0.35)" }}>Regionen werden geladen…</span>
+                      ) : null}
                       {exportRegionOptions.map((region) => {
                         const active = exportFilters.regions.includes(region);
                         return (

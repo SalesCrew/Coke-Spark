@@ -2695,6 +2695,15 @@ export type CampaignMarketVisitStatusBatch = {
   campaignId: string;
   markets: CampaignMarketVisitStatus[];
 };
+export type CampaignMarketVisitExportIndexItem = {
+  campaignId: string;
+  marketId: string;
+  sessionId: string;
+  gmUserId: string | null;
+  gmName: string | null;
+  startedAt: string;
+  submittedAt: string | null;
+};
 export type AdminPhotoCampaignType = "standard" | "flex" | "billa" | "kuehler" | "mhd";
 export type AdminPhotoArchiveFilters = {
   page?: number;
@@ -4600,6 +4609,21 @@ export async function fetchCampaignMarketVisitStatuses(
     campaigns?: CampaignMarketVisitStatusBatch[];
   };
   return data.campaigns ?? [];
+}
+
+export async function fetchCampaignMarketVisitExportIndex(
+  campaignIds: string[],
+  dateRange?: { dateFrom?: string; dateTo?: string },
+): Promise<CampaignMarketVisitExportIndexItem[]> {
+  const uniqueCampaignIds = Array.from(new Set(campaignIds.map((entry) => entry.trim()).filter(Boolean)));
+  if (uniqueCampaignIds.length === 0) return [];
+  const params = new URLSearchParams({ campaignIds: uniqueCampaignIds.join(",") });
+  if (dateRange?.dateFrom) params.set("dateFrom", dateRange.dateFrom);
+  if (dateRange?.dateTo) params.set("dateTo", dateRange.dateTo);
+  const data = (await authedFetch(`/admin/campaigns/market-visit-export-index?${params.toString()}`, {}, 60000)) as {
+    visits?: CampaignMarketVisitExportIndexItem[];
+  };
+  return data.visits ?? [];
 }
 
 export async function fetchCampaignMarketVisitExportDetails(input: {

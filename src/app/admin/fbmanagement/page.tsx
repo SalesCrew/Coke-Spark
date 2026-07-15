@@ -103,6 +103,10 @@ interface MarketCatalogItem {
   region: string;
   address: string;
   stammnr?: string;
+  standardMarketNumber?: string;
+  cokeMasterNumber?: string;
+  flexNumber?: string;
+  kuehlerStammnr?: string;
   gm: string;
   finished: boolean;
   isKuehlerUnitRow?: boolean;
@@ -438,6 +442,7 @@ function toMarketCatalogItem(market: {
   kuehlerStammnr?: string | null;
   cokeMasterNumber?: string | null;
   standardMarketNumber?: string | null;
+  flexNumber?: string | null;
   infoFlag?: boolean | null;
 }): MarketCatalogItem {
   const chainSource = (market.dbName || market.name || "").trim();
@@ -450,6 +455,10 @@ function toMarketCatalogItem(market: {
     region: market.region ?? "",
     address: market.address ?? "",
     stammnr: String(market.kuehlerStammnr || market.cokeMasterNumber || market.standardMarketNumber || "").trim(),
+    standardMarketNumber: String(market.standardMarketNumber ?? "").trim(),
+    cokeMasterNumber: String(market.cokeMasterNumber ?? "").trim(),
+    flexNumber: String(market.flexNumber ?? "").trim(),
+    kuehlerStammnr: String(market.kuehlerStammnr ?? "").trim(),
     gm: "",
     finished: Boolean(market.infoFlag),
   };

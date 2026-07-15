@@ -44,6 +44,10 @@ export type CampaignExportMarket = {
   region: string;
   address: string;
   stammnr?: string;
+  standardMarketNumber?: string;
+  cokeMasterNumber?: string;
+  flexNumber?: string;
+  kuehlerStammnr?: string;
   gm: string;
 };
 
@@ -220,12 +224,12 @@ function visitAnswerSummary(question: VisitDetailQuestion): string {
 
 const SARA_EINSAETZE_COLUMN_SPEC = `
 Zielobjekt		14.09765625
-Kundennummer		15.3984375
+Stammnr.		15.3984375
 Besuchsdatum		12.09765625
 Besuchsstartzeit		8.796875
 Einsatz	Verplanung	16.5
-	Interne ID	9.8984375
-	Externe ID	14.296875
+	Standardmarkt Nr.	9.8984375
+	Flexnummer	14.296875
 Person		15.3984375
 Bilder		6.59765625
 Fahrtbeginn		9.8984375
@@ -351,7 +355,15 @@ export type FbManagementExportVisitRow = {
   sessionId: string;
   startedAt: string;
   gmUserId: string | null;
+  sectionTypes: VisitDetailSection["section"][];
   cells: SaraCellValue[];
+  dynamicAnswers: Array<{
+    key: string;
+    question: string;
+    kind: "value" | "number";
+    value: SaraCellValue;
+    comment: string;
+  }>;
 };
 
 const SARA_BASE_COLUMN_COUNT = 22;
@@ -569,12 +581,20 @@ function saraTargetObject(market: CampaignExportMarket | null | undefined): stri
   return parts.join("; ");
 }
 
+function firstMarketIdentifier(...values: Array<string | null | undefined>): string {
+  return values.find((value) => value?.trim())?.trim() ?? "";
+}
+
+function saraCustomerNumber(market: CampaignExportMarket | null | undefined): string {
+  return firstMarketIdentifier(market?.cokeMasterNumber, market?.kuehlerStammnr, market?.stammnr);
+}
+
 function saraInternalId(market: CampaignExportMarket | null | undefined): string {
-  return market?.stammnr ?? "";
+  return firstMarketIdentifier(market?.standardMarketNumber);
 }
 
 function saraExternalId(market: CampaignExportMarket | null | undefined): string {
-  return market?.stammnr ?? "";
+  return firstMarketIdentifier(market?.flexNumber);
 }
 
 function appendSaraCellValue(row: SaraCellValue[], index: number, value: SaraCellValue) {
@@ -621,6 +641,7 @@ export function prepareFbManagementExportVisitRow(input: {
   const primarySection = visit.sections[0] ?? null;
   const { columns, questionColumns } = getSaraExportLayout();
   const row: SaraCellValue[] = Array.from({ length: columns.length }, () => "");
+  const dynamicAnswers: FbManagementExportVisitRow["dynamicAnswers"] = [];
   const photoCount = visit.sections.reduce(
     (total, section) =>
       total + section.questions.reduce((sectionTotal, question) => sectionTotal + (question.answer?.photos.length ?? 0), 0),
@@ -628,7 +649,7 @@ export function prepareFbManagementExportVisitRow(input: {
   );
 
   row[0] = saraTargetObject(input.market);
-  row[1] = saraExternalId(input.market);
+  row[1] = saraCustomerNumber(input.market);
   row[2] = formatSaraDateTime(visit.startedAt, "date");
   row[3] = formatSaraDateTime(visit.startedAt, "time");
   row[4] = input.campaignName ?? primarySection?.fragebogenName ?? "";
@@ -646,7 +667,19 @@ export function prepareFbManagementExportVisitRow(input: {
   for (const section of visit.sections) {
     for (const question of section.questions) {
       const mappedColumns = resolveSaraQuestionColumns(question, questionColumns);
-      if (mappedColumns.length === 0) continue;
+      const needsDynamicColumn = section.section === "kuehler" || section.section === "mhd" || mappedColumns.length === 0;
+      if (needsDynamicColumn) {
+        const rawValue = visitAnswerSummary(question) || saraAnswerRawValue(question) || "Keine Antwort";
+        const kind = question.type === "numeric" || question.type === "slider" ? "number" : "value";
+        dynamicAnswers.push({
+          key: normalizeSaraQuestion(question.text) || question.questionId,
+          question: question.text,
+          kind,
+          value: kind === "number" ? saraNumberFromString(rawValue) : rawValue,
+          comment: question.comment ?? "",
+        });
+        continue;
+      }
       const value = saraAnswerValue(question);
       const numericValue = saraNumberFromString(question.answer?.valueNumber ?? saraAnswerRawValue(question));
       const availabilityBucket = saraAvailabilityBucket(question);
@@ -669,16 +702,88 @@ export function prepareFbManagementExportVisitRow(input: {
     sessionId: visit.sessionId,
     startedAt: visit.startedAt,
     gmUserId: visit.gmUserId,
+    sectionTypes: Array.from(new Set(visit.sections.map((section) => section.section))),
     cells: row,
+    dynamicAnswers,
   };
+}
+
+function dynamicSaraColumnWidth(question: string): number {
+  return Math.min(80, Math.max(24, Math.ceil(question.length * 0.72)));
+}
+
+export function buildPreparedFbManagementExportRows(
+  preparedRows: FbManagementExportVisitRow[],
+  travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>,
+) {
+  const sortedRows = preparedRows.slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const dedicatedQuestionnaireOnly = sortedRows.length > 0 && sortedRows.every(
+    (row) => row.sectionTypes.length > 0 && row.sectionTypes.every((section) => section === "kuehler" || section === "mhd"),
+  );
+  const staticColumns = getSaraEinsaetzeColumns();
+  const columns = dedicatedQuestionnaireOnly
+    ? staticColumns.slice(0, SARA_BASE_COLUMN_COUNT)
+    : staticColumns.slice();
+  const dynamicQuestionByKey = new Map<
+    string,
+    { key: string; question: string; kind: "value" | "number" }
+  >();
+
+  for (const row of sortedRows) {
+    for (const answer of row.dynamicAnswers) {
+      if (!dynamicQuestionByKey.has(answer.key)) {
+        dynamicQuestionByKey.set(answer.key, {
+          key: answer.key,
+          question: answer.question,
+          kind: answer.kind,
+        });
+      }
+    }
+  }
+
+  const dynamicQuestions = Array.from(dynamicQuestionByKey.values());
+  for (const question of dynamicQuestions) {
+    columns.push(
+      { h1: question.question, h2: question.kind === "number" ? "Zahl" : "Wert", width: dynamicSaraColumnWidth(question.question) },
+      { h1: "", h2: "Kommentar", width: 32 },
+    );
+  }
+
+  const rows = sortedRows.map((prepared) => {
+    const row = prepared.cells.slice(0, dedicatedQuestionnaireOnly ? SARA_BASE_COLUMN_COUNT : staticColumns.length);
+    const travel = travelByVisitSessionId?.[prepared.sessionId];
+    row[9] = travel?.start ?? "";
+    row[10] = travel?.end ?? "";
+    row[11] = travel?.durationMin ?? "";
+    const answerByKey = new Map<string, { value: SaraCellValue; comment: string }>();
+    for (const answer of prepared.dynamicAnswers) {
+      const current = answerByKey.get(answer.key);
+      if (!current) {
+        answerByKey.set(answer.key, { value: answer.value, comment: answer.comment });
+        continue;
+      }
+      const valueCell: SaraCellValue[] = [current.value];
+      appendSaraCellValue(valueCell, 0, answer.value);
+      const commentCell: SaraCellValue[] = [current.comment];
+      appendSaraCellValue(commentCell, 0, answer.comment);
+      answerByKey.set(answer.key, { value: valueCell[0], comment: String(commentCell[0]) });
+    }
+    for (const question of dynamicQuestions) {
+      const answer = answerByKey.get(question.key);
+      row.push(answer?.value ?? "", answer?.comment ?? "");
+    }
+    return row;
+  });
+
+  return { columns, rows };
 }
 
 function appendSaraEinsaetzeSheet(
   XLSX: typeof import("xlsx-js-style"),
   wb: ReturnType<(typeof import("xlsx-js-style"))["utils"]["book_new"]>,
   rows: SaraCellValue[][],
+  columns: SaraEinsaetzeColumn[] = getSaraEinsaetzeColumns(),
 ) {
-  const columns = getSaraEinsaetzeColumns();
   const sheetRows: SaraCellValue[][] = [
     columns.map((column) => column.h1),
     columns.map((column) => column.h2),
@@ -703,21 +808,14 @@ export async function exportFbManagementExcel(input: {
 }) {
   const filename = `CokeSpark_FB_Management_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
   if (input.preparedVisitRows) {
-    const saraRows = input.preparedVisitRows
-      .slice()
-      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
-      .map((prepared) => {
-        const row = prepared.cells.slice();
-        const travel = input.travelByVisitSessionId?.[prepared.sessionId];
-        row[9] = travel?.start ?? "";
-        row[10] = travel?.end ?? "";
-        row[11] = travel?.durationMin ?? "";
-        return row;
-      });
+    const preparedExport = buildPreparedFbManagementExportRows(
+      input.preparedVisitRows,
+      input.travelByVisitSessionId,
+    );
     await buildAndDownloadWorkbook({
       filename,
       build: ({ XLSX, wb }) => {
-        appendSaraEinsaetzeSheet(XLSX, wb, saraRows);
+        appendSaraEinsaetzeSheet(XLSX, wb, preparedExport.rows, preparedExport.columns);
       },
     });
     return;
@@ -777,7 +875,7 @@ export async function exportFbManagementExcel(input: {
       );
 
       row[0] = saraTargetObject(market);
-      row[1] = saraExternalId(market);
+      row[1] = saraCustomerNumber(market);
       row[2] = formatSaraDateTime(visit.startedAt, "date");
       row[3] = formatSaraDateTime(visit.startedAt, "time");
       row[4] = campaign?.name ?? primarySection?.fragebogenName ?? "";

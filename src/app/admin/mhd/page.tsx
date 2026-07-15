@@ -25,6 +25,7 @@ import type { QuestionType } from "@/types/fragebogen";
 import { useMhdModules } from "@/app/admin/adminContexts";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
+import { SpezialfragenFragebogenAction } from "@/components/admin/SpezialfragenFragebogenAction";
 
 // ── Purple accent colours ──────────────────────────────────────
 const P = "#8b5cf6";
@@ -617,10 +618,11 @@ function MhdFragebogenDeleteDialog({
 
 // ── Fragebogen Card ────────────────────────────────────────────
 
-function MhdFragebogenCard({ fragebogen, modules, onEdit, onDuplicate, onDelete }: {
+function MhdFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate, onDelete }: {
   fragebogen: Fragebogen;
   modules: Module[];
   onEdit: () => void;
+  onUpdate: (fragebogen: Fragebogen) => Promise<void> | void;
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
@@ -752,6 +754,12 @@ function MhdFragebogenCard({ fragebogen, modules, onEdit, onDuplicate, onDelete 
                 </span>
               </>
             )}
+            <SpezialfragenFragebogenAction
+              fragebogen={fragebogen}
+              onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
+              accentColor={PD}
+              accentBackground={P_BG}
+            />
           </div>
         </div>
 
@@ -838,7 +846,7 @@ function FragebogenPageSkeleton() {
 // ── Main Page ──────────────────────────────────────────────────
 
 export default function MhdPage() {
-  const { modules = [], onEdit, onUpdate, onDelete, onDuplicate, fragebogenList = [], onEditFb, onDeleteFb, onDuplicateFb } = useMhdModules();
+  const { modules = [], onEdit, onUpdate, onDelete, onDuplicate, fragebogenList = [], onEditFb, onUpdateFb, onDeleteFb, onDuplicateFb } = useMhdModules();
   const [activeTab, setActiveTab] = useState<Tab>("module");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -1078,6 +1086,7 @@ export default function MhdPage() {
                   fragebogen={fb}
                   modules={modules}
                   onEdit={() => onEditFb(fb)}
+                  onUpdate={onUpdateFb}
                   onDuplicate={() => onDuplicateFb(fb)}
                   onDelete={() => onDeleteFb(fb.id)}
                 />

@@ -4463,6 +4463,11 @@ export async function fetchFragebogen(scope: FragebogenScope): Promise<Frageboge
   return (data.fragebogen ?? []).map(normalizeFragebogen);
 }
 
+export async function fetchSpezialfragenLibrary(): Promise<Question[]> {
+  const data = (await authedFetch("/admin/spezialfragen")) as { spezialfragen?: Question[] };
+  return (data.spezialfragen ?? []).map(normalizeQuestion);
+}
+
 export async function createFragebogen(
   scope: FragebogenScope,
   fragebogen: Fragebogen & { sectionKeywords?: Array<"standard" | "flex" | "billa"> },

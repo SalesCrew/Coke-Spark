@@ -4,6 +4,8 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { X, GripVertical, Plus, Search, Calendar, Check, ChevronDown, Trophy, Zap } from "lucide-react";
 import type { Fragebogen, Module } from "@/types/fragebogen";
 import { typeBadgeColor, typeLabel } from "@/utils/fragebogen";
+import { SpezialfragenFragebogenField } from "@/components/admin/SpezialfragenFragebogenField";
+import { cloneQuestionForModuleInsert } from "@/utils/existingQuestionPicker";
 
 let _fid = 0;
 function nextId(): string {
@@ -1092,6 +1094,9 @@ export function FragebogenEditor({
   const [name, setName] = useState(existingFragebogen?.name ?? "");
   const [description, setDescription] = useState(existingFragebogen?.description ?? "");
   const [nurEinmal, setNurEinmal] = useState(existingFragebogen?.nurEinmalAusfuellbar ?? false);
+  const [spezialfragen, setSpezialfragen] = useState(() =>
+    (existingFragebogen?.spezialfragen ?? []).map(cloneQuestionForModuleInsert),
+  );
   const [selectedModules, setSelectedModules] = useState<Module[]>(() => {
     if (!existingFragebogen) return [];
     return existingFragebogen.moduleIds
@@ -1167,7 +1172,7 @@ export function FragebogenEditor({
       createdAt: existingFragebogen?.createdAt ?? new Date().toISOString(),
       status: existingFragebogen?.status ?? "active",
       nurEinmalAusfuellbar: nurEinmal,
-      spezialfragen: existingFragebogen?.spezialfragen ?? [],
+      spezialfragen,
       sectionKeywords: existingFragebogen?.sectionKeywords,
     };
     setIsSaving(true);
@@ -1480,6 +1485,13 @@ export function FragebogenEditor({
                 </div>
               )}
             </div>
+
+            <SpezialfragenFragebogenField
+              questions={spezialfragen}
+              onChange={setSpezialfragen}
+              fragebogenName={name}
+              accentColor="#DC2626"
+            />
 
           </div>
         </div>

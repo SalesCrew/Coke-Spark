@@ -13,6 +13,7 @@ import { useModules } from "@/context/ModuleContext";
 import { useFlexModules } from "@/app/admin/adminContexts";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
+import { SpezialfragenFragebogenAction } from "@/components/admin/SpezialfragenFragebogenAction";
 
 // ── Color theme ──────────────────────────────────────────────
 const T   = "#0891B2";
@@ -552,10 +553,11 @@ function BillaFragenListItem({ question, moduleName, onDelete }: {
 
 // ── Fragebogen Card ───────────────────────────────────────────
 
-function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onDuplicate, onDuplicateToStd, onDuplicateToFlex, onDelete }: {
+function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDuplicate, onDuplicateToStd, onDuplicateToFlex, onDelete }: {
   fragebogen: BillaFragebogen;
   moduleList: BillaModule[];
   onEdit: () => void;
+  onUpdate: (fragebogen: Fragebogen) => Promise<void> | void;
   onDuplicate: () => void;
   onDuplicateToStd: () => void;
   onDuplicateToFlex: () => void;
@@ -646,6 +648,12 @@ function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onDuplicate, onDu
             <span style={{ fontSize: 10, color: "#059669", fontWeight: 500 }}>Immer aktiv</span>
           </div>
         )}
+        <SpezialfragenFragebogenAction
+          fragebogen={fragebogen}
+          onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
+          accentColor={TD}
+          accentBackground={T_BG}
+        />
       </div>
 
       <div style={{ maxHeight: expanded ? 1000 : 0, opacity: expanded ? 1 : 0, overflow: "hidden", transition: "max-height 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease" }}>
@@ -721,6 +729,7 @@ export default function BillaPage() {
     duplicateModuleToStd,
     duplicateModuleToFlex,
     onEditFb,
+    onUpdateFb,
     onDeleteFb,
     onDuplicateFb,
     duplicateFbToStd,
@@ -978,6 +987,7 @@ export default function BillaPage() {
               ].map((fb) => (
                 <BillaFragebogenCard key={fb.id} fragebogen={fb} moduleList={modules}
                   onEdit={() => onEditFb(fb)}
+                  onUpdate={onUpdateFb}
                   onDuplicate={() => onDuplicateFb(fb)}
                   onDuplicateToStd={() => duplicateFbToStd(fb)}
                   onDuplicateToFlex={() => duplicateFbToFlex(fb)}

@@ -252,6 +252,10 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     },
     fragebogenList: kuehlerFragebogenList,
     onEditFb: (f) => { setKuehlerEditingFb(f); setKuehlerFbEditorOpen(true); },
+    onUpdateFb: async (f) => {
+      const persisted = await updateFragebogenBackend("kuehler", f);
+      setKuehlerFragebogenList((prev) => prev.map((entry) => (entry.id === persisted.id ? persisted : entry)));
+    },
     onDeleteFb: async (id) => {
       await deleteFragebogenBackend("kuehler", id);
       setKuehlerFragebogenList((prev) => prev.filter((x) => x.id !== id));
@@ -315,6 +319,10 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     },
     fragebogenList: mhdFragebogenList,
     onEditFb: (f) => { setMhdEditingFb(f); setMhdFbEditorOpen(true); },
+    onUpdateFb: async (f) => {
+      const persisted = await updateFragebogenBackend("mhd", f);
+      setMhdFragebogenList((prev) => prev.map((entry) => (entry.id === persisted.id ? persisted : entry)));
+    },
     onDeleteFb: async (id) => {
       await deleteFragebogenBackend("mhd", id);
       setMhdFragebogenList((prev) => prev.filter((x) => x.id !== id));
@@ -426,6 +434,10 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     },
     fragebogenList: flexFragebogenList,
     onEditFb: (f) => { setFlexEditingFb(f); setFlexFbEditorOpen(true); },
+    onUpdateFb: async (f) => {
+      const persisted = await updateFragebogenBackend("main", { ...f, sectionKeywords: ["flex"] });
+      setFlexFragebogenList((prev) => prev.map((entry) => (entry.id === persisted.id ? persisted : entry)));
+    },
     onDeleteFb: async (id) => {
       await deleteFragebogenBackend("main", id);
       setFlexFragebogenList((prev) => prev.filter((x) => x.id !== id));
@@ -533,6 +545,10 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     },
     fragebogenList: billaFragebogenList,
     onEditFb: (f) => { setBillaEditingFb(f); setBillaFbEditorOpen(true); },
+    onUpdateFb: async (f) => {
+      const persisted = await updateFragebogenBackend("main", { ...f, sectionKeywords: ["billa"] });
+      setBillaFragebogenList((prev) => prev.map((entry) => (entry.id === persisted.id ? persisted : entry)));
+    },
     onDeleteFb: async (id) => {
       await deleteFragebogenBackend("main", id);
       setBillaFragebogenList((prev) => prev.filter((x) => x.id !== id));

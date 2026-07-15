@@ -4,6 +4,8 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { X, GripVertical, Plus, Search, Calendar, Check, ChevronDown, Trophy, Zap } from "lucide-react";
 import type { Fragebogen, Module } from "@/types/fragebogen";
 import { typeBadgeColor, typeLabel } from "@/utils/fragebogen";
+import { SpezialfragenFragebogenField } from "@/components/admin/SpezialfragenFragebogenField";
+import { cloneQuestionForModuleInsert } from "@/utils/existingQuestionPicker";
 
 // ── Purple accent colours ──────────────────────────────────────
 const P = "#8b5cf6";
@@ -507,6 +509,9 @@ export function MhdFragebogenEditor({
   const [name, setName] = useState(existingFragebogen?.name ?? "");
   const [description, setDescription] = useState(existingFragebogen?.description ?? "");
   const [nurEinmal, setNurEinmal] = useState(existingFragebogen?.nurEinmalAusfuellbar ?? false);
+  const [spezialfragen, setSpezialfragen] = useState(() =>
+    (existingFragebogen?.spezialfragen ?? []).map(cloneQuestionForModuleInsert),
+  );
   const [selectedModules, setSelectedModules] = useState<Module[]>(() => {
     if (!existingFragebogen) return [];
     return existingFragebogen.moduleIds.map((id) => availableModules.find((m) => m.id === id)).filter((m): m is Module => !!m);
@@ -564,7 +569,7 @@ export function MhdFragebogenEditor({
       createdAt: existingFragebogen?.createdAt ?? new Date().toISOString(),
       status: existingFragebogen?.status ?? "active",
       nurEinmalAusfuellbar: nurEinmal,
-      spezialfragen: existingFragebogen?.spezialfragen ?? [],
+      spezialfragen,
       sectionKeywords: existingFragebogen?.sectionKeywords,
     };
     setIsSaving(true);
@@ -646,6 +651,12 @@ export function MhdFragebogenEditor({
 
           {/* Right workspace */}
           <div style={{ flex: 1, overflowY: "auto", backgroundColor: "#f5f5f7", padding: "24px 32px" }}>
+            <SpezialfragenFragebogenField
+              questions={spezialfragen}
+              onChange={setSpezialfragen}
+              fragebogenName={name}
+              accentColor={PD}
+            />
 
             {/* Section 1: Grundeinstellungen */}
             <div style={sectionStyle}>

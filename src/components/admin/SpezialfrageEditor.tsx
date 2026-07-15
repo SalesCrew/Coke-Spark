@@ -23,14 +23,14 @@ import type {
   SingleChoiceAvailabilityType,
 } from "@/types/fragebogen";
 import { QUESTION_TYPES, typeLabel, typeBadgeColor, defaultConfig } from "@/utils/fragebogen";
-import { useFragebogen } from "@/context/FragebogenContext";
 import { QuestionTypeContextMenu } from "@/components/admin/QuestionTypeContextMenu";
 import { applyQuestionTypeSwitch } from "@/utils/questionTypeSwitch";
 import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
 import { HandelskettenSelector } from "@/components/admin/HandelskettenSelector";
 import { AvailabilityTypeModal } from "@/components/admin/AvailabilityTypeModal";
 import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
-import { fetchMarketChains } from "@/lib/api/backend";
+import { fetchMarketChains, fetchSpezialfragenLibrary } from "@/lib/api/backend";
+import { cloneQuestionForModuleInsert } from "@/utils/existingQuestionPicker";
 
 let _sqid = 0;
 function nextId(): string {
@@ -1038,7 +1038,7 @@ function QuestionCard({
             <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
               <button onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: "#DC2626", background: "none", border: "none", cursor: "pointer", padding: "4px 0", opacity: 0.7, transition: "opacity 0.15s ease" }} onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")} onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}>
                 <Trash2 size={11} strokeWidth={1.8} />
-                Frage entfernen
+                Deaktivieren
               </button>
             </div>
           </div>
@@ -1069,8 +1069,6 @@ interface SpezialfrageEditorProps {
 }
 
 export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebogenName }: SpezialfrageEditorProps) {
-  const { fragebogenList } = useFragebogen();
-
   const [questions, setQuestions] = useState<Question[]>(
     (existingQuestions ?? []).map((q) => ({
       ...q,
@@ -1081,6 +1079,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
     }))
   );
   const [availableChains, setAvailableChains] = useState<string[]>([]);
+  const [libraryQuestions, setLibraryQuestions] = useState<Question[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
@@ -1103,10 +1102,22 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
     };
   }, []);
 
-  // Collect all existing spezialfragen from other Fragebogen for reuse
-  const existingSpezialfragen: { question: Question; fragebogenName: string }[] = fragebogenList.flatMap((fb) =>
-    (fb.spezialfragen ?? []).map((q) => ({ question: q, fragebogenName: fb.name || "Unbenannt" }))
-  );
+  useEffect(() => {
+    let active = true;
+    void fetchSpezialfragenLibrary()
+      .then((entries) => {
+        if (active) setLibraryQuestions(entries);
+      })
+      .catch(() => {
+        if (active) setLibraryQuestions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const assignedIds = new Set(questions.map((question) => question.id));
+  const existingSpezialfragen = libraryQuestions.filter((question) => !assignedIds.has(question.id));
 
   const addQuestion = useCallback((type: QuestionType) => {
     const id = nextId();
@@ -1128,10 +1139,9 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
   }, []);
 
   const importSpezialfrage = useCallback((q: Question) => {
+    if (questions.some((question) => question.id === q.id)) return;
     const copy: Question = {
-      ...q,
-      id: nextId(),
-      scoring: q.scoring ?? {},
+      ...cloneQuestionForModuleInsert(q),
       redSurvey: q.redSurvey ?? null,
       singleChoiceAvailability: q.singleChoiceAvailability ?? null,
       singleChoiceAvailabilityType: q.singleChoiceAvailabilityType ?? null,
@@ -1139,7 +1149,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
     setQuestions((prev) => [...prev, copy]);
     setExpandedId(copy.id);
     setTimeout(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, 50);
-  }, []);
+  }, [questions]);
 
   const updateQuestion = useCallback((updated: Question) => {
     setQuestions((prev) => prev.map((q) => (q.id === updated.id ? updated : q)));
@@ -1166,7 +1176,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
   return (
     <div
       style={{
-        position: "fixed", inset: 0, zIndex: 110,
+        position: "fixed", inset: 0, zIndex: 260,
         backgroundColor: "#ffffff", display: "flex", flexDirection: "column",
         animation: "moduleEditorIn 0.3s cubic-bezier(0.4,0,0.2,1) both",
       }}
@@ -1253,25 +1263,24 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
 
           <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "12px 6px" }} />
 
-          {/* Import link */}
-          <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, fontWeight: 500, color: "#DC2626", background: "none", border: "none", cursor: "pointer" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, fontWeight: 600, color: "#374151" }}>
             <Import size={13} strokeWidth={1.5} />
-            Frage importieren
-          </button>
+            Gemeinsamer Fragenpool
+          </div>
 
           {/* Existing spezialfragen reuse section */}
           {existingSpezialfragen.length > 0 && (
             <>
               <div style={{ height: 1, backgroundColor: "rgba(0,0,0,0.06)", margin: "12px 6px" }} />
               <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "rgba(0,0,0,0.35)", padding: "0 6px", display: "block", marginBottom: 8 }}>
-                Aus Spezialfragen
+                Inaktiv in diesem Fragebogen
               </span>
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                {existingSpezialfragen.map(({ question: sq, fragebogenName: fbName }, i) => {
+                {existingSpezialfragen.map((sq) => {
                   const badge = typeBadgeColor(sq.type);
                   return (
                     <div
-                      key={i}
+                      key={sq.id}
                       style={{ backgroundColor: "rgba(0,0,0,0.015)", borderRadius: 7, padding: "7px 8px", cursor: "default" }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -1279,7 +1288,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
                           {typeLabel(sq.type)}
                         </span>
                         <span style={{ fontSize: 9, color: "rgba(0,0,0,0.28)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                          {fbName}
+                          Fragenpool
                         </span>
                       </div>
                       <div style={{ fontSize: 10, color: sq.text ? "#374151" : "rgba(0,0,0,0.3)", fontStyle: sq.text ? "normal" : "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 6 }}>
@@ -1292,7 +1301,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
                         onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
                       >
                         <Plus size={9} strokeWidth={2.5} />
-                        Hinzufügen
+                        Aktivieren
                       </button>
                     </div>
                   );
@@ -1318,7 +1327,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
               )}
             </div>
             <p style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", marginTop: 4, lineHeight: 1.5 }}>
-              Spezialfragen sind dynamische Fragen, die direkt einem Fragebogen zugeordnet sind — unabhängig von Modulen.
+              Aktive Spezialfragen werden aus dem gemeinsamen Pool verwendet. Deaktivieren entfernt nur die Zuordnung; vorhandene Kampagnen-Antworten bleiben unverändert.
             </p>
           </div>
 
@@ -1334,7 +1343,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
                   <Sparkles size={20} strokeWidth={1.4} color="rgba(5,150,105,0.4)" />
                 </div>
                 <span style={{ fontSize: 12, fontWeight: 500, color: "rgba(0,0,0,0.25)" }}>
-                  Fragentyp links auswählen oder bestehende Spezialfrage importieren
+                  Fragentyp links auswählen oder eine Frage aus dem Pool aktivieren
                 </span>
               </div>
             )}

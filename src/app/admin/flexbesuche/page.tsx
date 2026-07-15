@@ -12,6 +12,7 @@ import { useFlexModules, useBillaModules } from "@/app/admin/adminContexts";
 import { useModules } from "@/context/ModuleContext";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
+import { SpezialfragenFragebogenAction } from "@/components/admin/SpezialfragenFragebogenAction";
 
 // ── Color theme ──────────────────────────────────────────────
 const L   = "#84CC16";
@@ -548,10 +549,11 @@ function FlexFragenListItem({ question, moduleName, onDelete }: {
 
 // ── Fragebogen Card ───────────────────────────────────────────
 
-function FlexFragebogenCard({ fragebogen, moduleList, onEdit, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDelete }: {
+function FlexFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDelete }: {
   fragebogen: FlexFragebogen;
   moduleList: FlexModule[];
   onEdit: () => void;
+  onUpdate: (fragebogen: Fragebogen) => Promise<void> | void;
   onDuplicate: () => void;
   onDuplicateToStd: () => void;
   onDuplicateToBilla: () => void;
@@ -645,6 +647,12 @@ function FlexFragebogenCard({ fragebogen, moduleList, onEdit, onDuplicate, onDup
             <span style={{ fontSize: 10, color: "#059669", fontWeight: 500 }}>Immer aktiv</span>
           </div>
         )}
+        <SpezialfragenFragebogenAction
+          fragebogen={fragebogen}
+          onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
+          accentColor={LD}
+          accentBackground={L_BG}
+        />
       </div>
 
       {/* Expanded detail */}
@@ -721,6 +729,7 @@ export default function FlexbesuchePage() {
     duplicateModuleToStd,
     duplicateModuleToBilla,
     onEditFb,
+    onUpdateFb,
     onDeleteFb,
     onDuplicateFb,
     duplicateFbToStd,
@@ -976,6 +985,7 @@ export default function FlexbesuchePage() {
               ].map((fb) => (
                 <FlexFragebogenCard key={fb.id} fragebogen={fb} moduleList={modules}
                   onEdit={() => onEditFb(fb)}
+                  onUpdate={onUpdateFb}
                   onDuplicate={() => onDuplicateFb(fb)}
                   onDuplicateToStd={() => duplicateFbToStd(fb)}
                   onDuplicateToBilla={() => duplicateFbToBilla(fb)}

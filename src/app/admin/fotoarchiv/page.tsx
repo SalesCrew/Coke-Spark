@@ -40,6 +40,7 @@ import {
   type AdminPhotoCampaignType,
 } from "@/lib/api/backend";
 import { exportFotoarchivImagesZip } from "@/lib/exports/analysisExports";
+import { useAdminAccess } from "@/context/AdminAccessContext";
 import type { Campaign } from "@/types/campaign";
 import type { RedMonthPeriod } from "@/types/red-month";
 
@@ -454,6 +455,7 @@ function FilterModal({
   filters,
   facets,
   redMonths,
+  hideMhdCampaigns,
   onClose,
   onApply,
   onReset,
@@ -462,6 +464,7 @@ function FilterModal({
   filters: Filters;
   facets: AdminPhotoArchiveFacets;
   redMonths: RedMonthPeriod[];
+  hideMhdCampaigns: boolean;
   onClose: () => void;
   onApply: (filters: Filters) => void;
   onReset: () => void;
@@ -528,7 +531,7 @@ function FilterModal({
 
           <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.8fr 0.9fr", gap: 10, marginBottom: 10 }}>
             <SelectField label="Kampagne" value={draft.campaignId} onChange={(value) => update({ campaignId: value || undefined })} options={[{ value: "", label: "Alle Kampagnen" }, ...facets.campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name }))]} />
-            <SelectField label="Typ" value={draft.campaignType} onChange={(value) => update({ campaignType: value as AdminPhotoCampaignType || undefined })} options={[{ value: "", label: "Alle Typen" }, ...Object.entries(TYPE_META).map(([value, meta]) => ({ value, label: meta.label }))]} />
+            <SelectField label="Typ" value={draft.campaignType} onChange={(value) => update({ campaignType: value as AdminPhotoCampaignType || undefined })} options={[{ value: "", label: "Alle Typen" }, ...Object.entries(TYPE_META).filter(([value]) => !hideMhdCampaigns || value !== "mhd").map(([value, meta]) => ({ value, label: meta.label }))]} />
             <SelectField label="Kalenderwoche" value={draft.week} onChange={(value) => update({ week: value || undefined, dateFrom: undefined, dateTo: undefined, redMonthId: undefined })} options={[{ value: "", label: "Alle Wochen" }, ...recentWeeks()]} />
           </div>
 
@@ -1321,6 +1324,7 @@ export default function FotoarchivPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { isKunde } = useAdminAccess();
   const [filters, setFilters] = useState<Filters>(() => readFilters(new URLSearchParams(searchParams.toString())));
   const [searchDraft, setSearchDraft] = useState(filters.search ?? "");
   const [photos, setPhotos] = useState<AdminPhotoArchiveItem[]>([]);
@@ -1363,6 +1367,11 @@ export default function FotoarchivPage() {
     }, 260);
     return () => window.clearTimeout(handle);
   }, [searchDraft]);
+
+  useEffect(() => {
+    if (!isKunde || filters.campaignType !== "mhd") return;
+    setFilters((current) => compact({ ...current, campaignType: undefined, page: 1 }));
+  }, [filters.campaignType, isKunde]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1766,6 +1775,7 @@ export default function FotoarchivPage() {
         filters={filters}
         facets={facets}
         redMonths={redMonths}
+        hideMhdCampaigns={isKunde}
         onClose={() => setFilterOpen(false)}
         onApply={applyFilters}
         onReset={() => applyFilters({ page: 1, pageSize: 30 })}

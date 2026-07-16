@@ -153,6 +153,8 @@ type BackendCampaign = {
   id: string;
   name: string;
   section: Campaign["section"];
+  assignedGmUserId?: string | null;
+  assignedGmName?: string | null;
   currentFragebogenId: string | null;
   currentFragebogenName: string | null;
   status: Campaign["status"];
@@ -4368,6 +4370,8 @@ function normalizeCampaign(input: BackendCampaign): Campaign {
     id: input.id,
     name: input.name,
     section: input.section,
+    assignedGmUserId: input.assignedGmUserId ?? null,
+    assignedGmName: input.assignedGmName ?? null,
     currentFragebogenId: input.currentFragebogenId ?? null,
     currentFragebogenName: input.currentFragebogenName ?? null,
     status: input.status,
@@ -4772,6 +4776,17 @@ export async function reassignCampaignGms(
   const data = (await authedFetch(`/admin/campaigns/${campaignId}/gm-reassignments`, {
     method: "PATCH",
     body: JSON.stringify({ reassignments }),
+  })) as { campaign: BackendCampaign };
+  return normalizeCampaign(data.campaign);
+}
+
+export async function setFlexCampaignAudience(
+  campaignId: string,
+  gmUserId: string | null,
+): Promise<Campaign> {
+  const data = (await authedFetch(`/admin/campaigns/${campaignId}/flex-audience`, {
+    method: "PATCH",
+    body: JSON.stringify({ gmUserId }),
   })) as { campaign: BackendCampaign };
   return normalizeCampaign(data.campaign);
 }

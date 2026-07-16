@@ -31,6 +31,7 @@ import {
   migrateCampaignMarkets,
   patchCampaignVisitAnswer,
   reassignCampaignGms,
+  setFlexCampaignAudience,
   readAuthSession,
   removeCampaignMarket,
   switchCampaignFragebogen,
@@ -669,6 +670,179 @@ function toMarketCatalogItem(market: {
 function getGmDisplayName(gm: Pick<GMRecord, "firstName" | "lastName" | "email">): string {
   const name = `${gm.firstName ?? ""} ${gm.lastName ?? ""}`.trim();
   return name || gm.email;
+}
+
+function getFlexCampaignAudienceValue(campaign: Campaign | null | undefined): string {
+  if (!campaign || campaign.section !== "flex") return "";
+  return campaign.assignedGmUserId ?? "";
+}
+
+function FlexCampaignAudienceDropdown({
+  value,
+  gmUsers,
+  disabled,
+  loading,
+  title,
+  onChange,
+}: {
+  value: string;
+  gmUsers: GMRecord[];
+  disabled: boolean;
+  loading: boolean;
+  title?: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const sortedUsers = useMemo(
+    () => [...gmUsers].sort((a, b) => getGmDisplayName(a).localeCompare(getGmDisplayName(b), "de")),
+    [gmUsers],
+  );
+  const selectedGm = sortedUsers.find((gm) => gm.id === value);
+  const selectedLabel = loading
+    ? "GMs werden geladen..."
+    : selectedGm
+        ? getGmDisplayName(selectedGm)
+        : "Alle GMs";
+  const needle = search.trim().toLocaleLowerCase("de-AT");
+  const visibleUsers = sortedUsers.filter((gm) => !needle || getGmDisplayName(gm).toLocaleLowerCase("de-AT").includes(needle));
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  const choose = (nextValue: string) => {
+    if (disabled || nextValue === value) {
+      setOpen(false);
+      return;
+    }
+    onChange(nextValue);
+    setOpen(false);
+    setSearch("");
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: "relative" }} title={title}>
+      <style>{`
+        @keyframes flexAudienceMenuIn{from{opacity:0;transform:translateY(-5px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+        .flex-audience-scroll{scrollbar-width:none;-ms-overflow-style:none}
+        .flex-audience-scroll::-webkit-scrollbar{display:none;width:0;height:0}
+      `}</style>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => {
+          setOpen((current) => !current);
+          setSearch("");
+        }}
+        style={{
+          minWidth: 154,
+          height: 30,
+          borderRadius: 8,
+          border: open ? "1px solid rgba(220,38,38,0.24)" : "1px solid rgba(0,0,0,0.09)",
+          background: open ? "#fff" : "linear-gradient(to bottom, #fff, #fafafa)",
+          boxShadow: open ? "0 0 0 3px rgba(220,38,38,0.05), 0 2px 8px rgba(0,0,0,0.05)" : "0 1px 3px rgba(0,0,0,0.045)",
+          color: value ? "#111827" : "rgba(0,0,0,0.56)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          padding: "0 9px 0 10px",
+          fontFamily: "inherit",
+          fontSize: 10,
+          fontWeight: 700,
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.58 : 1,
+          transition: "border-color 140ms ease, box-shadow 140ms ease, background 140ms ease",
+        }}
+      >
+        <span style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedLabel}</span>
+        <ChevronDown size={12} color="rgba(0,0,0,0.38)" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }} />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          style={{
+            position: "absolute",
+            top: 36,
+            right: 0,
+            zIndex: 80,
+            width: 238,
+            padding: 6,
+            borderRadius: 12,
+            border: "1px solid rgba(15,23,42,0.10)",
+            background: "rgba(255,255,255,0.99)",
+            boxShadow: "0 18px 44px rgba(15,23,42,0.16), 0 4px 12px rgba(15,23,42,0.07)",
+            animation: "flexAudienceMenuIn 0.16s cubic-bezier(0.2,0,0,1) both",
+          }}
+        >
+          <label style={{ height: 34, marginBottom: 5, display: "flex", alignItems: "center", gap: 7, borderRadius: 8, border: "1px solid rgba(15,23,42,0.08)", background: "#f8fafc", padding: "0 9px" }}>
+            <Search size={12} color="rgba(15,23,42,0.35)" />
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="GM suchen..."
+              style={{ width: "100%", border: 0, outline: 0, background: "transparent", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: "#111827" }}
+            />
+          </label>
+          <div className="flex-audience-scroll" style={{ maxHeight: 238, overflowY: "auto" }}>
+            {!needle && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={value === ""}
+                onClick={() => choose("")}
+                style={{ width: "100%", minHeight: 34, border: 0, borderRadius: 8, background: value === "" ? "rgba(220,38,38,0.07)" : "transparent", color: value === "" ? "#DC2626" : "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 9px", fontFamily: "inherit", fontSize: 10.5, fontWeight: value === "" ? 800 : 650, textAlign: "left", cursor: "pointer" }}
+              >
+                <span>Alle GMs</span>
+                {value === "" && <Check size={12} strokeWidth={2.4} />}
+              </button>
+            )}
+            {visibleUsers.map((gm) => {
+              const active = gm.id === value;
+              return (
+                <button
+                  key={gm.id}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => choose(gm.id)}
+                  style={{ width: "100%", minHeight: 34, border: 0, borderRadius: 8, background: active ? "rgba(220,38,38,0.07)" : "transparent", color: active ? "#DC2626" : "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 9px", fontFamily: "inherit", fontSize: 10.5, fontWeight: active ? 800 : 650, textAlign: "left", cursor: "pointer" }}
+                >
+                  <span>{getGmDisplayName(gm)}</span>
+                  {active && <Check size={12} strokeWidth={2.4} />}
+                </button>
+              );
+            })}
+            {visibleUsers.length === 0 && (
+              <div style={{ padding: "14px 9px", textAlign: "center", fontSize: 10.5, fontWeight: 600, color: "rgba(15,23,42,0.40)" }}>Kein GM gefunden</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function getCampaignGmReassignGroups(campaign: Campaign | null, gmUsers: GMRecord[]): CampaignGmReassignGroup[] {
@@ -7652,6 +7826,7 @@ export default function FbManagementPage() {
     () => campaignsView.find((entry) => entry.id === selectedId) ?? campaignsView[0],
     [campaignsView, selectedId],
   );
+  const flexCampaignAudienceValue = useMemo(() => getFlexCampaignAudienceValue(campaign), [campaign]);
   const contextMenuCampaign = useMemo(
     () => campaignsView.find((entry) => entry.id === campaignContextMenu?.campaignId) ?? null,
     [campaignContextMenu?.campaignId, campaignsView],
@@ -7863,9 +8038,14 @@ export default function FbManagementPage() {
   }, [isReassigningCampaign]);
 
   const addPanelNeedsGmUsers = marketEditMode === "add" && campaign?.section !== "flex";
+  const campaignAudienceNeedsGmUsers = campaign?.section === "flex";
 
   useEffect(() => {
-    if ((!campaignReassignDialog && !addPanelNeedsGmUsers) || gmUsers.length > 0 || gmUsersLoading) return;
+    if (
+      (!campaignReassignDialog && !addPanelNeedsGmUsers && !campaignAudienceNeedsGmUsers)
+      || gmUsers.length > 0
+      || gmUsersLoading
+    ) return;
     setGmUsersLoading(true);
     setGmUsersError(null);
     fetchGmUsers()
@@ -7878,7 +8058,7 @@ export default function FbManagementPage() {
       .finally(() => {
         setGmUsersLoading(false);
       });
-  }, [addPanelNeedsGmUsers, campaignReassignDialog, gmUsers.length, gmUsersLoading]);
+  }, [addPanelNeedsGmUsers, campaignAudienceNeedsGmUsers, campaignReassignDialog, gmUsers.length, gmUsersLoading]);
 
   useEffect(() => {
     if (!campaignReassignDialog) return;
@@ -8465,6 +8645,24 @@ export default function FbManagementPage() {
     },
     [campaignCurrentFragebogenId, campaignId, campaignPendingOps, switchingCampaignId],
   );
+
+  const handleFlexCampaignAudienceChange = useCallback(async (nextValue: string) => {
+    if (!campaign || campaign.section !== "flex" || !campaignId || isCampaignBusy(campaignId)) return;
+    if (nextValue === flexCampaignAudienceValue) return;
+    setMutationError(null);
+    setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
+    try {
+      const updated = await setFlexCampaignAudience(campaignId, nextValue || null);
+      setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "GM-Zuweisung der Flex-Kampagne konnte nicht gespeichert werden.");
+    } finally {
+      setCampaignPendingOps((current) => {
+        const next = Math.max(0, (current[campaignId] ?? 0) - 1);
+        return { ...current, [campaignId]: next };
+      });
+    }
+  }, [campaign, campaignId, campaignPendingOps, flexCampaignAudienceValue]);
 
   const handleToggleCampaignActive = useCallback(async () => {
     if (!campaign || !campaignId || isCampaignBusy(campaignId)) return;
@@ -9999,6 +10197,22 @@ export default function FbManagementPage() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              {campaign.section === "flex" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <span style={{ fontSize: 8, fontWeight: 750, color: "rgba(0,0,0,0.30)", letterSpacing: "0.075em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                    Kampagne für
+                  </span>
+                  <FlexCampaignAudienceDropdown
+                    key={campaign.id}
+                    value={flexCampaignAudienceValue}
+                    gmUsers={gmUsers}
+                    loading={gmUsersLoading}
+                    disabled={campaignBusy || gmUsersLoading || campaign.marketIds.length === 0}
+                    title={campaign.marketIds.length === 0 ? "Bitte zuerst Märkte zur Kampagne hinzufügen." : gmUsersError ?? undefined}
+                    onChange={(nextValue) => void handleFlexCampaignAudienceChange(nextValue)}
+                  />
+                </div>
+              )}
               <span style={{ fontSize: 10, fontWeight: 400, color: "rgba(0,0,0,0.35)", letterSpacing: "0" }}>{campaign.period}</span>
               <span style={{
                 fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 6, letterSpacing: "0.01em",

@@ -44,6 +44,8 @@ export type Campaign = {
   id: string;
   name: string;
   section: CampaignSection;
+  assignedGmUserId?: string | null;
+  assignedGmName?: string | null;
   currentFragebogenId: string | null;
   currentFragebogenName: string | null;
   status: CampaignStatus;

@@ -8701,6 +8701,30 @@ export default function FbManagementPage() {
         }
         return false;
       };
+      const loadVisitDetailIndividually = async (target: (typeof detailTargets)[number]) => {
+        try {
+          const detail = await retryExportRequest(
+            () => fetchCampaignMarketVisitDetail({
+              campaignId: target.campaignId,
+              marketId: target.marketId,
+              sessionId: target.sessionId,
+              includePhotoSignedUrls: false,
+            }, { timeoutMs: 60000 }),
+            3,
+          );
+          if (!appendPreparedVisit(target, detail)) {
+            throw new Error("Das Antwortdetail war unvollständig oder gehörte nicht zum angeforderten Besuch.");
+          }
+        } catch (error) {
+          detailErrors.push({
+            campaignId: target.campaignId,
+            campaignName: target.campaignName,
+            marketId: target.marketId,
+            marketName: target.marketName,
+            reason: error instanceof Error ? error.message : "Antwortdetails konnten nicht geladen werden.",
+          });
+        }
+      };
 
       const uncachedTargets: typeof detailTargets = [];
       for (const target of detailTargets) {
@@ -8727,54 +8751,30 @@ export default function FbManagementPage() {
         detailBatches,
         VISIT_DETAIL_EXPORT_MAX_CONCURRENT_BATCHES,
         async (batch) => {
-          let detailByVisit = new Map<string, CampaignMarketVisitSummary>();
           try {
             const details = await retryExportRequest(() => fetchCampaignMarketVisitExportDetails({
               campaignId: batch.campaignId,
               visits: batch.targets.map((target) => ({ marketId: target.marketId, sessionId: target.sessionId })),
             }), 2);
-            detailByVisit = new Map(
+            const detailByVisit = new Map(
               details.map((detail) => [`${detail.marketId}:${detail.sessionId ?? ""}`, detail]),
             );
+            const missingTargets: typeof batch.targets = [];
             for (const target of batch.targets) {
               const detail = detailByVisit.get(`${target.marketId}:${target.sessionId}`);
-              if (detail) {
-                appendPreparedVisit(target, detail);
-              } else {
-                detailErrors.push({
-                  campaignId: target.campaignId,
-                  campaignName: target.campaignName,
-                  marketId: target.marketId,
-                  marketName: target.marketName,
-                  reason: "Antwortdetails wurden vom Export-Endpunkt nicht zurückgegeben.",
-                });
-              }
+              if (!detail || !appendPreparedVisit(target, detail)) missingTargets.push(target);
+            }
+            // Recover incomplete batch responses row by row. This keeps a rolling
+            // backend deployment or one malformed batch from discarding valid rows.
+            for (const target of missingTargets) {
+              await loadVisitDetailIndividually(target);
             }
           } catch {
             for (const target of batch.targets) {
-              try {
-                const detail = await retryExportRequest(
-                  () => fetchCampaignMarketVisitDetail({
-                    campaignId: target.campaignId,
-                    marketId: target.marketId,
-                    sessionId: target.sessionId,
-                    includePhotoSignedUrls: false,
-                  }, { timeoutMs: 60000 }),
-                  3,
-                );
-                appendPreparedVisit(target, detail);
-              } catch (error) {
-                detailErrors.push({
-                  campaignId: target.campaignId,
-                  campaignName: target.campaignName,
-                  marketId: target.marketId,
-                  marketName: target.marketName,
-                  reason: error instanceof Error ? error.message : "Antwortdetails konnten nicht geladen werden.",
-                });
-              }
+              if (!preparedVisitByTargetKey.has(target.key)) await loadVisitDetailIndividually(target);
             }
           } finally {
-            loadedDetailCount += batch.targets.length;
+            loadedDetailCount = preparedVisitByTargetKey.size;
             reportLoadedDetailProgress();
             await yieldToBrowser();
           }

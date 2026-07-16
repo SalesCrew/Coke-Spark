@@ -340,18 +340,10 @@ type SaraEinsaetzeColumn = {
   width: number;
 };
 
-type SaraAnswerColumnKind = "value" | "comment" | "number" | "availability";
-type SaraAvailabilityBucket = "top" | "middle" | "bad";
-type SaraQuestionColumn = {
-  index: number;
-  question: string;
-  kind: SaraAnswerColumnKind;
-  availabilityBucket?: SaraAvailabilityBucket;
-};
-
 type SaraCellValue = string | number | boolean;
 
 export type FbManagementExportVisitRow = {
+  campaignId: string;
   sessionId: string;
   startedAt: string;
   gmUserId: string | null;
@@ -360,7 +352,7 @@ export type FbManagementExportVisitRow = {
   dynamicAnswers: Array<{
     key: string;
     question: string;
-    kind: "value" | "number";
+    kind: FbManagementExportQuestion["kind"];
     value: SaraCellValue;
     comment: string;
   }>;
@@ -368,156 +360,89 @@ export type FbManagementExportVisitRow = {
 
 const SARA_BASE_COLUMN_COUNT = 22;
 
+export type FbManagementExportQuestion = {
+  key: string;
+  question: string;
+  kind: "value" | "number";
+};
+
+export type FbManagementExportQuestionCatalog = {
+  questions: FbManagementExportQuestion[];
+  questionsByCampaignId: Record<string, FbManagementExportQuestion[]>;
+  questionIdsByCampaignId: Record<string, string[]>;
+};
+
+function fbManagementQuestionKind(question: Question): FbManagementExportQuestion["kind"] {
+  return question.type === "numeric" || question.type === "slider" ? "number" : "value";
+}
+
+function campaignFragebogenScope(section: Campaign["section"]): "main" | "kuehler" | "mhd" {
+  if (section === "kuehler") return "kuehler";
+  if (section === "mhd") return "mhd";
+  return "main";
+}
+
+export function buildFbManagementQuestionCatalog(input: {
+  campaigns: Campaign[];
+  fragebogenByScope: Record<string, Fragebogen[]>;
+  modulesByScope: Record<string, Module[]>;
+}): FbManagementExportQuestionCatalog {
+  const questionsById = new Map<string, FbManagementExportQuestion>();
+  const questionsByCampaignId: Record<string, FbManagementExportQuestion[]> = {};
+  const questionIdsByCampaignId: Record<string, string[]> = {};
+
+  for (const campaign of input.campaigns) {
+    const campaignQuestions: FbManagementExportQuestion[] = [];
+    const questionIds: string[] = [];
+    questionsByCampaignId[campaign.id] = campaignQuestions;
+    questionIdsByCampaignId[campaign.id] = questionIds;
+    if (!campaign.currentFragebogenId) continue;
+
+    const scope = campaignFragebogenScope(campaign.section);
+    const fragebogen = (input.fragebogenByScope[scope] ?? []).find(
+      (entry) => entry.id === campaign.currentFragebogenId,
+    );
+    if (!fragebogen) {
+      throw new Error(`Der Fragebogen der Kampagne „${campaign.name}“ konnte für den Export nicht geladen werden.`);
+    }
+
+    const moduleById = new Map((input.modulesByScope[scope] ?? []).map((module) => [module.id, module]));
+    const campaignQuestionIds = new Set<string>();
+    const addQuestion = (question: Question) => {
+      if (!question.id || campaignQuestionIds.has(question.id)) return;
+      campaignQuestionIds.add(question.id);
+      questionIds.push(question.id);
+      const exportQuestion = questionsById.get(question.id) ?? {
+        key: question.id,
+        question: question.text,
+        kind: fbManagementQuestionKind(question),
+      };
+      if (!questionsById.has(question.id)) questionsById.set(question.id, exportQuestion);
+      campaignQuestions.push(exportQuestion);
+    };
+
+    for (const moduleId of fragebogen.moduleIds) {
+      const module = moduleById.get(moduleId);
+      if (!module) {
+        throw new Error(`Ein Modul des Fragebogens „${fragebogen.name}“ konnte für den Export nicht geladen werden.`);
+      }
+      for (const question of module.questions) addQuestion(question);
+    }
+    for (const question of fragebogen.spezialfragen ?? []) addQuestion(question);
+  }
+
+  return {
+    questions: Array.from(questionsById.values()),
+    questionsByCampaignId,
+    questionIdsByCampaignId,
+  };
+}
+
 function getSaraEinsaetzeColumns(): SaraEinsaetzeColumn[] {
-  return SARA_EINSAETZE_COLUMN_SPEC.split("\n").map((line) => {
+  return SARA_EINSAETZE_COLUMN_SPEC.split("\n").slice(0, SARA_BASE_COLUMN_COUNT).map((line) => {
     const [h1 = "", h2 = "", width = "18"] = line.split("\t");
     return { h1, h2, width: Number(width) || 18 };
   });
-}
-
-function normalizeSaraQuestion(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/&/g, " und ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getSaraQuestionColumns(columns: SaraEinsaetzeColumn[]): Map<string, SaraQuestionColumn[]> {
-  const map = new Map<string, SaraQuestionColumn[]>();
-  let currentQuestion = "";
-  columns.forEach((column, index) => {
-    if (index < SARA_BASE_COLUMN_COUNT) return;
-    if (column.h1.trim()) currentQuestion = column.h1;
-    if (!currentQuestion) return;
-
-    let kind: SaraAnswerColumnKind | null = null;
-    let availabilityBucket: SaraAvailabilityBucket | undefined;
-    if (column.h2 === "Kommentar") kind = "comment";
-    if (column.h2 === "Wert") kind = "value";
-    if (column.h2 === "Zahl") kind = "number";
-    if (column.h2.startsWith("(1)")) {
-      kind = "availability";
-      availabilityBucket = "top";
-    }
-    if (column.h2.startsWith("(3)")) {
-      kind = "availability";
-      availabilityBucket = "middle";
-    }
-    if (column.h2.startsWith("(5)")) {
-      kind = "availability";
-      availabilityBucket = "bad";
-    }
-    if (!kind) return;
-
-    const key = normalizeSaraQuestion(currentQuestion);
-    const bucket = map.get(key) ?? [];
-    bucket.push({ index, question: currentQuestion, kind, availabilityBucket });
-    map.set(key, bucket);
-  });
-  return map;
-}
-
-function getSaraAliasQuestionNeedle(questionText: string): string | null {
-  const key = normalizeSaraQuestion(questionText);
-  const aliasByNeedle: Array<{ match: (value: string) => boolean; targetNeedle: string }> = [
-    {
-      match: (value) => value.includes("red survey ausgefullt"),
-      targetNeedle: "red survey ausgefullt",
-    },
-    {
-      match: (value) => value.includes("markeneigener kuhler vorhanden"),
-      targetNeedle: "markeneigener kuhler vorhanden",
-    },
-    {
-      match: (value) => value.includes("grossplatzierung") && value.includes("mitbewerb"),
-      targetNeedle: "grossplatzierung bzw aufbauten vom mitbewerb",
-    },
-    {
-      match: (value) => value.includes("cr cz 200ml can"),
-      targetNeedle: "cr cz 200ml can im markt",
-    },
-    {
-      match: (value) => value.includes("cr cz f") && value.includes("pack") && value.includes("can"),
-      targetNeedle: "cr cz f 4 pack 0 33l can",
-    },
-    {
-      match: (value) => value.includes("coke zero zero") && value.includes("can"),
-      targetNeedle: "coke zero zero 0 33l can",
-    },
-    {
-      match: (value) => value.includes("jack") && value.includes("coke") && value.includes("can"),
-      targetNeedle: "jack und coke 330ml can",
-    },
-    {
-      match: (value) => value.includes("bacardi") && value.includes("coca cola") && value.includes("can"),
-      targetNeedle: "bacardi coca cola 0 25l can",
-    },
-    {
-      match: (value) => value.includes("monster schutte") && value.includes("crowner") && value.includes("richtiger zone"),
-      targetNeedle: "monster schutte 0 5l mit crowner in richtiger zone",
-    },
-    {
-      match: (value) => value.includes("monster schutte") && value.includes("crowner") && value.includes("sonstiger zone"),
-      targetNeedle: "monster schutte 0 5l mit crowner in sonstiger zone",
-    },
-    {
-      match: (value) => value.includes("monster display") && value.includes("header") && value.includes("richtiger zone"),
-      targetNeedle: "monster display 0 5l mit header in richtiger zone",
-    },
-    {
-      match: (value) => value.includes("monster display") && value.includes("header") && value.includes("sonstiger zone"),
-      targetNeedle: "monster display 0 5l mit header in sonstiger zone",
-    },
-    {
-      match: (value) => value.includes("konnte eine grossplatzierung platziert werden"),
-      targetNeedle: "konnte eine grossplatzierung platziert werden",
-    },
-    {
-      match: (value) => value.startsWith("anzahl flexziel"),
-      targetNeedle: "anzahl flexziel",
-    },
-  ];
-  return aliasByNeedle.find((entry) => entry.match(key))?.targetNeedle ?? null;
-}
-
-function resolveSaraQuestionColumns(
-  question: VisitDetailQuestion,
-  questionColumns: Map<string, SaraQuestionColumn[]>,
-): SaraQuestionColumn[] {
-  const key = normalizeSaraQuestion(question.text);
-  const exact = questionColumns.get(key);
-  if (exact) return exact;
-
-  const aliasNeedle = getSaraAliasQuestionNeedle(question.text);
-  if (aliasNeedle) {
-    const aliasColumns = Array.from(questionColumns.entries()).find(([entryKey]) => entryKey.includes(aliasNeedle))?.[1];
-    if (aliasColumns) return aliasColumns;
-  }
-
-  if (question.singleChoiceAvailability && question.singleChoiceAvailabilityType) {
-    const availabilityNeedle: Record<string, string> = {
-      Cooler: "verfugbarkeit im kuhler",
-      SingleServe: "verfugbarkeit bei den singleserve",
-      MultiServe: "verfugbarkeit bei den multiserve",
-      Promos: "verfugbarkeit bei den promos",
-      Warehouse: "verfugbarkeit im lager",
-    };
-    const needle = availabilityNeedle[question.singleChoiceAvailabilityType];
-    if (needle) {
-      const match = Array.from(questionColumns.entries()).find(([entryKey]) => entryKey.includes(needle));
-      if (match) return match[1];
-    }
-  }
-
-  if (key.length < 18) return [];
-  const fuzzy = Array.from(questionColumns.entries()).find(([entryKey]) =>
-    entryKey.includes(key) || key.includes(entryKey),
-  );
-  return fuzzy?.[1] ?? [];
 }
 
 function formatSaraDateTime(value: string | null | undefined, mode: "date" | "time"): string {
@@ -555,20 +480,6 @@ function saraAnswerRawValue(question: VisitDetailQuestion): string {
   if (answer.valueJson != null) return stringifyUnknown(answer.valueJson);
   if (answer.photos.length > 0) return `${answer.photos.length} Foto${answer.photos.length === 1 ? "" : "s"}`;
   return "";
-}
-
-function saraAnswerValue(question: VisitDetailQuestion): string {
-  const raw = saraAnswerRawValue(question);
-  return raw || "Keine Antwort";
-}
-
-function saraAvailabilityBucket(question: VisitDetailQuestion): SaraAvailabilityBucket | null {
-  const raw = normalizeSaraQuestion(saraAnswerRawValue(question));
-  if (!raw) return null;
-  if (/\b(top|voll|1)\b/.test(raw)) return "top";
-  if (raw.includes("mittel") || raw.includes("mediocre") || raw.includes("mitte") || /\b3\b/.test(raw)) return "middle";
-  if (raw.includes("bad") || raw.includes("schlecht") || raw.includes("leer") || raw.includes("oos") || /\b5\b/.test(raw)) return "bad";
-  return null;
 }
 
 function saraTargetObject(market: CampaignExportMarket | null | undefined): string {
@@ -615,36 +526,31 @@ function appendSaraCellValue(row: SaraCellValue[], index: number, value: SaraCel
   }
 }
 
-let saraExportLayoutCache: {
-  columns: SaraEinsaetzeColumn[];
-  questionColumns: Map<string, SaraQuestionColumn[]>;
-} | null = null;
-
-function getSaraExportLayout() {
-  if (saraExportLayoutCache) return saraExportLayoutCache;
-  const columns = getSaraEinsaetzeColumns();
-  saraExportLayoutCache = {
-    columns,
-    questionColumns: getSaraQuestionColumns(columns),
-  };
-  return saraExportLayoutCache;
-}
-
 export function prepareFbManagementExportVisitRow(input: {
   visit: CampaignMarketVisitSummary;
   market: CampaignExportMarket | null;
+  campaignId?: string | null;
   campaignName?: string | null;
+  allowedQuestionIds?: ReadonlySet<string>;
 }): FbManagementExportVisitRow | null {
   const { visit } = input;
   if (!visit.hasSubmittedVisit || !visit.sessionId || !visit.startedAt) return null;
 
   const primarySection = visit.sections[0] ?? null;
-  const { columns, questionColumns } = getSaraExportLayout();
+  const columns = getSaraEinsaetzeColumns();
   const row: SaraCellValue[] = Array.from({ length: columns.length }, () => "");
   const dynamicAnswers: FbManagementExportVisitRow["dynamicAnswers"] = [];
   const photoCount = visit.sections.reduce(
     (total, section) =>
-      total + section.questions.reduce((sectionTotal, question) => sectionTotal + (question.answer?.photos.length ?? 0), 0),
+      total + section.questions.reduce(
+        (sectionTotal, question) =>
+          sectionTotal + (
+            !input.allowedQuestionIds || input.allowedQuestionIds.has(question.questionId)
+              ? question.answer?.photos.length ?? 0
+              : 0
+          ),
+        0,
+      ),
     0,
   );
 
@@ -666,39 +572,21 @@ export function prepareFbManagementExportVisitRow(input: {
 
   for (const section of visit.sections) {
     for (const question of section.questions) {
-      const mappedColumns = resolveSaraQuestionColumns(question, questionColumns);
-      const needsDynamicColumn = section.section === "kuehler" || section.section === "mhd" || mappedColumns.length === 0;
-      if (needsDynamicColumn) {
-        const rawValue = visitAnswerSummary(question) || saraAnswerRawValue(question) || "Keine Antwort";
-        const kind = question.type === "numeric" || question.type === "slider" ? "number" : "value";
-        dynamicAnswers.push({
-          key: normalizeSaraQuestion(question.text) || question.questionId,
-          question: question.text,
-          kind,
-          value: kind === "number" ? saraNumberFromString(rawValue) : rawValue,
-          comment: question.comment ?? "",
-        });
-        continue;
-      }
-      const value = saraAnswerValue(question);
-      const numericValue = saraNumberFromString(question.answer?.valueNumber ?? saraAnswerRawValue(question));
-      const availabilityBucket = saraAvailabilityBucket(question);
-      for (const column of mappedColumns) {
-        if (column.kind === "value") appendSaraCellValue(row, column.index, value);
-        if (column.kind === "comment") appendSaraCellValue(row, column.index, question.comment ?? "");
-        if (column.kind === "number") appendSaraCellValue(row, column.index, numericValue);
-        if (column.kind === "availability") {
-          if (!availabilityBucket && column.availabilityBucket === "top") {
-            appendSaraCellValue(row, column.index, "Keine Antwort");
-          } else {
-            appendSaraCellValue(row, column.index, availabilityBucket === column.availabilityBucket ? "X" : "");
-          }
-        }
-      }
+      if (input.allowedQuestionIds && !input.allowedQuestionIds.has(question.questionId)) continue;
+      const rawValue = visitAnswerSummary(question) || saraAnswerRawValue(question) || "Keine Antwort";
+      const kind = question.type === "numeric" || question.type === "slider" ? "number" : "value";
+      dynamicAnswers.push({
+        key: question.questionId,
+        question: question.text,
+        kind,
+        value: kind === "number" ? saraNumberFromString(rawValue) : rawValue,
+        comment: question.comment ?? "",
+      });
     }
   }
 
   return {
+    campaignId: input.campaignId ?? primarySection?.campaignId ?? "",
     sessionId: visit.sessionId,
     startedAt: visit.startedAt,
     gmUserId: visit.gmUserId,
@@ -715,28 +603,30 @@ function dynamicSaraColumnWidth(question: string): number {
 export function buildPreparedFbManagementExportRows(
   preparedRows: FbManagementExportVisitRow[],
   travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>,
+  questionCatalog?: readonly FbManagementExportQuestion[],
 ) {
   const sortedRows = preparedRows.slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-  const dedicatedQuestionnaireOnly = sortedRows.length > 0 && sortedRows.every(
-    (row) => row.sectionTypes.length > 0 && row.sectionTypes.every((section) => section === "kuehler" || section === "mhd"),
-  );
   const staticColumns = getSaraEinsaetzeColumns();
-  const columns = dedicatedQuestionnaireOnly
-    ? staticColumns.slice(0, SARA_BASE_COLUMN_COUNT)
-    : staticColumns.slice();
+  const columns = staticColumns.slice();
   const dynamicQuestionByKey = new Map<
     string,
     { key: string; question: string; kind: "value" | "number" }
   >();
 
-  for (const row of sortedRows) {
-    for (const answer of row.dynamicAnswers) {
-      if (!dynamicQuestionByKey.has(answer.key)) {
-        dynamicQuestionByKey.set(answer.key, {
-          key: answer.key,
-          question: answer.question,
-          kind: answer.kind,
-        });
+  if (questionCatalog) {
+    for (const question of questionCatalog) {
+      if (!dynamicQuestionByKey.has(question.key)) dynamicQuestionByKey.set(question.key, question);
+    }
+  } else {
+    for (const row of sortedRows) {
+      for (const answer of row.dynamicAnswers) {
+        if (!dynamicQuestionByKey.has(answer.key)) {
+          dynamicQuestionByKey.set(answer.key, {
+            key: answer.key,
+            question: answer.question,
+            kind: answer.kind,
+          });
+        }
       }
     }
   }
@@ -750,7 +640,7 @@ export function buildPreparedFbManagementExportRows(
   }
 
   const rows = sortedRows.map((prepared) => {
-    const row = prepared.cells.slice(0, dedicatedQuestionnaireOnly ? SARA_BASE_COLUMN_COUNT : staticColumns.length);
+    const row = prepared.cells.slice(0, SARA_BASE_COLUMN_COUNT);
     const travel = travelByVisitSessionId?.[prepared.sessionId];
     row[9] = travel?.start ?? "";
     row[10] = travel?.end ?? "";
@@ -783,6 +673,7 @@ function appendSaraEinsaetzeSheet(
   wb: ReturnType<(typeof import("xlsx-js-style"))["utils"]["book_new"]>,
   rows: SaraCellValue[][],
   columns: SaraEinsaetzeColumn[] = getSaraEinsaetzeColumns(),
+  sheetName = "Einsätze",
 ) {
   const sheetRows: SaraCellValue[][] = [
     columns.map((column) => column.h1),
@@ -791,7 +682,67 @@ function appendSaraEinsaetzeSheet(
   ];
   const ws = XLSX.utils.aoa_to_sheet(sheetRows);
   ws["!cols"] = columns.map((column) => ({ wch: column.width }));
-  XLSX.utils.book_append_sheet(wb, ws, "Einsätze");
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+}
+
+function uniqueExcelSheetName(value: string, usedNames: Set<string>): string {
+  const cleaned = value
+    .replace(/[\\/?*:[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^'+|'+$/g, "")
+    .trim() || "Kampagne";
+  const base = cleaned.slice(0, 31);
+  let candidate = base;
+  let suffix = 2;
+  while (usedNames.has(candidate.toLocaleLowerCase("de"))) {
+    const suffixText = ` (${suffix})`;
+    candidate = `${base.slice(0, Math.max(1, 31 - suffixText.length))}${suffixText}`;
+    suffix += 1;
+  }
+  usedNames.add(candidate.toLocaleLowerCase("de"));
+  return candidate;
+}
+
+export function buildFbManagementCampaignSheets(input: {
+  campaigns: Campaign[];
+  preparedRows: FbManagementExportVisitRow[];
+  questionCatalog: FbManagementExportQuestionCatalog;
+  travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>;
+}) {
+  const multipleCampaigns = input.campaigns.length > 1;
+  const usedSheetNames = new Set<string>();
+  const campaignIds = new Set(input.campaigns.map((campaign) => campaign.id));
+  const unscopedRows = input.preparedRows.filter((row) => !campaignIds.has(row.campaignId));
+  if (unscopedRows.length > 0) {
+    throw new Error(`${unscopedRows.length} Besuche konnten keiner exportierten Kampagne zugeordnet werden.`);
+  }
+
+  return input.campaigns.map((campaign) => {
+    const campaignRows = input.preparedRows.filter((row) => row.campaignId === campaign.id);
+    const preparedExport = buildPreparedFbManagementExportRows(
+      campaignRows,
+      input.travelByVisitSessionId,
+      input.questionCatalog.questionsByCampaignId[campaign.id] ?? [],
+    );
+    const sheetName = multipleCampaigns
+      ? uniqueExcelSheetName(campaign.name, usedSheetNames)
+      : "Einsätze";
+    return { campaignId: campaign.id, sheetName, ...preparedExport };
+  });
+}
+
+function appendFbManagementCampaignSheets(input: {
+  XLSX: typeof import("xlsx-js-style");
+  wb: ReturnType<(typeof import("xlsx-js-style"))["utils"]["book_new"]>;
+  campaigns: Campaign[];
+  preparedRows: FbManagementExportVisitRow[];
+  questionCatalog: FbManagementExportQuestionCatalog;
+  travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>;
+}) {
+  const sheets = buildFbManagementCampaignSheets(input);
+  for (const sheet of sheets) {
+    appendSaraEinsaetzeSheet(input.XLSX, input.wb, sheet.rows, sheet.columns, sheet.sheetName);
+  }
 }
 
 export async function exportFbManagementExcel(input: {
@@ -800,6 +751,7 @@ export async function exportFbManagementExcel(input: {
   visitStatusByCampaignId: Record<string, Record<string, CampaignExportStatus>>;
   visitDetails?: CampaignMarketVisitSummary[];
   preparedVisitRows?: FbManagementExportVisitRow[];
+  questionCatalog?: FbManagementExportQuestionCatalog;
   expectedPreparedVisitCount?: number;
   visitDetailErrors?: CampaignVisitDetailExportError[];
   fragebogenByScope?: Record<string, Fragebogen[]>;
@@ -817,14 +769,22 @@ export async function exportFbManagementExcel(input: {
         `Der Export ist unvollst\u00e4ndig (${input.preparedVisitRows.length}/${input.expectedPreparedVisitCount} Besuche).`,
       );
     }
-    const preparedExport = buildPreparedFbManagementExportRows(
-      input.preparedVisitRows,
-      input.travelByVisitSessionId,
-    );
+    const questionCatalog = input.questionCatalog ?? buildFbManagementQuestionCatalog({
+      campaigns: input.campaigns,
+      fragebogenByScope: input.fragebogenByScope ?? {},
+      modulesByScope: input.modulesByScope ?? {},
+    });
     await buildAndDownloadWorkbook({
       filename,
       build: ({ XLSX, wb }) => {
-        appendSaraEinsaetzeSheet(XLSX, wb, preparedExport.rows, preparedExport.columns);
+        appendFbManagementCampaignSheets({
+          XLSX,
+          wb,
+          campaigns: input.campaigns,
+          preparedRows: input.preparedVisitRows!,
+          questionCatalog,
+          travelByVisitSessionId: input.travelByVisitSessionId,
+        });
       },
     });
     return;
@@ -835,23 +795,65 @@ export async function exportFbManagementExcel(input: {
     a.name.localeCompare(b.name, "de"),
   );
   const marketById = new Map(input.markets.map((market) => [market.id, market]));
+  const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+  const exportQuestionCatalog = buildFbManagementQuestionCatalog({
+    campaigns,
+    fragebogenByScope: input.fragebogenByScope ?? {},
+    modulesByScope: input.modulesByScope ?? {},
+  });
+  const questionIdsByCampaignId = new Map(
+    Object.entries(exportQuestionCatalog.questionIdsByCampaignId).map(([campaignId, questionIds]) => [
+      campaignId,
+      new Set(questionIds),
+    ]),
+  );
+  const fallbackPreparedRows = (input.visitDetails ?? [])
+    .map((visit) => {
+      const primarySection = visit.sections[0] ?? null;
+      const campaign = primarySection ? campaignById.get(primarySection.campaignId) ?? null : null;
+      return prepareFbManagementExportVisitRow({
+        visit,
+        market: marketById.get(visit.marketId) ?? null,
+        campaignId: campaign?.id,
+        campaignName: campaign?.name ?? primarySection?.fragebogenName ?? "",
+        allowedQuestionIds: campaign ? questionIdsByCampaignId.get(campaign.id) : new Set<string>(),
+      });
+    })
+    .filter((row): row is FbManagementExportVisitRow => Boolean(row));
+
+  await buildAndDownloadWorkbook({
+    filename,
+    build: ({ XLSX, wb }) => {
+      appendFbManagementCampaignSheets({
+        XLSX,
+        wb,
+        campaigns,
+        preparedRows: fallbackPreparedRows,
+        questionCatalog: exportQuestionCatalog,
+        travelByVisitSessionId: input.travelByVisitSessionId,
+      });
+    },
+  });
+  return;
+
   const assignmentRows = campaigns.flatMap((campaign) => {
     const statuses = input.visitStatusByCampaignId[campaign.id] ?? {};
-    return campaign.assignments.map((assignment) => {
-      const market = marketById.get(assignment.marketId);
-      const status = statuses[assignment.marketId] ?? null;
-      return {
-        campaign,
-        assignment,
-        market,
-        status,
-      };
-    });
+    return campaign.assignments.map((assignment) => ({
+      campaign,
+      assignment,
+      market: marketById.get(assignment.marketId),
+      status: statuses[assignment.marketId] ?? null,
+    }));
   });
-  const historyRows = campaigns.flatMap((campaign) => campaign.history.map((history) => ({ campaign, history })));
-  const scopeFragebogenRows = Object.entries(input.fragebogenByScope ?? {}).flatMap(([scope, rows]) => rows.map((fragebogen) => ({ scope, fragebogen })));
-  const scopeModuleRows = Object.entries(input.modulesByScope ?? {}).flatMap(([scope, rows]) => rows.map((module) => ({ scope, module })));
-  const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+  const historyRows = campaigns.flatMap((campaign) =>
+    campaign.history.map((history) => ({ campaign, history })),
+  );
+  const scopeFragebogenRows = Object.entries(input.fragebogenByScope ?? {}).flatMap(([scope, rows]) =>
+    rows.map((fragebogen) => ({ scope, fragebogen })),
+  );
+  const scopeModuleRows = Object.entries(input.modulesByScope ?? {}).flatMap(([scope, rows]) =>
+    rows.map((module) => ({ scope, module })),
+  );
   const answerRows: VisitAnswerRow[] = (input.visitDetails ?? []).flatMap((visit) =>
     visit.sections.flatMap((section) => {
       const campaign = campaignById.get(section.campaignId) ?? null;
@@ -866,75 +868,6 @@ export async function exportFbManagementExcel(input: {
       }));
     }),
   );
-  const saraColumns = getSaraEinsaetzeColumns();
-  const saraQuestionColumns = getSaraQuestionColumns(saraColumns);
-  const saraRows: SaraCellValue[][] = (input.visitDetails ?? [])
-    .filter((visit) => visit.hasSubmittedVisit && visit.sessionId)
-    .slice()
-    .sort((a, b) => String(a.startedAt ?? "").localeCompare(String(b.startedAt ?? "")))
-    .map((visit) => {
-      const primarySection = visit.sections[0] ?? null;
-      const campaign = primarySection ? campaignById.get(primarySection.campaignId) ?? null : null;
-      const market = marketById.get(visit.marketId) ?? null;
-      const row: SaraCellValue[] = Array.from({ length: saraColumns.length }, () => "");
-      const photoCount = visit.sections.reduce(
-        (total, section) =>
-          total + section.questions.reduce((sectionTotal, question) => sectionTotal + (question.answer?.photos.length ?? 0), 0),
-        0,
-      );
-
-      row[0] = saraTargetObject(market);
-      row[1] = saraCustomerNumber(market);
-      row[2] = formatSaraDateTime(visit.startedAt, "date");
-      row[3] = formatSaraDateTime(visit.startedAt, "time");
-      row[4] = campaign?.name ?? primarySection?.fragebogenName ?? "";
-      row[5] = saraInternalId(market);
-      row[6] = saraExternalId(market);
-      row[7] = visit.gmName ?? "";
-      row[8] = photoCount;
-      const travel = visit.sessionId ? input.travelByVisitSessionId?.[visit.sessionId] : null;
-      row[9] = travel?.start ?? "";
-      row[10] = travel?.end ?? "";
-      row[11] = travel?.durationMin ?? "";
-      row[13] = formatSaraDateTime(visit.startedAt, "time");
-      row[14] = formatSaraDateTime(visit.submittedAt, "time");
-      row[15] = visit.durationMinutes ?? "";
-      row[17] = primarySection ? sectionLabel(primarySection.section) : "";
-      row[18] = 0;
-      row[20] = false;
-
-      for (const section of visit.sections) {
-        for (const question of section.questions) {
-          const columns = resolveSaraQuestionColumns(question, saraQuestionColumns);
-          if (columns.length === 0) continue;
-          const value = saraAnswerValue(question);
-          const numericValue = saraNumberFromString(question.answer?.valueNumber ?? saraAnswerRawValue(question));
-          const availabilityBucket = saraAvailabilityBucket(question);
-          for (const column of columns) {
-            if (column.kind === "value") appendSaraCellValue(row, column.index, value);
-            if (column.kind === "comment") appendSaraCellValue(row, column.index, question.comment ?? "");
-            if (column.kind === "number") appendSaraCellValue(row, column.index, numericValue);
-            if (column.kind === "availability") {
-              if (!availabilityBucket && column.availabilityBucket === "top") {
-                appendSaraCellValue(row, column.index, "Keine Antwort");
-              } else {
-                appendSaraCellValue(row, column.index, availabilityBucket === column.availabilityBucket ? "X" : "");
-              }
-            }
-          }
-        }
-      }
-
-      return row;
-    });
-
-  await buildAndDownloadWorkbook({
-    filename,
-    build: ({ XLSX, wb }) => {
-      appendSaraEinsaetzeSheet(XLSX, wb, saraRows);
-    },
-  });
-  return;
 
   await buildAndDownloadWorkbook({
     filename,

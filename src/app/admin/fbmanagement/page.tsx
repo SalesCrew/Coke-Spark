@@ -39,6 +39,7 @@ import {
 import type { CampaignMarketVisitExportIndexItem, CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
 import type { RedMonthPeriod } from "@/types/red-month";
 import {
+  buildFbManagementQuestionCatalog,
   exportFbManagementExcel,
   prepareFbManagementExportVisitRow,
   type FbManagementExportVisitRow,
@@ -8612,6 +8613,17 @@ export default function FbManagementPage() {
       if (filteredCampaigns.length === 0 || assignmentTotal === 0) {
         throw new Error("Für diese Exportfilter wurden keine passenden Zielmärkte gefunden.");
       }
+      const exportQuestionCatalog = buildFbManagementQuestionCatalog({
+        campaigns: filteredCampaigns,
+        fragebogenByScope,
+        modulesByScope,
+      });
+      const exportQuestionIdsByCampaignId = new Map(
+        Object.entries(exportQuestionCatalog.questionIdsByCampaignId).map(([campaignId, questionIds]) => [
+          campaignId,
+          new Set(questionIds),
+        ]),
+      );
 
       const detailTargetsByKey = new Map<string, {
         campaignId: string;
@@ -8693,7 +8705,9 @@ export default function FbManagementPage() {
         const prepared = prepareFbManagementExportVisitRow({
           visit: detail,
           market: exportMarketById.get(target.marketId) ?? null,
+          campaignId: target.campaignId,
           campaignName: target.campaignName,
+          allowedQuestionIds: exportQuestionIdsByCampaignId.get(target.campaignId) ?? new Set<string>(),
         });
         if (prepared) {
           preparedVisitByTargetKey.set(target.key, prepared);
@@ -8856,6 +8870,7 @@ export default function FbManagementPage() {
         markets: exportMarketsData,
         visitStatusByCampaignId: {},
         preparedVisitRows,
+        questionCatalog: exportQuestionCatalog,
         expectedPreparedVisitCount: detailTargets.length,
         visitDetailErrors: detailErrors,
         fragebogenByScope,

@@ -38,6 +38,7 @@ import {
   requestGmVisitAnswerChange,
   requestGmVisitSessionDelete,
   saveGmVisitAnswer,
+  syncGmVisitSessionSpezialfragen,
   type GmAnswerChangeRequest,
   type GmCompletedVisitSummary,
   type GmVisitSessionDeleteRequest,
@@ -1479,6 +1480,11 @@ function ReadOnlyVisitViewer({
   }, [payload.session.id]);
 
   const current = questions[index] ?? null;
+  const currentIsUnansweredSpezialfrage = Boolean(
+    current
+      && current.question.moduleName?.trim().toLocaleLowerCase("de-AT") === "spezialfragen"
+      && !hasStoredAnswer(current.question),
+  );
   const accent = current ? sectionColor(current.section.section) : R;
   const percent = questions.length ? Math.round(((index + 1) / questions.length) * 100) : 0;
   const currentSuccess = current ? requestSuccessByQuestionId[current.question.id] : null;
@@ -1652,7 +1658,7 @@ function ReadOnlyVisitViewer({
                   onClick={() => setChangeRequestQuestionId(current.question.id)}
                 >
                   <Send size={13} strokeWidth={2.2} />
-                  Änderung anfragen
+                  {currentIsUnansweredSpezialfrage ? "Nachtrag anfragen" : "Änderung anfragen"}
                 </button>
               )}
             </div>
@@ -2051,6 +2057,7 @@ export default function GmActivityPage() {
     setOpeningId(sessionId);
     setError(null);
     try {
+      await syncGmVisitSessionSpezialfragen(sessionId);
       const payload = await fetchGmVisitSession(sessionId);
       setViewerPayload(payload);
     } catch (err) {
@@ -2066,6 +2073,7 @@ export default function GmActivityPage() {
     setOpeningId(visit.id);
     setError(null);
     try {
+      await syncGmVisitSessionSpezialfragen(visit.id);
       const payload = await fetchGmVisitSession(visit.id);
       setViewerPayload(payload);
     } catch (err) {

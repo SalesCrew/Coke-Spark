@@ -3731,6 +3731,14 @@ export async function fetchGmVisitSession(sessionId: string): Promise<GmVisitSes
   return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`, { cache: "no-store" })) as GmVisitSessionReadPayload;
 }
 
+export async function syncGmVisitSessionSpezialfragen(
+  sessionId: string,
+): Promise<{ ok: boolean; addedQuestionCount: number }> {
+  return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}/spezialfragen/sync`, {
+    method: "POST",
+  })) as { ok: boolean; addedQuestionCount: number };
+}
+
 export async function fetchGmCompletedVisitSessions(input: { limit?: number } = {}): Promise<GmCompletedVisitSummary[]> {
   const params = new URLSearchParams();
   if (input.limit) params.set("limit", String(input.limit));

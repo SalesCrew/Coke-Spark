@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Car, Check, PencilLine } from "lucide-react";
 import {
+  BackendApiError,
   deferDaySessionEndKm,
   deferDaySessionStartKm,
   endDayPause,
@@ -24,6 +25,7 @@ import {
   type TodaySubmissionsPayload,
 } from "@/lib/api/backend";
 import {
+  discardLocalDaySessionSnapshot,
   persistLocalDaySessionFromBackend,
   readLatestLocalDaySessionSnapshot,
   saveLocalDaySessionStartSnapshot,
@@ -61,6 +63,10 @@ type EarlyEndConfirmation = {
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
 const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const EARLY_DAY_END_THRESHOLD_SECONDS = 6 * 60 * 60;
+
+function isAuthoritativeDayStartRejection(error: unknown): error is BackendApiError {
+  return error instanceof BackendApiError && error.status >= 400 && error.status < 500;
+}
 
 function fmt(s: number): string {
   const h   = String(Math.floor(s / 3600)).padStart(2, "0");
@@ -489,7 +495,20 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
       }
       setPersistError(null);
       notifyDaySessionUpdated();
-    } catch {
+    } catch (error) {
+      if (isAuthoritativeDayStartRejection(error)) {
+        discardLocalDaySessionSnapshot(snapshot);
+        setDaySession(null);
+        setConfirmedStartKm(null);
+        setEndKmInput("");
+        setRunning(false);
+        setPaused(false);
+        setSeconds(0);
+        setPhase("idle");
+        setPersistError(error.code === "day_already_submitted" ? null : error.message);
+        notifyDaySessionUpdated();
+        return;
+      }
       setPersistError("Tagesstart ist lokal gesichert. Synchronisierung läuft, sobald die Verbindung wieder da ist.");
     }
   }, [notifyDaySessionUpdated]);
@@ -505,10 +524,12 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     const localSnapshot = readLatestLocalDaySessionSnapshot();
     try {
       if (daySessionPayload === null) {
-        if (localSnapshot) {
-          applyLocalDaySessionSnapshot(localSnapshot);
+        persistLocalDaySessionFromBackend(null);
+        const reconciledLocalSnapshot = readLatestLocalDaySessionSnapshot();
+        if (reconciledLocalSnapshot) {
+          applyLocalDaySessionSnapshot(reconciledLocalSnapshot);
           setPersistError("Tagesstart ist lokal gesichert. Synchronisierung lÃ¤uft, sobald die Verbindung wieder da ist.");
-          void reconcileLocalDayStart(localSnapshot);
+          void reconcileLocalDayStart(reconciledLocalSnapshot);
           return;
         }
         setRunning(false);
@@ -521,12 +542,14 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
       if (daySessionLoading && daySessionPayload === undefined) return;
       const payload = daySessionPayload ?? await fetchCurrentDaySession();
       const session = payload.session;
+      persistLocalDaySessionFromBackend(session);
+      const reconciledLocalSnapshot = readLatestLocalDaySessionSnapshot();
       setDaySession(session);
       if (!session) {
-        if (localSnapshot) {
-          applyLocalDaySessionSnapshot(localSnapshot);
+        if (reconciledLocalSnapshot) {
+          applyLocalDaySessionSnapshot(reconciledLocalSnapshot);
           setPersistError("Tagesstart ist lokal gesichert. Synchronisierung läuft, sobald die Verbindung wieder da ist.");
-          void reconcileLocalDayStart(localSnapshot);
+          void reconcileLocalDayStart(reconciledLocalSnapshot);
           return;
         }
         setRunning(false);
@@ -536,7 +559,6 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
         setPhase("idle");
         return;
       }
-      persistLocalDaySessionFromBackend(session);
       setConfirmedStartKm(session.startKm ?? null);
       setEndKmInput(session.endKm != null ? String(session.endKm) : "");
       if (session.status === "started") {
@@ -990,6 +1012,17 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
       }
       notifyDaySessionUpdated();
     } catch (error) {
+      if (localSnapshot && isAuthoritativeDayStartRejection(error)) {
+        discardLocalDaySessionSnapshot(localSnapshot);
+        setDaySession(null);
+        setRunning(false);
+        setPaused(false);
+        setSeconds(0);
+        transitionTo("idle");
+        setPersistError(error.code === "day_already_submitted" ? null : error.message);
+        notifyDaySessionUpdated();
+        return;
+      }
       const message = localSnapshot
         ? "Tagesstart ist lokal gesichert. Synchronisierung läuft, sobald die Verbindung wieder da ist."
         : error instanceof Error ? error.message : "Tagesstart konnte nicht gespeichert werden.";

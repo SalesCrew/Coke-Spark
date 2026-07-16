@@ -35,6 +35,7 @@ import {
 import { useRedMonth } from "@/context/RedMonthContext";
 import {
   isLocalDaySessionSnapshotUsableForStartGate,
+  persistLocalDaySessionFromBackend,
   readLatestLocalDaySessionSnapshot,
 } from "@/lib/gm/daySessionPersistence";
 import { getMarketChainLabel } from "@/lib/marketDisplay";
@@ -764,11 +765,13 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
     if (!silent) setDayGateLoading(true);
     try {
       if (daySessionPayload === null) {
+        persistLocalDaySessionFromBackend(null);
         setDayStarted(false);
         return;
       }
       if (daySessionLoading && daySessionPayload === undefined) return;
       const payload = daySessionPayload ?? await fetchCurrentDaySession();
+      persistLocalDaySessionFromBackend(payload.session);
       setDayStarted(
         Boolean(payload.gate?.dayStarted) ||
           isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()),

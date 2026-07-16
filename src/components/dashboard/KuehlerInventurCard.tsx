@@ -20,6 +20,7 @@ import {
 } from "@/lib/api/backend";
 import {
   isLocalDaySessionSnapshotUsableForStartGate,
+  persistLocalDaySessionFromBackend,
   readLatestLocalDaySessionSnapshot,
 } from "@/lib/gm/daySessionPersistence";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
@@ -232,11 +233,13 @@ export function KuehlerInventurCard({
     if (!silent) setDayGateLoading(true);
     try {
       if (daySessionPayload === null) {
+        persistLocalDaySessionFromBackend(null);
         setDayStarted(false);
         return;
       }
       if (daySessionLoading && daySessionPayload === undefined) return;
       const payload = daySessionPayload ?? await fetchCurrentDaySession();
+      persistLocalDaySessionFromBackend(payload.session);
       setDayStarted(
         Boolean(payload.gate?.dayStarted) ||
           isLocalDaySessionSnapshotUsableForStartGate(readLatestLocalDaySessionSnapshot()),

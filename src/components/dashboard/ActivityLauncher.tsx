@@ -48,6 +48,7 @@ import {
 } from "@/lib/api/backend";
 import {
   isLocalDaySessionSnapshotUsableForStartGate,
+  persistLocalDaySessionFromBackend,
   readLatestLocalDaySessionSnapshot,
 } from "@/lib/gm/daySessionPersistence";
 import { getMarketChainLabel } from "@/lib/marketDisplay";
@@ -1880,12 +1881,14 @@ export function ActivityLauncher({
     if (!silent) setDayGateLoading(true);
     try {
       if (daySessionPayload === null) {
+        persistLocalDaySessionFromBackend(null);
         setDayStarted(false);
         setCurrentDayStartedAt(null);
         return;
       }
       if (daySessionLoading && daySessionPayload === undefined) return;
       const payload = daySessionPayload ?? await fetchCurrentDaySession();
+      persistLocalDaySessionFromBackend(payload.session);
       const localSnapshot = readLatestLocalDaySessionSnapshot();
       const localDayStarted = isLocalDaySessionSnapshotUsableForStartGate(localSnapshot);
       setDayStarted(Boolean(payload.gate?.dayStarted) || localDayStarted);

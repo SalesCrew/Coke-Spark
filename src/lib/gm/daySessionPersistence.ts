@@ -47,6 +47,16 @@ function keyFor(userId: string, workDate: string): string {
   return `${STORAGE_PREFIX}${userId}:${workDate}`;
 }
 
+function snapshotKeysForUser(localStorage: Storage, userId: string): string[] {
+  const prefix = `${STORAGE_PREFIX}${userId}:`;
+  const keys: string[] = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(prefix)) keys.push(key);
+  }
+  return keys;
+}
+
 function parseSnapshot(raw: string | null): LocalDaySessionSnapshot | null {
   if (!raw) return null;
   try {
@@ -120,10 +130,26 @@ export function persistLocalDaySessionFromBackend(session: DaySession | null): v
   const localStorage = storage();
   const userId = activeGmUserId();
   if (!localStorage || !userId) return;
-  if (!session?.dayStartedAt) return;
+
+  const existingKeys = snapshotKeysForUser(localStorage, userId);
+  if (!session) {
+    // A successful backend response with no current session is authoritative for
+    // snapshots that previously came from the backend. Keep only a genuinely
+    // unsynchronised local start (session === null), which may still be retried.
+    for (const key of existingKeys) {
+      const snapshot = parseSnapshot(localStorage.getItem(key));
+      if (!snapshot || snapshot.session !== null) localStorage.removeItem(key);
+    }
+    return;
+  }
+
+  // Once the backend returns a session, it is the sole source of truth. Removing
+  // all older per-user snapshots prevents deleted/replaced rows from resurfacing.
+  for (const key of existingKeys) localStorage.removeItem(key);
+
+  if (!session.dayStartedAt) return;
 
   if (session.status === "submitted" || session.status === "cancelled") {
-    localStorage.removeItem(keyFor(userId, session.workDate));
     return;
   }
   if (session.status !== "started" && session.status !== "ended") return;
@@ -141,18 +167,23 @@ export function persistLocalDaySessionFromBackend(session: DaySession | null): v
   localStorage.setItem(keyFor(userId, session.workDate), JSON.stringify(snapshot));
 }
 
+export function discardLocalDaySessionSnapshot(snapshot: LocalDaySessionSnapshot | null): void {
+  if (!snapshot) return;
+  const localStorage = storage();
+  const userId = activeGmUserId();
+  if (!localStorage || !userId || snapshot.userId !== userId) return;
+  localStorage.removeItem(keyFor(userId, snapshot.workDate));
+}
+
 export function readLatestLocalDaySessionSnapshot(): LocalDaySessionSnapshot | null {
   const localStorage = storage();
   const userId = activeGmUserId();
   if (!localStorage || !userId) return null;
-  const prefix = `${STORAGE_PREFIX}${userId}:`;
   let latest: LocalDaySessionSnapshot | null = null;
 
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
-    if (!key?.startsWith(prefix)) continue;
+  for (const key of snapshotKeysForUser(localStorage, userId)) {
     const snapshot = parseSnapshot(localStorage.getItem(key));
-    if (!snapshot || !isFreshSnapshot(snapshot)) {
+    if (!snapshot || snapshot.userId !== userId || !isFreshSnapshot(snapshot)) {
       localStorage.removeItem(key);
       continue;
     }

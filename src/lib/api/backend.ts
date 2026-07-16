@@ -348,6 +348,7 @@ function purgeAuthScopedClientState(options?: { emit?: boolean }): void {
       window.localStorage.removeItem("admin_market_visits_v1");
       window.localStorage.removeItem("admin_photo_tag_pool_v1");
       removeStorageKeysWithPrefix(window.localStorage, "admin_photo_tag_pool_v2:");
+      removeStorageKeysWithPrefix(window.localStorage, "gm_day_session_local_v1:");
     } catch {
       // noop
     }

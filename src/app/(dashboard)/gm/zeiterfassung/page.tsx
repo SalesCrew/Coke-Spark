@@ -1747,6 +1747,7 @@ export default function GmZeiterfassungPage() {
         <CollapsibleMenu
           items={GM_MENU_ITEMS}
           enableKurti
+          enableClickToggle
           defaultIndex={2}
           onSelect={(_index, item) => {
             if (item.action === "logout") {

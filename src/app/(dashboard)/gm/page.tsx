@@ -578,6 +578,7 @@ export default function GMDashboard() {
         <CollapsibleMenu
           items={GM_MENU_ITEMS}
           enableKurti
+          enableClickToggle
           defaultIndex={0}
           onSelect={(_index, item) => {
             if (item.action === "logout") {

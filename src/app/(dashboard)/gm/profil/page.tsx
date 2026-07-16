@@ -925,6 +925,7 @@ export default function GmProfilPage() {
         <CollapsibleMenu
           items={GM_MENU_ITEMS}
           enableKurti
+          enableClickToggle
           defaultIndex={3}
           onSelect={(_index, item) => {
             if (item.action === "logout") {

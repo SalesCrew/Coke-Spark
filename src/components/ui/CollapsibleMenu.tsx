@@ -37,9 +37,11 @@ interface CollapsibleMenuProps {
   onSelect?: (index: number, item: MenuItem) => void;
   onLogout?: () => void;
   enableKurti?: boolean;
+  enableClickToggle?: boolean;
 }
 
 const HOLD_DELAY = 300;
+const CLICK_MOVE_TOLERANCE = 8;
 const ITEM_HEIGHT = 30;
 const CARD_PADDING = 5;
 const SETTINGS_PANEL_HEIGHT = 104;
@@ -100,6 +102,7 @@ export function CollapsibleMenu({
   onSelect,
   onLogout,
   enableKurti = false,
+  enableClickToggle = false,
 }: CollapsibleMenuProps) {
   const [activeIndex, setActiveIndex] = useState(defaultIndex);
   const [expanded, setExpanded] = useState(false);
@@ -120,6 +123,9 @@ export function CollapsibleMenu({
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const kurtiVideoRef = useRef<HTMLVideoElement>(null);
   const isHolding = useRef(false);
+  const holdActivated = useRef(false);
+  const pointerMoved = useRef(false);
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const [sliderPressed, setSliderPressed] = useState(false);
   const {
     previewPercent: textScalePercent,
@@ -397,12 +403,16 @@ export function CollapsibleMenu({
   );
 
   // --- Mouse ---
-  const onMouseDown = useCallback(() => {
+  const onMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (utilityPanelOpen) return;
     isHolding.current = true;
+    holdActivated.current = false;
+    pointerMoved.current = false;
+    pointerStart.current = { x: event.clientX, y: event.clientY };
     clearHold();
     holdTimer.current = setTimeout(() => {
       if (isHolding.current) {
+        holdActivated.current = true;
         setExpanded(true);
       }
     }, HOLD_DELAY);
@@ -411,14 +421,31 @@ export function CollapsibleMenu({
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!isHolding.current) return;
+      const start = pointerStart.current;
+      if (
+        start
+        && Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_MOVE_TOLERANCE
+      ) {
+        pointerMoved.current = true;
+      }
       const idx = getIndexFromY(e.clientY);
       setHoveredIndex(idx);
     };
 
     const onMouseUp = (e: MouseEvent) => {
       if (!isHolding.current) return;
+      const isShortClick = enableClickToggle && !holdActivated.current && !pointerMoved.current;
       clearHold();
       const idx = getIndexFromY(e.clientY);
+      pointerStart.current = null;
+
+      if (isShortClick && !expanded) {
+        isHolding.current = false;
+        setHoveredIndex(null);
+        setExpanded(true);
+        return;
+      }
+
       select(idx);
     };
 
@@ -428,15 +455,21 @@ export function CollapsibleMenu({
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
-  }, [clearHold, getIndexFromY, select]);
+  }, [clearHold, enableClickToggle, expanded, getIndexFromY, select]);
 
   // --- Touch ---
-  const onTouchStart = useCallback(() => {
+  const onTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     if (utilityPanelOpen) return;
+    const touch = event.touches[0];
+    if (!touch) return;
     isHolding.current = true;
+    holdActivated.current = false;
+    pointerMoved.current = false;
+    pointerStart.current = { x: touch.clientX, y: touch.clientY };
     clearHold();
     holdTimer.current = setTimeout(() => {
       if (isHolding.current) {
+        holdActivated.current = true;
         setExpanded(true);
       }
     }, HOLD_DELAY);
@@ -445,7 +478,16 @@ export function CollapsibleMenu({
   const onTouchMove = useCallback(
     (e: React.TouchEvent) => {
       if (!isHolding.current) return;
-      const idx = getIndexFromY(e.touches[0].clientY);
+      const touch = e.touches[0];
+      if (!touch) return;
+      const start = pointerStart.current;
+      if (
+        start
+        && Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > CLICK_MOVE_TOLERANCE
+      ) {
+        pointerMoved.current = true;
+      }
+      const idx = getIndexFromY(touch.clientY);
       setHoveredIndex(idx);
     },
     [getIndexFromY]
@@ -454,12 +496,27 @@ export function CollapsibleMenu({
   const onTouchEnd = useCallback(
     (e: React.TouchEvent) => {
       if (!isHolding.current) return;
+      const isShortClick = enableClickToggle && !holdActivated.current && !pointerMoved.current;
       clearHold();
       const touch = e.changedTouches[0];
+      if (!touch) {
+        isHolding.current = false;
+        pointerStart.current = null;
+        return;
+      }
       const idx = getIndexFromY(touch.clientY);
+      pointerStart.current = null;
+
+      if (isShortClick && !expanded) {
+        isHolding.current = false;
+        setHoveredIndex(null);
+        setExpanded(true);
+        return;
+      }
+
       select(idx);
     },
-    [clearHold, getIndexFromY, select]
+    [clearHold, enableClickToggle, expanded, getIndexFromY, select]
   );
 
   useEffect(() => clearHold, [clearHold]);

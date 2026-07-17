@@ -1107,6 +1107,9 @@ function DetailDrawer({
   const [tagsLoading, setTagsLoading] = useState(false);
   const [tagsSaving, setTagsSaving] = useState(false);
   const [tagError, setTagError] = useState<string | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageZoomOrigin, setImageZoomOrigin] = useState({ x: 50, y: 50 });
+  const imageContainerRef = useRef<HTMLDivElement>(null);
   const previewSrc = previewUrl?.signedUrl ?? "";
   const originalSrc = originalUrl?.signedUrl ?? "";
   const imageSrc = originalSrc || previewSrc;
@@ -1128,7 +1131,32 @@ function DetailDrawer({
     setSelectedTagIds([]);
     setTagSearch("");
     setTagError(null);
+    setImageZoom(1);
+    setImageZoomOrigin({ x: 50, y: 50 });
   }, [photo?.id]);
+
+  useEffect(() => {
+    const container = imageContainerRef.current;
+    if (!container || !imageSrc) return;
+
+    const handleWheelZoom = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const bounds = container.getBoundingClientRect();
+      setImageZoomOrigin({
+        x: Math.min(100, Math.max(0, ((event.clientX - bounds.left) / bounds.width) * 100)),
+        y: Math.min(100, Math.max(0, ((event.clientY - bounds.top) / bounds.height) * 100)),
+      });
+      setImageZoom((current) => {
+        const step = event.deltaY < 0 ? 0.2 : -0.2;
+        return Math.min(5, Math.max(1, Number((current + step).toFixed(2))));
+      });
+    };
+
+    container.addEventListener("wheel", handleWheelZoom, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheelZoom);
+  }, [imageSrc]);
 
   const startTagEditing = useCallback(async () => {
     if (!photo || !canEditTags) return;
@@ -1191,13 +1219,17 @@ function DetailDrawer({
           </div>
         ) : (
           <>
-            <div style={{ borderRadius: 16, overflow: "hidden", background: "#f1f2f4", border: SOFT_BORDER, minHeight: 280, position: "relative" }}>
+            <div
+              ref={imageContainerRef}
+              style={{ borderRadius: 16, overflow: "hidden", background: "#f1f2f4", border: SOFT_BORDER, minHeight: 280, position: "relative", cursor: imageSrc ? "crosshair" : "default" }}
+            >
               {imageSrc ? (
                 <img
                   src={imageSrc}
                   alt=""
                   decoding="async"
-                  style={{ width: "100%", maxHeight: 480, objectFit: "contain", display: "block", background: "#f6f6f7", filter: originalSrc ? "none" : "saturate(0.94)", opacity: originalSrc ? 1 : 0.88 }}
+                  draggable={false}
+                  style={{ width: "100%", maxHeight: 480, objectFit: "contain", display: "block", background: "#f6f6f7", filter: originalSrc ? "none" : "saturate(0.94)", opacity: originalSrc ? 1 : 0.88, transform: `scale(${imageZoom})`, transformOrigin: `${imageZoomOrigin.x}% ${imageZoomOrigin.y}%`, transition: "transform 90ms ease-out", willChange: imageZoom > 1 ? "transform" : "auto", userSelect: "none" }}
                 />
               ) : <div className="photoArchiveSkeleton" style={{ height: 320, display: "flex", alignItems: "center", justifyContent: "center" }}><ImageOff size={38} color="rgba(0,0,0,0.25)" /></div>}
             </div>

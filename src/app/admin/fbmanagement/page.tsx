@@ -135,6 +135,11 @@ type MarketWeekOption = {
   end: Date;
 };
 
+type MarketDateRange = {
+  dateFrom: string;
+  dateTo: string;
+};
+
 type FbManagementExportFilters = {
   campaignIds: string[];
   sections: CampaignSection[];
@@ -4469,7 +4474,14 @@ function AnswerPhoto({ answer }: { answer: AnswerPhotoEntry[] }) {
           );
         })}
         {overflow > 0 && (
-          <div style={{ padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.45)", border: "1px solid rgba(0,0,0,0.07)" }}>+{overflow}</div>
+          <button
+            type="button"
+            onClick={() => setLightbox(visibleCount)}
+            style={{ minHeight: 34, padding: "3px 10px", borderRadius: 7, fontFamily: "inherit", fontSize: 10, fontWeight: 700, background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.52)", border: "1px solid rgba(0,0,0,0.08)", cursor: "pointer" }}
+            title={`Alle ${count} Fotos öffnen`}
+          >
+            +{overflow}
+          </button>
         )}
       </div>
       {overlay}
@@ -4490,6 +4502,25 @@ function AdminAnswerPhoto({
   const [photoToDelete, setPhotoToDelete] = useState<AnswerPhotoEntry | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    if (lightboxIndex >= answer.length) {
+      setLightboxIndex(answer.length > 0 ? answer.length - 1 : null);
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLightboxIndex(null);
+      if (event.key === "ArrowLeft") {
+        setLightboxIndex((current) => current === null ? null : (current - 1 + answer.length) % answer.length);
+      }
+      if (event.key === "ArrowRight") {
+        setLightboxIndex((current) => current === null ? null : (current + 1) % answer.length);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [answer.length, lightboxIndex]);
 
   const getFileName = (photo: AnswerPhotoEntry, idx: number) => {
     const raw = photo.storagePath || photo.src;
@@ -4601,6 +4632,35 @@ function AdminAnswerPhoto({
           <X size={15} strokeWidth={2.1} />
         </button>
       </div>
+      {answer.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setLightboxIndex((current) => current === null ? 0 : (current - 1 + answer.length) % answer.length);
+            }}
+            aria-label="Vorheriges Foto"
+            style={{ position: "absolute", left: 24, top: "50%", transform: "translateY(-50%)", width: 42, height: 42, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.24)", background: "rgba(15,23,42,0.46)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+          >
+            <ChevronLeft size={19} strokeWidth={2.2} />
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setLightboxIndex((current) => current === null ? 0 : (current + 1) % answer.length);
+            }}
+            aria-label="Nächstes Foto"
+            style={{ position: "absolute", right: 24, top: "50%", transform: "translateY(-50%)", width: 42, height: 42, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.24)", background: "rgba(15,23,42,0.46)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+          >
+            <ChevronRight size={19} strokeWidth={2.2} />
+          </button>
+          <div style={{ position: "absolute", bottom: 22, left: "50%", transform: "translateX(-50%)", padding: "5px 10px", borderRadius: 999, background: "rgba(15,23,42,0.54)", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.82)", fontSize: 10, fontWeight: 800, fontVariantNumeric: "tabular-nums", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
+            {(lightboxIndex ?? 0) + 1} / {answer.length}
+          </div>
+        </>
+      )}
     </div>,
     document.body,
   ) : null;
@@ -5913,6 +5973,15 @@ function MarketVisitDetail({
                   </div>
                   <div style={{ paddingLeft: 22 }}>
                     {editingQuestionId === q.id ? renderEditControls(q) : renderAnswer(q)}
+                    {editingQuestionId !== q.id && q.comment.trim() && (
+                      <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(15,23,42,0.07)", background: "rgba(15,23,42,0.025)", display: "flex", alignItems: "flex-start", gap: 7 }}>
+                        <FileText size={11} strokeWidth={1.9} color="rgba(15,23,42,0.34)" style={{ marginTop: 1, flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>Kommentar</div>
+                          <div style={{ marginTop: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 10.5, lineHeight: 1.48, fontWeight: 560, color: "rgba(15,23,42,0.68)" }}>{q.comment}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -6716,19 +6785,25 @@ function MarketFilterChip({
 
 // ── Market edit menu (small 2-option popover) ─────────────────
 
-function MarketWeekFilterChip({
+function MarketTimeframeFilterChip({
   values,
   options,
   onChange,
   formatOption,
+  dateRange,
+  onDateRangeChange,
 }: {
   values: string[];
   options: string[];
   onChange: (values: string[]) => void;
   formatOption: (value: string) => string;
+  dateRange: MarketDateRange | null;
+  onDateRangeChange: (dateRange: MarketDateRange | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [draftFrom, setDraftFrom] = useState(dateRange?.dateFrom ?? "");
+  const [draftTo, setDraftTo] = useState(dateRange?.dateTo ?? "");
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -6739,8 +6814,8 @@ function MarketWeekFilterChip({
       const margin = 12;
       const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth ?? window.innerWidth;
       const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight;
-      const menuWidth = Math.min(168, Math.max(120, viewportWidth - margin * 2));
-      const menuHeight = Math.min(260, options.length * 32 + 42);
+      const menuWidth = Math.min(286, Math.max(240, viewportWidth - margin * 2));
+      const menuHeight = Math.min(420, options.length * 32 + 174);
       const preferredX = r.right - menuWidth;
       const x = Math.min(Math.max(margin, preferredX), viewportWidth - menuWidth - margin);
       const belowY = r.bottom + 5;
@@ -6770,16 +6845,24 @@ function MarketWeekFilterChip({
   }, [open, syncPos]);
 
   const toggleOpen = () => {
+    setDraftFrom(dateRange?.dateFrom ?? "");
+    setDraftTo(dateRange?.dateTo ?? "");
     syncPos();
     setOpen((current) => !current);
   };
 
-  const active = values.length > 0;
-  const compactLabel = values.length === 0
-    ? "Woche"
-    : values.length === 1
+  const active = values.length > 0 || Boolean(dateRange);
+  const formatDate = (value: string) => value
+    ? new Date(`${value}T12:00:00`).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "2-digit" })
+    : "";
+  const compactLabel = dateRange
+    ? `${formatDate(dateRange.dateFrom)}–${formatDate(dateRange.dateTo)}`
+    : values.length === 0
+      ? "Zeitraum"
+      : values.length === 1
       ? formatOption(values[0])
       : `${formatOption(values[0])} +${values.length - 1}`;
+  const draftRangeValid = Boolean(draftFrom && draftTo && draftFrom <= draftTo);
 
   return (
     <>
@@ -6787,7 +6870,8 @@ function MarketWeekFilterChip({
         ref={btnRef}
         onClick={toggleOpen}
         style={{
-          width: 92,
+          maxWidth: 170,
+          minWidth: 92,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -6812,6 +6896,7 @@ function MarketWeekFilterChip({
             onMouseDown={(e) => {
               e.stopPropagation();
               onChange([]);
+              onDateRangeChange(null);
             }}
             style={{ flex: "0 0 auto", cursor: "pointer", display: "flex", alignItems: "center" }}
           >
@@ -6825,9 +6910,71 @@ function MarketWeekFilterChip({
         <div
           className="fbm-filter-popover"
           onMouseDown={(e) => e.stopPropagation()}
-          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9998, width: 168, maxWidth: "calc(100vw - 24px)", maxHeight: 260, overflowY: "auto", background: "#fff", borderRadius: 10, padding: 4, boxShadow: "0 8px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.055)", animation: "mfcIn 0.14s ease both" }}
+          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9998, width: 286, maxWidth: "calc(100vw - 24px)", maxHeight: "min(420px, calc(100vh - 24px))", overflowY: "auto", background: "#fff", borderRadius: 12, padding: 6, boxShadow: "0 12px 38px rgba(15,23,42,0.14), 0 2px 8px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.06)", animation: "mfcIn 0.14s ease both" }}
         >
           <style>{`@keyframes mfcIn { from { opacity:0; transform:translateY(-4px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } } .fbm-filter-popover { scrollbar-width: none; -ms-overflow-style: none; } .fbm-filter-popover::-webkit-scrollbar { display: none; }`}</style>
+          <div style={{ padding: "9px 9px 10px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 850, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>Freier Zeitraum</div>
+                <div style={{ marginTop: 2, fontSize: 10, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.46)" }}>Besuchsdatum von/bis</div>
+              </div>
+              {active && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange([]);
+                    onDateRangeChange(null);
+                    setDraftFrom("");
+                    setDraftTo("");
+                  }}
+                  style={{ padding: 0, border: 0, background: "transparent", color: "#DC2626", fontFamily: "inherit", fontSize: 9.5, fontWeight: 800, cursor: "pointer" }}
+                >
+                  Zurücksetzen
+                </button>
+              )}
+            </div>
+            <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>Von</span>
+                <input
+                  type="date"
+                  value={draftFrom}
+                  max={draftTo || undefined}
+                  onChange={(event) => setDraftFrom(event.target.value)}
+                  style={{ width: "100%", minWidth: 0, height: 31, borderRadius: 8, border: "1px solid rgba(15,23,42,0.09)", background: "rgba(15,23,42,0.025)", padding: "0 7px", outline: 0, color: "#111827", fontFamily: "inherit", fontSize: 9.5, fontWeight: 650, boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(15,23,42,0.34)" }}>Bis</span>
+                <input
+                  type="date"
+                  value={draftTo}
+                  min={draftFrom || undefined}
+                  onChange={(event) => setDraftTo(event.target.value)}
+                  style={{ width: "100%", minWidth: 0, height: 31, borderRadius: 8, border: "1px solid rgba(15,23,42,0.09)", background: "rgba(15,23,42,0.025)", padding: "0 7px", outline: 0, color: "#111827", fontFamily: "inherit", fontSize: 9.5, fontWeight: 650, boxSizing: "border-box" }}
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              disabled={!draftRangeValid}
+              onClick={() => {
+                if (!draftRangeValid) return;
+                onChange([]);
+                onDateRangeChange({ dateFrom: draftFrom, dateTo: draftTo });
+                setOpen(false);
+              }}
+              style={{ marginTop: 8, width: "100%", height: 30, borderRadius: 8, border: draftRangeValid ? "1px solid #b91c1c" : "1px solid rgba(15,23,42,0.07)", background: draftRangeValid ? "linear-gradient(to bottom,#ef3038,#dc2626)" : "rgba(15,23,42,0.035)", color: draftRangeValid ? "#fff" : "rgba(15,23,42,0.30)", fontFamily: "inherit", fontSize: 10, fontWeight: 820, cursor: draftRangeValid ? "pointer" : "not-allowed", boxShadow: draftRangeValid ? "inset 0 1px 0 rgba(255,255,255,0.28), 0 3px 9px rgba(220,38,38,0.14)" : "none" }}
+            >
+              Zeitraum anwenden
+            </button>
+            {draftFrom && draftTo && draftFrom > draftTo && (
+              <div style={{ marginTop: 6, fontSize: 9, fontWeight: 700, color: "#DC2626" }}>„Bis“ muss nach „Von“ liegen.</div>
+            )}
+          </div>
+          <div style={{ height: 1, background: "rgba(15,23,42,0.07)", margin: "0 5px 5px" }} />
+          <div style={{ padding: "5px 9px", fontSize: 9, fontWeight: 850, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>Kalenderwochen</div>
           {values.length > 0 && (
             <button
               onClick={() => onChange([])}
@@ -6847,7 +6994,10 @@ function MarketWeekFilterChip({
             return (
               <button
                 key={opt}
-                onClick={() => onChange(toggleListValue(values, opt))}
+                onClick={() => {
+                  onDateRangeChange(null);
+                  onChange(toggleListValue(values, opt));
+                }}
                 style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: sel ? 600 : 400, textAlign: "left", background: sel ? "rgba(0,0,0,0.05)" : "transparent", color: sel ? "#1a1a1a" : "#374151", transition: "background 0.1s ease" }}
                 onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
                 onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
@@ -7389,6 +7539,9 @@ export default function FbManagementPage() {
   const [marketSearch, setMarketSearch] = useState("");
   const [marketFilters, setMarketFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
   const [marketWeekFilters, setMarketWeekFilters] = useState<string[]>([]);
+  const [marketDateRange, setMarketDateRange] = useState<MarketDateRange | null>(null);
+  const [marketDateRangeStatusByMarket, setMarketDateRangeStatusByMarket] = useState<CampaignVisitStatusByMarket | null>(null);
+  const [marketDateRangeStatusLoading, setMarketDateRangeStatusLoading] = useState(false);
   const [marketEditMode, setMarketEditMode] = useState<"idle" | "remove" | "add">("idle");
   const [editMenuOpen, setEditMenuOpen] = useState(false);
   const [editMenuPos, setEditMenuPos] = useState({ x: 0, y: 0 });
@@ -7859,6 +8012,7 @@ export default function FbManagementPage() {
     setMarketSearch("");
     setMarketFilters({ chain: null, gm: null, city: null, region: null });
     setMarketWeekFilters([]);
+    setMarketDateRange(null);
     setMarketFilter("all");
   }, []);
   const previewQuestions = useMemo(() => {
@@ -8132,6 +8286,7 @@ export default function FbManagementPage() {
         setMarketSearch("");
         setMarketFilters({ chain: null, gm: null, city: null, region: null });
         setMarketWeekFilters([]);
+        setMarketDateRange(null);
         setMarketFilter("all");
       }
       setCampaignContextMenu(null);
@@ -8188,7 +8343,42 @@ export default function FbManagementPage() {
     () => (campaignId ? visitStatusByCampaignId[campaignId] ?? {} : {}),
     [campaignId, visitStatusByCampaignId],
   );
-  const selectedVisitStatus = selectedMarket ? campaignVisitStatusByMarket[selectedMarket] ?? null : null;
+
+  useEffect(() => {
+    if (!campaignId || !marketDateRange) {
+      setMarketDateRangeStatusByMarket(null);
+      setMarketDateRangeStatusLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setMarketDateRangeStatusByMarket(null);
+    setMarketDateRangeStatusLoading(true);
+    setVisitLoadError(null);
+    void fetchCampaignMarketVisitStatuses([campaignId], marketDateRange)
+      .then((batches) => {
+        if (cancelled) return;
+        const batch = batches.find((entry) => entry.campaignId === campaignId);
+        setMarketDateRangeStatusByMarket(Object.fromEntries(
+          (batch?.markets ?? []).map((status) => [getCampaignVisitStatusRowId(status), status]),
+        ) as CampaignVisitStatusByMarket);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setMarketDateRangeStatusByMarket({});
+        setVisitLoadError(error instanceof Error ? error.message : "Zeitraum konnte nicht geladen werden.");
+      })
+      .finally(() => {
+        if (!cancelled) setMarketDateRangeStatusLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignId, marketDateRange]);
+
+  const displayedCampaignVisitStatusByMarket = marketDateRange
+    ? marketDateRangeStatusByMarket ?? {}
+    : campaignVisitStatusByMarket;
+  const selectedVisitStatus = selectedMarket ? displayedCampaignVisitStatusByMarket[selectedMarket] ?? null : null;
   const selectedMarketId = selectedVisitStatus?.marketId ?? selectedMarket;
   const selectedVisitDetailKey =
     campaignId && selectedMarketId && selectedVisitStatus?.hasSubmittedVisit
@@ -8241,7 +8431,20 @@ export default function FbManagementPage() {
       return Boolean(visitWeekKey && selectedWeeks.has(visitWeekKey));
     });
   }, [assignedMarkets, campaignVisitStatusByMarket, marketWeekFilters]);
-  const countBaseMarkets = marketWeekFilters.length > 0 ? weekFilteredAssignedMarkets : assignedMarkets;
+  const dateFilteredAssignedMarkets = useMemo(() => {
+    if (!marketDateRange) return assignedMarkets;
+    return assignedMarkets.filter((market) => {
+      const marketId = market.marketId ?? market.id;
+      const visitStatus = displayedCampaignVisitStatusByMarket[market.id] ?? displayedCampaignVisitStatusByMarket[marketId] ?? null;
+      return Boolean(visitStatus?.hasSubmittedVisit);
+    });
+  }, [assignedMarkets, displayedCampaignVisitStatusByMarket, marketDateRange]);
+  const hasMarketTimeFilter = marketWeekFilters.length > 0 || Boolean(marketDateRange);
+  const countBaseMarkets = marketDateRange
+    ? dateFilteredAssignedMarkets
+    : marketWeekFilters.length > 0
+      ? weekFilteredAssignedMarkets
+      : assignedMarkets;
   const finishedCount = useMemo(() => countBaseMarkets.filter((m) => m.finished).length, [countBaseMarkets]);
   const pendingCount = Math.max(0, countBaseMarkets.length - finishedCount);
 
@@ -8447,7 +8650,7 @@ export default function FbManagementPage() {
 
   useEffect(() => {
     setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
-  }, [campaignId, marketEditMode, marketFilter, marketSearch, marketWeekFilters, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
+  }, [campaignId, marketDateRange, marketEditMode, marketFilter, marketSearch, marketWeekFilters, marketFilters.chain, marketFilters.gm, marketFilters.city, marketFilters.region]);
 
   const handleMarketFilterChange = useCallback((nextFilter: "all" | "finished" | "pending") => {
     setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
@@ -10418,7 +10621,7 @@ export default function FbManagementPage() {
             <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>
               {assignedMarketDisplayCount} {campaign?.section === "kuehler" ? "Kühler" : "Märkte"} gesamt
             </span>
-            {(isVisitStatusLoading || assignedMarketMetaPending) && (
+            {(isVisitStatusLoading || marketDateRangeStatusLoading || assignedMarketMetaPending) && (
               <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.42)" }}>
                 {assignedMarketMetaPending ? "Märkte laden..." : "Besuchsstatus lädt..."}
               </span>
@@ -10433,7 +10636,7 @@ export default function FbManagementPage() {
                     style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" as const }}
                   >
                     {f === "all"
-                      ? `Alle (${marketWeekFilters.length > 0 ? countBaseMarkets.length : assignedMarketDisplayCount})`
+                      ? `Alle (${hasMarketTimeFilter ? countBaseMarkets.length : assignedMarketDisplayCount})`
                       : campaignStatusMetricsLoading
                         ? f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
                         : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
@@ -10529,14 +10732,24 @@ export default function FbManagementPage() {
               setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
               setMarketFilters((p) => ({ ...p, region: v }));
             }} />
-            <MarketWeekFilterChip
+            <MarketTimeframeFilterChip
               values={marketWeekFilters}
               options={marketWeekOptions.map((option) => option.key)}
               formatOption={(value) => marketWeekLabelByKey.get(value) ?? value}
+              dateRange={marketDateRange}
               onChange={(values) => {
                 setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
                 setMarketWeekFilters(values);
+                if (values.length > 0) setMarketDateRange(null);
                 if (values.length > 0) setMarketFilter("finished");
+              }}
+              onDateRangeChange={(dateRange) => {
+                setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
+                setMarketDateRange(dateRange);
+                if (dateRange) {
+                  setMarketWeekFilters([]);
+                  setMarketFilter("finished");
+                }
               }}
             />
           </div>
@@ -10555,8 +10768,8 @@ export default function FbManagementPage() {
           )}
           {visibleFilteredMarkets.map((m) => {
             const marketIdForMutation = m.marketId ?? m.id;
-            const visitStatus = campaignVisitStatusByMarket[m.id] ?? campaignVisitStatusByMarket[marketIdForMutation] ?? null;
-            const rowStatusLoading = Boolean(campaign && !campaign.statusLoaded && (campaign.statusLoading || isVisitStatusLoading));
+            const visitStatus = displayedCampaignVisitStatusByMarket[m.id] ?? displayedCampaignVisitStatusByMarket[marketIdForMutation] ?? null;
+            const rowStatusLoading = marketDateRangeStatusLoading || Boolean(campaign && !campaign.statusLoaded && (campaign.statusLoading || isVisitStatusLoading));
             return (
               <MarketRow
                 key={m.id}
@@ -10575,7 +10788,7 @@ export default function FbManagementPage() {
           {selectedMarket && (() => {
             const m = selectedMarketId ? marketsData.find((x) => x.id === selectedMarketId) : null;
             if (!m) return null;
-            const visitStatus = selectedVisitStatus ?? campaignVisitStatusByMarket[m.id] ?? null;
+            const visitStatus = selectedVisitStatus ?? displayedCampaignVisitStatusByMarket[m.id] ?? null;
             if (!campaignId || !visitStatus?.hasSubmittedVisit) return null;
             const retryDetail = () => {
               void refreshMarketVisitDetail(campaignId, m.id, visitStatus.sessionId, { force: true });

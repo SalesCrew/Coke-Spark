@@ -541,8 +541,6 @@ function MatrixAnswer({ question }: { question: VisitQuestion }) {
   );
 }
 
-type ActivityPhotoTagMode = "all" | "perPhoto";
-
 type ActivityPhotoEntry = {
   key: string;
   id?: string;
@@ -575,12 +573,6 @@ function normalizePhotoTagIds(values: unknown[]): string[] {
   );
 }
 
-function samePhotoTagSet(left: string[], right: string[]): boolean {
-  const normalizedLeft = normalizePhotoTagIds(left).sort();
-  const normalizedRight = normalizePhotoTagIds(right).sort();
-  return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((value, index) => value === normalizedRight[index]);
-}
-
 function unionPhotoTagIds(groups: string[][]): string[] {
   return normalizePhotoTagIds(groups.flat());
 }
@@ -611,8 +603,6 @@ function configuredPhotoTags(question: VisitQuestion): ActivityPhotoTagMeta[] {
 
 function initialActivityPhotoState(question: VisitQuestion): {
   photos: ActivityPhotoEntry[];
-  tagMode: ActivityPhotoTagMode;
-  sharedTagIds: string[];
 } {
   const photos = (question.answer?.photos ?? []).map((photo, index): ActivityPhotoEntry => ({
     key: photo.storagePath || photo.id || `photo-${index}`,
@@ -628,12 +618,12 @@ function initialActivityPhotoState(question: VisitQuestion): {
     tagIds: normalizePhotoTagIds(photo.tags.map((tag) => tag.photoTagId).filter(Boolean)),
   }));
   const tagGroups = photos.map((photo) => photo.tagIds);
-  const firstGroup = tagGroups[0] ?? [];
-  const tagsAreShared = tagGroups.length <= 1 || tagGroups.every((group) => samePhotoTagSet(group, firstGroup));
+  const sharedTagIds = unionPhotoTagIds(tagGroups);
   return {
-    photos,
-    tagMode: tagsAreShared ? "all" : "perPhoto",
-    sharedTagIds: tagsAreShared ? normalizePhotoTagIds(firstGroup) : unionPhotoTagIds(tagGroups),
+    photos: photos.map((photo) => ({
+      ...photo,
+      tagIds: photo.tagIds.length > 0 ? photo.tagIds : sharedTagIds,
+    })),
   };
 }
 
@@ -678,8 +668,6 @@ function PhotoDirectEditForm({
   const initial = useMemo(() => initialActivityPhotoState(question), [question]);
   const configuredTags = useMemo(() => configuredPhotoTags(question), [question]);
   const [photos, setPhotos] = useState<ActivityPhotoEntry[]>(initial.photos);
-  const [tagMode, setTagMode] = useState<ActivityPhotoTagMode>(initial.tagMode);
-  const [sharedTagIds, setSharedTagIds] = useState<string[]>(initial.sharedTagIds);
   const [activePhotoKey, setActivePhotoKey] = useState(initial.photos[0]?.key ?? "");
   const [tagSearch, setTagSearch] = useState("");
   const [saving, setSaving] = useState(false);
@@ -704,7 +692,7 @@ function PhotoDirectEditForm({
   }, [activePhotoKey, photos]);
 
   const activePhoto = photos.find((photo) => photo.key === activePhotoKey) ?? photos[0] ?? null;
-  const currentTagIds = tagMode === "all" ? sharedTagIds : normalizePhotoTagIds(activePhoto?.tagIds ?? []);
+  const currentTagIds = normalizePhotoTagIds(activePhoto?.tagIds ?? []);
   const normalizedTagSearch = normalizeTagSearchText(tagSearch);
   const visibleTags = normalizedTagSearch
     ? configuredTags.filter((tag) => currentTagIds.includes(tag.id) || normalizeTagSearchText(tag.label).includes(normalizedTagSearch))
@@ -723,7 +711,7 @@ function PhotoDirectEditForm({
         previewUrl,
         mimeType: file.type || null,
         byteSize: file.size,
-        tagIds: tagMode === "all" ? normalizePhotoTagIds(sharedTagIds) : [],
+        tagIds: [],
       };
     });
     setPhotos((current) => [...current, ...nextPhotos]);
@@ -734,23 +722,7 @@ function PhotoDirectEditForm({
     setPhotos((current) => current.filter((photo) => photo.key !== key));
   };
 
-  const switchTagMode = (nextMode: ActivityPhotoTagMode) => {
-    if (nextMode === tagMode) return;
-    if (nextMode === "perPhoto") {
-      setPhotos((current) => current.map((photo) => ({ ...photo, tagIds: normalizePhotoTagIds(sharedTagIds) })));
-      setTagMode("perPhoto");
-      return;
-    }
-    const nextShared = unionPhotoTagIds(photos.map((photo) => photo.tagIds));
-    setSharedTagIds(nextShared);
-    setTagMode("all");
-  };
-
   const toggleTag = (tagId: string) => {
-    if (tagMode === "all") {
-      setSharedTagIds((current) => current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId]);
-      return;
-    }
     if (!activePhoto) return;
     setPhotos((current) => current.map((photo) => {
       if (photo.key !== activePhoto.key) return photo;
@@ -767,11 +739,9 @@ function PhotoDirectEditForm({
       return;
     }
     if (question.required && tagsEnabled) {
-      const validTags = tagMode === "all"
-        ? sharedTagIds.length > 0
-        : photos.every((photo) => normalizePhotoTagIds(photo.tagIds).length > 0);
+      const validTags = photos.every((photo) => normalizePhotoTagIds(photo.tagIds).length > 0);
       if (!validTags) {
-        setError(tagMode === "all" ? "Bitte waehle mindestens einen Tag aus." : "Bitte tagge jedes Foto.");
+        setError("Bitte tagge jedes Foto.");
         return;
       }
     }
@@ -783,7 +753,7 @@ function PhotoDirectEditForm({
         ?? (await saveGmVisitAnswer({ sessionId, visitQuestionId: question.id })).result.answerId;
       const committedPhotos = [];
       for (const photo of photos) {
-        const photoTagIds = tagMode === "all" ? normalizePhotoTagIds(sharedTagIds) : normalizePhotoTagIds(photo.tagIds);
+        const photoTagIds = normalizePhotoTagIds(photo.tagIds);
         if (photo.file) {
           const ext = (photo.file.name.split(".").pop() ?? "jpg").toLowerCase();
           const presign = await presignGmVisitPhoto({ sessionId, visitAnswerId: answerId, extension: ext });
@@ -861,7 +831,7 @@ function PhotoDirectEditForm({
           {photos.map((photo, index) => {
             const active = activePhoto?.key === photo.key;
             const src = photo.previewUrl ?? photo.signedUrl ?? "";
-            const tagCount = tagMode === "all" ? sharedTagIds.length : photo.tagIds.length;
+            const tagCount = photo.tagIds.length;
             return (
               <div
                 key={photo.key}
@@ -901,12 +871,8 @@ function PhotoDirectEditForm({
         <div className="gm-activity-photo-tag-panel">
           {photos.length > 1 ? (
             <div className="gm-activity-photo-tag-mode">
-              {(["all", "perPhoto"] as const).map((mode) => (
-                <button key={mode} type="button" className={tagMode === mode ? "active" : ""} onClick={() => switchTagMode(mode)}>
-                  {mode === "all" ? "Alle Fotos" : "Einzeln"}
-                </button>
-              ))}
-              <span>{tagMode === "all" ? "gleiche Tags" : "pro Foto"}</span>
+              <button type="button" className="active">Einzeln</button>
+              <span>pro Foto</span>
             </div>
           ) : null}
           <div className="gm-activity-photo-tag-search">

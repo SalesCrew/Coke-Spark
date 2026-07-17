@@ -176,7 +176,8 @@ function decodePhotoAnswer(raw: string | string[] | undefined): PhotoAnswerState
   try {
     const parsed = JSON.parse(raw as string) as Partial<PhotoAnswerState>;
     if (parsed && Array.isArray(parsed.photos)) {
-      const tagMode = parsed.tagMode === "perPhoto" ? "perPhoto" : "all";
+      const photos = parsed.photos.filter((entry): entry is string => typeof entry === "string");
+      const sharedTagIds = normalizePhotoTagIds(parsed.selectedTagIds ?? []);
       const photoTagIdsByPhotoKey =
         parsed.photoTagIdsByPhotoKey && typeof parsed.photoTagIdsByPhotoKey === "object"
           ? Object.fromEntries(
@@ -185,10 +186,17 @@ function decodePhotoAnswer(raw: string | string[] | undefined): PhotoAnswerState
                 .map(([key, value]) => [key, normalizePhotoTagIds(value as string[])]),
             )
           : {};
+      if (parsed.tagMode !== "perPhoto" && sharedTagIds.length > 0) {
+        photos.forEach((photo, index) => {
+          const key = resolvePhotoUiKey(photos, index);
+          if (!photoTagIdsByPhotoKey[key]?.length) photoTagIdsByPhotoKey[key] = sharedTagIds;
+          if (photo && !photoTagIdsByPhotoKey[photo]?.length) photoTagIdsByPhotoKey[photo] = sharedTagIds;
+        });
+      }
       return {
-        photos: parsed.photos.filter((entry): entry is string => typeof entry === "string"),
-        selectedTagIds: normalizePhotoTagIds(parsed.selectedTagIds ?? []),
-        tagMode,
+        photos,
+        selectedTagIds: unionPhotoTagIds([sharedTagIds, ...Object.values(photoTagIdsByPhotoKey)]),
+        tagMode: "perPhoto",
         photoTagIdsByPhotoKey,
       };
     }
@@ -207,12 +215,6 @@ function normalizePhotoTagIds(values: unknown[]): string[] {
   );
 }
 
-function samePhotoTagSet(left: string[], right: string[]): boolean {
-  const normalizedLeft = normalizePhotoTagIds(left).sort();
-  const normalizedRight = normalizePhotoTagIds(right).sort();
-  return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((value, index) => value === normalizedRight[index]);
-}
-
 function unionPhotoTagIds(groups: string[][]): string[] {
   return normalizePhotoTagIds(groups.flat());
 }
@@ -222,11 +224,10 @@ function resolvePhotoUiKey(photos: string[], index: number): string {
 }
 
 function resolvePhotoTagMode(state: PhotoAnswerState): PhotoTagMode {
-  return state.tagMode === "perPhoto" ? "perPhoto" : "all";
+  return "perPhoto";
 }
 
 function photoTagsForUiKey(state: PhotoAnswerState, photoKey: string): string[] {
-  if (resolvePhotoTagMode(state) !== "perPhoto") return normalizePhotoTagIds(state.selectedTagIds);
   return normalizePhotoTagIds(state.photoTagIdsByPhotoKey?.[photoKey] ?? []);
 }
 
@@ -236,7 +237,6 @@ function photoTagsForCommit(
   index: number,
   photoKeys: string[],
 ): string[] {
-  if (resolvePhotoTagMode(state) !== "perPhoto") return normalizePhotoTagIds(state.selectedTagIds);
   const byKey = state.photoTagIdsByPhotoKey ?? {};
   const candidates = [meta.storagePath, photoKeys[index], resolvePhotoUiKey(state.photos, index)].filter(
     (entry): entry is string => typeof entry === "string" && entry.length > 0,
@@ -1720,7 +1720,7 @@ function PhotoLightbox({
   onActivePhotoIndexChange,
   tagsEnabled = false,
   tags = [],
-  tagMode = "all",
+  tagMode = "perPhoto",
   tagSearch = "",
   onTagSearchChange,
   selectedTagIdsForIndex,
@@ -1863,7 +1863,7 @@ function PhotoLightbox({
                   Tags bearbeiten
                 </div>
                 <div style={{ marginTop: 2, fontSize: 12, fontWeight: 850, color: "#111827" }}>
-                  {tagMode === "perPhoto" ? `Foto ${open + 1}` : "Alle Fotos"}
+                  Foto {open + 1}
                 </div>
               </div>
               <div style={{ fontSize: 10, fontWeight: 800, color: "rgba(0,0,0,0.34)" }}>
@@ -2827,72 +2827,29 @@ function QuestionCard({
           handlePhotoAnswerState(nextState);
           setActivePhotoIndex((prev) => Math.min(Math.max(0, prev), Math.max(0, nextPhotos.length - 1)));
         };
-        const handleTagModeChange = async (nextMode: PhotoTagMode) => {
-          if (nextMode === tagMode) return;
-          let nextState: PhotoAnswerState;
-          if (nextMode === "perPhoto") {
-            const nextMap = { ...(photoState.photoTagIdsByPhotoKey ?? {}) };
-            photoKeys.forEach((key) => {
-              nextMap[key] = normalizePhotoTagIds(photoState.selectedTagIds);
-            });
-            nextState = {
-              ...photoState,
-              tagMode: "perPhoto",
-              selectedTagIds: normalizePhotoTagIds(photoState.selectedTagIds),
-              photoTagIdsByPhotoKey: nextMap,
-            };
-          } else {
-            const nextSelected = unionPhotoTagIds(photoKeys.map((key) => photoTagsForUiKey(photoState, key)));
-            nextState = {
-              ...photoState,
-              tagMode: "all",
-              selectedTagIds: nextSelected,
-              photoTagIdsByPhotoKey: photoState.photoTagIdsByPhotoKey ?? {},
-            };
-          }
-          handlePhotoAnswerState(nextState);
-          if (nextState.photos.length > 0) {
-            schedulePhotoTagSync({
-              questionId: question.id,
-              photoState: nextState,
-              photoKeys,
-            });
-          }
-        };
         const selectedTagIdsForPhotoIndex = (index: number) => {
           const photoKey = photoKeys[index] ?? resolvePhotoUiKey(photos, index);
-          return tagMode === "perPhoto"
-            ? photoTagsForUiKey(photoState, photoKey)
-            : normalizePhotoTagIds(photoState.selectedTagIds);
+          return photoTagsForUiKey(photoState, photoKey);
         };
 
         const toggleTagForPhotoIndex = (id: string, index: number) => {
           const targetPhotoKey = photoKeys[index] ?? resolvePhotoUiKey(photos, index);
-          const currentSelected = tagMode === "perPhoto"
-            ? photoTagsForUiKey(photoState, targetPhotoKey)
-            : normalizePhotoTagIds(photoState.selectedTagIds);
+          const currentSelected = photoTagsForUiKey(photoState, targetPhotoKey);
           const nextSelected = currentSelected.includes(id)
             ? currentSelected.filter((tagId) => tagId !== id)
             : [...currentSelected, id];
-          const nextState: PhotoAnswerState =
-            tagMode === "perPhoto"
-              ? {
-                  ...photoState,
-                  tagMode: "perPhoto",
-                  selectedTagIds: unionPhotoTagIds([
-                    ...photoKeys.filter((key) => key !== targetPhotoKey).map((key) => photoTagsForUiKey(photoState, key)),
-                    nextSelected,
-                  ]),
-                  photoTagIdsByPhotoKey: {
-                    ...(photoState.photoTagIdsByPhotoKey ?? {}),
-                    [targetPhotoKey]: normalizePhotoTagIds(nextSelected),
-                  },
-                }
-              : {
-                  ...photoState,
-                  tagMode: "all",
-                  selectedTagIds: normalizePhotoTagIds(nextSelected),
-                };
+          const nextState: PhotoAnswerState = {
+            ...photoState,
+            tagMode: "perPhoto",
+            selectedTagIds: unionPhotoTagIds([
+              ...photoKeys.filter((key) => key !== targetPhotoKey).map((key) => photoTagsForUiKey(photoState, key)),
+              nextSelected,
+            ]),
+            photoTagIdsByPhotoKey: {
+              ...(photoState.photoTagIdsByPhotoKey ?? {}),
+              [targetPhotoKey]: normalizePhotoTagIds(nextSelected),
+            },
+          };
           onAnswer(encodePhotoAnswer(nextState));
           if (photoState.photos.length > 0) {
             schedulePhotoTagSync({
@@ -3106,40 +3063,27 @@ function QuestionCard({
                         WebkitBackdropFilter: "blur(6px)",
                       }}
                     >
-                      {([
-                        ["all", "Alle Fotos"],
-                        ["perPhoto", "Einzeln"],
-                      ] as const).map(([mode, label]) => {
-                        const active = tagMode === mode;
-                        return (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => {
-                              void handleTagModeChange(mode);
-                            }}
-                            style={{
-                              height: 25,
-                              padding: "0 10px",
-                              borderRadius: 999,
-                              border: "none",
-                              background: active ? "#fff" : "transparent",
-                              color: active ? "#111827" : "rgba(0,0,0,0.45)",
-                              fontSize: 10,
-                              fontWeight: 800,
-                              fontFamily: "inherit",
-                              cursor: "pointer",
-                              boxShadow: active ? "0 1px 4px rgba(0,0,0,0.09), inset 0 1px 0 rgba(255,255,255,0.9)" : "none",
-                              transition: "all 0.15s ease",
-                            }}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
+                      <button
+                        type="button"
+                        style={{
+                          height: 25,
+                          padding: "0 10px",
+                          borderRadius: 999,
+                          border: "none",
+                          background: "#fff",
+                          color: "#111827",
+                          fontSize: 10,
+                          fontWeight: 800,
+                          fontFamily: "inherit",
+                          cursor: "default",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.09), inset 0 1px 0 rgba(255,255,255,0.9)",
+                        }}
+                      >
+                        Einzeln
+                      </button>
                     </div>
                     <span style={{ fontSize: 9, color: "rgba(0,0,0,0.32)", fontWeight: 700 }}>
-                      {tagMode === "perPhoto" ? "Tags pro Foto" : "Tags für alle"}
+                      Tags pro Foto
                     </span>
                   </div>
                 )}
@@ -3940,19 +3884,18 @@ function MarktbesuchInner() {
             ),
           );
           const selectedTagIds = unionPhotoTagIds(tagGroups);
-          const firstTagGroup = tagGroups[0] ?? [];
-          const tagsAreShared = tagGroups.length <= 1 || tagGroups.every((group) => samePhotoTagSet(group, firstTagGroup));
+          const sharedTagIds = selectedTagIds;
           const photoTagIdsByPhotoKey: Record<string, string[]> = {};
           (answer.photos ?? []).forEach((photo, index) => {
-            const tagIds = tagGroups[index] ?? [];
+            const tagIds = tagGroups[index]?.length ? tagGroups[index] : sharedTagIds;
             const uiPhoto = photos[index];
             if (photo.storagePath) photoTagIdsByPhotoKey[photo.storagePath] = tagIds;
             if (uiPhoto) photoTagIdsByPhotoKey[uiPhoto] = tagIds;
           });
           uiValue = encodePhotoAnswer({
             photos,
-            selectedTagIds: tagsAreShared ? firstTagGroup : selectedTagIds,
-            tagMode: tagsAreShared ? "all" : "perPhoto",
+            selectedTagIds,
+            tagMode: "perPhoto",
             photoTagIdsByPhotoKey,
           });
           nextPhotoMetaByQuestionId[question.id] = (answer.photos ?? []).map((photo) => ({

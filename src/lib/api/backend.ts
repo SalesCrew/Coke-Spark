@@ -2814,6 +2814,52 @@ export type CampaignVisitAnswerPatchMissingRequired = {
 };
 export type AdminIppListRow = Omit<BackendIppListRow, "marketIpp"> & { marketIpp: number };
 export type AdminIppDetailRecord = Omit<BackendIppDetailRecord, "marketIpp"> & { marketIpp: number };
+export type AdminIppAdjustmentEvent = {
+  id: string;
+  revisionNumber: number;
+  requestId: string;
+  gmUserId: string;
+  redPeriodId: string;
+  eventType: "set" | "clear";
+  correctedIpp: number | null;
+  baseCalculatedIpp: number;
+  baseSampleCount: number;
+  baseFingerprint: string;
+  reason: string;
+  createdByUserId: string;
+  createdByName: string;
+  createdAt: string;
+};
+export type AdminIppGmPeriodRow = {
+  gmUserId: string;
+  gmName: string;
+  region: string;
+  redPeriodId: string;
+  redPeriodLabel: string;
+  redPeriodYear: number;
+  periodIndex: number;
+  periodStart: string;
+  periodEnd: string;
+  calculatedIpp: number;
+  effectiveIpp: number;
+  difference: number;
+  marketSampleCount: number;
+  zeroOrUnscoredMarketCount: number;
+  sourceSubmissionCount: number;
+  baseFingerprint: string;
+  calculationSource: "finalized" | "live" | "live_fallback" | "no_data";
+  adjustment: AdminIppAdjustmentEvent | null;
+  adjustmentIsStale: boolean;
+};
+export type AdminIppPeriodOption = {
+  id: string;
+  redYear: number;
+  periodIndex: number;
+  label: string;
+  startDate: string;
+  endDate: string;
+  isCurrent: boolean;
+};
 export type TimeTrackingActivityType =
   | "sonderaufgabe"
   | "arztbesuch"
@@ -4855,6 +4901,87 @@ export async function fetchAdminIppDetail(marketId: string, periodStart: string)
     ...data.record,
     marketIpp: Number(data.record.marketIpp ?? 0),
   };
+}
+
+function normalizeAdminIppAdjustmentEvent(event: AdminIppAdjustmentEvent): AdminIppAdjustmentEvent {
+  return {
+    ...event,
+    revisionNumber: Number(event.revisionNumber),
+    correctedIpp: event.correctedIpp == null ? null : Number(event.correctedIpp),
+    baseCalculatedIpp: Number(event.baseCalculatedIpp ?? 0),
+    baseSampleCount: Number(event.baseSampleCount ?? 0),
+  };
+}
+
+function normalizeAdminIppGmPeriodRow(row: AdminIppGmPeriodRow): AdminIppGmPeriodRow {
+  return {
+    ...row,
+    calculatedIpp: Number(row.calculatedIpp ?? 0),
+    effectiveIpp: Number(row.effectiveIpp ?? 0),
+    difference: Number(row.difference ?? 0),
+    marketSampleCount: Number(row.marketSampleCount ?? 0),
+    zeroOrUnscoredMarketCount: Number(row.zeroOrUnscoredMarketCount ?? 0),
+    sourceSubmissionCount: Number(row.sourceSubmissionCount ?? 0),
+    adjustment: row.adjustment ? normalizeAdminIppAdjustmentEvent(row.adjustment) : null,
+  };
+}
+
+export async function fetchAdminIppGmPeriods(periodStart?: string): Promise<{
+  periods: AdminIppPeriodOption[];
+  selectedPeriod: AdminIppPeriodOption;
+  rows: AdminIppGmPeriodRow[];
+  canEdit: boolean;
+}> {
+  const params = new URLSearchParams();
+  if (periodStart) params.set("periodStart", periodStart);
+  const data = (await authedFetch(`/admin/ipp/gm-periods${params.size ? `?${params.toString()}` : ""}`)) as {
+    periods: AdminIppPeriodOption[];
+    selectedPeriod: AdminIppPeriodOption;
+    rows: AdminIppGmPeriodRow[];
+    canEdit: boolean;
+  };
+  return { ...data, rows: (data.rows ?? []).map(normalizeAdminIppGmPeriodRow) };
+}
+
+export async function fetchAdminIppAdjustmentHistory(gmUserId: string, redPeriodId: string): Promise<AdminIppAdjustmentEvent[]> {
+  const params = new URLSearchParams({ redPeriodId });
+  const data = (await authedFetch(`/admin/ipp/gm-periods/${gmUserId}/history?${params.toString()}`)) as {
+    events?: AdminIppAdjustmentEvent[];
+  };
+  return (data.events ?? []).map(normalizeAdminIppAdjustmentEvent);
+}
+
+export async function saveAdminIppAdjustment(input: {
+  gmUserId: string;
+  requestId: string;
+  redPeriodId: string;
+  correctedIpp: number;
+  reason: string;
+  expectedBaseFingerprint: string;
+  expectedLatestRevisionNumber: number | null;
+}): Promise<AdminIppGmPeriodRow> {
+  const { gmUserId, ...body } = input;
+  const data = (await authedFetch(`/admin/ipp/gm-periods/${gmUserId}/adjustments`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })) as { row: AdminIppGmPeriodRow };
+  return normalizeAdminIppGmPeriodRow(data.row);
+}
+
+export async function clearAdminIppAdjustment(input: {
+  gmUserId: string;
+  requestId: string;
+  redPeriodId: string;
+  reason: string;
+  expectedBaseFingerprint: string;
+  expectedLatestRevisionNumber: number;
+}): Promise<AdminIppGmPeriodRow> {
+  const { gmUserId, ...body } = input;
+  const data = (await authedFetch(`/admin/ipp/gm-periods/${gmUserId}/adjustments/clear`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })) as { row: AdminIppGmPeriodRow };
+  return normalizeAdminIppGmPeriodRow(data.row);
 }
 
 export async function fetchCurrentRedMonth(): Promise<RedMonthCurrentPayload> {

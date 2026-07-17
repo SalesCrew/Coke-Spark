@@ -7,8 +7,9 @@ import type {
   IppMarketAuditRecord,
   IppQuestionAuditRow, IppAverageSummary, SectionType,
 } from "@/types/ipp";
-import { fetchAdminIppDetail, fetchAdminIppRows, readAuthSession, type AdminIppListRow } from "@/lib/api/backend";
+import { fetchAdminIppDetail, fetchAdminIppRows, readAuthSession, type AdminIppGmPeriodRow, type AdminIppListRow } from "@/lib/api/backend";
 import { exportIppExcel } from "@/lib/exports/analysisExports";
+import { GmIppAdjustmentPanel } from "@/components/admin/GmIppAdjustmentPanel";
 
 // ── Constants ─────────────────────────────────────────────────
 const R = "#DC2626";
@@ -725,6 +726,7 @@ export default function IppBerechnungPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [gmIppRows, setGmIppRows] = useState<AdminIppGmPeriodRow[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -835,7 +837,11 @@ export default function IppBerechnungPage() {
 
   const clearFilters = () => { setSearch(""); setFilterRegion(null); setFilterGm(null); setFilterChain(null); setFilterMonat(null); };
 
-  const handleExport = async () => {
+  const handleGmIppRowsChange = useCallback((rows: AdminIppGmPeriodRow[]) => {
+    setGmIppRows(rows);
+  }, []);
+
+  const handleExport = useCallback(async () => {
     if (isExporting) return;
     setIsExporting(true);
     setExportError(null);
@@ -843,6 +849,7 @@ export default function IppBerechnungPage() {
       await exportIppExcel({
         rows: allAuditRecords,
         filteredRows: filtered,
+        gmRows: gmIppRows,
         exportedBy: readAuthSession()?.user.email ?? "",
         note: hasFilters ? "Export enthält Gesamtbestand und aktuellen UI-Filter." : "Export enthält den geladenen IPP-Gesamtbestand.",
       });
@@ -851,13 +858,13 @@ export default function IppBerechnungPage() {
     } finally {
       setIsExporting(false);
     }
-  };
+  }, [allAuditRecords, filtered, gmIppRows, hasFilters, isExporting]);
 
   useEffect(() => {
     const handler = () => { void handleExport(); };
     window.addEventListener("admin:ipp:export", handler);
     return () => window.removeEventListener("admin:ipp:export", handler);
-  });
+  }, [handleExport]);
 
   if (isLoading) {
     return <IppPageSkeleton />;
@@ -907,6 +914,8 @@ export default function IppBerechnungPage() {
           </div>
         </div>
       </div>
+
+      <GmIppAdjustmentPanel onRowsChange={handleGmIppRowsChange} />
 
       {/* Main workspace */}
       <div className="ipp-main" style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>

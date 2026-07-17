@@ -49,6 +49,32 @@ type IppExportRow = {
   contributingQuestionCount?: number;
 };
 
+type IppGmExportRow = {
+  gmUserId: string;
+  gmName: string;
+  region: string;
+  redPeriodLabel: string;
+  redPeriodYear: number;
+  periodIndex: number;
+  periodStart: string;
+  periodEnd: string;
+  calculatedIpp: number;
+  effectiveIpp: number;
+  difference: number;
+  marketSampleCount: number;
+  zeroOrUnscoredMarketCount: number;
+  sourceSubmissionCount: number;
+  calculationSource: string;
+  adjustmentIsStale: boolean;
+  adjustment: {
+    revisionNumber: number;
+    correctedIpp: number | null;
+    reason: string;
+    createdByName: string;
+    createdAt: string;
+  } | null;
+};
+
 function baseMeta(page: string, rows: number, extra?: ExportBaseMeta): ExportMetaRow[] {
   return [
     { label: "Export", value: page },
@@ -348,6 +374,7 @@ export async function exportFotoarchivImagesZip(input: {
 export async function exportIppExcel(input: {
   rows: IppExportRow[];
   filteredRows?: IppExportRow[];
+  gmRows?: IppGmExportRow[];
   exportedBy?: string;
   note?: string;
 }) {
@@ -359,6 +386,9 @@ export async function exportIppExcel(input: {
   const filteredRows = input.filteredRows ?? rows;
   const allSummary = ippSummary(rows);
   const filteredSummary = ippSummary(filteredRows);
+  const gmRows = (input.gmRows ?? []).slice().sort((a, b) =>
+    b.periodStart.localeCompare(a.periodStart) || a.gmName.localeCompare(b.gmName, "de"),
+  );
   const filename = `CokeSpark_IPP_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
 
   const rowColumns: ExportColumn<IppExportRow>[] = [
@@ -411,6 +441,39 @@ export async function exportIppExcel(input: {
         rows: filteredRows,
         columns: rowColumns,
       });
+
+      if (gmRows.length > 0) {
+        appendTableSheet(XLSX, wb, {
+          name: "IPP GL RED-Monate",
+          title: "IPP GL RED-Monate",
+          description: "Wirksame IPP-Werte pro GL und RED-Monat. Korrekturen ersetzen nur den GL-Monatswert, nicht die Markt- oder Fragebogenwerte.",
+          rows: gmRows,
+          columns: [
+            { header: "GM User ID", width: 38, value: (r) => r.gmUserId },
+            { header: "GL", width: 26, value: (r) => r.gmName },
+            { header: "Region", width: 12, value: (r) => r.region },
+            { header: "RED Monat", width: 16, value: (r) => r.redPeriodLabel },
+            { header: "RED Jahr", width: 10, value: (r) => r.redPeriodYear, align: "right" },
+            { header: "Periode", width: 10, value: (r) => r.periodIndex, align: "right" },
+            { header: "Periode Start", width: 14, value: (r) => r.periodStart },
+            { header: "Periode Ende", width: 14, value: (r) => r.periodEnd },
+            { header: "IPP berechnet", width: 14, value: (r) => r.calculatedIpp, align: "right", numberFormat: "0.00" },
+            { header: "IPP wirksam", width: 14, value: (r) => r.effectiveIpp, align: "right", numberFormat: "0.00" },
+            { header: "Differenz", width: 12, value: (r) => r.difference, align: "right", numberFormat: "0.00" },
+            { header: "Marktwerte", width: 12, value: (r) => r.marketSampleCount, align: "right" },
+            { header: "Null/ohne Wert", width: 13, value: (r) => r.zeroOrUnscoredMarketCount, align: "right" },
+            { header: "Submissions", width: 12, value: (r) => r.sourceSubmissionCount, align: "right" },
+            { header: "Quelle", width: 14, value: (r) => r.calculationSource },
+            { header: "Korrektur aktiv", width: 14, value: (r) => yesNo(Boolean(r.adjustment)), align: "center" },
+            { header: "Korrektur Revision", width: 16, value: (r) => r.adjustment?.revisionNumber ?? "", align: "right" },
+            { header: "Korrektur Wert", width: 14, value: (r) => r.adjustment?.correctedIpp ?? "", align: "right", numberFormat: "0.00" },
+            { header: "Korrektur Grund", width: 38, value: (r) => r.adjustment?.reason ?? "" },
+            { header: "Korrigiert von", width: 24, value: (r) => r.adjustment?.createdByName ?? "" },
+            { header: "Korrigiert am", width: 22, value: (r) => r.adjustment?.createdAt ?? "" },
+            { header: "Basis geaendert", width: 14, value: (r) => yesNo(r.adjustmentIsStale), align: "center" },
+          ],
+        });
+      }
 
       const summaryRows = [
         ...countBy(rows, (r) => r.redMonatLabel).map((row) => ({ gruppe: "RED Monat", merkmal: row.key, anzahl: row.count })),

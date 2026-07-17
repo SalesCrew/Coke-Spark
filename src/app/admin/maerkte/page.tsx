@@ -14,6 +14,7 @@ import {
   type ColumnMapping, type WorkbookResult, type ImportSummary, type FieldSpec, type ImportDatasetType,
 } from "@/utils/marketImport";
 import {
+  BackendApiError,
   createMarket,
   createMarketKuehlerUnit,
   fetchMarkets,
@@ -1440,9 +1441,11 @@ function ManualMarketField({
 function ManualMarketCreateModal({
   onClose,
   onCreate,
+  onOpenExistingMarket,
 }: {
   onClose: () => void;
   onCreate: (input: ManualMarketCreateInput) => Promise<MarketRecord>;
+  onOpenExistingMarket: (marketId: string) => void;
 }) {
   const [marketType, setMarketType] = useState<ManualMarketType>("universum");
   const [name, setName] = useState("");
@@ -1468,6 +1471,7 @@ function ManualMarketCreateModal({
   const [kuehlerAnzahlKsAmStandort, setKuehlerAnzahlKsAmStandort] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflictingMarketId, setConflictingMarketId] = useState<string | null>(null);
 
   const hasKuehler = marketType !== "universum";
   const effectiveCreateUnit = hasKuehler && createKuehlerUnitNow;
@@ -1480,6 +1484,7 @@ function ManualMarketCreateModal({
   const submit = async () => {
     if (submitting) return;
     setError(null);
+    setConflictingMarketId(null);
     const trimmedName = name.trim();
     const trimmedAddress = address.trim();
     const trimmedPostalCode = postalCode.trim();
@@ -1545,6 +1550,15 @@ function ManualMarketCreateModal({
       });
       onClose();
     } catch (err) {
+      if (err instanceof BackendApiError && err.code === "market_identity_conflict") {
+        const payload = err.data && typeof err.data === "object"
+          ? err.data as { conflictingMarket?: { marketId?: unknown } }
+          : null;
+        const marketId = payload?.conflictingMarket?.marketId;
+        if (typeof marketId === "string" && marketId.length > 0) {
+          setConflictingMarketId(marketId);
+        }
+      }
       setError(err instanceof Error ? err.message : "Markt konnte nicht angelegt werden.");
     } finally {
       setSubmitting(false);
@@ -1633,8 +1647,17 @@ function ManualMarketCreateModal({
           </div>
 
           {error && (
-            <div style={{ padding: "9px 11px", borderRadius: 9, border: "1px solid rgba(220,38,38,0.16)", background: "rgba(220,38,38,0.055)", color: R, fontSize: 11, fontWeight: 700 }}>
-              {error}
+            <div style={{ padding: "9px 11px", borderRadius: 9, border: "1px solid rgba(220,38,38,0.16)", background: "rgba(220,38,38,0.055)", color: R, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <span>{error}</span>
+              {conflictingMarketId ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenExistingMarket(conflictingMarketId)}
+                  style={{ flexShrink: 0, height: 30, padding: "0 11px", borderRadius: 8, border: "1px solid rgba(220,38,38,0.2)", background: "#fff", color: R, fontSize: 10, fontWeight: 800, fontFamily: "inherit", cursor: "pointer" }}
+                >
+                  Bestehenden Markt öffnen
+                </button>
+              ) : null}
             </div>
           )}
 
@@ -2549,7 +2572,7 @@ export default function MaerktePage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Markt konnte nicht angelegt werden.";
       setSaveError(message);
-      throw new Error(message);
+      throw err instanceof Error ? err : new Error(message);
     }
   }, [reloadMarkets]);
 
@@ -3267,6 +3290,11 @@ export default function MaerktePage() {
         <ManualMarketCreateModal
           onCreate={handleCreateManualMarket}
           onClose={() => setShowManualCreate(false)}
+          onOpenExistingMarket={(marketId) => {
+            setSaveError(null);
+            setShowManualCreate(false);
+            setSelectedId(marketId);
+          }}
         />
       )}
     </div>

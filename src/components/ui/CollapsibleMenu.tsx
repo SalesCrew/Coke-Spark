@@ -41,7 +41,7 @@ interface CollapsibleMenuProps {
 }
 
 const HOLD_DELAY = 300;
-const CLICK_MOVE_TOLERANCE = 8;
+const CLICK_MOVE_TOLERANCE = 18;
 const ITEM_HEIGHT = 30;
 const CARD_PADDING = 5;
 const SETTINGS_PANEL_HEIGHT = 104;
@@ -519,6 +519,26 @@ export function CollapsibleMenu({
     [clearHold, enableClickToggle, expanded, getIndexFromY, select]
   );
 
+  const onClick = useCallback(() => {
+    if (!enableClickToggle || expanded || utilityPanelOpen) return;
+    clearHold();
+    isHolding.current = false;
+    holdActivated.current = false;
+    pointerMoved.current = false;
+    pointerStart.current = null;
+    setHoveredIndex(null);
+    setExpanded(true);
+  }, [clearHold, enableClickToggle, expanded, utilityPanelOpen]);
+
+  const onTouchCancel = useCallback(() => {
+    clearHold();
+    isHolding.current = false;
+    holdActivated.current = false;
+    pointerMoved.current = false;
+    pointerStart.current = null;
+    setHoveredIndex(null);
+  }, [clearHold]);
+
   useEffect(() => clearHold, [clearHold]);
 
   const displayIndex = expanded && hoveredIndex !== null ? hoveredIndex : activeRowIndex;
@@ -624,6 +644,8 @@ export function CollapsibleMenu({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
+        onClick={onClick}
         className={cn(
           "gm-menu-scrollbars-hidden relative w-full overflow-hidden select-none",
           "transition-all duration-[480ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
@@ -636,6 +658,7 @@ export function CollapsibleMenu({
           boxShadow: expanded
             ? "0 6px 24px rgba(0,0,0,0.06)"
             : "0 1px 3px rgba(0,0,0,0.03)",
+          touchAction: utilityPanelOpen ? "pan-y" : "none",
         }}
       >
         <div

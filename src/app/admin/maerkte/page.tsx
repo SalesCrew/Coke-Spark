@@ -2132,10 +2132,22 @@ function MarketDetailDrawer({
                 <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
                 <InfoRow label="Name f. DB" value={market.dbName} edit={editing} editValue={draft.dbName} onEdit={v => set({ dbName: v })} />
                 <InfoRow label="Flex-Nummer" value={market.flexNumber} edit={editing} editValue={draft.flexNumber} onEdit={v => set({ flexNumber: v })} />
-                <InfoRow label="Stammnr. Coke" value={market.cokeMasterNumber} edit={editing} editValue={draft.cokeMasterNumber} onEdit={v => set({ cokeMasterNumber: v })} />
+                {hasKuehlerDataset ? (
+                  <InfoRow
+                    label="Stammnr."
+                    value={market.kuehlerStammnr || market.cokeMasterNumber}
+                    edit={editing}
+                    editValue={draft.kuehlerStammnr || draft.cokeMasterNumber}
+                    onEdit={v => set({ kuehlerStammnr: v, cokeMasterNumber: v })}
+                  />
+                ) : (
+                  <InfoRow label="Stammnr. Coke" value={market.cokeMasterNumber} edit={editing} editValue={draft.cokeMasterNumber} onEdit={v => set({ cokeMasterNumber: v })} />
+                )}
                 <InfoRow label="Standardmarkt Nr" value={market.standardMarketNumber} edit={editing} editValue={draft.standardMarketNumber} onEdit={v => set({ standardMarketNumber: v })} />
-                {hasKuehlerDataset && (
-                  <InfoRow label="Kühler Stammnr" value={market.kuehlerStammnr || market.cokeMasterNumber} edit={editing} editValue={draft.kuehlerStammnr} onEdit={v => set({ kuehlerStammnr: v, cokeMasterNumber: v })} />
+                {editing && (
+                  <div style={{ marginTop: 4, fontSize: 9, lineHeight: 1.45, color: "rgba(0,0,0,0.42)" }}>
+                    Identitätsnummern werden zentral geändert. Kampagnen, Besuche und Auswertungen bleiben über die Markt-ID verbunden.
+                  </div>
                 )}
               </InfoSection>
 
@@ -2338,6 +2350,8 @@ function MarketDetailDrawer({
                 try {
                   await onSave(draft);
                   setEditing(false);
+                } catch {
+                  // The page-level save handler renders the backend error and keeps this editor open.
                 } finally {
                   setSaving(false);
                 }
@@ -2442,6 +2456,7 @@ export default function MaerktePage() {
       setMarkets((prev) => prev.map((m) => (m.id === saved.id ? saved : m)));
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Markt konnte nicht gespeichert werden.");
+      throw err;
     }
   }, []);
 

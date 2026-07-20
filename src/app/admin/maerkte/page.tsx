@@ -862,9 +862,9 @@ function ImportModal({
               {/* Footer */}
               <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexShrink: 0 }}>
                 {submitError && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 7, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)" }}>
-                    <AlertTriangle size={12} strokeWidth={2} color={R} />
-                    <span style={{ fontSize: 10, color: R, fontWeight: 600 }}>{submitError}</span>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 10px", borderRadius: 7, background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.14)", flex: 1, minWidth: 0 }}>
+                    <AlertTriangle size={12} strokeWidth={2} color={R} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <span style={{ fontSize: 10, lineHeight: 1.45, color: R, fontWeight: 600, overflowWrap: "anywhere" }}>{submitError}</span>
                   </div>
                 )}
                 <button onClick={() => setStep("upload")} style={{ padding: "7px 14px", fontSize: 11, fontWeight: 600, borderRadius: 8, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)" }}>← Zurück</button>
@@ -963,7 +963,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
   onSaveFixedRow: (market: MarketRecord) => Promise<MarketRecord> | MarketRecord;
 }) {
   const matchKeys = Object.entries(summary.matchedBy).filter(([, v]) => v > 0);
-  const [skippedOpen, setSkippedOpen] = useState(false);
+  const [skippedOpen, setSkippedOpen] = useState(summary.skippedReasons.length > 0);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   // Local copy of skipped reasons so we can remove rows as they're saved
   const [localSkipped, setLocalSkipped] = useState(() => summary.skippedReasons);
@@ -2468,7 +2468,7 @@ export default function MaerktePage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Import fehlgeschlagen.";
       setImportError(message);
-      throw new Error(message);
+      throw err;
     }
   }, []);
 

@@ -8439,30 +8439,31 @@ export default function FbManagementPage() {
       return Boolean(visitStatus?.hasSubmittedVisit);
     });
   }, [assignedMarkets, displayedCampaignVisitStatusByMarket, marketDateRange]);
-  const hasMarketTimeFilter = marketWeekFilters.length > 0 || Boolean(marketDateRange);
   const countBaseMarkets = marketDateRange
     ? dateFilteredAssignedMarkets
     : marketWeekFilters.length > 0
       ? weekFilteredAssignedMarkets
       : assignedMarkets;
-  const finishedCount = useMemo(() => countBaseMarkets.filter((m) => m.finished).length, [countBaseMarkets]);
-  const pendingCount = Math.max(0, countBaseMarkets.length - finishedCount);
-
-  const statusFiltered = useMemo(
-    () =>
-      marketEditMode === "remove"
-        ? countBaseMarkets.filter((m) => !m.finished)
-        : marketFilter === "finished"
-          ? countBaseMarkets.filter((m) => m.finished)
-          : marketFilter === "pending"
-            ? countBaseMarkets.filter((m) => !m.finished)
-            : countBaseMarkets,
-    [countBaseMarkets, marketEditMode, marketFilter],
+  const filterScopedMarkets = useMemo(
+    () => applyMarketFilters(countBaseMarkets, marketSearch, marketFilters),
+    [countBaseMarkets, marketFilters, marketSearch],
   );
+  const finishedCount = useMemo(
+    () => filterScopedMarkets.filter((market) => market.finished).length,
+    [filterScopedMarkets],
+  );
+  const pendingCount = Math.max(0, filterScopedMarkets.length - finishedCount);
 
   const filteredMarkets = useMemo(
-    () => applyMarketFilters(statusFiltered, marketSearch, marketFilters),
-    [marketFilters, marketSearch, statusFiltered],
+    () =>
+      marketEditMode === "remove"
+        ? filterScopedMarkets.filter((market) => !market.finished)
+        : marketFilter === "finished"
+          ? filterScopedMarkets.filter((market) => market.finished)
+          : marketFilter === "pending"
+            ? filterScopedMarkets.filter((market) => !market.finished)
+            : filterScopedMarkets,
+    [filterScopedMarkets, marketEditMode, marketFilter],
   );
   const visibleFilteredMarkets = useMemo(
     () => filteredMarkets.slice(0, marketRenderLimit),
@@ -10636,7 +10637,7 @@ export default function FbManagementPage() {
                     style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" as const }}
                   >
                     {f === "all"
-                      ? `Alle (${hasMarketTimeFilter ? countBaseMarkets.length : assignedMarketDisplayCount})`
+                      ? `Alle (${filterScopedMarkets.length})`
                       : campaignStatusMetricsLoading
                         ? f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
                         : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}

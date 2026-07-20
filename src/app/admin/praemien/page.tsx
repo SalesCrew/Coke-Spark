@@ -376,11 +376,38 @@ function toPillarsPayload(quarter: PraemienQuarter) {
   };
 }
 
+function canonicalSourceAssignments(quarter: PraemienQuarter): Array<{ pillar: PraemienPillar; source: PraemienSourceRef }> {
+  const assignments = new Map<string, { pillar: PraemienPillar; source: PraemienSourceRef }>();
+
+  for (const pillar of quarter.pillars) {
+    if (isManualPillar(pillar)) continue;
+    for (const source of pillar.sourceRefs) {
+      const identity = sourceAssignmentIdentity(source);
+      const existing = assignments.get(identity);
+      const sourceIsLocalChange = !isUuid(source.id);
+      const existingIsLocalChange = existing ? !isUuid(existing.source.id) : false;
+
+      // A freshly assigned source has a catalog key as its temporary id, while
+      // persisted rows have UUIDs. If stale UI state ever contains both, keep
+      // the fresh assignment so a move between pillars cannot be rejected by
+      // the backend and then appear to vanish after reload.
+      if (
+        !existing ||
+        (sourceIsLocalChange && !existingIsLocalChange) ||
+        sourceIsLocalChange === existingIsLocalChange
+      ) {
+        assignments.set(identity, { pillar, source });
+      }
+    }
+  }
+
+  return Array.from(assignments.values());
+}
+
 function toSourcesPayload(quarter: PraemienQuarter, serverPillarByName?: Map<string, string>): { sources: Array<{ id?: string; pillarId: string; sectionType: SectionType; fragebogenId: string | null; fragebogenName: string; moduleId: string | null; moduleName: string; questionId: string; questionText: string; scoringKey: string; displayLabel: string; isFactorMode: boolean; boniValue: number; distributionFreqRule: "lt8" | "gt8" | null }>; expectedUpdatedAt?: string } {
   return {
     expectedUpdatedAt: quarter.updatedAt,
-    sources: quarter.pillars.flatMap((pillar) =>
-      isManualPillar(pillar) ? [] : pillar.sourceRefs.map((source) => ({
+    sources: canonicalSourceAssignments(quarter).map(({ pillar, source }) => ({
         id: isUuid(source.id) ? source.id : undefined,
         pillarId: serverPillarByName?.get(pillar.name) ?? pillar.id,
         sectionType: source.sectionType,
@@ -396,7 +423,6 @@ function toSourcesPayload(quarter: PraemienQuarter, serverPillarByName?: Map<str
         boniValue: source.boniValue,
         distributionFreqRule: source.distributionFreqRule ?? null,
       })),
-    ),
   };
 }
 

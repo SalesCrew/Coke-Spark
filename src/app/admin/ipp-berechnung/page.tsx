@@ -14,6 +14,7 @@ import { GmIppAdjustmentPanel } from "@/components/admin/GmIppAdjustmentPanel";
 // ── Constants ─────────────────────────────────────────────────
 const R = "#DC2626";
 const GREEN = "#16a34a";
+const APP_FONT_STACK = "var(--font-inter), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 const SECTION_META: Record<SectionType, { label: string; color: string; bg: string }> = {
   standard: { label: "Standard",  color: "#DC2626", bg: "rgba(220,38,38,0.08)"  },
@@ -871,7 +872,7 @@ export default function IppBerechnungPage() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: APP_FONT_STACK }}>
       <style>{`
         @keyframes ippFadeIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
         .ipp-main { animation: ippFadeIn 0.25s ease both; }

@@ -3197,6 +3197,10 @@ function PillarSelect({
 
 // ── Source explorer ───────────────────────────────────────────
 
+function sourceAssignmentIdentity(source: Pick<BonusSource, "questionId" | "scoringKey">): string {
+  return `${source.questionId}__${source.scoringKey}`;
+}
+
 function BonusSourceExplorer({
   sources, quarter, onChange,
 }: {
@@ -3215,19 +3219,21 @@ function BonusSourceExplorer({
     setSelectedSourceKeys(new Set());
   }, [quarter.id]);
 
-  // Map source.catalogKey → pillarId
-  const assignmentMap: Record<string, string> = {};
+  // Persistence uniquely identifies an assignment by question + scoring key. A
+  // shared question may appear in multiple questionnaire/module contexts.
+  const assignmentMap = new Map<string, { pillarId: string; sourceRef: PraemienSourceRef }>();
   for (const p of quarter.pillars) {
     for (const r of p.sourceRefs) {
-      assignmentMap[r.catalogKey] = p.id;
+      assignmentMap.set(sourceAssignmentIdentity(r), { pillarId: p.id, sourceRef: r });
     }
   }
+  const sourceByKey = new Map(sources.map((source) => [source.key, source]));
 
   const filtered = sources.filter(s => {
     const q = search.toLowerCase().trim();
     if (q && !s.questionText.toLowerCase().includes(q) && !s.fragebogenName.toLowerCase().includes(q) && !s.moduleName.toLowerCase().includes(q) && !s.displayLabel.toLowerCase().includes(q)) return false;
     if (filterSection && s.sectionType !== filterSection) return false;
-    const assigned = !!assignmentMap[s.key];
+    const assigned = assignmentMap.has(sourceAssignmentIdentity(s));
     if (filterAssigned === "assigned" && !assigned) return false;
     if (filterAssigned === "unassigned" && assigned) return false;
     return true;
@@ -3253,10 +3259,11 @@ function BonusSourceExplorer({
 
   const assignToPillar = (src: BonusSource, pillarId: string, freqRule?: "lt8" | "gt8") => {
     const ref = createSourceRef(src, pillarId, freqRule);
+    const identity = sourceAssignmentIdentity(src);
     // Remove from any existing pillar first
     const cleanedPillars = quarter.pillars.map(p => ({
       ...p,
-      sourceRefs: p.sourceRefs.filter(r => r.catalogKey !== src.key),
+      sourceRefs: p.sourceRefs.filter(r => sourceAssignmentIdentity(r) !== identity),
     }));
     if (!pillarId) {
       onChange({ ...quarter, pillars: cleanedPillars });
@@ -3279,7 +3286,14 @@ function BonusSourceExplorer({
     setMultiSelectActive(true);
     setSelectedSourceKeys((current) => {
       if (current.has(sourceKey)) return current;
-      const next = new Set(current);
+      const source = sourceByKey.get(sourceKey);
+      const identity = source ? sourceAssignmentIdentity(source) : null;
+      const next = new Set(
+        [...current].filter((key) => {
+          const selectedSource = sourceByKey.get(key);
+          return !identity || !selectedSource || sourceAssignmentIdentity(selectedSource) !== identity;
+        }),
+      );
       next.add(sourceKey);
       return next;
     });
@@ -3288,20 +3302,37 @@ function BonusSourceExplorer({
   const toggleSourceSelection = (sourceKey: string) => {
     setSelectedSourceKeys((current) => {
       const next = new Set(current);
-      if (next.has(sourceKey)) next.delete(sourceKey);
-      else next.add(sourceKey);
+      if (next.has(sourceKey)) {
+        next.delete(sourceKey);
+      } else {
+        const source = sourceByKey.get(sourceKey);
+        const identity = source ? sourceAssignmentIdentity(source) : null;
+        if (identity) {
+          for (const selectedKey of next) {
+            const selectedSource = sourceByKey.get(selectedKey);
+            if (selectedSource && sourceAssignmentIdentity(selectedSource) === identity) {
+              next.delete(selectedKey);
+            }
+          }
+        }
+        next.add(sourceKey);
+      }
       return next;
     });
   };
 
   const assignSelectedToPillar = (pillarId: string, freqRule?: "lt8" | "gt8") => {
     if (selectedSourceKeys.size === 0) return;
-    const refs = sources
-      .filter((source) => selectedSourceKeys.has(source.key))
-      .map((source) => createSourceRef(source, pillarId, freqRule));
+    const selectedSources = sources.filter((source) => selectedSourceKeys.has(source.key));
+    const selectedIdentities = new Set(
+      selectedSources.map((source) => sourceAssignmentIdentity(source)),
+    );
+    const refs = selectedSources.map((source) => createSourceRef(source, pillarId, freqRule));
     const cleanedPillars = quarter.pillars.map((pillar) => ({
       ...pillar,
-      sourceRefs: pillar.sourceRefs.filter((ref) => !selectedSourceKeys.has(ref.catalogKey)),
+      sourceRefs: pillar.sourceRefs.filter(
+        (ref) => !selectedIdentities.has(sourceAssignmentIdentity(ref)),
+      ),
     }));
     const nextPillars = pillarId
       ? cleanedPillars.map((pillar) => (
@@ -3429,7 +3460,8 @@ function BonusSourceExplorer({
             </div>
 
             {fbSources.map(src => {
-              const currentPillarId = assignmentMap[src.key];
+              const currentAssignment = assignmentMap.get(sourceAssignmentIdentity(src));
+              const currentPillarId = currentAssignment?.pillarId;
               const selected = selectedSourceKeys.has(src.key);
 
               return (
@@ -3482,7 +3514,7 @@ function BonusSourceExplorer({
                       value={currentPillarId ?? ""}
                       pillars={quarter.pillars}
                       disabled={multiSelectActive}
-                      currentFreqRule={(quarter.pillars.find(p => p.id === currentPillarId)?.sourceRefs.find(r => r.catalogKey === src.key))?.distributionFreqRule}
+                      currentFreqRule={currentAssignment?.sourceRef.distributionFreqRule}
                       onChange={(id, freqRule) => assignToPillar(src, id, freqRule)}
                       onContextMenu={(event) => startMultiSelect(event, src.key)}
                     />

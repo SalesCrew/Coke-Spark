@@ -27,7 +27,6 @@ import {
   fetchLatestActiveGmVisitSession,
   fetchGmVisitSession,
   fetchGmVisitStartPayload,
-  fetchGmAssignedStartMarkets,
   fetchGmFlexStartMarkets,
   fetchGmMarketDetail,
   startDayPause,
@@ -122,8 +121,6 @@ type View =
   | "idle"
   | "selectMarket"
   | "selectSections";
-
-type MarketListMode = "assigned" | "flex";
 
 type MarketSectionStatus = "nicht_ausgefuellt" | "ausgefuellt" | "teils_ausgefuellt";
 
@@ -1839,7 +1836,6 @@ export function ActivityLauncher({
 }) {
   const router = useRouter();
   const [view, setView] = useState<View>("idle");
-  const [marketListMode, setMarketListMode] = useState<MarketListMode>("flex");
   const [openActivity, setOpenActivity] = useState<string | null>(null);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [isMarketsLoading, setIsMarketsLoading] = useState(true);
@@ -1910,16 +1906,12 @@ export function ActivityLauncher({
   useEffect(() => {
     let cancelled = false;
     setIsMarketsLoading(true);
-    const loader = marketListMode === "flex" ? fetchGmFlexStartMarkets : fetchGmAssignedStartMarkets;
-    void loader()
+    void fetchGmFlexStartMarkets()
       .then((rows) => {
         if (cancelled) return;
         const mapped = rows.map((entry) => ({
           ...mapRecordToLauncherMarket(entry.market),
-          activeNowCampaigns:
-            marketListMode === "flex"
-              ? (entry.activeNowCampaigns ?? []).filter((campaign) => campaign.section === "flex")
-              : entry.activeNowCampaigns,
+          activeNowCampaigns: (entry.activeNowCampaigns ?? []).filter((campaign) => campaign.section === "flex"),
         }));
         const deduped = Array.from(new Map(mapped.map((entry) => [entry.id, entry])).values());
         setMarkets(deduped);
@@ -1934,7 +1926,7 @@ export function ActivityLauncher({
     return () => {
       cancelled = true;
     };
-  }, [marketListMode]);
+  }, []);
 
   useEffect(() => {
     if (activeDrafts) {
@@ -2111,11 +2103,8 @@ export function ActivityLauncher({
   }, [isLaunching]);
 
   const selectableSections = useMemo(
-    () =>
-      (selectedMarket?.activeNowCampaigns ?? []).filter((campaign) =>
-        marketListMode === "flex" ? campaign.section === "flex" : true,
-      ),
-    [marketListMode, selectedMarket],
+    () => (selectedMarket?.activeNowCampaigns ?? []).filter((campaign) => campaign.section === "flex"),
+    [selectedMarket],
   );
 
   const blockedActiveCampaignNames = useMemo(
@@ -2401,67 +2390,20 @@ export function ActivityLauncher({
           <span className="text-[12px] font-semibold text-gray-700">
             Markt auswählen
           </span>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-            <button
-              type="button"
-              onClick={() => {
-                if (marketListMode === "assigned") return;
-                setMarketListMode("assigned");
-                setMarketSearch("");
-                setSelectedMarket(null);
-                setSelectedSectionIds([]);
-              }}
-              style={{
-                padding: "5px 11px",
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.02em",
-                borderRadius: 7,
-                border: "none",
-                cursor: "pointer",
-                color: marketListMode === "assigned" ? "#ffffff" : "rgba(0,0,0,0.48)",
-                background:
-                  marketListMode === "assigned"
-                    ? "linear-gradient(to bottom, #DC2626, #b91c1c)"
-                    : "rgba(0,0,0,0.06)",
-                boxShadow:
-                  marketListMode === "assigned"
-                    ? "inset 0 1px 0.6px rgba(255,255,255,0.28), 0 0 0 1px #b91c1c, 0 1px 5px rgba(185,28,28,0.18)"
-                    : "none",
-              }}
-            >
-              Zugewiesen
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (marketListMode === "flex") return;
-                setMarketListMode("flex");
-                setMarketSearch("");
-                setSelectedMarket(null);
-                setSelectedSectionIds([]);
-              }}
-              style={{
-                padding: "5px 11px",
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.02em",
-                borderRadius: 7,
-                border: "none",
-                cursor: "pointer",
-                color: marketListMode === "flex" ? "#ffffff" : "rgba(0,0,0,0.48)",
-                background:
-                  marketListMode === "flex"
-                    ? "linear-gradient(to bottom, #111827, #1f2937)"
-                    : "rgba(0,0,0,0.06)",
-                boxShadow:
-                  marketListMode === "flex"
-                    ? "inset 0 1px 0.6px rgba(255,255,255,0.24), 0 0 0 1px #111827, 0 1px 5px rgba(0,0,0,0.22)"
-                    : "none",
-              }}
-            >
-              Flex
-            </button>
+          <div
+            style={{
+              marginLeft: "auto",
+              padding: "5px 11px",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.02em",
+              borderRadius: 7,
+              color: "#ffffff",
+              background: "linear-gradient(to bottom, #111827, #1f2937)",
+              boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.24), 0 0 0 1px #111827, 0 1px 5px rgba(0,0,0,0.22)",
+            }}
+          >
+            Flex
           </div>
         </div>
 
@@ -2549,9 +2491,7 @@ export function ActivityLauncher({
 
           {!isMarketsLoading && markets.length === 0 && (
             <div style={{ padding: "14px 6px", fontSize: 10, color: "rgba(0,0,0,0.35)" }}>
-              {marketListMode === "flex"
-                ? "Keine Flex-Startmärkte verfügbar."
-                : "Keine zugewiesenen Märkte in diesem RED-Monat."}
+              Keine Flex-Startmärkte verfügbar.
             </div>
           )}
         </div>
@@ -2716,9 +2656,7 @@ export function ActivityLauncher({
           })}
           {selectableSections.length === 0 && (
             <div style={{ padding: "10px 6px", fontSize: 10, color: "rgba(0,0,0,0.35)" }}>
-              {marketListMode === "flex"
-                ? "Keine aktiven Flexkampagnen für diesen Markt verfügbar."
-                : "Keine aktuell aktiven Kampagnen für diesen Markt."}
+              Keine aktiven Flexkampagnen für diesen Markt verfügbar.
             </div>
           )}
         </div>

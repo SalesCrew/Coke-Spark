@@ -573,10 +573,6 @@ function normalizePhotoTagIds(values: unknown[]): string[] {
   );
 }
 
-function unionPhotoTagIds(groups: string[][]): string[] {
-  return normalizePhotoTagIds(groups.flat());
-}
-
 function normalizeTagSearchText(value: string): string {
   return value
     .normalize("NFD")
@@ -617,14 +613,7 @@ function initialActivityPhotoState(question: VisitQuestion): {
     sha256: photo.sha256,
     tagIds: normalizePhotoTagIds(photo.tags.map((tag) => tag.photoTagId).filter(Boolean)),
   }));
-  const tagGroups = photos.map((photo) => photo.tagIds);
-  const sharedTagIds = unionPhotoTagIds(tagGroups);
-  return {
-    photos: photos.map((photo) => ({
-      ...photo,
-      tagIds: photo.tagIds.length > 0 ? photo.tagIds : sharedTagIds,
-    })),
-  };
+  return { photos };
 }
 
 function PhotoAnswer({ question }: { question: VisitQuestion }) {

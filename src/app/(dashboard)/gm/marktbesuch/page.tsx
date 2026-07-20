@@ -3884,10 +3884,9 @@ function MarktbesuchInner() {
             ),
           );
           const selectedTagIds = unionPhotoTagIds(tagGroups);
-          const sharedTagIds = selectedTagIds;
           const photoTagIdsByPhotoKey: Record<string, string[]> = {};
           (answer.photos ?? []).forEach((photo, index) => {
-            const tagIds = tagGroups[index]?.length ? tagGroups[index] : sharedTagIds;
+            const tagIds = tagGroups[index] ?? [];
             const uiPhoto = photos[index];
             if (photo.storagePath) photoTagIdsByPhotoKey[photo.storagePath] = tagIds;
             if (uiPhoto) photoTagIdsByPhotoKey[uiPhoto] = tagIds;

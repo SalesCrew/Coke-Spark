@@ -651,6 +651,7 @@ export function buildPreparedFbManagementExportRows(
   preparedRows: FbManagementExportVisitRow[],
   travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>,
   questionCatalog?: readonly FbManagementExportQuestion[],
+  questionIdsByCampaignId?: Readonly<Record<string, readonly string[]>>,
 ) {
   const sortedRows = preparedRows.slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   const staticColumns = getSaraEinsaetzeColumns();
@@ -695,8 +696,17 @@ export function buildPreparedFbManagementExportRows(
     );
   }
 
+  const applicableQuestionIdsByCampaignId = questionIdsByCampaignId
+    ? new Map(
+      Object.entries(questionIdsByCampaignId).map(([campaignId, questionIds]) => [
+        campaignId,
+        new Set(questionIds),
+      ]),
+    )
+    : null;
   const rows = sortedRows.map((prepared) => {
     const row = prepared.cells.slice(0, SARA_BASE_COLUMN_COUNT);
+    const applicableQuestionIds = applicableQuestionIdsByCampaignId?.get(prepared.campaignId) ?? null;
     const travel = travelByVisitSessionId?.[prepared.sessionId];
     row[9] = travel?.start ?? "";
     row[10] = travel?.end ?? "";
@@ -717,6 +727,10 @@ export function buildPreparedFbManagementExportRows(
     for (const question of dynamicQuestions) {
       const answer = answerByKey.get(question.key);
       if (question.availability) {
+        if (applicableQuestionIds && !applicableQuestionIds.has(question.key)) {
+          row.push("", "", "");
+          continue;
+        }
         const bucket = answer ? fbManagementAvailabilityBucket(answer.value) : null;
         row.push(
           bucket === "top" ? "X" : bucket ? "" : "Keine Antwort",
@@ -750,56 +764,53 @@ function appendSaraEinsaetzeSheet(
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 }
 
-function uniqueExcelSheetName(value: string, usedNames: Set<string>): string {
-  const cleaned = value
-    .replace(/[\\/?*:[\]]/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/^'+|'+$/g, "")
-    .trim() || "Kampagne";
-  const base = cleaned.slice(0, 31);
-  let candidate = base;
-  let suffix = 2;
-  while (usedNames.has(candidate.toLocaleLowerCase("de"))) {
-    const suffixText = ` (${suffix})`;
-    candidate = `${base.slice(0, Math.max(1, 31 - suffixText.length))}${suffixText}`;
-    suffix += 1;
-  }
-  usedNames.add(candidate.toLocaleLowerCase("de"));
-  return candidate;
-}
-
 export function buildFbManagementCampaignSheets(input: {
   campaigns: Campaign[];
   preparedRows: FbManagementExportVisitRow[];
   questionCatalog: FbManagementExportQuestionCatalog;
   travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>;
 }) {
-  const multipleCampaigns = input.campaigns.length > 1;
-  const usedSheetNames = new Set<string>();
-  const campaignIds = new Set(input.campaigns.map((campaign) => campaign.id));
-  const unscopedRows = input.preparedRows.filter((row) => !campaignIds.has(row.campaignId));
+  const campaignById = new Map(input.campaigns.map((campaign) => [campaign.id, campaign]));
+  const unscopedRows = input.preparedRows.filter((row) => !campaignById.has(row.campaignId));
   if (unscopedRows.length > 0) {
     throw new Error(`${unscopedRows.length} Besuche konnten keiner exportierten Kampagne zugeordnet werden.`);
   }
 
-  return input.campaigns.map((campaign) => {
-    const campaignRows = input.preparedRows.filter((row) => row.campaignId === campaign.id);
-    const preparedExport = buildPreparedFbManagementExportRows(
-      campaignRows,
-      input.travelByVisitSessionId,
-      input.questionCatalog.questionsByCampaignId[campaign.id] ?? [],
+  const preparedRows = input.preparedRows.map((row) => {
+    const allowedQuestionIds = new Set(
+      input.questionCatalog.questionIdsByCampaignId[row.campaignId] ?? [],
     );
-    const columns = preparedExport.columns.map((column, index) => {
-      if (campaign.section !== "kuehler") return column;
-      if (index === 5) return { ...column, h1: "Interne ID", h2: "" };
-      if (index === 6) return { ...column, h1: "Externe ID", h2: "" };
-      return column;
-    });
-    const sheetName = multipleCampaigns
-      ? uniqueExcelSheetName(campaign.name, usedSheetNames)
-      : "Einsätze";
-    return { campaignId: campaign.id, sheetName, ...preparedExport, columns };
+    return {
+      ...row,
+      dynamicAnswers: row.dynamicAnswers.filter((answer) => allowedQuestionIds.has(answer.key)),
+    };
   });
+  const preparedExport = buildPreparedFbManagementExportRows(
+    preparedRows,
+    input.travelByVisitSessionId,
+    input.questionCatalog.questions,
+    input.questionCatalog.questionIdsByCampaignId,
+  );
+  const campaignSections = new Set(input.campaigns.map((campaign) => campaign.section));
+  const includesKuehler = campaignSections.has("kuehler");
+  const onlyKuehler = includesKuehler && campaignSections.size === 1;
+  const columns = preparedExport.columns.map((column, index) => {
+    if (!includesKuehler) return column;
+    if (index === 5) {
+      return { ...column, h1: onlyKuehler ? "Interne ID" : "Interne ID / Standardmarkt Nr.", h2: "" };
+    }
+    if (index === 6) {
+      return { ...column, h1: onlyKuehler ? "Externe ID" : "Externe ID / Flexnummer", h2: "" };
+    }
+    return column;
+  });
+
+  return [{
+    campaignId: input.campaigns.length === 1 ? input.campaigns[0].id : "combined",
+    sheetName: "Einsätze",
+    ...preparedExport,
+    columns,
+  }];
 }
 
 function appendFbManagementCampaignSheets(input: {

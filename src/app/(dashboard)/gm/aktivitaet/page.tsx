@@ -27,6 +27,7 @@ import {
 import Aurora from "@/components/ui/Aurora";
 import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
+import { compareGmPhotoTags } from "@/utils/photoTags";
 import {
   fetchGmAnswerChangeRequests,
   fetchGmCompletedVisitSessions,
@@ -594,7 +595,7 @@ function configuredPhotoTags(question: VisitQuestion): ActivityPhotoTagMeta[] {
   return tagIds.map((id) => {
     const match = meta.find((entry) => entry.id === id);
     return { id, label: match?.label || id };
-  });
+  }).sort(compareGmPhotoTags);
 }
 
 function initialActivityPhotoState(question: VisitQuestion): {

@@ -28,7 +28,7 @@ import {
   type GmVisitStartPayload,
   type GmVisitStartSection,
 } from "@/lib/api/backend";
-import { getPhotoTagPoolStorageKey } from "@/utils/photoTags";
+import { compareGmPhotoTags, getPhotoTagPoolStorageKey } from "@/utils/photoTags";
 import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 import { computeHiddenQuestionIds as computeRuleHiddenQuestionIds } from "@/lib/conditional-visibility";
 import {
@@ -270,16 +270,6 @@ function normalizeTagSearchText(value: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("de-AT")
     .trim();
-}
-
-function comparePhotoTagLabels(
-  left: { label: string },
-  right: { label: string },
-): number {
-  return left.label.localeCompare(right.label, "de-AT", {
-    sensitivity: "base",
-    numeric: true,
-  });
 }
 
 function isoToDisplayDate(value: string): string {
@@ -2735,7 +2725,7 @@ function QuestionCard({
               : null;
             return configTagMeta ?? { id, label: id, deletedAt: null };
           })
-          .sort(comparePhotoTagLabels);
+          .sort(compareGmPhotoTags);
 
         const tagMode = resolvePhotoTagMode(photoState);
         const photoKeys = photos.map((src, index) => resolvePhotoUiKey(photos, index) || photoCommittedMeta[index]?.storagePath || src || `photo-${index}`);

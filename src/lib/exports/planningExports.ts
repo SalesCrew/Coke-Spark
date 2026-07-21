@@ -146,6 +146,10 @@ type VisitAnswerRow = {
   market: CampaignExportMarket | null;
 };
 
+function formatVisitAnswerValue(question: VisitDetailQuestion, value: string): string {
+  return question.singleChoiceAvailability ? formatAvailabilityLabel(value) : value;
+}
+
 function stringifyUnknown(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -163,11 +167,11 @@ function visitAnswerOptionsSummary(question: VisitDetailQuestion): string {
   const top = options
     .filter((option) => option.optionRole === "top")
     .sort((a, b) => a.orderIndex - b.orderIndex)
-    .map((option) => option.optionValue);
+    .map((option) => formatVisitAnswerValue(question, option.optionValue));
   const sub = options
     .filter((option) => option.optionRole === "sub")
     .sort((a, b) => a.orderIndex - b.orderIndex)
-    .map((option) => option.optionValue);
+    .map((option) => formatVisitAnswerValue(question, option.optionValue));
   if (top.length > 0 && sub.length > 0) return `${top.join(", ")} | ${sub.join(", ")}`;
   return [...top, ...sub].join(", ");
 }
@@ -217,8 +221,19 @@ function visitAnswerSummary(question: VisitDetailQuestion): string {
   const options = visitAnswerOptionsSummary(question);
   if (options) return options;
   if (answer.valueNumber != null && answer.valueNumber !== "") return answer.valueNumber;
-  if (answer.valueText != null && answer.valueText !== "") return answer.valueText;
-  if (answer.valueJson != null) return stringifyUnknown(answer.valueJson);
+  if (answer.valueText != null && answer.valueText !== "") {
+    return formatVisitAnswerValue(question, answer.valueText);
+  }
+  if (answer.valueJson != null) {
+    const raw = (answer.valueJson as { raw?: unknown }).raw;
+    if (question.singleChoiceAvailability && Array.isArray(raw)) {
+      return raw.map((value) => formatAvailabilityLabel(String(value))).join(", ");
+    }
+    if (question.singleChoiceAvailability && typeof raw === "string") {
+      return formatAvailabilityLabel(raw);
+    }
+    return stringifyUnknown(answer.valueJson);
+  }
   return "";
 }
 
@@ -472,10 +487,14 @@ function saraAnswerRawValue(question: VisitDetailQuestion): string {
   const optionSummary = visitAnswerOptionsSummary(question);
   if (optionSummary) return optionSummary;
   if (answer.valueNumber != null && answer.valueNumber !== "") return String(answer.valueNumber);
-  if (answer.valueText != null && answer.valueText !== "") return answer.valueText;
+  if (answer.valueText != null && answer.valueText !== "") {
+    return formatVisitAnswerValue(question, answer.valueText);
+  }
   const raw = (answer.valueJson as { raw?: unknown } | null | undefined)?.raw;
-  if (Array.isArray(raw)) return raw.map(String).join(", ");
-  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) {
+    return raw.map((value) => formatVisitAnswerValue(question, String(value))).join(", ");
+  }
+  if (typeof raw === "string") return formatVisitAnswerValue(question, raw);
   if (raw != null) return stringifyUnknown(raw);
   if (answer.valueJson != null) return stringifyUnknown(answer.valueJson);
   if (answer.photos.length > 0) return `${answer.photos.length} Foto${answer.photos.length === 1 ? "" : "s"}`;

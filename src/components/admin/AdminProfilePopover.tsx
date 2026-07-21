@@ -2,7 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Building2, KeyRound, Loader2, LogOut, ShieldCheck, Users } from "lucide-react";
-import { BackendApiError, updateOwnAdminPassword } from "@/lib/api/backend";
+import { BackendApiError, updateOwnPasswordWithCurrent } from "@/lib/api/backend";
 
 type PopoverMode = "profile" | "password";
 
@@ -33,6 +33,7 @@ export function AdminProfilePopover({
   onOpenCustomerAccess,
   onLogout,
 }: AdminProfilePopoverProps) {
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +43,7 @@ export function AdminProfilePopover({
 
   useEffect(() => {
     if (!open) {
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       setError(null);
@@ -65,6 +67,7 @@ export function AdminProfilePopover({
     if (mode === "profile") {
       setError(null);
       setSuccess(null);
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     }
@@ -81,9 +84,9 @@ export function AdminProfilePopover({
   }, [anchorRect]);
 
   const minLength = 8;
-  const isPasswordValid = newPassword.trim().length >= minLength;
-  const passwordsMatch = newPassword.trim().length > 0 && newPassword === confirmPassword;
-  const canSubmit = Boolean(userId && isPasswordValid && passwordsMatch && !isSubmitting);
+  const isPasswordValid = newPassword.length >= minLength;
+  const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
+  const canSubmit = Boolean(userId && currentPassword.length > 0 && isPasswordValid && passwordsMatch && !isSubmitting);
   const profileActionCount = 3 + (onOpenManager ? 1 : 0) + (onOpenCustomerAccess ? 1 : 0);
   const profilePaneHeight = profileActionCount * 34 + Math.max(0, profileActionCount - 1) * 8 + 14;
 
@@ -94,7 +97,10 @@ export function AdminProfilePopover({
     setError(null);
     setSuccess(null);
     try {
-      await updateOwnAdminPassword(userId, newPassword.trim());
+      await updateOwnPasswordWithCurrent({ currentPassword, newPassword });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
       setSuccess("Passwort erfolgreich aktualisiert.");
       window.setTimeout(() => onModeChange("profile"), 900);
     } catch (err) {
@@ -147,7 +153,7 @@ export function AdminProfilePopover({
           style={{
             marginTop: 10,
             overflow: "hidden",
-            height: mode === "profile" ? profilePaneHeight : 212,
+            height: mode === "profile" ? profilePaneHeight : 254,
             transition: "height 240ms cubic-bezier(0.2, 0.8, 0.2, 1)",
           }}
         >
@@ -299,6 +305,21 @@ export function AdminProfilePopover({
                   Zurück
                 </button>
 
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  placeholder="Aktuelles Passwort"
+                  autoComplete="current-password"
+                  style={{
+                    height: 34,
+                    borderRadius: 9,
+                    border: "1px solid rgba(15,23,42,0.12)",
+                    padding: "0 10px",
+                    fontSize: 12,
+                    outline: "none",
+                  }}
+                />
                 <input
                   type="password"
                   value={newPassword}

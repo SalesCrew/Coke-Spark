@@ -1876,13 +1876,6 @@ export async function anonymizeGmUser(userId: string): Promise<{ ok: boolean; al
   };
 }
 
-export async function updateOwnAdminPassword(userId: string, newPassword: string): Promise<void> {
-  await authedFetch(`/admin/users/${userId}/password`, {
-    method: "PATCH",
-    body: JSON.stringify({ newPassword }),
-  });
-}
-
 export async function fetchCustomerAccessUsers(): Promise<CustomerAccessUserRecord[]> {
   const data = (await authedFetch("/admin/kunden-users", { cache: "no-store" })) as { users?: BackendUser[] };
   return (data.users ?? [])

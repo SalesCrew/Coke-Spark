@@ -368,6 +368,7 @@ export type FbManagementExportVisitRow = {
     key: string;
     question: string;
     kind: FbManagementExportQuestion["kind"];
+    availability?: boolean;
     value: SaraCellValue;
     comment: string;
   }>;
@@ -379,6 +380,7 @@ export type FbManagementExportQuestion = {
   key: string;
   question: string;
   kind: "value" | "number";
+  availability?: boolean;
 };
 
 export type FbManagementExportQuestionCatalog = {
@@ -431,6 +433,7 @@ export function buildFbManagementQuestionCatalog(input: {
         key: question.id,
         question: question.text,
         kind: fbManagementQuestionKind(question),
+        availability: Boolean(question.singleChoiceAvailability),
       };
       if (!questionsById.has(question.id)) questionsById.set(question.id, exportQuestion);
       campaignQuestions.push(exportQuestion);
@@ -604,6 +607,7 @@ export function prepareFbManagementExportVisitRow(input: {
         key: question.questionId,
         question: question.text,
         kind,
+        availability: Boolean(question.singleChoiceAvailability),
         value: kind === "number" ? saraNumberFromString(rawValue) : rawValue,
         comment: question.comment ?? "",
       });
@@ -625,6 +629,24 @@ function dynamicSaraColumnWidth(question: string): number {
   return Math.min(80, Math.max(24, Math.ceil(question.length * 0.72)));
 }
 
+type FbManagementAvailabilityBucket = "top" | "mediocre" | "bad";
+
+function fbManagementAvailabilityBucket(value: SaraCellValue): FbManagementAvailabilityBucket | null {
+  const normalized = String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (!normalized || normalized === "keine antwort") return null;
+  if (/^(top|voll|1)$/.test(normalized)) return "top";
+  if (/^(mediocre|mittel|mittelmassig|3)$/.test(normalized)) return "mediocre";
+  if (/^(bad|leer|schlecht|oos|5)$/.test(normalized)) return "bad";
+  if (/\btop\b|\bvoll\b|\(1\)|^1\b/.test(normalized)) return "top";
+  if (/\bmediocre\b|\bmittel|\(3\)|^3\b/.test(normalized)) return "mediocre";
+  if (/\bbad\b|\bleer\b|\bschlecht\b|\boos\b|\(5\)|^5\b/.test(normalized)) return "bad";
+  return null;
+}
+
 export function buildPreparedFbManagementExportRows(
   preparedRows: FbManagementExportVisitRow[],
   travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>,
@@ -635,7 +657,7 @@ export function buildPreparedFbManagementExportRows(
   const columns = staticColumns.slice();
   const dynamicQuestionByKey = new Map<
     string,
-    { key: string; question: string; kind: "value" | "number" }
+    FbManagementExportQuestion
   >();
 
   if (questionCatalog) {
@@ -650,6 +672,7 @@ export function buildPreparedFbManagementExportRows(
             key: answer.key,
             question: answer.question,
             kind: answer.kind,
+            availability: Boolean(answer.availability),
           });
         }
       }
@@ -658,6 +681,14 @@ export function buildPreparedFbManagementExportRows(
 
   const dynamicQuestions = Array.from(dynamicQuestionByKey.values());
   for (const question of dynamicQuestions) {
+    if (question.availability) {
+      columns.push(
+        { h1: question.question, h2: "Top", width: dynamicSaraColumnWidth(question.question) },
+        { h1: "", h2: "Mediocre", width: 14 },
+        { h1: "", h2: "Bad", width: 14 },
+      );
+      continue;
+    }
     columns.push(
       { h1: question.question, h2: question.kind === "number" ? "Zahl" : "Wert", width: dynamicSaraColumnWidth(question.question) },
       { h1: "", h2: "Kommentar", width: 32 },
@@ -685,6 +716,15 @@ export function buildPreparedFbManagementExportRows(
     }
     for (const question of dynamicQuestions) {
       const answer = answerByKey.get(question.key);
+      if (question.availability) {
+        const bucket = answer ? fbManagementAvailabilityBucket(answer.value) : null;
+        row.push(
+          bucket === "top" ? "X" : bucket ? "" : "Keine Antwort",
+          bucket === "mediocre" ? "X" : "",
+          bucket === "bad" ? "X" : "",
+        );
+        continue;
+      }
       row.push(answer?.value ?? "", answer?.comment ?? "");
     }
     return row;

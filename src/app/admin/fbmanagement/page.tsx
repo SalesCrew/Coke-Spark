@@ -6404,15 +6404,20 @@ function GmReassignSelect({
 function RegionBar({
   name,
   pct,
+  completed,
+  total,
   onClick,
   hideMetrics = false,
 }: {
   name: string;
   pct: number;
+  completed?: number;
+  total?: number;
   onClick?: () => void;
   hideMetrics?: boolean;
 }) {
   const color = pct >= 80 ? "#16a34a" : pct >= 40 ? "#d97706" : "#DC2626";
+  const showMarketCount = completed != null && total != null;
   return (
     <div
       onClick={onClick}
@@ -6432,8 +6437,25 @@ function RegionBar({
           }}
         />
       </div>
-      <span style={{ fontSize: 11, fontWeight: 600, color, width: 34, textAlign: "right", flexShrink: 0 }}>
-        {hideMetrics ? "" : `${pct}%`}
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "baseline",
+          justifyContent: "flex-end",
+          gap: 5,
+          fontSize: 11,
+          fontWeight: 600,
+          color,
+          width: showMarketCount ? 82 : 34,
+          textAlign: "right",
+          flexShrink: 0,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {!hideMetrics && showMarketCount ? (
+          <span style={{ color: "rgba(0,0,0,0.48)", fontWeight: 600 }}>{completed}/{total}</span>
+        ) : null}
+        {!hideMetrics ? <span>{pct}%</span> : null}
       </span>
     </div>
   );
@@ -8644,6 +8666,8 @@ export default function FbManagementPage() {
     return Array.from(statsByGm.values())
       .map((stats) => ({
         name: stats.name,
+        completed: stats.filled,
+        total: stats.total,
         pct: stats.total > 0 ? Math.round((stats.filled / stats.total) * 100) : 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "de"));
@@ -10511,7 +10535,13 @@ export default function FbManagementPage() {
             {selectedRegion
               ? selectedRegionGms.length > 0
                 ? selectedRegionGms.map((gm) => (
-                    <RegionBar key={gm.name} name={gm.name} pct={gm.pct} />
+                    <RegionBar
+                      key={gm.name}
+                      name={gm.name}
+                      pct={gm.pct}
+                      completed={gm.completed}
+                      total={gm.total}
+                    />
                   ))
                 : (
                     <div style={{ padding: "2px 0", fontSize: 11, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>

@@ -219,6 +219,8 @@ type BackendCampaignMarketVisitSummary = {
   marketId: string;
   hasSubmittedVisit: boolean;
   sessionId: string | null;
+  kuehlerUnitId: string | null;
+  kuehlerInternalId: string | null;
   startedAt: string | null;
   submittedAt: string | null;
   durationMinutes: number | null;

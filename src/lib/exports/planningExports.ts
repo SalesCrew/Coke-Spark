@@ -500,8 +500,14 @@ function saraCustomerNumber(market: CampaignExportMarket | null | undefined): st
   return firstMarketIdentifier(market?.cokeMasterNumber, market?.kuehlerStammnr, market?.stammnr);
 }
 
-function saraInternalId(market: CampaignExportMarket | null | undefined): string {
-  return firstMarketIdentifier(market?.standardMarketNumber);
+function saraInternalId(
+  visit: CampaignMarketVisitSummary,
+  market: CampaignExportMarket | null | undefined,
+): string {
+  const isKuehlerVisit = visit.sections.some((section) => section.section === "kuehler");
+  return firstMarketIdentifier(
+    isKuehlerVisit ? visit.kuehlerInternalId : market?.standardMarketNumber,
+  );
 }
 
 function saraExternalId(market: CampaignExportMarket | null | undefined): string {
@@ -559,7 +565,7 @@ export function prepareFbManagementExportVisitRow(input: {
   row[2] = formatSaraDateTime(visit.startedAt, "date");
   row[3] = formatSaraDateTime(visit.startedAt, "time");
   row[4] = input.campaignName ?? primarySection?.fragebogenName ?? "";
-  row[5] = saraInternalId(input.market);
+  row[5] = saraInternalId(visit, input.market);
   row[6] = saraExternalId(input.market);
   row[7] = visit.gmName ?? "";
   row[8] = photoCount;
@@ -724,10 +730,16 @@ export function buildFbManagementCampaignSheets(input: {
       input.travelByVisitSessionId,
       input.questionCatalog.questionsByCampaignId[campaign.id] ?? [],
     );
+    const columns = preparedExport.columns.map((column, index) => {
+      if (campaign.section !== "kuehler") return column;
+      if (index === 5) return { ...column, h1: "Interne ID", h2: "" };
+      if (index === 6) return { ...column, h1: "Externe ID", h2: "" };
+      return column;
+    });
     const sheetName = multipleCampaigns
       ? uniqueExcelSheetName(campaign.name, usedSheetNames)
       : "Einsätze";
-    return { campaignId: campaign.id, sheetName, ...preparedExport };
+    return { campaignId: campaign.id, sheetName, ...preparedExport, columns };
   });
 }
 

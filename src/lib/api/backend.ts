@@ -1129,6 +1129,16 @@ type BackendPraemienFlexSubmission = {
   updatedAt: string;
 };
 
+type BackendPraemienPillarOverride = {
+  id: string;
+  pillarId: string;
+  gmId: string;
+  gmName: string;
+  points: number;
+  note?: string;
+  updatedAt: string;
+};
+
 type BackendPraemienWave = {
   id: string;
   name: string;
@@ -1144,6 +1154,7 @@ type BackendPraemienWave = {
   pillars: BackendPraemienPillar[];
   qualitySubmissions: BackendPraemienQualitySubmission[];
   flexSubmissions: BackendPraemienFlexSubmission[];
+  pillarOverrides: BackendPraemienPillarOverride[];
   createdAt: string;
   updatedAt: string;
 };
@@ -1375,6 +1386,15 @@ function mapPraemienWaveToQuarter(wave: BackendPraemienWave): PraemienQuarter {
       note: entry.note ?? undefined,
       updatedAt: entry.updatedAt,
     })),
+    pillarOverrides: (wave.pillarOverrides ?? []).map((entry) => ({
+      id: entry.id,
+      pillarId: entry.pillarId,
+      gmId: entry.gmId,
+      gmName: entry.gmName ?? "",
+      points: Number(entry.points ?? 0),
+      note: entry.note ?? undefined,
+      updatedAt: entry.updatedAt,
+    })),
     createdAt: wave.createdAt,
     updatedAt: wave.updatedAt,
   };
@@ -1487,6 +1507,26 @@ export async function replaceAdminPraemienFlexScores(
   input: { flexScores: PraemienFlexWrite[]; expectedUpdatedAt?: string },
 ): Promise<PraemienQuarter> {
   const data = (await authedFetch(`/admin/praemien/waves/${waveId}/flex-scores`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  })) as { wave: BackendPraemienWave };
+  return mapPraemienWaveToQuarter(data.wave);
+}
+
+export async function replaceAdminPraemienPillarOverrides(
+  waveId: string,
+  input: {
+    pillarOverrides: Array<{
+      id?: string;
+      pillarId: string;
+      gmUserId: string;
+      points: number;
+      note?: string | null;
+    }>;
+    expectedUpdatedAt?: string;
+  },
+): Promise<PraemienQuarter> {
+  const data = (await authedFetch(`/admin/praemien/waves/${waveId}/pillar-overrides`, {
     method: "PUT",
     body: JSON.stringify(input),
   })) as { wave: BackendPraemienWave };

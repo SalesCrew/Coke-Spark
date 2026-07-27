@@ -100,6 +100,16 @@ export interface PraemienFlexSubmission {
   updatedAt: string;
 }
 
+export interface PraemienPillarOverride {
+  id: string;
+  pillarId: string;
+  gmId: string;
+  gmName: string;
+  points: number;
+  note?: string;
+  updatedAt: string;
+}
+
 export interface PraemienQuarter {
   id: string;
   name: string;
@@ -114,6 +124,7 @@ export interface PraemienQuarter {
   thresholds: PraemienThreshold[];
   qualitySubmissions: PraemienQualitySubmission[];
   flexSubmissions: PraemienFlexSubmission[];
+  pillarOverrides: PraemienPillarOverride[];
   createdAt: string;
   updatedAt?: string;
   timezone?: string;

@@ -4,7 +4,7 @@ import { Inter_Tight } from "next/font/google";
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Mail, Send } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { createRecoveryClient } from "@/lib/supabase/client";
 import "../../../components/login.css";
 
 const loginFont = Inter_Tight({
@@ -27,6 +27,7 @@ function ForgotPasswordInner() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const supabase = useMemo(() => createRecoveryClient(), []);
 
   const handleSend = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -41,7 +42,6 @@ function ForgotPasswordInner() {
 
     try {
       setBusy(true);
-      const supabase = createClient();
       const redirectTo = `${resolveResetOrigin()}/auth/reset-password`;
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, { redirectTo });
       if (resetError) throw resetError;

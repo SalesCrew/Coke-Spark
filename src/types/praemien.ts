@@ -70,6 +70,8 @@ export interface PraemienPillar {
   color: string;
   isManual?: boolean;
   payoutMode: PraemienPayoutMode;
+  targetPoints: number | null;
+  rewardEur: number;
   maxRewardEur: number;
   metrics: PraemienPillarMetric[];
   tiers: PraemienPillarTier[];
@@ -137,6 +139,9 @@ export interface PraemienGmGoalProgress {
   points: number;
   maxPoints: number;
   percent: number;
+  targetPoints?: number | null;
+  rewardEur?: number;
+  achieved?: boolean;
   isManual?: boolean;
   isPending?: boolean;
   earnedRewardEur?: number;

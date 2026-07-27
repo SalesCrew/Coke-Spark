@@ -4,7 +4,7 @@ import { Inter_Tight } from "next/font/google";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, createRecoveryClient } from "@/lib/supabase/client";
 import "../../../components/login.css";
 
 const loginFont = Inter_Tight({
@@ -24,6 +24,10 @@ function ResetPasswordInner() {
   const searchParams = useSearchParams();
   const recoveryCode = searchParams.get("code");
   const returnTo = useMemo(() => sanitizeReturnTo(searchParams.get("returnTo")), [searchParams]);
+  const supabase = useMemo(
+    () => recoveryCode ? createClient() : createRecoveryClient(),
+    [recoveryCode],
+  );
   const [stage, setStage] = useState<ResetStage>("checking");
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
@@ -32,7 +36,6 @@ function ResetPasswordInner() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
-    const supabase = createClient();
     let mounted = true;
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
@@ -53,7 +56,7 @@ function ResetPasswordInner() {
           if (exchangeError) {
             const message = String(exchangeError.message || "");
             if (/pkce code verifier not found/i.test(message)) {
-              throw new Error("Dieser Link gehört zu einem browsergebundenen Recovery-Flow. Bitte öffne ihn im gleichen Browser oder fordere einen neuen Link an.");
+              throw new Error("Dieser ältere Link ist browsergebunden. Bitte fordere einen neuen Reset-Link an; neue Links funktionieren auch auf einem anderen Gerät.");
             }
             throw exchangeError;
           }
@@ -94,7 +97,7 @@ function ResetPasswordInner() {
       mounted = false;
       listener.subscription.unsubscribe();
     };
-  }, [recoveryCode]);
+  }, [recoveryCode, supabase]);
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -111,7 +114,6 @@ function ResetPasswordInner() {
 
     try {
       setStage("saving");
-      const supabase = createClient();
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
       await supabase.auth.signOut();

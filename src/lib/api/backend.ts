@@ -1081,6 +1081,8 @@ type BackendPraemienPillar = {
   color: string;
   isManual: boolean;
   payoutMode: "highest_tier" | "sum_earned_tiers";
+  targetPoints: number | null;
+  rewardEur: number;
   maxRewardEur: number;
   metrics: Array<{
     id: string;
@@ -1159,7 +1161,7 @@ type BackendPraemienWave = {
   updatedAt: string;
 };
 
-type BackendPraemienWaveListRow = {
+export type PraemienWaveSummary = {
   id: string;
   name: string;
   year: number;
@@ -1169,6 +1171,7 @@ type BackendPraemienWaveListRow = {
   endDate: string;
   description: string;
   timezone: string;
+  rewardModel: "global_thresholds" | "pillar_targets" | "pillar_tiers";
   createdAt: string;
   updatedAt: string;
 };
@@ -1218,6 +1221,8 @@ type PraemienPillarWrite = {
   orderIndex: number;
   isManual?: boolean;
   payoutMode: "highest_tier" | "sum_earned_tiers";
+  targetPoints?: number | null;
+  rewardEur?: number;
   maxRewardEur: number;
   metrics: Array<{
     id?: string;
@@ -1320,6 +1325,8 @@ function mapPraemienWaveToQuarter(wave: BackendPraemienWave): PraemienQuarter {
       color: pillar.color ?? "#DC2626",
       isManual: Boolean(pillar.isManual),
       payoutMode: pillar.payoutMode ?? "highest_tier",
+      targetPoints: pillar.targetPoints == null ? null : Number(pillar.targetPoints),
+      rewardEur: Number(pillar.rewardEur ?? 0),
       maxRewardEur: Number(pillar.maxRewardEur ?? 0),
       metrics: (pillar.metrics ?? []).map((metric) => ({
         id: metric.id,
@@ -1405,23 +1412,34 @@ export async function fetchAdminPraemienWaves(input?: {
   status?: PraemienWaveStatus;
   limit?: number;
   offset?: number;
+  includeInitial?: boolean;
 }): Promise<{
-  waves: BackendPraemienWaveListRow[];
+  waves: PraemienWaveSummary[];
   limit: number;
   offset: number;
   total: number;
+  initialWave: PraemienQuarter | null;
 }> {
   const params = new URLSearchParams();
   if (input?.year != null) params.set("year", String(input.year));
   if (input?.status) params.set("status", input.status);
   if (input?.limit != null) params.set("limit", String(input.limit));
   if (input?.offset != null) params.set("offset", String(input.offset));
+  if (input?.includeInitial != null) params.set("includeInitial", input.includeInitial ? "true" : "false");
   const query = params.toString();
-  return (await authedFetch(`/admin/praemien/waves${query ? `?${query}` : ""}`)) as {
-    waves: BackendPraemienWaveListRow[];
+  const data = (await authedFetch(`/admin/praemien/waves${query ? `?${query}` : ""}`)) as {
+    waves: PraemienWaveSummary[];
     limit: number;
     offset: number;
     total: number;
+    initialWave?: BackendPraemienWave | null;
+  };
+  return {
+    waves: data.waves,
+    limit: data.limit,
+    offset: data.offset,
+    total: data.total,
+    initialWave: data.initialWave ? mapPraemienWaveToQuarter(data.initialWave) : null,
   };
 }
 

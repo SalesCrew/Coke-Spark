@@ -479,6 +479,8 @@ export async function exportPraemienExcel(input: {
           { header: "Säule", width: 24, value: (row) => row.pillar.name },
           { header: "Beschreibung", width: 42, value: (row) => row.pillar.description },
           { header: "Farbe", width: 12, value: (row) => row.pillar.color },
+          { header: "Zielpunkte", width: 13, value: (row) => row.pillar.targetPoints ?? "", align: "right", numberFormat: "0.0" },
+          { header: "Max. Prämie EUR", width: 17, value: (row) => row.pillar.maxRewardEur, align: "right", numberFormat: "#,##0.00" },
           { header: "Quellen", width: 10, value: (row) => row.pillar.sourceRefs.length, align: "right" },
           { header: "Punkte", width: 12, value: (row) => row.pillar.sourceRefs.reduce((sum, source) => sum + sourceRowPoints(source), 0), align: "right", numberFormat: "0.0" },
         ],

@@ -24,6 +24,7 @@ import {
   replaceAdminPraemienQualityScores,
   replaceAdminPraemienSources,
   replaceAdminPraemienThresholds,
+  type PraemienWaveSummary,
 } from "@/lib/api/backend";
 import type {
   PraemienQuarter, PraemienPillar, PraemienThreshold, PraemienSourceRef, SectionType,
@@ -89,7 +90,7 @@ function isUuid(value: string | null | undefined): boolean {
 function buildDefaultPillars(): PraemienPillar[] {
   return PILLAR_DEFAULTS.map((definition) => {
     const { kind, ...pillarDefinition } = definition;
-    const base = { id: uid(), ...pillarDefinition, sourceRefs: [] };
+    const base = { id: uid(), ...pillarDefinition, targetPoints: null, rewardEur: 0, sourceRefs: [] };
     if (kind === "execution") {
       return {
         ...base,
@@ -280,6 +281,8 @@ function toCreatePayload(input: {
       orderIndex: index,
       isManual: isManualPillar(entry),
       payoutMode: entry.payoutMode,
+      targetPoints: entry.targetPoints,
+      rewardEur: entry.rewardEur,
       maxRewardEur: entry.maxRewardEur,
       metrics: entry.metrics.map((metric, metricIndex) => ({
         key: metric.key,
@@ -354,6 +357,8 @@ function toPillarsPayload(quarter: PraemienQuarter) {
       orderIndex: index,
       isManual: isManualPillar(entry),
       payoutMode: entry.payoutMode,
+      targetPoints: entry.targetPoints,
+      rewardEur: entry.rewardEur,
       maxRewardEur: entry.maxRewardEur,
       metrics: entry.metrics.map((metric, metricIndex) => ({
         id: isUuid(metric.id) ? metric.id : undefined,
@@ -407,6 +412,23 @@ function canonicalSourceAssignments(quarter: PraemienQuarter): Array<{ pillar: P
   }
 
   return Array.from(assignments.values());
+}
+
+function toWaveSummary(wave: PraemienQuarter): PraemienWaveSummary {
+  return {
+    id: wave.id,
+    name: wave.name,
+    year: wave.year,
+    quarter: wave.quarter,
+    status: wave.status,
+    startDate: wave.startDate,
+    endDate: wave.endDate,
+    description: wave.description,
+    timezone: wave.timezone ?? "Europe/Vienna",
+    rewardModel: wave.rewardModel,
+    createdAt: wave.createdAt,
+    updatedAt: wave.updatedAt ?? wave.createdAt,
+  };
 }
 
 function toSourcesPayload(quarter: PraemienQuarter, serverPillarByName?: Map<string, string>): { sources: Array<{ id?: string; pillarId: string; sectionType: SectionType; fragebogenId: string | null; fragebogenName: string; moduleId: string | null; moduleName: string; questionId: string; questionText: string; scoringKey: string; displayLabel: string; isFactorMode: boolean; boniValue: number; distributionFreqRule: "lt8" | "gt8" | null }>; expectedUpdatedAt?: string } {
@@ -500,6 +522,8 @@ function stablePillarStructureSignature(entries: PraemienPillar[]): string {
     description: entry.description,
     color: entry.color,
     payoutMode: entry.payoutMode,
+    targetPoints: entry.targetPoints,
+    rewardEur: entry.rewardEur,
     maxRewardEur: entry.maxRewardEur,
     metrics: entry.metrics,
     tiers: entry.tiers,
@@ -686,6 +710,8 @@ function applySectionPayloadSnapshot(
         description: entry.description,
         color: entry.color,
         payoutMode: entry.payoutMode,
+        targetPoints: entry.targetPoints ?? null,
+        rewardEur: entry.rewardEur ?? 0,
         maxRewardEur: entry.maxRewardEur,
         metrics: entry.metrics.map((metric) => ({ ...metric, id: metric.id ?? uid() })),
         tiers: entry.tiers.map((tier) => ({
@@ -1248,7 +1274,7 @@ function PraemienPageSkeleton() {
 function QuarterSwitcher({
   quarters, activeId, onSelect, onNew,
 }: {
-  quarters: PraemienQuarter[];
+  quarters: PraemienWaveSummary[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
@@ -2552,6 +2578,25 @@ function PillarRewardEditor({ pillar, onChange }: { pillar: PraemienPillar; onCh
             {pillar.payoutMode === "sum_earned_tiers" ? "Erreichte Teilziele werden addiert" : "Es gilt die höchste vollständig erreichte Stufe"}
           </div>
         </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "rgba(0,0,0,0.45)" }}>
+          Zielpunkte
+          <input
+            type="number"
+            min={0.01}
+            step={1}
+            value={pillar.targetPoints ?? ""}
+            placeholder="Pflicht"
+            onChange={(event) => {
+              const rawValue = event.target.value;
+              onChange({
+                ...pillar,
+                targetPoints: rawValue === "" ? null : Math.max(0.01, Number(rawValue) || 0.01),
+              });
+            }}
+            style={{ width: 76, height: 26, borderRadius: 7, border: `1px solid ${pillar.targetPoints == null ? "rgba(220,38,38,0.28)" : "rgba(0,0,0,0.1)"}`, background: pillar.targetPoints == null ? "rgba(220,38,38,0.035)" : "#fff", textAlign: "right", padding: "0 7px", fontSize: 10, fontWeight: 750, outline: "none" }}
+          />
+          P
+        </label>
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "rgba(0,0,0,0.45)" }}>
           Maximum
           <input
@@ -4576,6 +4621,9 @@ function computeIssues(quarter: PraemienQuarter, sources: BonusSource[], gms: Gm
     if (sorted[i].minPoints <= sorted[i - 1].minPoints) issues.push({ severity: "error", message: `Schwellwerte überschneiden sich: "${sorted[i - 1].label}" & "${sorted[i].label}".` });
   }
   for (const p of quarter.pillars) {
+    if (p.targetPoints == null || p.targetPoints <= 0) {
+      issues.push({ severity: "error", message: `Säule "${p.name}" benötigt positive Zielpunkte.` });
+    }
     if (isManualPillar(p)) continue; // manual pillar - no boni sources expected
     if (p.sourceRefs.length === 0) issues.push({ severity: "warning", message: `Säule "${p.name}" hat keine Quellen.` });
   }
@@ -4771,6 +4819,7 @@ export default function PraemienPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [conflictSection, setConflictSection] = useState<AutosaveSection | null>(null);
   const [quarters, setQuarters] = useState<PraemienQuarter[]>([]);
+  const [waveSummaries, setWaveSummaries] = useState<PraemienWaveSummary[]>([]);
   const [activeQuarterId, setActiveQuarterId] = useState<string | null>(null);
   const [bonusSources, setBonusSources] = useState<BonusSource[]>([]);
   const [gmUsers, setGmUsers] = useState<GmRosterEntry[]>([]);
@@ -4790,6 +4839,7 @@ export default function PraemienPage() {
   const blockedFingerprintRef = useRef<Map<AutosaveSection, string>>(new Map());
   const staleRetryRef = useRef<Map<string, number>>(new Map());
   const deletedWaveIdsRef = useRef<Set<string>>(new Set());
+  const waveLoadRequestRef = useRef(0);
 
   const transitionSectionState = useCallback((section: AutosaveSection, event: "dirty" | "saving" | "saved" | "blocked" | "conflict" | "clear") => {
     if (event === "dirty") {
@@ -4846,47 +4896,26 @@ export default function PraemienPage() {
     setShowReloadAction(false);
     clearTransientAutosaveState();
     deletedWaveIdsRef.current.clear();
+    const supportDataPromise = Promise.allSettled([
+      fetchAdminPraemienSources(),
+      fetchGmUsers(),
+    ]);
     try {
-      const [waveList, sourceRows, gmRows] = await Promise.all([
-        fetchAdminPraemienWaves({ limit: 200, offset: 0 }),
-        fetchAdminPraemienSources(),
-        fetchGmUsers().catch(() => []),
-      ]);
-      const mappedSources: BonusSource[] = sourceRows.map((row) => ({
-        key: row.key,
-        sectionType: row.sectionType,
-        fragebogenId: row.fragebogenId ?? "",
-        fragebogenName: row.fragebogenName ?? "",
-        moduleId: row.moduleId ?? "",
-        moduleName: row.moduleName ?? "",
-        questionId: row.questionId,
-        questionText: row.questionText ?? "",
-        scoringKey: row.scoringKey,
-        boniValue: Number(row.boniValue ?? 0),
-        isFactorMode: Boolean(row.isFactorMode),
-        displayLabel: row.displayLabel ?? "",
-      }));
-      setBonusSources(mappedSources);
-      const mappedGmUsers: GmRosterEntry[] = gmRows.map((gm) => ({
-        id: gm.id,
-        name: `${gm.firstName} ${gm.lastName}`.trim(),
-        region: gm.region || "Unbekannt",
-      }));
-      setGmUsers(mappedGmUsers);
-
-      const waveIds = (waveList.waves ?? []).map((entry) => entry.id);
-      if (waveIds.length === 0) {
+      const waveList = await fetchAdminPraemienWaves({ limit: 200, offset: 0, includeInitial: true });
+      const summaries = waveList.waves ?? [];
+      setWaveSummaries(summaries);
+      if (summaries.length === 0) {
         setQuarters([]);
         setActiveQuarterId(null);
         clearTransientAutosaveState();
         return;
       }
-      const loadedWavesRaw = await Promise.all(waveIds.map((waveId) => fetchAdminPraemienWave(waveId)));
-      const loadedWaves = loadedWavesRaw.map(toUiQuarter);
-      const activeWave = loadedWaves[0];
+      const activeWave = toUiQuarter(
+        waveList.initialWave ?? await fetchAdminPraemienWave(summaries[0].id),
+      );
       if (!activeWave) return;
       isHydratingRef.current = true;
-      setQuarters(loadedWaves);
+      setQuarters([activeWave]);
       setActiveQuarterId(activeWave.id);
       isHydratingRef.current = false;
     } catch (error) {
@@ -4894,6 +4923,31 @@ export default function PraemienPage() {
       setLoadError(message);
     } finally {
       setIsLoading(false);
+      void supportDataPromise.then(([sourceResult, gmResult]) => {
+        if (sourceResult.status === "fulfilled") {
+          setBonusSources(sourceResult.value.map((row) => ({
+            key: row.key,
+            sectionType: row.sectionType,
+            fragebogenId: row.fragebogenId ?? "",
+            fragebogenName: row.fragebogenName ?? "",
+            moduleId: row.moduleId ?? "",
+            moduleName: row.moduleName ?? "",
+            questionId: row.questionId,
+            questionText: row.questionText ?? "",
+            scoringKey: row.scoringKey,
+            boniValue: Number(row.boniValue ?? 0),
+            isFactorMode: Boolean(row.isFactorMode),
+            displayLabel: row.displayLabel ?? "",
+          })));
+        }
+        if (gmResult.status === "fulfilled") {
+          setGmUsers(gmResult.value.map((gm) => ({
+            id: gm.id,
+            name: `${gm.firstName} ${gm.lastName}`.trim(),
+            region: gm.region || "Unbekannt",
+          })));
+        }
+      });
     }
   }, [clearTransientAutosaveState]);
 
@@ -4904,14 +4958,47 @@ export default function PraemienPage() {
   useEffect(() => {
     const activeId = activeQuarterId;
     if (!activeId) return;
-    if (quarters.some((entry) => entry.id === activeId)) return;
-    setActiveQuarterId(quarters[0]?.id ?? null);
-  }, [quarters, activeQuarterId]);
+    if (waveSummaries.some((entry) => entry.id === activeId)) return;
+    setActiveQuarterId(waveSummaries[0]?.id ?? null);
+  }, [waveSummaries, activeQuarterId]);
 
   const activeQuarter = quarters.find(q => q.id === activeQuarterId) ?? null;
   const gmRoster = gmUsers.length > 0 ? gmUsers : ALL_GMS;
   const qualityPersistenceReady = gmUsers.length > 0;
   const flexPersistenceReady = gmUsers.length > 0;
+
+  const selectQuarter = useCallback((waveId: string) => {
+    const loaded = quarters.find((entry) => entry.id === waveId);
+    if (loaded) {
+      setActiveQuarterId(waveId);
+      return;
+    }
+    const previousWaveId = activeQuarterId;
+    const requestId = waveLoadRequestRef.current + 1;
+    waveLoadRequestRef.current = requestId;
+    setIsLoading(true);
+    setLoadError(null);
+    setActiveQuarterId(waveId);
+    void fetchAdminPraemienWave(waveId)
+      .then((wave) => {
+        if (waveLoadRequestRef.current !== requestId) return;
+        const hydrated = toUiQuarter(wave);
+        isHydratingRef.current = true;
+        setQuarters((previous) => [
+          hydrated,
+          ...previous.filter((entry) => entry.id !== hydrated.id),
+        ]);
+        isHydratingRef.current = false;
+      })
+      .catch((error) => {
+        if (waveLoadRequestRef.current !== requestId) return;
+        setLoadError(error instanceof Error ? error.message : "Prämien-Welle konnte nicht geladen werden.");
+        setActiveQuarterId(previousWaveId);
+      })
+      .finally(() => {
+        if (waveLoadRequestRef.current === requestId) setIsLoading(false);
+      });
+  }, [activeQuarterId, quarters]);
 
   useEffect(() => {
     clearTransientAutosaveState();
@@ -4921,6 +5008,9 @@ export default function PraemienPage() {
     setSaveError(null);
     setShowReloadAction(false);
     setConflictSection(null);
+    setWaveSummaries((previous) => previous.map((summary) => (
+      summary.id === updated.id ? toWaveSummary(updated) : summary
+    )));
     setQuarters(prev => prev.map((q) => {
       if (q.id !== updated.id) return q;
       if (!isHydratingRef.current) {
@@ -4976,6 +5066,7 @@ export default function PraemienPage() {
       const created = toUiQuarter(createdRaw);
       isHydratingRef.current = true;
       setQuarters(prev => [created, ...prev.filter((entry) => entry.id !== created.id)]);
+      setWaveSummaries((previous) => [toWaveSummary(created), ...previous.filter((entry) => entry.id !== created.id)]);
       setActiveQuarterId(created.id);
       isHydratingRef.current = false;
     } catch (error) {
@@ -4989,8 +5080,24 @@ export default function PraemienPage() {
     setIsExporting(true);
     setExportError(null);
     try {
+      const loadedById = new Map(quarters.map((quarter) => [quarter.id, quarter]));
+      const missingSummaries = waveSummaries.filter((summary) => !loadedById.has(summary.id));
+      const fetchedWaves = await Promise.all(
+        missingSummaries.map((summary) => fetchAdminPraemienWave(summary.id)),
+      );
+      for (const wave of fetchedWaves) loadedById.set(wave.id, toUiQuarter(wave));
+      const exportQuarters = waveSummaries.length > 0
+        ? waveSummaries.map((summary) => loadedById.get(summary.id)).filter((wave): wave is PraemienQuarter => Boolean(wave))
+        : quarters;
+      if (fetchedWaves.length > 0) {
+        setQuarters((previous) => {
+          const merged = new Map(previous.map((quarter) => [quarter.id, quarter]));
+          for (const wave of fetchedWaves) merged.set(wave.id, toUiQuarter(wave));
+          return Array.from(merged.values());
+        });
+      }
       await exportPraemienExcel({
-        quarters,
+        quarters: exportQuarters,
         activeQuarterId,
         sourceCatalog: bonusSources,
         exportedBy: readAuthSession()?.user.email ?? "",
@@ -5200,9 +5307,9 @@ export default function PraemienPage() {
       {/* Quarter switcher bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <QuarterSwitcher
-          quarters={quarters}
+          quarters={waveSummaries}
           activeId={activeQuarterId}
-          onSelect={setActiveQuarterId}
+          onSelect={selectQuarter}
           onNew={createNewQuarter}
         />
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -5229,6 +5336,7 @@ export default function PraemienPage() {
                     }));
                     isHydratingRef.current = true;
                     setQuarters(prev => [copy, ...prev.filter((entry) => entry.id !== copy.id)]);
+                    setWaveSummaries((previous) => [toWaveSummary(copy), ...previous.filter((entry) => entry.id !== copy.id)]);
                     setActiveQuarterId(copy.id);
                     isHydratingRef.current = false;
                   } catch (error) {
@@ -5251,15 +5359,13 @@ export default function PraemienPage() {
                     deletedWaveIdsRef.current.add(deletedWaveId);
                     clearTransientAutosaveState(deletedWaveId);
                     await deleteAdminPraemienWave(deletedWaveId);
+                    const nextWaveId = waveSummaries.find((entry) => entry.id !== deletedWaveId)?.id ?? null;
                     isHydratingRef.current = true;
-                    setQuarters((prev) => {
-                      const filtered = prev.filter((entry) => entry.id !== deletedWaveId);
-                      setActiveQuarterId((prevActive) => (
-                        prevActive === deletedWaveId ? (filtered[0]?.id ?? null) : prevActive
-                      ));
-                      return filtered;
-                    });
+                    setQuarters((prev) => prev.filter((entry) => entry.id !== deletedWaveId));
+                    setWaveSummaries((previous) => previous.filter((entry) => entry.id !== deletedWaveId));
+                    setActiveQuarterId(null);
                     isHydratingRef.current = false;
+                    if (nextWaveId) selectQuarter(nextWaveId);
                     setSaveError(null);
                     setShowReloadAction(false);
                     setConflictSection(null);

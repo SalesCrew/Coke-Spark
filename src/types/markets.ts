@@ -1,4 +1,4 @@
-export type SectionType = "standard" | "flex" | "kuehler" | "mhd" | "billa";
+export type SectionType = "standard" | "flex" | "kuehler" | "mhd" | "billa" | "durcharbeit";
 export type MarketType = "universum" | "kuehler" | "both";
 
 export interface MarketRecord {

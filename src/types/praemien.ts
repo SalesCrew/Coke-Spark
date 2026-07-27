@@ -1,4 +1,4 @@
-export type SectionType = "standard" | "flex" | "billa" | "kuehler" | "mhd";
+export type SectionType = "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
 
 export interface PraemienThreshold {
   id: string;

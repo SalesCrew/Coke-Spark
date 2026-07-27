@@ -59,6 +59,7 @@ const SECTION_COLORS: Record<CampaignSection, string> = {
   kuehler: "#D97706",
   mhd: "#7C3AED",
   billa: "#0891B2",
+  durcharbeit: "#2563EB",
 };
 
 const MARKET_LIST_INITIAL_LIMIT = 120;
@@ -922,11 +923,12 @@ interface PreviewQuestion {
   rules?: ConditionalRule[];
 }
 
-type FragebogenScopeKey = "main" | "kuehler" | "mhd";
+type FragebogenScopeKey = "main" | "kuehler" | "mhd" | "durcharbeit";
 
 function sectionToScope(section: CampaignSection): FragebogenScopeKey {
   if (section === "kuehler") return "kuehler";
   if (section === "mhd") return "mhd";
+  if (section === "durcharbeit") return "durcharbeit";
   return "main";
 }
 
@@ -936,6 +938,7 @@ function sectionLabel(section: CampaignSection): string {
   if (section === "billa") return "Billa";
   if (section === "kuehler") return "Kühler";
   if (section === "mhd") return "MHD";
+  if (section === "durcharbeit") return "Durcharbeit";
   return section;
 }
 
@@ -7500,16 +7503,19 @@ export default function FbManagementPage() {
     billa: [],
     kuehler: [],
     mhd: [],
+    durcharbeit: [],
   });
   const [fragebogenByScope, setFragebogenByScope] = useState<Record<FragebogenScopeKey, Fragebogen[]>>({
     main: [],
     kuehler: [],
     mhd: [],
+    durcharbeit: [],
   });
   const [modulesByScope, setModulesByScope] = useState<Record<FragebogenScopeKey, Module[]>>({
     main: [],
     kuehler: [],
     mhd: [],
+    durcharbeit: [],
   });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -7583,9 +7589,11 @@ export default function FbManagementPage() {
           fetchFragebogen("main"),
           fetchFragebogen("kuehler"),
           fetchFragebogen("mhd"),
+          fetchFragebogen("durcharbeit"),
           fetchModules("main"),
           fetchModules("kuehler"),
           fetchModules("mhd"),
+          fetchModules("durcharbeit"),
         ]);
 
         const campaignsResult = settled[0] as PromiseSettledResult<Awaited<ReturnType<typeof fetchCampaigns>>>;
@@ -7608,19 +7616,26 @@ export default function FbManagementPage() {
         const mhdFragebogen = optionalOrEmpty(
           settled[3] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
         );
-        const mainModules = optionalOrEmpty(
-          settled[4] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+        const durcharbeitFragebogen = optionalOrEmpty(
+          settled[4] as PromiseSettledResult<Awaited<ReturnType<typeof fetchFragebogen>>>,
         );
-        const kuehlerModules = optionalOrEmpty(
+        const mainModules = optionalOrEmpty(
           settled[5] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
         );
-        const mhdModules = optionalOrEmpty(
+        const kuehlerModules = optionalOrEmpty(
           settled[6] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+        );
+        const mhdModules = optionalOrEmpty(
+          settled[7] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
+        );
+        const durcharbeitModules = optionalOrEmpty(
+          settled[8] as PromiseSettledResult<Awaited<ReturnType<typeof fetchModules>>>,
         );
 
         const moduleQuestionCountMain = new Map(mainModules.map((module) => [module.id, module.questions.length]));
         const moduleQuestionCountKuehler = new Map(kuehlerModules.map((module) => [module.id, module.questions.length]));
         const moduleQuestionCountMhd = new Map(mhdModules.map((module) => [module.id, module.questions.length]));
+        const moduleQuestionCountDurcharbeit = new Map(durcharbeitModules.map((module) => [module.id, module.questions.length]));
 
         const toOptions = (fragebogenList: Fragebogen[], moduleCountMap: Map<string, number>) =>
           fragebogenList
@@ -7644,11 +7659,13 @@ export default function FbManagementPage() {
           main: mainFragebogen,
           kuehler: kuehlerFragebogen,
           mhd: mhdFragebogen,
+          durcharbeit: durcharbeitFragebogen,
         });
         setModulesByScope({
           main: mainModules,
           kuehler: kuehlerModules,
           mhd: mhdModules,
+          durcharbeit: durcharbeitModules,
         });
         setFragebogenOptions({
           standard: byMainSection("standard"),
@@ -7656,6 +7673,7 @@ export default function FbManagementPage() {
           billa: byMainSection("billa"),
           kuehler: toOptions(kuehlerFragebogen, moduleQuestionCountKuehler),
           mhd: toOptions(mhdFragebogen, moduleQuestionCountMhd),
+          durcharbeit: toOptions(durcharbeitFragebogen, moduleQuestionCountDurcharbeit),
         });
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : "Kampagnen konnten nicht geladen werden.");
@@ -8060,10 +8078,8 @@ export default function FbManagementPage() {
         dynamicQuestions.push(toPreviewQuestion(question, module.id, module.name));
       }
     }
-    if (scope === "main") {
-      for (const spezial of targetFragebogen.spezialfragen ?? []) {
-        dynamicQuestions.push(toPreviewQuestion(spezial, "__spezial__", "Spezialfragen"));
-      }
+    for (const spezial of targetFragebogen.spezialfragen ?? []) {
+      dynamicQuestions.push(toPreviewQuestion(spezial, "__spezial__", "Spezialfragen"));
     }
     if (dynamicQuestions.length > 0) return dynamicQuestions;
     if (campaign.section === "flex") return FLEX_PREVIEW_QUESTIONS;

@@ -1,4 +1,4 @@
-export type CampaignSection = "standard" | "flex" | "billa" | "kuehler" | "mhd";
+export type CampaignSection = "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
 export type CampaignStatus = "active" | "scheduled" | "inactive";
 export type CampaignScheduleType = "always" | "scheduled";
 

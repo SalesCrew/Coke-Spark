@@ -6,10 +6,12 @@ import { Check, Minus, Pencil, Plus, Sparkles, X } from "lucide-react";
 import type { Fragebogen, Question } from "@/types/fragebogen";
 import { SpezialfrageEditor } from "@/components/admin/SpezialfrageEditor";
 import { typeBadgeColor, typeLabel } from "@/utils/fragebogen";
+import type { FragebogenScope } from "@/lib/api/backend";
 
 type SpezialfragenFragebogenActionProps = {
   fragebogen: Fragebogen;
   onSave: (questions: Question[]) => Promise<void> | void;
+  scope?: FragebogenScope;
 };
 
 type SpezialfragenCountPillProps = {
@@ -213,7 +215,7 @@ function SpezialfragenAbwaehlenModal({
   );
 }
 
-export function SpezialfragenFragebogenAction({ fragebogen, onSave }: SpezialfragenFragebogenActionProps) {
+export function SpezialfragenFragebogenAction({ fragebogen, onSave, scope = "main" }: SpezialfragenFragebogenActionProps) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -257,6 +259,7 @@ export function SpezialfragenFragebogenAction({ fragebogen, onSave }: Spezialfra
 
       {editorOpen && (
         <SpezialfrageEditor
+          scope={scope}
           fragebogenName={fragebogen.name || "Unbenannter Fragebogen"}
           existingQuestions={fragebogen.spezialfragen ?? []}
           onClose={() => setEditorOpen(false)}

@@ -56,6 +56,7 @@ const TYPE_META: Record<AdminPhotoCampaignType, { label: string; color: string; 
   billa: { label: "Billa", color: "#0891B2", bg: "rgba(8,145,178,0.10)" },
   kuehler: { label: "Kühler", color: "#D97706", bg: "rgba(245,158,11,0.10)" },
   mhd: { label: "MHD", color: "#7C3AED", bg: "rgba(124,58,237,0.10)" },
+  durcharbeit: { label: "Durcharbeit", color: "#2563EB", bg: "rgba(37,99,235,0.10)" },
 };
 
 type ViewMode = "grid" | "list";
@@ -1578,22 +1579,8 @@ export default function FotoarchivPage() {
     setIsExporting(true);
     setExportError(null);
     try {
-      const pageSize = 80;
-      let page = 1;
-      let expectedTotal = 0;
-      const allPhotos: AdminPhotoArchiveItem[] = [];
-      while (page === 1 || allPhotos.length < expectedTotal) {
-        const response = await fetchAdminPhotos({ ...exportFilters, page, pageSize });
-        expectedTotal = response.total;
-        allPhotos.push(...response.photos);
-        if (response.photos.length === 0) break;
-        page += 1;
-      }
-      await exportFotoarchivImagesZip({
-        photos: dedupePhotosById(allPhotos),
-        exportedBy: readAuthSession()?.user.email ?? "",
-      });
-      setExportOpen(false);
+      const result = await exportFotoarchivImagesZip({ filters: exportFilters });
+      if (result.downloaded) setExportOpen(false);
     } catch (err) {
       setExportError(err instanceof Error ? err.message : "Fotoarchiv-Export konnte nicht erstellt werden.");
     } finally {

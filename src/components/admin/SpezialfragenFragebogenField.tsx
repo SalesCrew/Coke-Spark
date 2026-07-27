@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import type { Question } from "@/types/fragebogen";
 import { SpezialfrageEditor } from "@/components/admin/SpezialfrageEditor";
+import type { FragebogenScope } from "@/lib/api/backend";
 
 type SpezialfragenFragebogenFieldProps = {
   questions: Question[];
   onChange: (questions: Question[]) => void;
   fragebogenName: string;
   accentColor?: string;
+  scope?: FragebogenScope;
 };
 
 export function SpezialfragenFragebogenField({
@@ -17,6 +19,7 @@ export function SpezialfragenFragebogenField({
   onChange,
   fragebogenName,
   accentColor = "#DC2626",
+  scope = "main",
 }: SpezialfragenFragebogenFieldProps) {
   const [editorOpen, setEditorOpen] = useState(false);
 
@@ -119,6 +122,7 @@ export function SpezialfragenFragebogenField({
 
       {editorOpen && (
         <SpezialfrageEditor
+          scope={scope}
           fragebogenName={fragebogenName || "Unbenannter Fragebogen"}
           existingQuestions={questions}
           onClose={() => setEditorOpen(false)}

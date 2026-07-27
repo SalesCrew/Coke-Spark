@@ -1,4 +1,4 @@
-export type SectionType = "standard" | "flex" | "mhd" | "kuehler" | "billa";
+export type SectionType = "standard" | "flex" | "mhd" | "kuehler" | "billa" | "durcharbeit";
 
 export interface IppQuestionAnswer {
   questionId: string;

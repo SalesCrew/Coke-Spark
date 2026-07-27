@@ -34,8 +34,8 @@ import {
   type FragebogenScope,
 } from "@/lib/api/backend";
 import {
-  KuehlerCtx, MhdCtx, FlexCtx, BillaCtx,
-  type KuehlerCtxValue, type MhdCtxValue, type FlexCtxValue, type BillaCtxValue,
+  KuehlerCtx, MhdCtx, DurcharbeitCtx, FlexCtx, BillaCtx,
+  type KuehlerCtxValue, type MhdCtxValue, type DurcharbeitCtxValue, type FlexCtxValue, type BillaCtxValue,
 } from "@/app/admin/adminContexts";
 import { RedMonthHeaderControl } from "@/components/admin/RedMonthHeaderControl";
 import { AnswerChangeRequestFlap } from "@/components/admin/AnswerChangeRequestFlap";
@@ -116,6 +116,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const authChecked = status === "authorized";
   const isKuehler = pathname.startsWith("/admin/kuehlerinventur");
   const isMhd = pathname.startsWith("/admin/mhd");
+  const isDurcharbeit = pathname.startsWith("/admin/durcharbeit");
   const isFlex = pathname.startsWith("/admin/flexbesuche");
   const isBilla = pathname.startsWith("/admin/billa");
   const isFbManagement = pathname.startsWith("/admin/fbmanagement");
@@ -147,7 +148,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const canUpdateCurrentPage = canAccessCurrentPage("update");
   const shouldPreloadFragebogenCatalog =
     !isKunde ||
-    (["fragebogen", "flexbesuche", "billa", "kuehlerinventur", "mhd", "fbmanagement"] as AdminPageKey[]).some((pageKey) =>
+    (["fragebogen", "flexbesuche", "billa", "kuehlerinventur", "mhd", "durcharbeit", "fbmanagement"] as AdminPageKey[]).some((pageKey) =>
       (sessionPermissions[pageKey] ?? []).includes("read"),
     );
 
@@ -334,6 +335,76 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   // ── Flexbesuche-side state (modules isolated; fragebogen isolated; questions shared via flat view) ──
+  // Durcharbeit-side state: separate scope and separate question pool.
+  const [durcharbeitModules, setDurcharbeitModules] = useState<Module[]>([]);
+  const [durcharbeitModuleEditorOpen, setDurcharbeitModuleEditorOpen] = useState(false);
+  const [durcharbeitEditingModule, setDurcharbeitEditingModule] = useState<Module | null>(null);
+  const [durcharbeitFragebogenList, setDurcharbeitFragebogenList] = useState<Fragebogen[]>([]);
+  const [durcharbeitFbEditorOpen, setDurcharbeitFbEditorOpen] = useState(false);
+  const [durcharbeitEditingFb, setDurcharbeitEditingFb] = useState<Fragebogen | null>(null);
+
+  const handleDurcharbeitModuleSave = async (module: Module) => {
+    const persisted = durcharbeitEditingModule
+      ? await updateModuleBackend("durcharbeit", module)
+      : await createModule("durcharbeit", module);
+    setDurcharbeitModules((current) => {
+      const exists = current.some((entry) => entry.id === persisted.id);
+      return exists
+        ? current.map((entry) => (entry.id === persisted.id ? persisted : entry))
+        : [persisted, ...current];
+    });
+    setDurcharbeitModuleEditorOpen(false);
+    setDurcharbeitEditingModule(null);
+  };
+
+  const handleDurcharbeitFragebogenSave = async (fragebogen: Fragebogen) => {
+    const persisted = durcharbeitEditingFb
+      ? await updateFragebogenBackend("durcharbeit", fragebogen)
+      : await createFragebogen("durcharbeit", fragebogen);
+    setDurcharbeitFragebogenList((current) => {
+      const exists = current.some((entry) => entry.id === persisted.id);
+      return exists
+        ? current.map((entry) => (entry.id === persisted.id ? persisted : entry))
+        : [persisted, ...current];
+    });
+    setDurcharbeitFbEditorOpen(false);
+    setDurcharbeitEditingFb(null);
+  };
+
+  const durcharbeitCtxValue: DurcharbeitCtxValue = {
+    modules: durcharbeitModules,
+    onEdit: (module) => {
+      setDurcharbeitEditingModule(module);
+      setDurcharbeitModuleEditorOpen(true);
+    },
+    onUpdate: (module) => setDurcharbeitModules((current) => current.map((entry) => (entry.id === module.id ? module : entry))),
+    onDelete: async (id) => {
+      await deleteModuleBackend("durcharbeit", id);
+      setDurcharbeitModules((current) => current.filter((entry) => entry.id !== id));
+    },
+    onDuplicate: async (module) => {
+      const duplicated = await duplicateModuleBackend("durcharbeit", module.id, "durcharbeit");
+      setDurcharbeitModules((current) => [duplicated, ...current]);
+    },
+    fragebogenList: durcharbeitFragebogenList,
+    onEditFb: (fragebogen) => {
+      setDurcharbeitEditingFb(fragebogen);
+      setDurcharbeitFbEditorOpen(true);
+    },
+    onUpdateFb: async (fragebogen) => {
+      const persisted = await updateFragebogenBackend("durcharbeit", fragebogen);
+      setDurcharbeitFragebogenList((current) => current.map((entry) => (entry.id === persisted.id ? persisted : entry)));
+    },
+    onDeleteFb: async (id) => {
+      await deleteFragebogenBackend("durcharbeit", id);
+      setDurcharbeitFragebogenList((current) => current.filter((entry) => entry.id !== id));
+    },
+    onDuplicateFb: async (fragebogen) => {
+      const duplicated = await duplicateFragebogenBackend("durcharbeit", fragebogen.id, "durcharbeit");
+      setDurcharbeitFragebogenList((current) => [duplicated, ...current]);
+    },
+  };
+
   const [flexModules, setFlexModules] = useState<Module[]>([]);
   const [flexModuleEditorOpen, setFlexModuleEditorOpen] = useState(false);
   const [flexEditingModule, setFlexEditingModule] = useState<Module | null>(null);
@@ -599,10 +670,11 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     };
     (async () => {
       try {
-        const [mainData, kuehlerData, mhdData, marketChains] = await Promise.all([
+        const [mainData, kuehlerData, mhdData, durcharbeitData, marketChains] = await Promise.all([
           loadScope("main"),
           loadScope("kuehler"),
           loadScope("mhd"),
+          loadScope("durcharbeit"),
           fetchMarketChains(),
         ]);
         if (cancelled) return;
@@ -622,6 +694,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         setKuehlerFragebogenList(kuehlerData.fbs);
         setMhdModules(mhdData.mods);
         setMhdFragebogenList(mhdData.fbs);
+        setDurcharbeitModules(durcharbeitData.mods);
+        setDurcharbeitFragebogenList(durcharbeitData.fbs);
 
         // Flex/Billa are represented in main table with section keywords.
         setFlexModules(mainData.mods.filter((m) => (m as Module & { sectionKeywords?: string[] }).sectionKeywords?.includes("flex")));
@@ -650,12 +724,14 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const standardExistingQuestions = sharedPoolExistingQuestions;
   const kuehlerExistingQuestions = collectUniqueQuestionsFromModules(kuehlerModules);
   const mhdExistingQuestions = collectUniqueQuestionsFromModules(mhdModules);
+  const durcharbeitExistingQuestions = collectUniqueQuestionsFromModules(durcharbeitModules);
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
+  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
   const exportEventName =
-    isMhd ? "admin:mhd:export"
+    isDurcharbeit ? "admin:durcharbeit:export"
+    : isMhd ? "admin:mhd:export"
     : isKuehler ? "admin:kuehlerinventur:export"
     : isFlex ? "admin:flexbesuche:export"
     : isBilla ? "admin:billa:export"
@@ -697,6 +773,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     <BillaCtx.Provider value={billaCtxValue}>
     <FlexCtx.Provider value={flexCtxValue}>
     <MhdCtx.Provider value={mhdCtxValue}>
+    <DurcharbeitCtx.Provider value={durcharbeitCtxValue}>
     <KuehlerCtx.Provider value={kuehlerCtxValue}>
       <div style={{ display: "flex", minHeight: "100vh", backgroundColor: "#f5f5f7" }}>
         <AdminSidenav />
@@ -734,7 +811,24 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   {headerExportLabel}
                 </button>
               ) : null}
-              {isMhd && canWriteCurrentPage ? (
+              {isDurcharbeit && canWriteCurrentPage ? (
+                <>
+                  <button
+                    onClick={() => { setDurcharbeitEditingModule(null); setDurcharbeitModuleEditorOpen(true); }}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #2a2a2a, #1a1a1a)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.18), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 0 1px #111111, 0 1px 6px rgba(0,0,0,0.18)" }}
+                  >
+                    <Plus size={12} strokeWidth={2} />
+                    Modul erstellen
+                  </button>
+                  <button
+                    onClick={() => { setDurcharbeitEditingFb(null); setDurcharbeitFbEditorOpen(true); }}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #2563EB, #1D4ED8)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #1E40AF, 0 1px 6px rgba(37,99,235,0.24)" }}
+                  >
+                    <Plus size={12} strokeWidth={2} />
+                    Fragebogen erstellen
+                  </button>
+                </>
+              ) : isMhd && canWriteCurrentPage ? (
                 <>
                   <button
                     onClick={() => { setMhdEditingModule(null); setMhdModuleEditorOpen(true); }}
@@ -963,6 +1057,32 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Flexbesuche modals — completely isolated */}
+        {/* Durcharbeit uses the full editor toolset with its isolated scope. */}
+        {durcharbeitModuleEditorOpen && (
+          <ModuleEditor
+            existingModule={durcharbeitEditingModule ?? undefined}
+            availableChains={availableMarketChains}
+            existingQuestions={durcharbeitExistingQuestions}
+            onSave={handleDurcharbeitModuleSave}
+            onClose={() => {
+              setDurcharbeitModuleEditorOpen(false);
+              setDurcharbeitEditingModule(null);
+            }}
+          />
+        )}
+        {durcharbeitFbEditorOpen && (
+          <FragebogenEditor
+            scope="durcharbeit"
+            existingFragebogen={durcharbeitEditingFb ?? undefined}
+            availableModules={durcharbeitModules}
+            onSave={handleDurcharbeitFragebogenSave}
+            onClose={() => {
+              setDurcharbeitFbEditorOpen(false);
+              setDurcharbeitEditingFb(null);
+            }}
+          />
+        )}
+
         {flexModuleEditorOpen && (
           <FlexModuleEditor
             existingModule={flexEditingModule ?? undefined}
@@ -1001,6 +1121,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         )}
       </div>
     </KuehlerCtx.Provider>
+    </DurcharbeitCtx.Provider>
     </MhdCtx.Provider>
     </FlexCtx.Provider>
     </BillaCtx.Provider>

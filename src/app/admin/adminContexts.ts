@@ -65,6 +65,26 @@ export function useMhdModules() {
   return useContext(MhdCtx);
 }
 
+// Fully isolated Durcharbeit question, module and questionnaire context.
+export type DurcharbeitCtxValue = MhdCtxValue;
+
+export const DurcharbeitCtx = createContext<DurcharbeitCtxValue>({
+  modules: [],
+  onEdit: () => {},
+  onUpdate: () => {},
+  onDelete: () => {},
+  onDuplicate: () => {},
+  fragebogenList: [],
+  onEditFb: () => {},
+  onUpdateFb: () => {},
+  onDeleteFb: () => {},
+  onDuplicateFb: () => {},
+});
+
+export function useDurcharbeitModules() {
+  return useContext(DurcharbeitCtx);
+}
+
 // ── Flexbesuche context ────────────────────────────────────────
 export interface FlexCtxValue {
   modules: Module[];

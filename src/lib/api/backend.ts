@@ -98,7 +98,7 @@ type BackendMarket = {
   activeNowCampaigns?: Array<{
     campaignId: string;
     campaignName: string;
-    section: "standard" | "flex" | "kuehler" | "mhd" | "billa";
+    section: "standard" | "flex" | "kuehler" | "mhd" | "billa" | "durcharbeit";
     targetVisitCount?: number | null;
     submittedVisitCount?: number | null;
     isComplete?: boolean | null;
@@ -228,7 +228,7 @@ type BackendCampaignMarketVisitSummary = {
   gmName: string | null;
   sections: Array<{
     id: string;
-    section: "standard" | "flex" | "billa" | "kuehler" | "mhd";
+    section: "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
     campaignId: string;
     fragebogenId: string | null;
     fragebogenName: string;
@@ -910,6 +910,7 @@ function resolveAdminPageKeyForPath(pathname: string): string | null {
   if (pathname.startsWith("/admin/billa")) return "billa";
   if (pathname.startsWith("/admin/kuehlerinventur")) return "kuehlerinventur";
   if (pathname.startsWith("/admin/mhd")) return "mhd";
+  if (pathname.startsWith("/admin/durcharbeit")) return "durcharbeit";
   if (pathname.startsWith("/admin/fbmanagement")) return "fbmanagement";
   if (pathname.startsWith("/admin/fotoarchiv")) return "fotoarchiv";
   if (pathname.startsWith("/admin/zeiterfassung")) return "zeiterfassung";
@@ -2156,14 +2157,14 @@ export type GmStartMarket = {
   activeNowCampaigns: Array<{
     campaignId: string;
     campaignName: string;
-    section: "standard" | "flex" | "kuehler" | "mhd" | "billa";
+    section: "standard" | "flex" | "kuehler" | "mhd" | "billa" | "durcharbeit";
     targetVisitCount?: number | null;
     submittedVisitCount?: number | null;
     isComplete?: boolean | null;
   }>;
 };
 
-export type GmMarketDetailSection = "standard" | "flex" | "kuehler" | "mhd" | "billa";
+export type GmMarketDetailSection = "standard" | "flex" | "kuehler" | "mhd" | "billa" | "durcharbeit";
 
 export type GmMarketDetailActiveCampaign = {
   campaignId: string;
@@ -2236,6 +2237,7 @@ export type GmKuehlerMhdProgressSection = {
 export type GmKuehlerMhdProgressPayload = {
   kuehler: GmKuehlerMhdProgressSection;
   mhd: GmKuehlerMhdProgressSection;
+  durcharbeit: GmKuehlerMhdProgressSection;
   generatedAt: string;
   timezone: string;
   periodFallback: {
@@ -2288,6 +2290,10 @@ function cloneGmKuehlerMhdProgress(payload: GmKuehlerMhdProgressPayload): GmKueh
     mhd: {
       ...payload.mhd,
       markets: payload.mhd.markets.map((market) => ({ ...market })),
+    },
+    durcharbeit: {
+      ...payload.durcharbeit,
+      markets: payload.durcharbeit.markets.map((market) => ({ ...market })),
     },
     periodFallback: { ...payload.periodFallback },
   };
@@ -2367,7 +2373,7 @@ export async function fetchGmKuehlerMhdProgress(options?: { force?: boolean }): 
 }
 
 export type GmVisitStartSection = {
-  section: "standard" | "flex" | "billa" | "kuehler" | "mhd";
+  section: "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
   campaignId: string;
   campaignName: string;
   fragebogenId: string;
@@ -2428,7 +2434,7 @@ export type GmVisitSessionReadPayload = {
   };
   sections: Array<{
     id: string;
-    section: "standard" | "flex" | "billa" | "kuehler" | "mhd";
+    section: "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
     campaignId: string;
     campaignName: string;
     fragebogenId: string | null;
@@ -2508,7 +2514,7 @@ export type GmCompletedVisitSummary = {
   };
   sections: Array<{
     id: string;
-    section: "standard" | "flex" | "billa" | "kuehler" | "mhd";
+    section: "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
     campaignId: string;
     campaignName: string;
     fragebogenName: string;
@@ -2613,7 +2619,7 @@ export type AdminAnswerChangeRequest = {
     submittedAt: string | null;
   };
   section: {
-    section: "standard" | "flex" | "billa" | "kuehler" | "mhd";
+    section: "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
     campaignId: string;
     campaignName: string;
     fragebogenName: string;
@@ -2702,7 +2708,7 @@ export type CampaignMarketVisitExportIndexItem = {
   startedAt: string;
   submittedAt: string | null;
 };
-export type AdminPhotoCampaignType = "standard" | "flex" | "billa" | "kuehler" | "mhd";
+export type AdminPhotoCampaignType = "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
 export type AdminPhotoArchiveFilters = {
   page?: number;
   pageSize?: number;
@@ -4447,7 +4453,7 @@ function normalizeCampaign(input: BackendCampaign): Campaign {
   };
 }
 
-export type FragebogenScope = "main" | "kuehler" | "mhd";
+export type FragebogenScope = "main" | "kuehler" | "mhd" | "durcharbeit";
 
 export async function fetchPhotoTags(): Promise<BackendPhotoTag[]> {
   const data = (await authedFetch("/admin/photo-tags")) as { tags?: BackendPhotoTag[] };
@@ -4526,8 +4532,8 @@ export async function fetchFragebogen(scope: FragebogenScope): Promise<Frageboge
   return (data.fragebogen ?? []).map(normalizeFragebogen);
 }
 
-export async function fetchSpezialfragenLibrary(): Promise<Question[]> {
-  const data = (await authedFetch("/admin/spezialfragen")) as { spezialfragen?: Question[] };
+export async function fetchSpezialfragenLibrary(scope: FragebogenScope = "main"): Promise<Question[]> {
+  const data = (await authedFetch(`/admin/spezialfragen?scope=${encodeURIComponent(scope)}`)) as { spezialfragen?: Question[] };
   return (data.spezialfragen ?? []).map(normalizeQuestion);
 }
 
@@ -4630,6 +4636,108 @@ export async function fetchAdminPhotoSignedUrls(
     urls?: AdminPhotoSignedUrl[];
   };
   return data.urls ?? [];
+}
+
+function photoExportFilename(response: Response): string {
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1].trim());
+    } catch {
+      // Fall through to the plain filename and deterministic fallback.
+    }
+  }
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1]?.trim() || `CokeSpark_Fotoexport_${new Date().toISOString().slice(0, 10)}.zip`;
+}
+
+async function fetchAdminPhotoExportResponse(filters: AdminPhotoArchiveFilters): Promise<Response> {
+  const firstToken = getAccessToken();
+  if (!firstToken) {
+    handleAuthExpired("missing-access-token");
+    throw new Error("Nicht eingeloggt. Bitte erneut anmelden.");
+  }
+  const { page: _page, pageSize: _pageSize, ...exportFilters } = filters;
+  const request = (accessToken: string) => fetch(`${BACKEND_URL}/admin/photos/export`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      ...getKundePageKeyHeader(),
+    },
+    body: JSON.stringify({ filters: exportFilters }),
+  });
+
+  let response = await request(firstToken);
+  if (response.status === 401) {
+    const refreshed = await refreshAuthSession();
+    if (refreshed) response = await request(refreshed.session.accessToken);
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const code = typeof data?.code === "string" ? data.code : null;
+    if (isAuthFailureStatus(response.status, code)) {
+      handleAuthExpired(`api-auth-failed:${response.status}`);
+    }
+    throw new BackendApiError(
+      typeof data?.error === "string" ? data.error : "Fotoarchiv-Export konnte nicht erstellt werden.",
+      response.status,
+      code,
+      data,
+    );
+  }
+  return response;
+}
+
+export async function downloadAdminPhotoArchiveZip(
+  filters: AdminPhotoArchiveFilters,
+): Promise<{ downloaded: boolean; filename: string | null }> {
+  type SaveFileHandle = {
+    createWritable: () => Promise<WritableStream<Uint8Array>>;
+  };
+  type SaveFilePickerWindow = Window & {
+    showSaveFilePicker?: (options: {
+      suggestedName: string;
+      types: Array<{ description: string; accept: Record<string, string[]> }>;
+    }) => Promise<SaveFileHandle>;
+  };
+
+  const suggestedName = `CokeSpark_Fotoexport_${new Date().toISOString().slice(0, 10)}.zip`;
+  const picker = (window as SaveFilePickerWindow).showSaveFilePicker;
+  let fileHandle: SaveFileHandle | null = null;
+  if (typeof picker === "function") {
+    try {
+      fileHandle = await picker({
+        suggestedName,
+        types: [{ description: "ZIP-Archiv", accept: { "application/zip": [".zip"] } }],
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return { downloaded: false, filename: null };
+      }
+      throw error;
+    }
+  }
+
+  const response = await fetchAdminPhotoExportResponse(filters);
+  const filename = photoExportFilename(response);
+  if (fileHandle && response.body) {
+    const writable = await fileHandle.createWritable();
+    await response.body.pipeTo(writable);
+    return { downloaded: true, filename };
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return { downloaded: true, filename };
 }
 
 export async function fetchAdminPhotoDetail(photoId: string): Promise<AdminPhotoArchiveItem> {

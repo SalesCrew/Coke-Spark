@@ -22,8 +22,8 @@ import {
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { Question, Module, Fragebogen } from "@/types/fragebogen";
 import type { QuestionType } from "@/types/fragebogen";
-import { useMhdModules } from "@/app/admin/adminContexts";
-import { readAuthSession } from "@/lib/api/backend";
+import { useMhdModules, type MhdCtxValue } from "@/app/admin/adminContexts";
+import { readAuthSession, type FragebogenScope } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
 import { SpezialfragenFragebogenAction, SpezialfragenFragebogenCountPill } from "@/components/admin/SpezialfragenFragebogenAction";
 
@@ -618,13 +618,14 @@ function MhdFragebogenDeleteDialog({
 
 // ── Fragebogen Card ────────────────────────────────────────────
 
-function MhdFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate, onDelete }: {
+function MhdFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate, onDelete, scope }: {
   fragebogen: Fragebogen;
   modules: Module[];
   onEdit: () => void;
   onUpdate: (fragebogen: Fragebogen) => Promise<void> | void;
   onDuplicate: () => void;
   onDelete: () => void;
+  scope: FragebogenScope;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -757,6 +758,7 @@ function MhdFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate,
               </>
             )}
             <SpezialfragenFragebogenAction
+              scope={scope}
               fragebogen={fragebogen}
               onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
             />
@@ -813,11 +815,11 @@ function MhdFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate,
 
 // ── Empty State ────────────────────────────────────────────────
 
-function EmptyState({ tab }: { tab: Tab }) {
+function EmptyState({ tab, questionnaireLabel }: { tab: Tab; questionnaireLabel: string }) {
   const map: Record<Tab, { icon: React.ReactNode; title: string; sub: string }> = {
     fragen: { icon: <HelpCircle size={18} strokeWidth={1.5} color={P} />, title: "Keine Fragen vorhanden", sub: "Erstelle ein Modul und füge Fragen hinzu" },
     module: { icon: <Layers size={18} strokeWidth={1.5} color={P} />, title: "Keine Module vorhanden", sub: "Erstelle ein Modul um Fragen thematisch zu gruppieren" },
-    fragebogen: { icon: <FileText size={18} strokeWidth={1.5} color={P} />, title: "Keine Fragebogen vorhanden", sub: "Erstelle einen Fragebogen für die MHD-Kontrolle" },
+    fragebogen: { icon: <FileText size={18} strokeWidth={1.5} color={P} />, title: "Keine Fragebogen vorhanden", sub: `Erstelle einen Fragebogen für ${questionnaireLabel}` },
   };
   const { icon, title, sub } = map[tab];
   return (
@@ -845,8 +847,22 @@ function FragebogenPageSkeleton() {
 
 // ── Main Page ──────────────────────────────────────────────────
 
-export default function MhdPage() {
-  const { modules = [], onEdit, onUpdate, onDelete, onDuplicate, fragebogenList = [], onEditFb, onUpdateFb, onDeleteFb, onDuplicateFb } = useMhdModules();
+export type ScopedQuestionnaireCatalogProps = {
+  useScopeModules: () => MhdCtxValue;
+  scope: FragebogenScope;
+  questionnaireLabel: string;
+  exportTitle: string;
+  exportEventName: string;
+};
+
+export function ScopedQuestionnaireCatalog({
+  useScopeModules,
+  scope,
+  questionnaireLabel,
+  exportTitle,
+  exportEventName,
+}: ScopedQuestionnaireCatalogProps) {
+  const { modules = [], onEdit, onUpdate, onDelete, onDuplicate, fragebogenList = [], onEditFb, onUpdateFb, onDeleteFb, onDuplicateFb } = useScopeModules();
   const [activeTab, setActiveTab] = useState<Tab>("module");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -912,8 +928,8 @@ export default function MhdPage() {
       await exportFragebogenExcel({
         modules,
         fragebogen: fragebogenList,
-        primaryScope: "mhd",
-        title: "MHD Fragebogen",
+        primaryScope: scope,
+        title: exportTitle,
         exportedBy: readAuthSession()?.user.email ?? "",
       });
     } catch (error) {
@@ -925,8 +941,8 @@ export default function MhdPage() {
 
   useEffect(() => {
     const handler = () => { void handleExport(); };
-    window.addEventListener("admin:mhd:export", handler);
-    return () => window.removeEventListener("admin:mhd:export", handler);
+    window.addEventListener(exportEventName, handler);
+    return () => window.removeEventListener(exportEventName, handler);
   });
 
   if (!initialLoadCompleted && !hasLoadedContent) {
@@ -1025,7 +1041,7 @@ export default function MhdPage() {
         {activeTab === "module" && (
           filteredModules.length === 0 ? (
             <div style={{ backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", padding: 20, minHeight: 340, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <EmptyState tab="module" />
+              <EmptyState tab="module" questionnaireLabel={questionnaireLabel} />
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1051,7 +1067,7 @@ export default function MhdPage() {
         {activeTab === "fragen" && (
           filteredQuestions.length === 0 ? (
             <div style={{ backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", padding: 20, minHeight: 340, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <EmptyState tab="fragen" />
+              <EmptyState tab="fragen" questionnaireLabel={questionnaireLabel} />
             </div>
           ) : (
             <div style={{ backgroundColor: "#fff", borderRadius: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden" }}>
@@ -1076,12 +1092,13 @@ export default function MhdPage() {
         {activeTab === "fragebogen" && (
           sortedFragebogen.length === 0 ? (
             <div style={{ backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", padding: 20, minHeight: 340, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <EmptyState tab="fragebogen" />
+              <EmptyState tab="fragebogen" questionnaireLabel={questionnaireLabel} />
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {sortedFragebogen.map((fb) => (
                 <MhdFragebogenCard
+                  scope={scope}
                   key={fb.id}
                   fragebogen={fb}
                   modules={modules}
@@ -1096,5 +1113,17 @@ export default function MhdPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function MhdPage() {
+  return (
+    <ScopedQuestionnaireCatalog
+      useScopeModules={useMhdModules}
+      scope="mhd"
+      questionnaireLabel="die MHD-Kontrolle"
+      exportTitle="MHD Fragebogen"
+      exportEventName="admin:mhd:export"
+    />
   );
 }

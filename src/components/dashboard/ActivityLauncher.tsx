@@ -81,7 +81,7 @@ interface Market {
   activeNowCampaigns: Array<{
     campaignId: string;
     campaignName: string;
-    section: "standard" | "flex" | "kuehler" | "mhd" | "billa";
+    section: "standard" | "flex" | "kuehler" | "mhd" | "billa" | "durcharbeit";
   }>;
 }
 
@@ -124,11 +124,12 @@ type View =
 
 type MarketSectionStatus = "nicht_ausgefuellt" | "ausgefuellt" | "teils_ausgefuellt";
 
-function sectionLabel(section: "standard" | "flex" | "kuehler" | "mhd" | "billa"): string {
+function sectionLabel(section: "standard" | "flex" | "kuehler" | "mhd" | "billa" | "durcharbeit"): string {
   if (section === "standard") return "Standardbesuch";
   if (section === "flex") return "Flexbesuch";
   if (section === "kuehler") return "Kühlerinventur";
   if (section === "mhd") return "MHD";
+  if (section === "durcharbeit") return "Durcharbeit";
   return "Billa";
 }
 

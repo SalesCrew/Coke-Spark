@@ -142,6 +142,7 @@ function sectionLabel(section: string): string {
   if (section === "kuehler") return "Kühler";
   if (section === "mhd") return "MHD";
   if (section === "billa") return "Billa";
+  if (section === "durcharbeit") return "Durcharbeit";
   return section;
 }
 

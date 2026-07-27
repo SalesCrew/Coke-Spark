@@ -93,6 +93,8 @@ export function AdminSidenav() {
     ? "#D97706"
     : pathname.startsWith("/admin/mhd")
     ? "#7C3AED"
+    : pathname.startsWith("/admin/durcharbeit")
+    ? "#2563EB"
     : pathname.startsWith("/admin/flexbesuche")
     ? "#84CC16"
     : pathname.startsWith("/admin/billa")

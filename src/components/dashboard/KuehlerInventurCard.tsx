@@ -130,7 +130,7 @@ function getKuehlerChoiceKey(entry: Pick<KuehlerMarket, "campaignId" | "kuehlerU
   ].join("__");
 }
 
-type Tab = "kuehler" | "mhd";
+type Tab = "kuehler" | "mhd" | "durcharbeit";
 const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
 const KUEHLER_MHD_PROGRESS_UPDATED_EVENT = "gm:kuehler-mhd-progress-updated";
@@ -140,10 +140,13 @@ interface KuehlerInventurCardProps {
   total?: number;
   mhdCurrent?: number;
   mhdTotal?: number;
+  durcharbeitCurrent?: number;
+  durcharbeitTotal?: number;
   startDate?: string;
   endDate?: string;
   markets?: KuehlerMarket[];
   mhdMarkets?: KuehlerMarket[];
+  durcharbeitMarkets?: KuehlerMarket[];
   activeVisitLocked?: boolean;
   pauseActive?: boolean;
   daySessionPayload?: DaySessionCurrentPayload | null;
@@ -156,10 +159,13 @@ export function KuehlerInventurCard({
   total = 120,
   mhdCurrent = 6,
   mhdTotal = 15,
+  durcharbeitCurrent = 0,
+  durcharbeitTotal = 0,
   startDate = "01.01.2026",
   endDate = "31.03.2026",
   markets = defaultKuehlerMarkets,
   mhdMarkets = defaultMhdMarkets,
+  durcharbeitMarkets = [],
   activeVisitLocked = false,
   pauseActive = false,
   daySessionPayload,
@@ -195,7 +201,11 @@ export function KuehlerInventurCard({
   const startAutoRotate = useCallback(() => {
     if (autoRef.current) clearInterval(autoRef.current);
     autoRef.current = setInterval(() => {
-      setActiveTab((t) => (t === "kuehler" ? "mhd" : "kuehler"));
+      setActiveTab((tab) => {
+        if (tab === "kuehler") return "mhd";
+        if (tab === "mhd") return "durcharbeit";
+        return "kuehler";
+      });
     }, 10000);
   }, []);
 
@@ -328,8 +338,10 @@ export function KuehlerInventurCard({
   // Derived values per tab
   const kuehlerPayload = progressData?.kuehler;
   const mhdPayload = progressData?.mhd;
+  const durcharbeitPayload = progressData?.durcharbeit;
   const kuehlerPercent = kuehlerPayload?.percent ?? (loadingData ? 0 : Math.round((current / Math.max(total, 1)) * 100));
   const mhdPercent = mhdPayload?.percent ?? (loadingData ? 0 : Math.round((mhdCurrent / Math.max(mhdTotal, 1)) * 100));
+  const durcharbeitPercent = durcharbeitPayload?.percent ?? (loadingData ? 0 : Math.round((durcharbeitCurrent / Math.max(durcharbeitTotal, 1)) * 100));
   const mappedKuehlerMarkets = (kuehlerPayload?.markets ?? []).map((entry) => ({
     marketId: entry.marketId,
     campaignId: entry.campaignId,
@@ -354,21 +366,51 @@ export function KuehlerInventurCard({
     done: entry.done,
     doneDate: entry.doneAt ? new Date(entry.doneAt).toLocaleDateString("de-AT") : undefined,
   }));
-  const percent = activeTab === "kuehler" ? kuehlerPercent : mhdPercent;
-  const cur = activeTab === "kuehler" ? (kuehlerPayload?.current ?? (loadingData ? 0 : current)) : (mhdPayload?.current ?? (loadingData ? 0 : mhdCurrent));
-  const tot = activeTab === "kuehler" ? (kuehlerPayload?.total ?? (loadingData ? 0 : total)) : (mhdPayload?.total ?? (loadingData ? 0 : mhdTotal));
+  const mappedDurcharbeitMarkets = (durcharbeitPayload?.markets ?? []).map((entry) => ({
+    marketId: entry.marketId,
+    campaignId: entry.campaignId,
+    campaignName: entry.campaignName,
+    kuehlerUnitId: null,
+    kuehlerNumber: null,
+    chain: entry.chain,
+    address: entry.address,
+    stammnr: entry.stammnr,
+    done: entry.done,
+    doneDate: entry.doneAt ? new Date(entry.doneAt).toLocaleDateString("de-AT") : undefined,
+  }));
+  const percent = activeTab === "kuehler" ? kuehlerPercent : activeTab === "mhd" ? mhdPercent : durcharbeitPercent;
+  const cur = activeTab === "kuehler"
+    ? (kuehlerPayload?.current ?? (loadingData ? 0 : current))
+    : activeTab === "mhd"
+      ? (mhdPayload?.current ?? (loadingData ? 0 : mhdCurrent))
+      : (durcharbeitPayload?.current ?? (loadingData ? 0 : durcharbeitCurrent));
+  const tot = activeTab === "kuehler"
+    ? (kuehlerPayload?.total ?? (loadingData ? 0 : total))
+    : activeTab === "mhd"
+      ? (mhdPayload?.total ?? (loadingData ? 0 : mhdTotal))
+      : (durcharbeitPayload?.total ?? (loadingData ? 0 : durcharbeitTotal));
   const activeMarkets = activeTab === "kuehler"
     ? (mappedKuehlerMarkets.length > 0 || progressData ? mappedKuehlerMarkets : markets)
-    : (mappedMhdMarkets.length > 0 || progressData ? mappedMhdMarkets : mhdMarkets);
+    : activeTab === "mhd"
+      ? (mappedMhdMarkets.length > 0 || progressData ? mappedMhdMarkets : mhdMarkets)
+      : (mappedDurcharbeitMarkets.length > 0 || progressData ? mappedDurcharbeitMarkets : durcharbeitMarkets);
   const resolvedStartDate =
     activeTab === "kuehler"
       ? formatYmd(kuehlerPayload?.startDate, startDate)
-      : formatYmd(mhdPayload?.startDate, startDate);
+      : activeTab === "mhd"
+        ? formatYmd(mhdPayload?.startDate, startDate)
+        : formatYmd(durcharbeitPayload?.startDate, startDate);
   const resolvedEndDate =
     activeTab === "kuehler"
       ? formatYmd(kuehlerPayload?.endDate, endDate)
-      : formatYmd(mhdPayload?.endDate, endDate);
-  const title = activeTab === "kuehler" ? "Aktuelle Kühlerinventur" : "Aktuelle MHDs";
+      : activeTab === "mhd"
+        ? formatYmd(mhdPayload?.endDate, endDate)
+        : formatYmd(durcharbeitPayload?.endDate, endDate);
+  const title = activeTab === "kuehler"
+    ? "Aktuelle Kühlerinventur"
+    : activeTab === "mhd"
+      ? "Aktuelle MHDs"
+      : "Aktuelle Durcharbeit";
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [collapsedH, setCollapsedH] = useState<number | undefined>(undefined);
@@ -696,9 +738,9 @@ export function KuehlerInventurCard({
           <div className="mt-3 flex items-center justify-between">
             {/* Tab switcher */}
             <div style={{ display: "flex", gap: 2 }}>
-              {(["kuehler", "mhd"] as Tab[]).map((tab) => {
+              {(["kuehler", "mhd", "durcharbeit"] as Tab[]).map((tab) => {
                 const active = activeTab === tab;
-                const label = tab === "kuehler" ? "Kühleri…" : "MHD";
+                const label = tab === "kuehler" ? "Kühler" : tab === "mhd" ? "MHD" : "Durch A.";
                 return (
                     <button
                       key={tab}
@@ -944,7 +986,7 @@ export function KuehlerInventurCard({
             loading={false}
             locked
             lockTitle="Pause"
-            lockText="Beende zuerst deine Pause. Danach kannst du Kühler- und MHD-Besuche wieder starten."
+            lockText="Beende zuerst deine Pause. Danach kannst du Kühler-, MHD- und Durcharbeit-Besuche wieder starten."
             inset={10}
           />
         )}

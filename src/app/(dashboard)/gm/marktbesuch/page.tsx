@@ -3805,7 +3805,7 @@ function MarktbesuchInner() {
     const nextPhotoAnswerIdByQuestionId: Record<string, string> = {};
 
     const writeAnswer = (
-      section: "standard" | "flex" | "billa" | "kuehler" | "mhd",
+      section: "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit",
       questionId: string,
       value: string | string[] | undefined,
     ) => {
@@ -4129,14 +4129,14 @@ function MarktbesuchInner() {
       };
     }
     const ordered = [...visitSections].sort((left, right) => {
-      const order = ["standard", "flex", "billa", "kuehler", "mhd"] as const;
+      const order = ["standard", "flex", "billa", "kuehler", "mhd", "durcharbeit"] as const;
       const li = order.indexOf(left.section);
       const ri = order.indexOf(right.section);
       if (li !== ri) return li - ri;
       return 0;
     });
     const fragebogen = ordered
-      .filter((entry) => entry.section === "standard" || entry.section === "flex" || entry.section === "billa")
+      .filter((entry) => entry.section === "standard" || entry.section === "flex" || entry.section === "billa" || entry.section === "durcharbeit")
       .flatMap((entry) => entry.questions.map((question) => mapVisitQuestionToSample(entry, question)));
     const kuehler = ordered
       .filter((entry) => entry.section === "kuehler")

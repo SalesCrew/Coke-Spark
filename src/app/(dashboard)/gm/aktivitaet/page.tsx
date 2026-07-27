@@ -69,6 +69,7 @@ function sectionLabel(section: VisitSection["section"] | GmCompletedVisitSummary
   if (section === "billa") return "Billa";
   if (section === "kuehler") return "Kühler";
   if (section === "mhd") return "MHD";
+  if (section === "durcharbeit") return "Durcharbeit";
   return section;
 }
 
@@ -77,6 +78,7 @@ function sectionColor(section: VisitSection["section"] | GmCompletedVisitSummary
   if (section === "billa") return "#0891b2";
   if (section === "kuehler") return "#d97706";
   if (section === "mhd") return "#7c3aed";
+  if (section === "durcharbeit") return "#2563eb";
   return R;
 }
 
@@ -2054,7 +2056,7 @@ export default function GmActivityPage() {
     });
   }, [openVisitById, refreshCompletedVisits]);
 
-  const sectionOptions: Array<"all" | VisitSection["section"]> = ["all", "standard", "flex", "billa", "kuehler", "mhd"];
+  const sectionOptions: Array<"all" | VisitSection["section"]> = ["all", "standard", "flex", "billa", "kuehler", "mhd", "durcharbeit"];
   const requestGroups = useMemo(() => buildRequestHistoryGroups(changeRequests, deleteRequests), [changeRequests, deleteRequests]);
   const pendingRequestCount = useMemo(
     () => changeRequests.filter((request) => request.status === "pending").length

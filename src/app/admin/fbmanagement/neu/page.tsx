@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
-  ArrowLeft, Check, ClipboardList, Zap, Refrigerator, FlaskConical, ShoppingBag,
+  ArrowLeft, Check, ClipboardList, ClipboardCheck, Zap, Refrigerator, FlaskConical, ShoppingBag,
   Upload, Calendar, ChevronRight, Users, FileSpreadsheet,
   X, ChevronDown, AlertTriangle, CheckCircle2, Search,
 } from "lucide-react";
@@ -379,6 +379,7 @@ const CAMPAIGN_TYPES = [
   { id: "flex",        label: "Flexbesuch",       icon: Zap,           color: "#84CC16", bg: "rgba(132,204,22,0.06)",   border: "rgba(132,204,22,0.2)",        autoMarkets: true  },
   { id: "kuehler",     label: "Kühlerinventur",   icon: Refrigerator,  color: "#D97706", bg: "rgba(245,158,11,0.06)",   border: "rgba(245,158,11,0.2)",        autoMarkets: false },
   { id: "mhd",         label: "MHD",              icon: FlaskConical,  color: "#7C3AED", bg: "rgba(124,58,237,0.06)",   border: "rgba(124,58,237,0.2)",        autoMarkets: false },
+  { id: "durcharbeit", label: "Durcharbeit",      icon: ClipboardCheck, color: "#2563EB", bg: "rgba(37,99,235,0.06)", border: "rgba(37,99,235,0.20)", autoMarkets: false },
   { id: "billa",       label: "Billa",            icon: ShoppingBag,   color: "#0891B2", bg: "rgba(8,145,178,0.06)",    border: "rgba(8,145,178,0.2)",         autoMarkets: false },
 ];
 

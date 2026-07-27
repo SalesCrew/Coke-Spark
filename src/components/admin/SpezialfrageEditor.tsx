@@ -29,7 +29,7 @@ import { PhotoTagsConfig } from "@/components/admin/shared/PhotoTagsConfig";
 import { HandelskettenSelector } from "@/components/admin/HandelskettenSelector";
 import { AvailabilityTypeModal } from "@/components/admin/AvailabilityTypeModal";
 import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
-import { fetchMarketChains, fetchSpezialfragenLibrary } from "@/lib/api/backend";
+import { fetchMarketChains, fetchSpezialfragenLibrary, type FragebogenScope } from "@/lib/api/backend";
 import { cloneQuestionForModuleInsert } from "@/utils/existingQuestionPicker";
 
 let _sqid = 0;
@@ -1066,9 +1066,10 @@ interface SpezialfrageEditorProps {
   onSave: (questions: Question[]) => Promise<void> | void;
   existingQuestions?: Question[];
   fragebogenName?: string;
+  scope?: FragebogenScope;
 }
 
-export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebogenName }: SpezialfrageEditorProps) {
+export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebogenName, scope = "main" }: SpezialfrageEditorProps) {
   const [questions, setQuestions] = useState<Question[]>(
     (existingQuestions ?? []).map((q) => ({
       ...q,
@@ -1105,7 +1106,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
 
   useEffect(() => {
     let active = true;
-    void fetchSpezialfragenLibrary()
+    void fetchSpezialfragenLibrary(scope)
       .then((entries) => {
         if (active) setLibraryQuestions(entries);
       })
@@ -1118,7 +1119,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
     return () => {
       active = false;
     };
-  }, []);
+  }, [scope]);
 
   const assignedIds = new Set(questions.map((question) => question.id));
   const existingSpezialfragen = libraryQuestions.filter((question) => !assignedIds.has(question.id));

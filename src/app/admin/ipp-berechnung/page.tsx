@@ -22,6 +22,7 @@ const SECTION_META: Record<SectionType, { label: string; color: string; bg: stri
   mhd:      { label: "MHD",       color: "#7C3AED", bg: "rgba(124,58,237,0.08)" },
   kuehler:  { label: "Kühler",    color: "#D97706", bg: "rgba(245,158,11,0.08)" },
   billa:    { label: "Billa",     color: "#0891B2", bg: "rgba(8,145,178,0.08)"  },
+  durcharbeit: { label: "Durcharbeit", color: "#2563EB", bg: "rgba(37,99,235,0.08)" },
 };
 
 // ── Helpers ───────────────────────────────────────────────────

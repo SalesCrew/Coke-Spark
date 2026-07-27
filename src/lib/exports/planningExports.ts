@@ -393,9 +393,10 @@ function fbManagementQuestionKind(question: Question): FbManagementExportQuestio
   return question.type === "numeric" || question.type === "slider" ? "number" : "value";
 }
 
-function campaignFragebogenScope(section: Campaign["section"]): "main" | "kuehler" | "mhd" {
+function campaignFragebogenScope(section: Campaign["section"]): "main" | "kuehler" | "mhd" | "durcharbeit" {
   if (section === "kuehler") return "kuehler";
   if (section === "mhd") return "mhd";
+  if (section === "durcharbeit") return "durcharbeit";
   return "main";
 }
 
@@ -1151,7 +1152,7 @@ export async function exportFragebogenExcel(input: {
   billaModules?: Module[];
   fragebogen: Fragebogen[];
   campaignUsageByFragebogenId?: Record<string, string[]>;
-  primaryScope?: "main" | "standard" | "flex" | "billa" | "kuehler" | "mhd";
+  primaryScope?: "main" | "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
   title?: string;
   exportedBy?: string;
 }) {

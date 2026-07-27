@@ -14,6 +14,7 @@ import {
   Gauge,
   Images,
   ShieldCheck,
+  ClipboardCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -27,6 +28,7 @@ export type AdminPageKey =
   | "billa"
   | "kuehlerinventur"
   | "mhd"
+  | "durcharbeit"
   | "fbmanagement"
   | "fotoarchiv"
   | "zeiterfassung"
@@ -85,6 +87,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { label: "Billa", icon: ShoppingBag, href: "/admin/billa", pageKey: "billa", color: { bg: "linear-gradient(to bottom, #0891B2, #0e7490)", ring: "#155e75", shadow: "rgba(8,145,178,0.25)" } },
       { label: "Kühlerinventur", icon: Refrigerator, href: "/admin/kuehlerinventur", pageKey: "kuehlerinventur", color: { bg: "linear-gradient(to bottom, #F59E0B, #D97706)", ring: "#B45309", shadow: "rgba(245,158,11,0.25)" } },
       { label: "MHD", icon: FlaskConical, href: "/admin/mhd", pageKey: "mhd", color: { bg: "linear-gradient(to bottom, #8b5cf6, #7C3AED)", ring: "#6d28d9", shadow: "rgba(124,58,237,0.25)" } },
+      { label: "Durcharbeit", icon: ClipboardCheck, href: "/admin/durcharbeit", pageKey: "durcharbeit", color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
       { label: "FB Management", icon: LayoutGrid, href: "/admin/fbmanagement", pageKey: "fbmanagement", color: cokeRed },
       { label: "Fotoarchiv", icon: Images, href: "/admin/fotoarchiv", pageKey: "fotoarchiv", color: cokeRed },
     ],

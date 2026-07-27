@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  ClipboardCheck,
   FileSpreadsheet,
   FlaskConical,
   ListPlus,
@@ -157,6 +158,14 @@ const TYPE_META: Record<ExtendableSection, CampaignTypeMeta> = {
     border: "rgba(124,58,237,0.20)",
     Icon: FlaskConical,
   },
+  durcharbeit: {
+    label: "Durcharbeit",
+    color: "#2563EB",
+    dark: "#1D4ED8",
+    bg: "rgba(37,99,235,0.06)",
+    border: "rgba(37,99,235,0.20)",
+    Icon: ClipboardCheck,
+  },
 };
 
 const STEPS = [
@@ -173,7 +182,7 @@ const EMPTY_IMPORT_COUNTS: ImportCounts = {
 };
 
 function isExtendableSection(section: CampaignSection): section is ExtendableSection {
-  return section === "standard" || section === "billa" || section === "kuehler" || section === "mhd";
+  return section === "standard" || section === "billa" || section === "kuehler" || section === "mhd" || section === "durcharbeit";
 }
 
 function normalizeMatcherValue(value: string | undefined | null) {

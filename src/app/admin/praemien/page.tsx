@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   Plus, ChevronDown, ChevronRight, Search, X, Check, Trophy,
   Gift, AlertTriangle, Zap, ShoppingBag, Refrigerator, FlaskConical,
-  ClipboardList, Pencil, Trash2, TrendingUp, Award, Copy, Eye,
+  ClipboardList, ClipboardCheck, Pencil, Trash2, TrendingUp, Award, Copy, Eye,
   BarChart3, CheckCircle2, Circle, Minus, Upload,
 } from "lucide-react";
 import {
@@ -61,6 +61,7 @@ const SECTION_META: Record<SectionType, { label: string; color: string; bg: stri
   billa:    { label: "Billa",     color: "#0891B2", bg: "rgba(8,145,178,0.08)",  Icon: ShoppingBag },
   kuehler:  { label: "Kühler",    color: "#D97706", bg: "rgba(245,158,11,0.08)", Icon: Refrigerator },
   mhd:      { label: "MHD",       color: "#7C3AED", bg: "rgba(124,58,237,0.08)", Icon: FlaskConical },
+  durcharbeit: { label: "Durcharbeit", color: "#2563EB", bg: "rgba(37,99,235,0.08)", Icon: ClipboardCheck },
 };
 
 type PillarDefaultDefinition = Pick<PraemienPillar, "name" | "description" | "color"> & {

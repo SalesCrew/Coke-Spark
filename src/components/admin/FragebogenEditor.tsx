@@ -6,6 +6,7 @@ import type { Fragebogen, Module } from "@/types/fragebogen";
 import { typeBadgeColor, typeLabel } from "@/utils/fragebogen";
 import { SpezialfragenFragebogenField } from "@/components/admin/SpezialfragenFragebogenField";
 import { cloneQuestionForModuleInsert } from "@/utils/existingQuestionPicker";
+import type { FragebogenScope } from "@/lib/api/backend";
 
 let _fid = 0;
 function nextId(): string {
@@ -1085,11 +1086,13 @@ export function FragebogenEditor({
   onSave,
   existingFragebogen,
   availableModules,
+  scope = "main",
 }: {
   onClose: () => void;
   onSave: (f: Fragebogen) => Promise<void> | void;
   existingFragebogen?: Fragebogen;
   availableModules: Module[];
+  scope?: FragebogenScope;
 }) {
   const [name, setName] = useState(existingFragebogen?.name ?? "");
   const [description, setDescription] = useState(existingFragebogen?.description ?? "");
@@ -1487,6 +1490,7 @@ export function FragebogenEditor({
             </div>
 
             <SpezialfragenFragebogenField
+              scope={scope}
               questions={spezialfragen}
               onChange={setSpezialfragen}
               fragebogenName={name}

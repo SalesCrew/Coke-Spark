@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import type { CSSProperties } from "react";
 import {
   X,
   GripVertical,
@@ -349,12 +350,12 @@ function CLDropdown({
                 justifyContent: "space-between",
                 fontSize: 11,
                 fontWeight: value === opt.value ? 600 : 400,
-                color: value === opt.value ? "#DC2626" : "#374151",
+                color: value === opt.value ? "var(--module-accent, #DC2626)" : "#374151",
                 padding: "6px 8px",
                 borderRadius: 5,
                 border: "none",
                 cursor: "pointer",
-                backgroundColor: value === opt.value ? "rgba(220,38,38,0.04)" : "transparent",
+                backgroundColor: value === opt.value ? "rgba(var(--module-accent-rgb, 220, 38, 38), 0.04)" : "transparent",
                 textAlign: "left",
                 transition: "background-color 0.1s ease",
               }}
@@ -362,7 +363,7 @@ function CLDropdown({
                 if (value !== opt.value) e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.025)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = value === opt.value ? "rgba(220,38,38,0.04)" : "transparent";
+                e.currentTarget.style.backgroundColor = value === opt.value ? "rgba(var(--module-accent-rgb, 220, 38, 38), 0.04)" : "transparent";
               }}
             >
               <span style={{
@@ -374,7 +375,7 @@ function CLDropdown({
                 {opt.label}
               </span>
               {value === opt.value && (
-                <Check size={12} strokeWidth={2.5} color="#DC2626" style={{ flexShrink: 0, marginLeft: 6 }} />
+                <Check size={12} strokeWidth={2.5} color="var(--module-accent, #DC2626)" style={{ flexShrink: 0, marginLeft: 6 }} />
               )}
             </button>
           ))}
@@ -645,7 +646,7 @@ function ConditionalLogicEditor({
                           border: "none",
                           cursor: "pointer",
                           transition: "background-color 0.12s ease",
-                          backgroundColor: isSelected ? "rgba(220,38,38,0.03)" : "transparent",
+                          backgroundColor: isSelected ? "rgba(var(--module-accent-rgb, 220, 38, 38), 0.03)" : "transparent",
                           color: "#374151",
                           textAlign: "left",
                           width: "100%",
@@ -654,7 +655,7 @@ function ConditionalLogicEditor({
                           if (!isSelected) e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.02)";
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = isSelected ? "rgba(220,38,38,0.03)" : "transparent";
+                          e.currentTarget.style.backgroundColor = isSelected ? "rgba(var(--module-accent-rgb, 220, 38, 38), 0.03)" : "transparent";
                         }}
                       >
                         <div style={{
@@ -662,7 +663,7 @@ function ConditionalLogicEditor({
                           height: 16,
                           borderRadius: 4,
                           border: isSelected ? "none" : "1.5px solid rgba(0,0,0,0.12)",
-                          backgroundColor: isSelected ? "#DC2626" : "transparent",
+                          backgroundColor: isSelected ? "var(--module-accent, #DC2626)" : "transparent",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -708,21 +709,21 @@ function ConditionalLogicEditor({
           width: "100%",
           fontSize: 10,
           fontWeight: 600,
-          color: "#DC2626",
-          backgroundColor: "rgba(220,38,38,0.03)",
-          border: "1px dashed rgba(220,38,38,0.15)",
+          color: "var(--module-accent, #DC2626)",
+          backgroundColor: "rgba(var(--module-accent-rgb, 220, 38, 38), 0.03)",
+          border: "1px dashed rgba(var(--module-accent-rgb, 220, 38, 38), 0.15)",
           borderRadius: 8,
           cursor: "pointer",
           padding: "8px 0",
           transition: "all 0.15s ease",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.06)";
-          e.currentTarget.style.borderColor = "rgba(220,38,38,0.25)";
+          e.currentTarget.style.backgroundColor = "rgba(var(--module-accent-rgb, 220, 38, 38), 0.06)";
+          e.currentTarget.style.borderColor = "rgba(var(--module-accent-rgb, 220, 38, 38), 0.25)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "rgba(220,38,38,0.03)";
-          e.currentTarget.style.borderColor = "rgba(220,38,38,0.15)";
+          e.currentTarget.style.backgroundColor = "rgba(var(--module-accent-rgb, 220, 38, 38), 0.03)";
+          e.currentTarget.style.borderColor = "rgba(var(--module-accent-rgb, 220, 38, 38), 0.15)";
         }}
       >
         <Plus size={11} strokeWidth={2} />
@@ -748,7 +749,7 @@ function Toggle({
         width: 32,
         height: 18,
         borderRadius: 9,
-        backgroundColor: value ? "#DC2626" : "rgba(0,0,0,0.12)",
+        backgroundColor: value ? "var(--module-accent, #DC2626)" : "rgba(0,0,0,0.12)",
         border: "none",
         cursor: "pointer",
         position: "relative",
@@ -862,7 +863,7 @@ function ChoiceConfig({
               gap: 4,
               fontSize: 10,
               fontWeight: 500,
-              color: "#DC2626",
+              color: "var(--module-accent, #DC2626)",
               background: "none",
               border: "none",
               cursor: "pointer",
@@ -973,7 +974,7 @@ function PhotoConfig({
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
 }) {
-  return <PhotoTagsConfig config={config} onChange={onChange} accentColor="#DC2626" />;
+  return <PhotoTagsConfig config={config} onChange={onChange} accentColor="var(--module-accent, #DC2626)" />;
 }
 
 function ListEditor({
@@ -999,7 +1000,7 @@ function ListEditor({
             )}
           </div>
         ))}
-        <button onClick={() => onChange([...items, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: "#DC2626", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+        <button onClick={() => onChange([...items, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: "var(--module-accent, #DC2626)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
           <Plus size={10} strokeWidth={2} />
           Hinzufügen
         </button>
@@ -1036,7 +1037,7 @@ function MatrixConfig({
               style={{
                 fontSize: 10, fontWeight: 600, padding: "3px 12px", borderRadius: 5, border: "none", cursor: "pointer",
                 background: subtype === opt.value ? "white" : "transparent",
-                color: subtype === opt.value ? "#DC2626" : "rgba(0,0,0,0.35)",
+                color: subtype === opt.value ? "var(--module-accent, #DC2626)" : "rgba(0,0,0,0.35)",
                 boxShadow: subtype === opt.value ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
                 transition: "all 0.15s ease",
               }}
@@ -1121,7 +1122,7 @@ function YesNoMultiConfig({
                     flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "all 0.15s ease",
                     ...(isChecked
-                      ? { background: "linear-gradient(180deg, #DC2626, #b91c1c)", boxShadow: "0 1px 3px rgba(220,38,38,0.25)" }
+                      ? { background: "linear-gradient(180deg, var(--module-accent, #DC2626), var(--module-accent-dark, #b91c1c))", boxShadow: "0 1px 3px rgba(var(--module-accent-rgb, 220, 38, 38), 0.25)" }
                       : { backgroundColor: "rgba(0,0,0,0.04)" }),
                   }}
                 >
@@ -1173,7 +1174,7 @@ function YesNoMultiConfig({
             onClick={() => onChange({ ...config, answers: [...answers, ""] })}
             style={{
               marginTop: 4, display: "flex", alignItems: "center", gap: 4,
-              fontSize: 10, fontWeight: 500, color: "#DC2626",
+              fontSize: 10, fontWeight: 500, color: "var(--module-accent, #DC2626)",
               background: "none", border: "none", cursor: "pointer", padding: 0,
             }}
           >
@@ -1184,7 +1185,7 @@ function YesNoMultiConfig({
         <div style={{ marginTop: 8, fontSize: 9, color: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: 4 }}>
           <div style={{
             width: 10, height: 10, borderRadius: 3,
-            background: "linear-gradient(180deg, #DC2626, #b91c1c)",
+            background: "linear-gradient(180deg, var(--module-accent, #DC2626), var(--module-accent-dark, #b91c1c))",
             display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           }}>
             <Check size={6} strokeWidth={3} color="#fff" />
@@ -1205,8 +1206,8 @@ function YesNoMultiConfig({
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
             <div style={{
               width: 16, height: 16, borderRadius: 4, flexShrink: 0,
-              background: "linear-gradient(180deg, #DC2626, #b91c1c)",
-              boxShadow: "0 1px 3px rgba(220,38,38,0.25)",
+              background: "linear-gradient(180deg, var(--module-accent, #DC2626), var(--module-accent-dark, #b91c1c))",
+              boxShadow: "0 1px 3px rgba(var(--module-accent-rgb, 220, 38, 38), 0.25)",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
               <span style={{ fontSize: 8, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{idx + 1}</span>
@@ -1375,7 +1376,7 @@ function ScoringEditor({
           display: "flex", alignItems: "center", gap: 7,
           width: "100%", padding: "8px 0 6px",
           fontSize: 11, fontWeight: 600,
-          color: (hasIPP || hasZweitplatzierung || hasMitbewerberabfrage || hasBoni) ? "#DC2626" : "rgba(0,0,0,0.35)",
+          color: (hasIPP || hasZweitplatzierung || hasMitbewerberabfrage || hasBoni) ? "var(--module-accent, #DC2626)" : "rgba(0,0,0,0.35)",
           background: "none", border: "none", cursor: "pointer",
           borderTop: "1px solid rgba(0,0,0,0.04)",
         }}
@@ -1387,7 +1388,7 @@ function ScoringEditor({
         {hasIPP && (
           <span style={{
             fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 10,
-            backgroundColor: "rgba(220,38,38,0.08)", color: "#DC2626",
+            backgroundColor: "rgba(var(--module-accent-rgb, 220, 38, 38), 0.08)", color: "var(--module-accent, #DC2626)",
           }}>IPP</span>
         )}
         {hasBoni && (
@@ -1896,7 +1897,7 @@ function QuestionCard({
               width: 18,
               height: 18,
               borderRadius: "50%",
-              background: "linear-gradient(to bottom, #DC2626, #e84040)",
+              background: "linear-gradient(to bottom, var(--module-accent, #DC2626), var(--module-accent-light, #e84040))",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1942,7 +1943,7 @@ function QuestionCard({
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                backgroundColor: "#DC2626",
+                backgroundColor: "var(--module-accent, #DC2626)",
                 flexShrink: 0,
               }}
             />
@@ -2057,9 +2058,9 @@ function QuestionCard({
                       height: 22,
                       padding: "0 8px",
                       borderRadius: 999,
-                      border: "1px solid rgba(220,38,38,0.2)",
-                      backgroundColor: "rgba(220,38,38,0.06)",
-                      color: "#DC2626",
+                      border: "1px solid rgba(var(--module-accent-rgb, 220, 38, 38), 0.2)",
+                      backgroundColor: "rgba(var(--module-accent-rgb, 220, 38, 38), 0.06)",
+                      color: "var(--module-accent, #DC2626)",
                       fontSize: 10,
                       fontWeight: 700,
                       cursor: "pointer",
@@ -2095,7 +2096,7 @@ function QuestionCard({
                   padding: "8px 0 6px",
                   fontSize: 11,
                   fontWeight: 600,
-                  color: question.rules.length > 0 ? "#DC2626" : "rgba(0,0,0,0.35)",
+                  color: question.rules.length > 0 ? "var(--module-accent, #DC2626)" : "rgba(0,0,0,0.35)",
                   background: "none",
                   border: "none",
                   cursor: "pointer",
@@ -2116,8 +2117,8 @@ function QuestionCard({
                     fontWeight: 700,
                     padding: "1px 7px",
                     borderRadius: 10,
-                    backgroundColor: "rgba(220,38,38,0.08)",
-                    color: "#DC2626",
+                    backgroundColor: "rgba(var(--module-accent-rgb, 220, 38, 38), 0.08)",
+                    color: "var(--module-accent, #DC2626)",
                   }}>
                     {question.rules.length} {question.rules.length === 1 ? "Regel" : "Regeln"}
                   </span>
@@ -2180,7 +2181,7 @@ function QuestionCard({
       </div>
       <AvailabilityTypeModal
         open={availabilityModalOpen}
-        accentColor="#DC2626"
+        accentColor="var(--module-accent, #DC2626)"
         selectedType={pendingAvailabilityType}
         onSelect={setPendingAvailabilityType}
         onCancel={() => {
@@ -2201,9 +2202,16 @@ interface ModuleEditorProps {
   existingModule?: Module;
   availableChains?: string[];
   existingQuestions?: Question[];
+  theme?: {
+    accent: string;
+    accentDark: string;
+    accentLight: string;
+    accentBorder: string;
+    accentRgb: string;
+  };
 }
 
-export function ModuleEditor({ onClose, onSave, existingModule, availableChains = [], existingQuestions = [] }: ModuleEditorProps) {
+export function ModuleEditor({ onClose, onSave, existingModule, availableChains = [], existingQuestions = [], theme }: ModuleEditorProps) {
   const [moduleName, setModuleName] = useState(existingModule?.name ?? "");
   const [description, setDescription] = useState(existingModule?.description ?? "");
   const [questions, setQuestions] = useState<Question[]>(
@@ -2223,6 +2231,13 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
   const [typeMenu, setTypeMenu] = useState<{ questionId: string; x: number; y: number } | null>(null);
   const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const editorTheme = theme ?? {
+    accent: "#DC2626",
+    accentDark: "#b91c1c",
+    accentLight: "#e84040",
+    accentBorder: "#a91b1b",
+    accentRgb: "220, 38, 38",
+  };
 
   const addQuestion = useCallback(
     (type: QuestionType) => {
@@ -2289,6 +2304,11 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
   return (
     <div
       style={{
+        "--module-accent": editorTheme.accent,
+        "--module-accent-dark": editorTheme.accentDark,
+        "--module-accent-light": editorTheme.accentLight,
+        "--module-accent-border": editorTheme.accentBorder,
+        "--module-accent-rgb": editorTheme.accentRgb,
         position: "fixed",
         inset: 0,
         zIndex: 100,
@@ -2296,7 +2316,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
         display: "flex",
         flexDirection: "column",
         animation: "moduleEditorIn 0.3s cubic-bezier(0.4,0,0.2,1) both",
-      }}
+      } as CSSProperties}
     >
       <style>{`
         @keyframes moduleEditorIn {
@@ -2400,7 +2420,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
             fontSize: 11,
             fontWeight: 600,
             color: "#ffffff",
-            background: "linear-gradient(to bottom, #DC2626, #b91c1c)",
+            background: "linear-gradient(to bottom, var(--module-accent, #DC2626), var(--module-accent-dark, #b91c1c))",
             border: "none",
             borderRadius: 7,
             cursor: isSaving ? "not-allowed" : "pointer",
@@ -2408,7 +2428,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
             transition: "all 0.15s ease",
             letterSpacing: "0.01em",
             boxShadow:
-              "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)",
+              "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px var(--module-accent-border, #a91b1b), 0 1px 6px rgba(var(--module-accent-rgb, 220, 38, 38), 0.14)",
           }}
         >
           {isSaving ? "Speichern..." : "Speichern"}
@@ -2516,7 +2536,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
             }}
           />
 
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, fontWeight: 500, color: "#DC2626" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, fontWeight: 500, color: "var(--module-accent, #DC2626)" }}>
             <Import size={13} strokeWidth={1.5} />
             Frage importieren
           </div>

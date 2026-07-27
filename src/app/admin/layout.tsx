@@ -1063,6 +1063,13 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
             existingModule={durcharbeitEditingModule ?? undefined}
             availableChains={availableMarketChains}
             existingQuestions={durcharbeitExistingQuestions}
+            theme={{
+              accent: "#2563EB",
+              accentDark: "#1D4ED8",
+              accentLight: "#3B82F6",
+              accentBorder: "#1E40AF",
+              accentRgb: "37, 99, 235",
+            }}
             onSave={handleDurcharbeitModuleSave}
             onClose={() => {
               setDurcharbeitModuleEditorOpen(false);

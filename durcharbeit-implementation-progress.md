@@ -85,5 +85,7 @@ Die Durcharbeit- und Fotoexport-Änderungen kompilieren vollständig; diese vier
 
 ## Deployment
 
-- Migration `backend/drizzle/0082_durcharbeit_scope.sql` muss vor dem neuen Backend ausgerollt werden.
-- Es wurden keine Produktionsdaten verändert und keine Migration gegen Produktion ausgeführt.
+- [x] Backend-Commit auf `SalesCrew/Spark-Backend` veröffentlicht
+- [x] Frontend-Commit auf `SalesCrew/Coke-Spark` veröffentlicht
+- [x] Migration `durcharbeit_scope` auf dem Coke-Spark-Supabase-Projekt angewendet und registriert
+- Es wurden keine Produktions-Nutzdaten verändert und keine Smoke-Tests ausgeführt.

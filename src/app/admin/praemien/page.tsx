@@ -2807,7 +2807,6 @@ function PillarCard({
   const [expanded, setExpanded] = useState(false);
 
   const totalPoints = pillar.sourceRefs.reduce((n, r) => n + r.boniValue, 0);
-  const sectionTypes = Array.from(new Set(pillar.sourceRefs.map(r => r.sectionType)));
   const completeness = pillar.sourceRefs.length === 0 ? "leer"
     : pillar.sourceRefs.length < 3 ? "teilweise"
     : "vollständig";
@@ -2839,11 +2838,8 @@ function PillarCard({
 
         {/* Pillar name */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em", marginBottom: 3 }}>{pillar.name}</div>
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {sectionTypes.map(st => <SectionBadge key={st} type={st} />)}
-            {sectionTypes.length === 0 && <span style={{ fontSize: 9, color: "rgba(0,0,0,0.28)" }}>Keine Quellen</span>}
-          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.01em", marginBottom: pillar.sourceRefs.length === 0 ? 3 : 0 }}>{pillar.name}</div>
+          {pillar.sourceRefs.length === 0 && <span style={{ fontSize: 9, color: "rgba(0,0,0,0.28)" }}>Keine Quellen</span>}
         </div>
 
         {/* Stats */}
@@ -2872,12 +2868,21 @@ function PillarCard({
               <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>Keine Quellen — weise Quellen über den Explorer zu.</span>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <div
+              className="map-scroll"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 5,
+                maxHeight: 300,
+                overflowY: "auto",
+                overscrollBehavior: "contain",
+                paddingRight: 2,
+              }}
+            >
               {pillar.sourceRefs.map(ref => {
-                const sm = SECTION_META[ref.sectionType];
                 return (
                   <div key={ref.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.045)" }}>
-                    <SectionBadge type={ref.sectionType} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ref.questionText}</div>
                       <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>

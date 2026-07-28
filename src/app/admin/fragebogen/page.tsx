@@ -17,12 +17,17 @@ import {
   Trophy,
   Sparkles,
   Copy,
+  Loader2,
   Trash2,
   Tag,
 } from "lucide-react";
 import { useModules } from "@/context/ModuleContext";
 import { useFragebogen } from "@/context/FragebogenContext";
-import { useFlexModules, useBillaModules } from "@/app/admin/adminContexts";
+import {
+  useBillaModules,
+  useDurcharbeitCopy,
+  useFlexModules,
+} from "@/app/admin/adminContexts";
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { Question, Module, Fragebogen } from "@/types/fragebogen";
 import { SpezialfrageEditor } from "@/components/admin/SpezialfrageEditor";
@@ -1591,25 +1596,28 @@ function SpezialfrageAbwaehlenModal({
 // ── Fragebogen Context Menu ───────────────────────────────────
 
 function FragebogenContextMenu({
-  x, y, onDuplicate, onDuplicateToFlex, onDuplicateToBilla, onDelete, onClose,
+  x, y, onDuplicate, onDuplicateToFlex, onDuplicateToBilla, onDuplicateToDurcharbeit, onDelete, onClose,
 }: {
   x: number; y: number;
   onDuplicate: () => Promise<void> | void;
   onDuplicateToFlex: () => Promise<void> | void;
   onDuplicateToBilla: () => Promise<void> | void;
+  onDuplicateToDurcharbeit: () => Promise<void> | void;
   onDelete: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [dupOpen, setDupOpen] = useState(false);
   const [isActing, setIsActing] = useState(false);
+  const [isCopyingToDurcharbeit, setIsCopyingToDurcharbeit] = useState(false);
 
   useEffect(() => {
     function handleDown(e: MouseEvent) {
+      if (isActing) return;
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     }
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !isActing) onClose();
     }
     document.addEventListener("mousedown", handleDown);
     document.addEventListener("keydown", handleKey);
@@ -1617,15 +1625,20 @@ function FragebogenContextMenu({
       document.removeEventListener("mousedown", handleDown);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [onClose]);
+  }, [isActing, onClose]);
 
-  const handleAction = async (action: () => Promise<void> | void) => {
+  const handleAction = async (
+    action: () => Promise<void> | void,
+    target?: "durcharbeit",
+  ) => {
     if (isActing) return;
     setIsActing(true);
+    setIsCopyingToDurcharbeit(target === "durcharbeit");
     try {
       await action();
       onClose();
     } finally {
+      setIsCopyingToDurcharbeit(false);
       setIsActing(false);
     }
   };
@@ -1649,7 +1662,7 @@ function FragebogenContextMenu({
         {dupOpen && (
           <div
             onMouseEnter={() => setDupOpen(true)}
-            onMouseLeave={() => setDupOpen(false)}
+            onMouseLeave={() => { if (!isActing) setDupOpen(false); }}
             style={{ position: "absolute", left: "100%", top: 0, marginLeft: 4, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: "4px", minWidth: 200, zIndex: 10000 }}
           >
             <button
@@ -1681,6 +1694,20 @@ function FragebogenContextMenu({
             >
               <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#0891B2", flexShrink: 0 }} />
               Zu Billa kopieren
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); void handleAction(onDuplicateToDurcharbeit, "durcharbeit"); }}
+              disabled={isActing}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: isActing ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease", opacity: isActing ? 0.7 : 1 }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(124,58,237,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              {isCopyingToDurcharbeit ? (
+                <Loader2 size={11} strokeWidth={2} color="#7C3AED" className="animate-spin" />
+              ) : (
+                <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#7C3AED", flexShrink: 0 }} />
+              )}
+              {isCopyingToDurcharbeit ? "Wird kopiert..." : "Zu Durcharbeit kopieren"}
             </button>
           </div>
         )}
@@ -1821,6 +1848,7 @@ function FragebogenCard({
   onDuplicate,
   onDuplicateToFlex,
   onDuplicateToBilla,
+  onDuplicateToDurcharbeit,
   onDelete,
 }: {
   fragebogen: Fragebogen;
@@ -1831,6 +1859,7 @@ function FragebogenCard({
   onDuplicate: () => void;
   onDuplicateToFlex: () => void;
   onDuplicateToBilla: () => void;
+  onDuplicateToDurcharbeit: () => void;
   onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1852,6 +1881,7 @@ function FragebogenCard({
         onDuplicate={onDuplicate}
         onDuplicateToFlex={onDuplicateToFlex}
         onDuplicateToBilla={onDuplicateToBilla}
+        onDuplicateToDurcharbeit={onDuplicateToDurcharbeit}
         onDelete={() => { setDeleteDialog(true); setCtxMenu(null); }}
         onClose={() => setCtxMenu(null)}
       />
@@ -2197,6 +2227,7 @@ export default function FragebogenPage() {
   const { fragebogenList, editFragebogen, updateFragebogen, addFragebogen, deleteFragebogen } = useFragebogen();
   const { modules: flexModules, duplicateFbToFlex, duplicateModuleToFlex } = useFlexModules();
   const { duplicateFbToBilla, modules: billaModules, duplicateModuleToBilla } = useBillaModules();
+  const { copyFragebogenToDurcharbeit } = useDurcharbeitCopy();
   const hasLoadedContent = modules.length > 0 || fragebogenList.length > 0;
   const [initialLoadCompleted, setInitialLoadCompleted] = useState(false);
   const [campaignUsageByFragebogenId, setCampaignUsageByFragebogenId] = useState<Record<string, string[]>>({});
@@ -2626,6 +2657,7 @@ export default function FragebogenPage() {
                   }}
                   onDuplicateToFlex={() => duplicateFbToFlex(fb)}
                   onDuplicateToBilla={() => duplicateFbToBilla(fb)}
+                  onDuplicateToDurcharbeit={() => copyFragebogenToDurcharbeit("main", fb)}
                   onDelete={() => deleteFragebogen(fb.id)}
                 />
               ))}

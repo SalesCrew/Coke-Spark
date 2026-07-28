@@ -4,11 +4,15 @@ import { useState, useRef, useEffect } from "react";
 import {
   HelpCircle, Layers, FileText, Pencil, ChevronDown,
   Zap, MapPin, Clock, CalendarRange, Infinity, Trophy,
-  Search, X, Check, Copy, Trash2,
+  Search, X, Check, Copy, Loader2, Trash2,
 } from "lucide-react";
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { QuestionType, Module, Fragebogen } from "@/types/fragebogen";
-import { useFlexModules, useBillaModules } from "@/app/admin/adminContexts";
+import {
+  useBillaModules,
+  useDurcharbeitCopy,
+  useFlexModules,
+} from "@/app/admin/adminContexts";
 import { useModules } from "@/context/ModuleContext";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
@@ -128,30 +132,47 @@ function FlexContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToBil
 
 // ── Fragebogen context menu (with cross-dup flyout) ──────────
 
-function FlexFbContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDelete, onClose }: {
+function FlexFbContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDuplicateToDurcharbeit, onDelete, onClose }: {
   x: number; y: number;
   onDuplicate: () => void;
   onDuplicateToStd: () => void;
   onDuplicateToBilla: () => void;
+  onDuplicateToDurcharbeit: () => Promise<void>;
   onDelete: () => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [dupOpen, setDupOpen] = useState(false);
+  const [isCopyingToDurcharbeit, setIsCopyingToDurcharbeit] = useState(false);
   useEffect(() => {
-    function down(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); }
-    function key(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    function down(e: MouseEvent) {
+      if (!isCopyingToDurcharbeit && ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function key(e: KeyboardEvent) {
+      if (e.key === "Escape" && !isCopyingToDurcharbeit) onClose();
+    }
     document.addEventListener("mousedown", down);
     document.addEventListener("keydown", key);
     return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
-  }, [onClose]);
+  }, [isCopyingToDurcharbeit, onClose]);
+
+  const handleDurcharbeitCopy = async () => {
+    if (isCopyingToDurcharbeit) return;
+    setIsCopyingToDurcharbeit(true);
+    try {
+      await onDuplicateToDurcharbeit();
+      onClose();
+    } finally {
+      setIsCopyingToDurcharbeit(false);
+    }
+  };
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 175 }}>
+    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 175, pointerEvents: isCopyingToDurcharbeit ? "none" : "auto" }}>
       <div
         style={{ position: "relative" }}
         onMouseEnter={() => setDupOpen(true)}
-        onMouseLeave={() => setDupOpen(false)}
+        onMouseLeave={() => { if (!isCopyingToDurcharbeit) setDupOpen(false); }}
       >
         <button
           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: dupOpen ? "rgba(0,0,0,0.03)" : "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
@@ -161,7 +182,10 @@ function FlexFbContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToB
           <span style={{ marginLeft: "auto", opacity: 0.4, fontSize: 10 }}>▶</span>
         </button>
         {dupOpen && (
-          <div style={{ position: "absolute", left: "100%", top: 0, zIndex: 10000, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10)", padding: 4, minWidth: 185, marginLeft: 2 }}>
+          <div
+            onMouseLeave={() => { if (!isCopyingToDurcharbeit) setDupOpen(false); }}
+            style={{ position: "absolute", left: "100%", top: 0, zIndex: 10000, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10)", padding: 4, minWidth: 185, marginLeft: 2 }}
+          >
             <button
               onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
               style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
@@ -188,6 +212,23 @@ function FlexFbContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToB
             >
               <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#0891B2", flexShrink: 0 }} />
               Zu Billa kopieren
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleDurcharbeitCopy();
+              }}
+              disabled={isCopyingToDurcharbeit}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(124,58,237,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              {isCopyingToDurcharbeit ? (
+                <Loader2 size={11} strokeWidth={2} color="#7C3AED" className="animate-spin" />
+              ) : (
+                <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#7C3AED", flexShrink: 0 }} />
+              )}
+              {isCopyingToDurcharbeit ? "Wird kopiert..." : "Zu Durcharbeit kopieren"}
             </button>
           </div>
         )}
@@ -549,7 +590,7 @@ function FlexFragenListItem({ question, moduleName, onDelete }: {
 
 // ── Fragebogen Card ───────────────────────────────────────────
 
-function FlexFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDelete }: {
+function FlexFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDuplicateToDurcharbeit, onDelete }: {
   fragebogen: FlexFragebogen;
   moduleList: FlexModule[];
   onEdit: () => void;
@@ -557,6 +598,7 @@ function FlexFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDuplic
   onDuplicate: () => void;
   onDuplicateToStd: () => void;
   onDuplicateToBilla: () => void;
+  onDuplicateToDurcharbeit: () => Promise<void>;
   onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -582,6 +624,7 @@ function FlexFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDuplic
           onDuplicate={onDuplicate}
           onDuplicateToStd={onDuplicateToStd}
           onDuplicateToBilla={onDuplicateToBilla}
+          onDuplicateToDurcharbeit={onDuplicateToDurcharbeit}
           onDelete={() => { setDeleteDialog(true); setCtxMenu(null); }}
           onClose={() => setCtxMenu(null)}
         />
@@ -736,6 +779,7 @@ export default function FlexbesuchePage() {
   // Merge Standardbesuch and Billa questions into the shared question view
   const { modules: stdModules } = useModules();
   const { modules: billaModules, duplicateFbToBilla } = useBillaModules();
+  const { copyFragebogenToDurcharbeit } = useDurcharbeitCopy();
   const [activeTab, setActiveTab] = useState<Tab>("module");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -988,6 +1032,7 @@ export default function FlexbesuchePage() {
                   onDuplicate={() => onDuplicateFb(fb)}
                   onDuplicateToStd={() => duplicateFbToStd(fb)}
                   onDuplicateToBilla={() => duplicateFbToBilla(fb)}
+                  onDuplicateToDurcharbeit={() => copyFragebogenToDurcharbeit("main", fb)}
                   onDelete={() => onDeleteFb(fb.id)}
                 />
               ))}

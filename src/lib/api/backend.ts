@@ -4649,6 +4649,21 @@ export async function duplicateFragebogenBackend(
   return normalizeFragebogen(data.fragebogen);
 }
 
+export async function duplicateFragebogenToDurcharbeitBackend(
+  sourceScope: FragebogenScope,
+  fragebogenId: string,
+): Promise<{ fragebogen: Fragebogen; modules: Module[] }> {
+  const data = (await authedFetch(`/admin/fragebogen/${sourceScope}/${fragebogenId}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({ targetScope: "durcharbeit" }),
+  })) as { fragebogen: Fragebogen; modules?: Module[] };
+
+  return {
+    fragebogen: normalizeFragebogen(data.fragebogen),
+    modules: (data.modules ?? []).map(normalizeModule),
+  };
+}
+
 export async function fetchCampaigns(): Promise<Campaign[]> {
   const data = (await authedFetch("/admin/campaigns")) as { campaigns?: BackendCampaign[] };
   return (data.campaigns ?? []).map(normalizeCampaign);

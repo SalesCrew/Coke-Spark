@@ -25,6 +25,7 @@ import {
   deleteFragebogenBackend,
   deleteModuleBackend,
   duplicateFragebogenBackend,
+  duplicateFragebogenToDurcharbeitBackend,
   duplicateModuleBackend,
   fetchFragebogen,
   fetchMarketChains,
@@ -34,7 +35,7 @@ import {
   type FragebogenScope,
 } from "@/lib/api/backend";
 import {
-  KuehlerCtx, MhdCtx, DurcharbeitCtx, FlexCtx, BillaCtx,
+  KuehlerCtx, MhdCtx, DurcharbeitCtx, DurcharbeitCopyCtx, FlexCtx, BillaCtx,
   type KuehlerCtxValue, type MhdCtxValue, type DurcharbeitCtxValue, type FlexCtxValue, type BillaCtxValue,
 } from "@/app/admin/adminContexts";
 import { RedMonthHeaderControl } from "@/components/admin/RedMonthHeaderControl";
@@ -342,6 +343,48 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [durcharbeitFragebogenList, setDurcharbeitFragebogenList] = useState<Fragebogen[]>([]);
   const [durcharbeitFbEditorOpen, setDurcharbeitFbEditorOpen] = useState(false);
   const [durcharbeitEditingFb, setDurcharbeitEditingFb] = useState<Fragebogen | null>(null);
+  const durcharbeitCopyInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
+
+  const copyFragebogenToDurcharbeit = async (
+    sourceScope: FragebogenScope,
+    fragebogen: Fragebogen,
+  ): Promise<void> => {
+    const copyKey = `${sourceScope}:${fragebogen.id}`;
+    const inFlight = durcharbeitCopyInFlightRef.current.get(copyKey);
+    if (inFlight) {
+      await inFlight;
+      return;
+    }
+
+    const operation = (async () => {
+      const { fragebogen: duplicated, modules: copiedModules } =
+        await duplicateFragebogenToDurcharbeitBackend(
+          sourceScope,
+          fragebogen.id,
+        );
+
+      setDurcharbeitModules((current) => {
+        const copiedIds = new Set(copiedModules.map((module) => module.id));
+        return [
+          ...copiedModules,
+          ...current.filter((module) => !copiedIds.has(module.id)),
+        ];
+      });
+      setDurcharbeitFragebogenList((current) => [
+        duplicated,
+        ...current.filter((entry) => entry.id !== duplicated.id),
+      ]);
+    })();
+
+    durcharbeitCopyInFlightRef.current.set(copyKey, operation);
+    try {
+      await operation;
+    } finally {
+      if (durcharbeitCopyInFlightRef.current.get(copyKey) === operation) {
+        durcharbeitCopyInFlightRef.current.delete(copyKey);
+      }
+    }
+  };
 
   const handleDurcharbeitModuleSave = async (module: Module) => {
     const persisted = durcharbeitEditingModule
@@ -400,8 +443,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       setDurcharbeitFragebogenList((current) => current.filter((entry) => entry.id !== id));
     },
     onDuplicateFb: async (fragebogen) => {
-      const duplicated = await duplicateFragebogenBackend("durcharbeit", fragebogen.id, "durcharbeit");
-      setDurcharbeitFragebogenList((current) => [duplicated, ...current]);
+      await copyFragebogenToDurcharbeit("durcharbeit", fragebogen);
     },
   };
 
@@ -773,6 +815,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     <BillaCtx.Provider value={billaCtxValue}>
     <FlexCtx.Provider value={flexCtxValue}>
     <MhdCtx.Provider value={mhdCtxValue}>
+    <DurcharbeitCopyCtx.Provider value={{ copyFragebogenToDurcharbeit }}>
     <DurcharbeitCtx.Provider value={durcharbeitCtxValue}>
     <KuehlerCtx.Provider value={kuehlerCtxValue}>
       <div style={{ display: "flex", minHeight: "100vh", backgroundColor: "#f5f5f7" }}>
@@ -1129,6 +1172,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       </div>
     </KuehlerCtx.Provider>
     </DurcharbeitCtx.Provider>
+    </DurcharbeitCopyCtx.Provider>
     </MhdCtx.Provider>
     </FlexCtx.Provider>
     </BillaCtx.Provider>

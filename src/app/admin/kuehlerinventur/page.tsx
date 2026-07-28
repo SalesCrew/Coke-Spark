@@ -13,6 +13,7 @@ import {
   Check,
   Trophy,
   Copy,
+  Loader2,
   Trash2,
   MapPin,
   Clock,
@@ -22,7 +23,10 @@ import {
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { Question, Module, Fragebogen } from "@/types/fragebogen";
 import type { QuestionType } from "@/types/fragebogen";
-import { useKuehlerModules } from "@/app/admin/adminContexts";
+import {
+  useDurcharbeitCopy,
+  useKuehlerModules,
+} from "@/app/admin/adminContexts";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportFragebogenExcel } from "@/lib/exports/planningExports";
 import { SpezialfragenFragebogenAction, SpezialfragenFragebogenCountPill } from "@/components/admin/SpezialfragenFragebogenAction";
@@ -147,21 +151,40 @@ function QuestionConfigSummary({ question }: { question: Question }) {
 
 // ── Context Menu (shared) ──────────────────────────────────────
 
-function KuehlerContextMenu({ x, y, onDuplicate, onDelete, onClose }: {
+function KuehlerContextMenu({ x, y, onDuplicate, onDuplicateToDurcharbeit, onDelete, onClose }: {
   x: number; y: number;
-  onDuplicate: () => void; onDelete: () => void; onClose: () => void;
+  onDuplicate: () => void;
+  onDuplicateToDurcharbeit?: () => Promise<void>;
+  onDelete: () => void;
+  onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [isCopyingToDurcharbeit, setIsCopyingToDurcharbeit] = useState(false);
   useEffect(() => {
-    function handleDown(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); }
-    function handleKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    function handleDown(e: MouseEvent) {
+      if (!isCopyingToDurcharbeit && ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !isCopyingToDurcharbeit) onClose();
+    }
     document.addEventListener("mousedown", handleDown);
     document.addEventListener("keydown", handleKey);
     return () => { document.removeEventListener("mousedown", handleDown); document.removeEventListener("keydown", handleKey); };
-  }, [onClose]);
+  }, [isCopyingToDurcharbeit, onClose]);
+
+  const handleDurcharbeitCopy = async () => {
+    if (!onDuplicateToDurcharbeit || isCopyingToDurcharbeit) return;
+    setIsCopyingToDurcharbeit(true);
+    try {
+      await onDuplicateToDurcharbeit();
+      onClose();
+    } finally {
+      setIsCopyingToDurcharbeit(false);
+    }
+  };
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 160 }}>
+    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 160, pointerEvents: isCopyingToDurcharbeit ? "none" : "auto" }}>
       <button
         onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
         style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
@@ -171,6 +194,25 @@ function KuehlerContextMenu({ x, y, onDuplicate, onDelete, onClose }: {
         <Copy size={12} strokeWidth={1.8} color="rgba(0,0,0,0.4)" />
         Duplizieren
       </button>
+      {onDuplicateToDurcharbeit ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleDurcharbeitCopy();
+          }}
+          disabled={isCopyingToDurcharbeit}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(124,58,237,0.05)")}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+        >
+          {isCopyingToDurcharbeit ? (
+            <Loader2 size={11} strokeWidth={2} color="#7C3AED" className="animate-spin" />
+          ) : (
+            <Copy size={12} strokeWidth={1.8} color="#7C3AED" />
+          )}
+          {isCopyingToDurcharbeit ? "Wird kopiert..." : "Zu Durcharbeit kopieren"}
+        </button>
+      ) : null}
       <div style={{ height: 1, margin: "3px 6px", backgroundColor: "rgba(0,0,0,0.05)" }} />
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(); onClose(); }}
@@ -629,12 +671,13 @@ function KuehlerFragebogenDeleteDialog({
   );
 }
 
-function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate, onDelete }: {
+function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate, onDuplicateToDurcharbeit, onDelete }: {
   fragebogen: Fragebogen;
   modules: Module[];
   onEdit: () => void;
   onUpdate: (fragebogen: Fragebogen) => Promise<void> | void;
   onDuplicate: () => void;
+  onDuplicateToDurcharbeit: () => Promise<void>;
   onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -666,6 +709,7 @@ function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplic
         <KuehlerContextMenu
           x={ctxMenu.x} y={ctxMenu.y}
           onDuplicate={() => { onDuplicate(); setCtxMenu(null); }}
+          onDuplicateToDurcharbeit={onDuplicateToDurcharbeit}
           onDelete={() => { setDeleteDialog(true); setCtxMenu(null); }}
           onClose={() => setCtxMenu(null)}
         />
@@ -868,6 +912,7 @@ function FragebogenPageSkeleton() {
 
 export default function KuehlerinventurPage() {
   const { modules = [], onEdit, onUpdate, onDelete, onDuplicate, fragebogenList = [], onEditFb, onUpdateFb, onDeleteFb, onDuplicateFb } = useKuehlerModules();
+  const { copyFragebogenToDurcharbeit } = useDurcharbeitCopy();
   const [activeTab, setActiveTab] = useState<Tab>("module");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -1111,6 +1156,7 @@ export default function KuehlerinventurPage() {
                   onEdit={() => onEditFb(fb)}
                   onUpdate={onUpdateFb}
                   onDuplicate={() => onDuplicateFb(fb)}
+                  onDuplicateToDurcharbeit={() => copyFragebogenToDurcharbeit("kuehler", fb)}
                   onDelete={() => onDeleteFb(fb.id)}
                 />
               ))}

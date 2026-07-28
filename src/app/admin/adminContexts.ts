@@ -2,6 +2,22 @@
 
 import { createContext, useContext } from "react";
 import type { Module, Fragebogen } from "@/types/fragebogen";
+import type { FragebogenScope } from "@/lib/api/backend";
+
+export interface DurcharbeitCopyCtxValue {
+  copyFragebogenToDurcharbeit: (
+    sourceScope: FragebogenScope,
+    fragebogen: Fragebogen,
+  ) => Promise<void>;
+}
+
+export const DurcharbeitCopyCtx = createContext<DurcharbeitCopyCtxValue>({
+  copyFragebogenToDurcharbeit: async () => {},
+});
+
+export function useDurcharbeitCopy() {
+  return useContext(DurcharbeitCopyCtx);
+}
 
 // ── Kühlerinventur context ─────────────────────────────────────
 export interface KuehlerCtxValue {

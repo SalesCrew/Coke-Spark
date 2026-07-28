@@ -917,9 +917,13 @@ function ModuleRow({
 function ModulePreviewModal({
   module,
   onClose,
+  accentColor = "#DC2626",
+  accentRgb = "220, 38, 38",
 }: {
   module: Module;
   onClose: () => void;
+  accentColor?: string;
+  accentRgb?: string;
 }) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -974,7 +978,7 @@ function ModulePreviewModal({
               <span style={{
                 fontSize: 9, fontWeight: 600,
                 padding: "2px 8px", borderRadius: 4,
-                backgroundColor: "rgba(220,38,38,0.06)", color: "#DC2626",
+                backgroundColor: `rgba(${accentRgb},0.06)`, color: accentColor,
               }}>
                 {module.questions.length} {module.questions.length === 1 ? "Frage" : "Fragen"}
               </span>
@@ -996,7 +1000,7 @@ function ModulePreviewModal({
               padding: 4, color: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center",
               transition: "color 0.15s ease", flexShrink: 0,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "#DC2626")}
+            onMouseEnter={(e) => (e.currentTarget.style.color = accentColor)}
             onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(0,0,0,0.35)")}
           >
             <X size={16} strokeWidth={1.8} />
@@ -1114,6 +1118,11 @@ export function FragebogenEditor({
   // right-click context menu
   const [contextMenu, setContextMenu] = useState<{ moduleId: string; x: number; y: number } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const isDurcharbeitScope = scope === "durcharbeit";
+  const accentColor = isDurcharbeitScope ? "#2563EB" : "#DC2626";
+  const accentDark = isDurcharbeitScope ? "#1D4ED8" : "#b91c1c";
+  const accentBorder = isDurcharbeitScope ? "#1E40AF" : "#a91b1b";
+  const accentRgb = isDurcharbeitScope ? "37, 99, 235" : "220, 38, 38";
 
   // preview modal
   const [previewModule, setPreviewModule] = useState<Module | null>(null);
@@ -1203,8 +1212,8 @@ export function FragebogenEditor({
     border: "none", cursor: "pointer", transition: "all 0.15s ease",
   };
   const btnActive: React.CSSProperties = {
-    background: "linear-gradient(to bottom, #DC2626, #b91c1c)", color: "#fff",
-    boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)",
+    background: `linear-gradient(to bottom, ${accentColor}, ${accentDark})`, color: "#fff",
+    boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px ${accentBorder}, 0 1px 6px rgba(${accentRgb},0.18)`,
   };
   const btnInactive: React.CSSProperties = {
     backgroundColor: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.4)",
@@ -1246,7 +1255,7 @@ export function FragebogenEditor({
               padding: 4, color: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center",
               transition: "color 0.15s ease",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "#DC2626")}
+            onMouseEnter={(e) => (e.currentTarget.style.color = accentColor)}
             onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(0,0,0,0.4)")}
           >
             <X size={18} strokeWidth={1.8} />
@@ -1317,15 +1326,15 @@ export function FragebogenEditor({
                       style={{
                         padding: "8px 12px",
                         borderRadius: 8,
-                        border: alreadyAdded ? "1px solid rgba(220,38,38,0.15)" : "1px solid rgba(0,0,0,0.06)",
-                        backgroundColor: alreadyAdded ? "rgba(220,38,38,0.03)" : "#ffffff",
+                        border: alreadyAdded ? `1px solid rgba(${accentRgb},0.15)` : "1px solid rgba(0,0,0,0.06)",
+                        backgroundColor: alreadyAdded ? `rgba(${accentRgb},0.03)` : "#ffffff",
                         cursor: alreadyAdded ? "default" : "pointer",
                         transition: "all 0.15s ease",
                         display: "flex", alignItems: "center", gap: 8,
                         userSelect: "none",
                       }}
                       onMouseEnter={(e) => {
-                        if (!alreadyAdded) (e.currentTarget as HTMLElement).style.borderColor = "rgba(220,38,38,0.3)";
+                        if (!alreadyAdded) (e.currentTarget as HTMLElement).style.borderColor = `rgba(${accentRgb},0.3)`;
                       }}
                       onMouseLeave={(e) => {
                         if (!alreadyAdded) (e.currentTarget as HTMLElement).style.borderColor = "rgba(0,0,0,0.06)";
@@ -1341,7 +1350,7 @@ export function FragebogenEditor({
                       }}>
                         {mod.questions.length}F
                       </span>
-                      {alreadyAdded && <Check size={10} strokeWidth={2.5} color="#DC2626" />}
+                      {alreadyAdded && <Check size={10} strokeWidth={2.5} color={accentColor} />}
                     </div>
                   );
                 })}
@@ -1398,7 +1407,7 @@ export function FragebogenEditor({
                   style={{
                     width: 38, height: 22, borderRadius: 99, border: "none",
                     cursor: "pointer", flexShrink: 0,
-                    background: nurEinmal ? "#DC2626" : "rgba(0,0,0,0.1)",
+                    background: nurEinmal ? accentColor : "rgba(0,0,0,0.1)",
                     boxShadow: "none",
                     transition: "all 0.18s ease",
                     position: "relative",
@@ -1422,7 +1431,7 @@ export function FragebogenEditor({
                 <span style={{
                   marginLeft: 8, fontSize: 9, fontWeight: 600,
                   padding: "2px 7px", borderRadius: 4,
-                  backgroundColor: "rgba(220,38,38,0.06)", color: "#DC2626",
+                  backgroundColor: `rgba(${accentRgb},0.06)`, color: accentColor,
                 }}>
                   {selectedModules.length}
                 </span>
@@ -1469,7 +1478,7 @@ export function FragebogenEditor({
                   onClick={() => {}}
                   style={{
                     marginTop: 8, display: "flex", alignItems: "center", gap: 5,
-                    fontSize: 10, fontWeight: 500, color: "#DC2626",
+                    fontSize: 10, fontWeight: 500, color: accentColor,
                     background: "none", border: "none", cursor: "pointer", padding: 0,
                   }}
                 >
@@ -1494,7 +1503,7 @@ export function FragebogenEditor({
               questions={spezialfragen}
               onChange={setSpezialfragen}
               fragebogenName={name}
-              accentColor="#DC2626"
+              accentColor={accentColor}
             />
 
           </div>
@@ -1519,6 +1528,8 @@ export function FragebogenEditor({
         <ModulePreviewModal
           module={previewModule}
           onClose={() => setPreviewModule(null)}
+          accentColor={accentColor}
+          accentRgb={accentRgb}
         />
       )}
     </>

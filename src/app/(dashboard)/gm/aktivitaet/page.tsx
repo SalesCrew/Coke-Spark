@@ -17,6 +17,7 @@ import {
   Inbox,
   Loader2,
   MapPin,
+  MessageSquarePlus,
   RefreshCcw,
   Send,
   Search,
@@ -247,6 +248,10 @@ function requestStatusLabel(status: RequestStatusKind): string {
 }
 
 function answerSnapshotPreview(snapshot: Record<string, unknown>): string {
+  if (snapshot.changeKind === "comment") {
+    const comment = typeof snapshot.comment === "string" ? snapshot.comment.trim() : "";
+    return comment || "Kein Kommentar";
+  }
   const options = Array.isArray(snapshot.options)
     ? snapshot.options
         .map((entry) => {
@@ -1318,6 +1323,111 @@ function ChangeRequestForm({
   );
 }
 
+function CommentChangeRequestForm({
+  sessionId,
+  question,
+  accent,
+  onClose,
+  onSubmitted,
+}: {
+  sessionId: string;
+  question: VisitQuestion;
+  accent: string;
+  onClose: () => void;
+  onSubmitted: (message: string) => void;
+}) {
+  const currentComment = question.comment?.trim() ?? "";
+  const [comment, setComment] = useState(currentComment);
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    const requestedComment = comment.trim();
+    if (requestedComment === currentComment) {
+      setError("Bitte ändere den Kommentar, bevor du die Anfrage sendest.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await requestGmVisitAnswerChange({
+        sessionId,
+        visitQuestionId: question.id,
+        requestedAnswerPayload: {
+          changeKind: "comment",
+          requestedComment,
+        },
+        requestedAnswerSummary: requestedComment ? "Kommentar nachtragen oder ändern" : "Kommentar entfernen",
+        requestNote: note,
+      });
+      onSubmitted("Kommentaranfrage gespeichert. Ein Admin prüft die Änderung.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kommentaranfrage konnte nicht gespeichert werden.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="gm-activity-request-modal-backdrop" role="presentation" style={{ "--gm-request-accent": accent } as CSSProperties}>
+      <div className="gm-activity-request-modal" role="dialog" aria-modal="true" aria-labelledby="gm-comment-request-title">
+        <div className="gm-activity-request-head">
+          <div className="gm-activity-request-mark">
+            <MessageSquarePlus size={16} strokeWidth={2.2} />
+          </div>
+          <div className="gm-activity-request-title">
+            <span>Kommentar anfragen</span>
+            <strong id="gm-comment-request-title">Kommentar nachtragen oder ändern</strong>
+            <p>Der gespeicherte Kommentar bleibt unverändert, bis ein Admin die Anfrage annimmt.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Kommentaranfrage schließen">
+            <X size={14} strokeWidth={2.2} />
+          </button>
+        </div>
+
+        <div className="gm-activity-request-current">
+          <span>Aktuell gespeichert</span>
+          <strong>{currentComment || "Kein Kommentar"}</strong>
+        </div>
+
+        <div className="gm-activity-request-field">
+          <label htmlFor={`gm-comment-request-${question.id}`}>Gewünschter Kommentar</label>
+          <textarea
+            id={`gm-comment-request-${question.id}`}
+            className="gm-activity-request-note"
+            value={comment}
+            maxLength={4000}
+            onChange={(event) => setComment(event.target.value)}
+            placeholder="Kommentar nachtragen"
+          />
+        </div>
+
+        <div className="gm-activity-request-field">
+          <label htmlFor={`gm-comment-note-${question.id}`}>Hinweis für Admin</label>
+          <textarea
+            id={`gm-comment-note-${question.id}`}
+            className="gm-activity-request-note"
+            value={note}
+            maxLength={700}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Optional kurz erklären, warum der Kommentar ergänzt werden soll"
+          />
+        </div>
+
+        {error ? <div className="gm-activity-request-error">{error}</div> : null}
+        <div className="gm-activity-request-actions">
+          <button type="button" onClick={onClose} disabled={submitting}>Abbrechen</button>
+          <button type="button" onClick={() => { void submit(); }} disabled={submitting}>
+            {submitting ? <Loader2 size={14} strokeWidth={2.2} className="animate-spin" /> : <Send size={14} strokeWidth={2.2} />}
+            Anfrage senden
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DeleteVisitRequestModal({
   sessionId,
   accent,
@@ -1419,6 +1529,7 @@ function ReadOnlyVisitViewer({
   ), [payload.sections]);
   const [index, setIndex] = useState(0);
   const [changeRequestQuestionId, setChangeRequestQuestionId] = useState<string | null>(null);
+  const [commentRequestQuestionId, setCommentRequestQuestionId] = useState<string | null>(null);
   const [photoEditQuestionId, setPhotoEditQuestionId] = useState<string | null>(null);
   const [requestSuccessByQuestionId, setRequestSuccessByQuestionId] = useState<Record<string, string>>({});
   const [deleteRequestOpen, setDeleteRequestOpen] = useState(false);
@@ -1591,7 +1702,10 @@ function ReadOnlyVisitViewer({
                   <button
                     type="button"
                     className="gm-activity-request-open is-photo-direct"
-                    onClick={() => setPhotoEditQuestionId(current.question.id)}
+                    onClick={() => {
+                      setCommentRequestQuestionId(null);
+                      setPhotoEditQuestionId(current.question.id);
+                    }}
                   >
                     <Camera size={13} strokeWidth={2.2} />
                     Fotos & Tags bearbeiten
@@ -1613,10 +1727,39 @@ function ReadOnlyVisitViewer({
                 <button
                   type="button"
                   className="gm-activity-request-open"
-                  onClick={() => setChangeRequestQuestionId(current.question.id)}
+                  onClick={() => {
+                    setCommentRequestQuestionId(null);
+                    setChangeRequestQuestionId(current.question.id);
+                  }}
                 >
                   <Send size={13} strokeWidth={2.2} />
                   {currentIsUnansweredSpezialfrage ? "Nachtrag anfragen" : "Änderung anfragen"}
+                </button>
+              )}
+              {commentRequestQuestionId === current.question.id ? (
+                <CommentChangeRequestForm
+                  sessionId={payload.session.id}
+                  question={current.question}
+                  accent={accent}
+                  onClose={() => setCommentRequestQuestionId(null)}
+                  onSubmitted={(message) => {
+                    setRequestSuccessByQuestionId((currentMap) => ({ ...currentMap, [current.question.id]: message }));
+                    setCommentRequestQuestionId(null);
+                    onChangeRequestSubmitted();
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="gm-activity-request-open is-comment"
+                  onClick={() => {
+                    setChangeRequestQuestionId(null);
+                    setPhotoEditQuestionId(null);
+                    setCommentRequestQuestionId(current.question.id);
+                  }}
+                >
+                  <MessageSquarePlus size={13} strokeWidth={2.2} />
+                  {current.question.comment?.trim() ? "Kommentar ändern" : "Kommentar nachtragen"}
                 </button>
               )}
             </div>
@@ -2983,6 +3126,11 @@ export default function GmActivityPage() {
         .gm-activity-request-open:active {
           transform: translateY(1px);
         }
+        .gm-activity-request-open.is-comment {
+          color: #047857;
+          background: rgba(255,255,255,0.92);
+          box-shadow: inset 0 0 0 1px rgba(5,150,105,0.24), 0 7px 16px rgba(15,23,42,0.06);
+        }
         .gm-activity-delete-request-bar {
           margin: 12px 18px 0;
           border-radius: 15px;
@@ -3137,6 +3285,7 @@ export default function GmActivityPage() {
           justify-content: center;
           background: linear-gradient(180deg, rgba(5,150,105,0.12), rgba(5,150,105,0.06));
           box-shadow: inset 0 0 0 1px rgba(5,150,105,0.14);
+          color: #059669;
         }
         .gm-activity-request-mark span {
           width: 10px;

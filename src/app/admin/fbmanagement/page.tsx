@@ -213,6 +213,10 @@ function applyMarketFilters(
         m.name,
         m.address,
         m.stammnr,
+        m.standardMarketNumber,
+        m.cokeMasterNumber,
+        m.flexNumber,
+        m.kuehlerStammnr,
         m.kuehlerNumber,
         m.gm,
         m.city,
@@ -7085,6 +7089,9 @@ function MarketEditMenu({
 function MarketAddPanel({
   pos,
   availableMarkets,
+  assignedMarkets = [],
+  allMarkets = [],
+  assignedMarketIds = [],
   onAdd,
   onUndoAdd,
   onClose,
@@ -7098,6 +7105,9 @@ function MarketAddPanel({
 }: {
   pos: { x: number; y: number };
   availableMarkets: MarketCatalogItem[];
+  assignedMarkets?: MarketCatalogItem[];
+  allMarkets?: MarketCatalogItem[];
+  assignedMarketIds?: string[];
   onAdd: (id: string, gmUserId?: string | null) => void;
   onUndoAdd: (id: string) => void;
   onClose: () => void;
@@ -7176,13 +7186,36 @@ function MarketAddPanel({
     return () => { document.body.style.cursor = ""; };
   }, [onClose]);
 
+  const directoryMarkets = useMemo(() => {
+    const byId = new Map<string, MarketCatalogItem>();
+    for (const market of allMarkets) byId.set(market.id, market);
+    for (const market of availableMarkets) byId.set(market.id, { ...byId.get(market.id), ...market });
+    for (const market of assignedMarkets) byId.set(market.id, { ...byId.get(market.id), ...market });
+    return Array.from(byId.values());
+  }, [allMarkets, assignedMarkets, availableMarkets]);
+  const assignedMarketIdSet = useMemo(
+    () => new Set([...assignedMarketIds, ...assignedMarkets.map((market) => market.id)]),
+    [assignedMarketIds, assignedMarkets],
+  );
   const filteredAvailableMarkets = useMemo(
-    () => availableMarkets.filter((m) => !addedIds.includes(m.id)),
-    [availableMarkets, addedIds],
+    () => directoryMarkets.filter((market) => !assignedMarketIdSet.has(market.id) && !addedIds.includes(market.id)),
+    [addedIds, assignedMarketIdSet, directoryMarkets],
+  );
+  const effectiveAssignedMarkets = useMemo(
+    () => directoryMarkets.filter((market) => assignedMarketIdSet.has(market.id)),
+    [assignedMarketIdSet, directoryMarkets],
   );
   const candidates = useMemo(
     () => applyMarketFilters(filteredAvailableMarkets, search, filters),
     [filteredAvailableMarkets, search, filters],
+  );
+  const assignedSearchResults = useMemo(
+    () => (
+      search.trim()
+        ? applyMarketFilters(effectiveAssignedMarkets, search, filters).slice(0, 25)
+        : []
+    ),
+    [effectiveAssignedMarkets, filters, search],
   );
   const visibleCandidates = useMemo(
     () => candidates.slice(0, candidateLimit),
@@ -7190,10 +7223,10 @@ function MarketAddPanel({
   );
   const hasMoreCandidates = visibleCandidates.length < candidates.length;
 
-  const chains  = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.chain))).sort(), [availableMarkets]);
-  const gms     = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.gm).filter(Boolean))).sort(), [availableMarkets]);
-  const cities  = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.city))).sort(), [availableMarkets]);
-  const regions = useMemo(() => Array.from(new Set(availableMarkets.map((m) => m.region))).sort(), [availableMarkets]);
+  const chains  = useMemo(() => Array.from(new Set(directoryMarkets.map((m) => m.chain))).sort(), [directoryMarkets]);
+  const gms     = useMemo(() => Array.from(new Set(directoryMarkets.map((m) => m.gm).filter(Boolean))).sort(), [directoryMarkets]);
+  const cities  = useMemo(() => Array.from(new Set(directoryMarkets.map((m) => m.city))).sort(), [directoryMarkets]);
+  const regions = useMemo(() => Array.from(new Set(directoryMarkets.map((m) => m.region))).sort(), [directoryMarkets]);
   const requiresGmAssignment = campaignSection !== undefined && campaignSection !== "flex";
   const sortedGmUsers = useMemo(
     () => [...gmUsers].sort((a, b) => getGmDisplayName(a).localeCompare(getGmDisplayName(b), "de")),
@@ -7202,7 +7235,7 @@ function MarketAddPanel({
 
   useEffect(() => {
     setCandidateLimit(ADD_PANEL_INITIAL_LIMIT);
-  }, [search, filters.chain, filters.gm, filters.city, filters.region, addedIds.length, availableMarkets.length]);
+  }, [search, filters.chain, filters.gm, filters.city, filters.region, addedIds.length, directoryMarkets.length]);
 
   const handleAdd = (id: string) => {
     if (isPending) return;
@@ -7232,9 +7265,9 @@ function MarketAddPanel({
   const addedMarketLookup = useMemo(() => {
     const lookup = new Map<string, MarketCatalogItem>();
     for (const market of MOCK_MARKETS) lookup.set(market.id, market);
-    for (const market of availableMarkets) lookup.set(market.id, market);
+    for (const market of directoryMarkets) lookup.set(market.id, market);
     return lookup;
-  }, [availableMarkets]);
+  }, [directoryMarkets]);
 
   const addedMarkets = useMemo(
     () =>
@@ -7283,7 +7316,7 @@ function MarketAddPanel({
           <input
             autoFocus
             type="text"
-            placeholder="Markt, Adresse oder GM suchen"
+            placeholder="Markt, Flexnummer, Adresse oder GM suchen"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 12, color: "#1a1a1a", userSelect: "text" }}
@@ -7302,7 +7335,9 @@ function MarketAddPanel({
       {/* Count row — doubles as expansion trigger */}
       <div style={{ padding: "8px 16px", borderBottom: expandedAdded ? "none" : "1px solid rgba(0,0,0,0.05)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", fontWeight: 500, flex: 1 }}>
-          {directoryLoading ? "Märkte werden geladen..." : `${candidates.length} ${candidates.length === 1 ? "Markt verfügbar" : "Märkte verfügbar"}`}
+          {directoryLoading
+            ? "Märkte werden geladen..."
+            : `${candidates.length} ${candidates.length === 1 ? "Markt verfügbar" : "Märkte verfügbar"}${assignedSearchResults.length > 0 ? ` · ${assignedSearchResults.length} bereits enthalten` : ""}`}
         </span>
         {addedIds.length > 0 && (
           <>
@@ -7363,11 +7398,36 @@ function MarketAddPanel({
           <div style={{ padding: "32px 20px", textAlign: "center" }}>
             <span style={{ fontSize: 12, color: "#DC2626", fontWeight: 700 }}>{directoryError}</span>
           </div>
-        ) : candidates.length === 0 ? (
+        ) : candidates.length === 0 && assignedSearchResults.length === 0 ? (
           <div style={{ padding: "32px 20px", textAlign: "center" }}>
             <span style={{ fontSize: 12, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>Keine Märkte gefunden</span>
           </div>
-        ) : visibleCandidates.map((m) => {
+        ) : (
+          <>
+            {assignedSearchResults.length > 0 && (
+              <div style={{ borderBottom: candidates.length > 0 ? "1px solid rgba(0,0,0,0.06)" : "none" }}>
+                <div style={{ padding: "8px 16px 5px", fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Bereits in der Kampagne
+                </div>
+                {assignedSearchResults.map((m) => (
+                  <div
+                    key={`assigned-${m.id}`}
+                    style={{ display: "flex", alignItems: "center", width: "100%", padding: "10px 16px", gap: 10, borderTop: "1px solid rgba(0,0,0,0.035)", background: "rgba(22,163,74,0.025)", textAlign: "left" }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em", marginBottom: 1 }}>{m.name}</div>
+                      <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {[m.flexNumber, m.address].filter(Boolean).join(" · ")}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 7px", borderRadius: 6, color: "#15803d", background: "rgba(22,163,74,0.09)", whiteSpace: "nowrap" }}>
+                      Bereits zugewiesen
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {visibleCandidates.map((m) => {
           const selectedGmUserId = gmSelectionByMarketId[m.id] ?? "";
           const addDisabled = isPending || (requiresGmAssignment && !selectedGmUserId);
           return (
@@ -7441,7 +7501,9 @@ function MarketAddPanel({
             </button>
           </div>
           );
-        })}
+            })}
+          </>
+        )}
         {hasMoreCandidates && (
           <div style={{ padding: "10px 16px", borderTop: "1px solid rgba(0,0,0,0.05)", background: "#fff", position: "sticky", bottom: 0 }}>
             <button
@@ -7729,14 +7791,14 @@ export default function FbManagementPage() {
     }
   }, [mergeMarketCatalogItems]);
 
-  const ensureMarketDirectoryLoaded = useCallback(async () => {
-    if (marketDirectoryLoaded) return marketsData;
-    if (marketDirectoryInFlightRef.current) return marketDirectoryInFlightRef.current;
+  const ensureMarketDirectoryLoaded = useCallback(async (forceFresh = false) => {
+    if (!forceFresh && marketDirectoryLoaded) return marketsData;
+    if (!forceFresh && marketDirectoryInFlightRef.current) return marketDirectoryInFlightRef.current;
     setMarketDirectoryLoading(true);
     setMarketDirectoryError(null);
     const task = (async () => {
       try {
-        const markets = await fetchMarkets();
+        const markets = await fetchMarkets({ forceFresh });
         const catalogItems = markets.map(toMarketCatalogItem);
         setMarketsData(catalogItems);
         setMarketDirectoryLoaded(true);
@@ -7747,9 +7809,10 @@ export default function FbManagementPage() {
         throw error;
       } finally {
         setMarketDirectoryLoading(false);
-        marketDirectoryInFlightRef.current = null;
+        if (!forceFresh) marketDirectoryInFlightRef.current = null;
       }
     })();
+    if (forceFresh) return task;
     marketDirectoryInFlightRef.current = task;
     return task;
   }, [marketDirectoryLoaded, marketsData]);
@@ -9616,7 +9679,10 @@ export default function FbManagementPage() {
 
   const openAddPanel = () => {
     setEditMenuOpen(false);
-    void ensureMarketDirectoryLoaded().catch(() => undefined);
+    void Promise.allSettled([
+      ensureMarketDirectoryLoaded(true),
+      fetchCampaigns().then((rows) => setCampaignsData(rows)),
+    ]);
     if (editBtnRef.current) {
       const r = editBtnRef.current.getBoundingClientRect();
       setAddPanelPos({ x: r.right - 520, y: r.bottom + 6 });
@@ -10898,6 +10964,9 @@ export default function FbManagementPage() {
         <MarketAddPanel
           pos={addPanelPos}
           availableMarkets={availableMarkets}
+          assignedMarkets={assignedMarkets}
+          allMarkets={marketsData}
+          assignedMarketIds={assignedIds}
           onAdd={handleAddMarket}
           onUndoAdd={handleUndoAddMarket}
           onClose={exitEditMode}

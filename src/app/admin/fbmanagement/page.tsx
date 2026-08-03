@@ -235,6 +235,31 @@ function applyMarketFilters(
   return r;
 }
 
+function getMarketVisitStatus(
+  market: MarketCatalogItem,
+  statusByMarket: CampaignVisitStatusByMarket,
+): CampaignMarketVisitStatus | null {
+  const marketId = market.marketId ?? market.id;
+  return statusByMarket[market.id] ?? statusByMarket[marketId] ?? null;
+}
+
+function getMarketVisitSlotProgress(
+  market: MarketCatalogItem,
+  statusByMarket: CampaignVisitStatusByMarket,
+): { target: number; completed: number; pending: number } {
+  const status = getMarketVisitStatus(market, statusByMarket);
+  const rawTarget = Number(status?.targetVisitCount ?? 1);
+  const target = Number.isFinite(rawTarget) ? Math.max(1, Math.trunc(rawTarget)) : 1;
+  const rawSubmitted = Number(status?.submittedVisitCount ?? (market.finished ? target : 0));
+  const submitted = Number.isFinite(rawSubmitted) ? Math.max(0, Math.trunc(rawSubmitted)) : 0;
+  const completed = Math.min(target, submitted);
+  return {
+    target,
+    completed,
+    pending: Math.max(0, target - completed),
+  };
+}
+
 function normalizeMarketFilterValue(value: string | null | undefined): string {
   return (value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
 }
@@ -8549,22 +8574,37 @@ export default function FbManagementPage() {
     () => applyMarketFilters(countBaseMarkets, marketSearch, marketFilters),
     [countBaseMarkets, marketFilters, marketSearch],
   );
-  const finishedCount = useMemo(
-    () => filterScopedMarkets.filter((market) => market.finished).length,
-    [filterScopedMarkets],
+  const visitSlotCounts = useMemo(
+    () => filterScopedMarkets.reduce(
+      (counts, market) => {
+        const progress = getMarketVisitSlotProgress(market, displayedCampaignVisitStatusByMarket);
+        counts.total += progress.target;
+        counts.finished += progress.completed;
+        counts.pending += progress.pending;
+        return counts;
+      },
+      { total: 0, finished: 0, pending: 0 },
+    ),
+    [displayedCampaignVisitStatusByMarket, filterScopedMarkets],
   );
-  const pendingCount = Math.max(0, filterScopedMarkets.length - finishedCount);
+  const finishedCount = visitSlotCounts.finished;
+  const pendingCount = visitSlotCounts.pending;
+  const visitSlotCountsLoading = campaignStatusMetricsLoading || marketDateRangeStatusLoading;
 
   const filteredMarkets = useMemo(
     () =>
       marketEditMode === "remove"
         ? filterScopedMarkets.filter((market) => !market.finished)
         : marketFilter === "finished"
-          ? filterScopedMarkets.filter((market) => market.finished)
+          ? filterScopedMarkets.filter((market) => (
+            getMarketVisitSlotProgress(market, displayedCampaignVisitStatusByMarket).completed > 0
+          ))
           : marketFilter === "pending"
-            ? filterScopedMarkets.filter((market) => !market.finished)
+            ? filterScopedMarkets.filter((market) => (
+              getMarketVisitSlotProgress(market, displayedCampaignVisitStatusByMarket).pending > 0
+            ))
             : filterScopedMarkets,
-    [filterScopedMarkets, marketEditMode, marketFilter],
+    [displayedCampaignVisitStatusByMarket, filterScopedMarkets, marketEditMode, marketFilter],
   );
   const visibleFilteredMarkets = useMemo(
     () => filteredMarkets.slice(0, marketRenderLimit),
@@ -10748,10 +10788,10 @@ export default function FbManagementPage() {
                   <button key={f} onClick={() => handleMarketFilterChange(f)}
                     style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: marketFilter === f ? "#fff" : "transparent", color: marketFilter === f ? "#1a1a1a" : "rgba(0,0,0,0.4)", boxShadow: marketFilter === f ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)" : "none", transition: "all 0.18s ease", whiteSpace: "nowrap" as const }}
                   >
-                    {f === "all"
-                      ? `Alle (${filterScopedMarkets.length})`
-                      : campaignStatusMetricsLoading
-                        ? f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
+                    {visitSlotCountsLoading
+                      ? f === "all" ? "Alle (...)" : f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
+                      : f === "all"
+                        ? `Alle (${visitSlotCounts.total})`
                         : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
                   </button>
                 ))}

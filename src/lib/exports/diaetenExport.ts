@@ -67,6 +67,43 @@ function getRates(year: number, month: number) {
   return year > CUTOVER_YEAR || (year === CUTOVER_YEAR && month >= CUTOVER_MONTH) ? RATE_AFTER : RATE_BEFORE;
 }
 
+export type DiaetenDayAmounts = {
+  grossMinutes: number;
+  pauseMinutes: number;
+  netMinutes: number;
+  taggeld: number;
+  taxFree: number;
+  taxable: number;
+};
+
+function roundCurrency(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+export function calculateDiaetenDayAmounts(input: {
+  grossMinutes: number;
+  recordedPauseMinutes: number;
+  year: number;
+  month: number;
+}): DiaetenDayAmounts {
+  const rates = getRates(input.year, input.month);
+  const grossMinutes = Math.max(0, Math.round(input.grossMinutes));
+  const recordedPauseMinutes = Math.max(0, Math.round(input.recordedPauseMinutes));
+  const pauseMinutes = recordedPauseMinutes > 0 ? recordedPauseMinutes : grossMinutes > 360 ? 30 : 0;
+  const netMinutes = Math.max(0, grossMinutes - pauseMinutes);
+
+  if (grossMinutes < 360) {
+    return { grossMinutes, pauseMinutes, netMinutes, taggeld: 0, taxFree: 0, taxable: 0 };
+  }
+
+  const fullHoursAfterSix = Math.floor(Math.max(0, netMinutes / 60 - 6));
+  const taggeld = roundCurrency(Math.min(rates.base + fullHoursAfterSix * rates.increment, rates.max));
+  const taxFree = roundCurrency(Math.min(taggeld, rates.taxThreshold));
+  const taxable = roundCurrency(Math.max(0, taggeld - rates.taxThreshold));
+
+  return { grossMinutes, pauseMinutes, netMinutes, taggeld, taxFree, taxable };
+}
+
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -354,9 +391,16 @@ function makeBorder(color = "B0B0B0") {
   };
 }
 
-function buildWorkbook(payload: AdminDiaetenExportPayload, gm: DiaetenGm, XLSX: typeof import("xlsx-js-style")) {
+export function buildAdminDiaetenWorkbook(payload: AdminDiaetenExportPayload, gm: DiaetenGm, XLSX: typeof import("xlsx-js-style")) {
   const rates = getRates(payload.year, payload.month);
   const wb = XLSX.utils.book_new();
+  (wb as unknown as { Workbook?: Record<string, unknown> }).Workbook = {
+    CalcPr: {
+      calcMode: "auto",
+      fullCalcOnLoad: true,
+      forceFullCalc: true,
+    },
+  };
   const ws: Worksheet = {};
   const encodeCell = XLSX.utils.encode_cell;
   const fullName = `${gm.firstName} ${gm.lastName}`.trim();
@@ -433,13 +477,14 @@ function buildWorkbook(payload: AdminDiaetenExportPayload, gm: DiaetenGm, XLSX: 
     formula: string,
     style: CellStyle = baseCell,
     numFmt?: string,
-    cellType: "n" | "s" = "n",
+    cachedValue?: number,
   ) {
     ws[encodeCell({ r: row, c: col })] = {
       f: formula,
-      t: cellType,
+      t: "n",
       s: style,
       ...(numFmt ? { z: numFmt } : {}),
+      ...(cachedValue == null ? {} : { v: cachedValue }),
     };
   }
 
@@ -519,60 +564,129 @@ function buildWorkbook(payload: AdminDiaetenExportPayload, gm: DiaetenGm, XLSX: 
   ];
   subHeaders.forEach((label, index) => setCell(12, index, label, subHeaderCell));
 
+  const euroFormat = '#,##0.00" €"';
+  const optionalEuroFormat = '#,##0.00" €";-#,##0.00" €";""';
+  const taxableEuroFormat = '#,##0.00" €";-#,##0.00" €";"-"';
+  let totalTaggeld = 0;
+  let totalTaxFree = 0;
+  let totalTaxable = 0;
+
   dayRows.forEach((row, index) => {
     const r = dataStart + index;
     const excelRow = r + 1;
-    const pauseFraction = Number((row.pauseMin / 1440).toFixed(12));
     const locationText = row.locations.join("\n");
     const reasonText = row.reasons.join(", ");
+    const startFraction = row.startAt ? toViennaTimeFraction(row.startAt) : null;
+    const endFraction = row.endAt ? toViennaTimeFraction(row.endAt) : null;
+    let grossMinutes = 0;
+    if (startFraction != null && endFraction != null) {
+      grossMinutes = Math.round((endFraction - startFraction) * 1440);
+      if (grossMinutes < 0) grossMinutes += 1440;
+    }
+    const amounts = calculateDiaetenDayAmounts({
+      grossMinutes,
+      recordedPauseMinutes: row.pauseMin,
+      year: payload.year,
+      month: payload.month,
+    });
+    totalTaggeld = roundCurrency(totalTaggeld + amounts.taggeld);
+    totalTaxFree = roundCurrency(totalTaxFree + amounts.taxFree);
+    totalTaxable = roundCurrency(totalTaxable + amounts.taxable);
+
     setCell(r, 0, excelDateSerial(row.date), plainCell, { t: "n", z: "DD.MM.YYYY" });
-    if (row.startAt) setCell(r, 1, toViennaTimeFraction(row.startAt), { ...plainCell, fill: { fgColor: { rgb: purple } } }, { t: "n", z: "HH:MM" });
+    if (startFraction != null) setCell(r, 1, startFraction, { ...plainCell, fill: { fgColor: { rgb: purple } } }, { t: "n", z: "HH:MM" });
     else setCell(r, 1, "", { ...plainCell, fill: { fgColor: { rgb: purple } } });
-    if (row.endAt) setCell(r, 2, toViennaTimeFraction(row.endAt), { ...plainCell, fill: { fgColor: { rgb: purple } } }, { t: "n", z: "HH:MM" });
+    if (endFraction != null) setCell(r, 2, endFraction, { ...plainCell, fill: { fgColor: { rgb: purple } } }, { t: "n", z: "HH:MM" });
     else setCell(r, 2, "", { ...plainCell, fill: { fgColor: { rgb: purple } } });
+
+    const pauseFraction = Number((row.pauseMin / 1440).toFixed(12));
     setFormula(
       r,
       3,
       `IF($B${excelRow}="","",IF(${pauseFraction}>0,${pauseFraction},IF(($C${excelRow}-$B${excelRow})>0.25,0.0208333333333333,"")))`,
       { ...plainCell, fill: { fgColor: { rgb: purple } } },
       "HH:MM",
+      amounts.pauseMinutes > 0 ? amounts.pauseMinutes / 1440 : undefined,
     );
-    setFormula(r, 4, `IF($C${excelRow}="","",$C${excelRow}-$B${excelRow})`, { ...plainCell, fill: { fgColor: { rgb: purple } } }, "HH:MM");
+    setFormula(
+      r,
+      4,
+      `IF($C${excelRow}="","",$C${excelRow}-$B${excelRow})`,
+      { ...plainCell, fill: { fgColor: { rgb: purple } } },
+      "HH:MM",
+      startFraction != null && endFraction != null ? amounts.grossMinutes / 1440 : undefined,
+    );
     setCell(r, 5, locationText, { ...plainCell, alignment: { vertical: "top", wrapText: true } });
     setCell(r, 6, reasonText, plainCell);
     setCell(r, 7, "", plainCell);
     setFormula(
       r,
       8,
-      `IF($B${excelRow}="","",IF((($C${excelRow}-$B${excelRow})*24)>=6,IF(${euro(rates.base)}+((ROUNDDOWN(MAX(0,(($C${excelRow}-$B${excelRow})-$D${excelRow})*24)-6,0))*${euro(rates.increment)})>${euro(rates.max)},${euro(rates.max)},${euro(rates.base)}+((ROUNDDOWN(MAX(0,(($C${excelRow}-$B${excelRow})-$D${excelRow})*24)-6,0))*${euro(rates.increment)})),""))`,
+      `IF($B${excelRow}="",0,IF((($C${excelRow}-$B${excelRow})*24)>=6,MIN(${euro(rates.max)},${euro(rates.base)}+(ROUNDDOWN(MAX(0,(($C${excelRow}-$B${excelRow})-IF(ISNUMBER($D${excelRow}),$D${excelRow},0))*24)-6,0)*${euro(rates.increment)})),0))`,
       dataCell,
-      '#,##0.00" €"',
+      optionalEuroFormat,
+      amounts.taggeld,
     );
-    setFormula(r, 9, `IF($I${excelRow}="","",$I${excelRow}-IF(ISNUMBER($K${excelRow}),$K${excelRow},0))`, { ...plainCell, fill: { fgColor: { rgb: purple } } }, '#,##0.00" €"');
-    setFormula(r, 10, `IF(ISBLANK($B${excelRow})," ",IF($I${excelRow}>${euro(rates.taxThreshold)},$I${excelRow}-${euro(rates.taxThreshold)},"-"))`, dataCell, '#,##0.00" €"', "s");
+    setFormula(
+      r,
+      9,
+      `IF($B${excelRow}="",0,$I${excelRow}-$K${excelRow})`,
+      { ...plainCell, fill: { fgColor: { rgb: purple } } },
+      optionalEuroFormat,
+      amounts.taxFree,
+    );
+    setFormula(
+      r,
+      10,
+      `IF($B${excelRow}="",0,MAX(0,$I${excelRow}-${euro(rates.taxThreshold)}))`,
+      dataCell,
+      taxableEuroFormat,
+      amounts.taxable,
+    );
     setCell(r, 11, row.startKm ?? "", plainCell, row.startKm == null ? undefined : { t: "n", z: "#,##0" });
     setCell(r, 12, row.endKm ?? "", plainCell, row.endKm == null ? undefined : { t: "n", z: "#,##0" });
     setCell(r, 13, "", plainCell);
-    setFormula(r, 14, `IF($A${excelRow}="","",IF($N${excelRow}="","",${euro(rates.overnightFlat)}))`, plainCell, '#,##0.00" €"');
-    setFormula(r, 15, `IF($E${excelRow}="",0,ROUND(MAX(0,($E${excelRow}-$D${excelRow})*24),2))`, plainCell, "0.00");
+    setFormula(
+      r,
+      14,
+      `IF($A${excelRow}="",0,IF($N${excelRow}="",0,${euro(rates.overnightFlat)}))`,
+      plainCell,
+      optionalEuroFormat,
+      0,
+    );
+    setFormula(
+      r,
+      15,
+      `IF($E${excelRow}="",0,ROUND(MAX(0,($E${excelRow}-IF(ISNUMBER($D${excelRow}),$D${excelRow},0))*24),2))`,
+      plainCell,
+      "0.00",
+      startFraction != null && endFraction != null ? roundCurrency(amounts.netMinutes / 60) : 0,
+    );
   });
 
+  const firstDataExcelRow = dataStart + 1;
+  const lastDataExcelRow = totalRow;
   const totalExcelRow = totalRow + 1;
-  const dayStartExcel = dataStart + 1;
-  const dayEndExcel = totalRow;
   setCell(totalRow, 0, "Gesamt", totalCell);
   for (let c = 1; c <= 15; c += 1) setCell(totalRow, c, "", totalCell);
-  setFormula(totalRow, 8, `SUM(I${dayStartExcel}:I${dayEndExcel})`, totalCell, '#,##0.00" €"');
-  setFormula(totalRow, 9, `SUM(J${dayStartExcel}:J${dayEndExcel})`, totalCell, '#,##0.00" €"');
-  setFormula(totalRow, 10, `SUM(K${dayStartExcel}:K${dayEndExcel})`, totalCell, '#,##0.00" €"');
-  setFormula(totalRow, 14, `SUM(O${dayStartExcel}:O${dayEndExcel})`, totalCell, '#,##0.00" €"');
+  setFormula(totalRow, 8, `SUM(I${firstDataExcelRow}:I${lastDataExcelRow})`, totalCell, euroFormat, totalTaggeld);
+  setFormula(totalRow, 9, `SUM(J${firstDataExcelRow}:J${lastDataExcelRow})`, totalCell, euroFormat, totalTaxFree);
+  setFormula(totalRow, 10, `SUM(K${firstDataExcelRow}:K${lastDataExcelRow})`, totalCell, euroFormat, totalTaxable);
+  setFormula(totalRow, 14, `SUM(O${firstDataExcelRow}:O${lastDataExcelRow})`, totalCell, euroFormat, 0);
 
   setCell(footerStart, 0, "Gesamtsumme Taggelder Inland:", { ...noBorder, font: { sz: 10, bold: true, color: { rgb: "000000" } } });
-  setFormula(footerStart, 14, `I${totalExcelRow}`, { ...noBorder, font: { sz: 11, bold: true } }, '#,##0.00" €"');
+  setFormula(footerStart, 14, `I${totalExcelRow}`, { ...noBorder, font: { sz: 11, bold: true } }, euroFormat, totalTaggeld);
   setCell(footerStart + 1, 0, "Gesamtsumme der pauschalen Nächtigungsgelder:", { ...noBorder, font: { sz: 10, bold: true, color: { rgb: "000000" } } });
-  setFormula(footerStart + 1, 14, `O${totalExcelRow}`, { ...noBorder }, '#,##0.00" €"');
+  setFormula(footerStart + 1, 14, `O${totalExcelRow}`, noBorder, euroFormat, 0);
   setCell(payoutRow, 0, "Auszahlungsbetrag für Verpflegungsmehraufwendungen mit der nächsten Lohn- & Gehaltsabrechnung:", { ...noBorder, font: { sz: 10, bold: true, color: { rgb: "000000" } } });
-  setFormula(payoutRow, 14, `SUM(O${footerStart + 1}:O${footerStart + 2})`, { ...noBorder, font: { sz: 12, bold: true, color: { rgb: "000000" } } }, '#,##0.00" €"');
+  setFormula(
+    payoutRow,
+    14,
+    `SUM(O${footerStart + 1}:O${footerStart + 2})`,
+    { ...noBorder, font: { sz: 12, bold: true, color: { rgb: "000000" } } },
+    euroFormat,
+    totalTaggeld,
+  );
 
   setCell(signatureDateRow, 0, excelDateSerial(payload.range.to), noBorder, { t: "n", z: "DD.MM.YYYY" });
   setCell(signatureLabelRow, 0, "Datum", noBorder);
@@ -660,7 +774,7 @@ export async function exportAdminDiaeten(payload: AdminDiaetenExportPayload): Pr
   const workbooks = payload.gls.map((gm) => ({
     gm,
     fileName: workbookFileName(payload, gm),
-    workbook: buildWorkbook(payload, gm, XLSX),
+    workbook: buildAdminDiaetenWorkbook(payload, gm, XLSX),
   }));
 
   if (workbooks.length === 1) {

@@ -260,6 +260,36 @@ function getMarketVisitSlotProgress(
   };
 }
 
+function mergeCampaignVisitStatusMaps(
+  groups: CampaignMarketVisitStatus[][],
+): CampaignVisitStatusByMarket {
+  const merged: CampaignVisitStatusByMarket = {};
+  for (const statuses of groups) {
+    for (const status of statuses) {
+      const key = getCampaignVisitStatusRowId(status);
+      const current = merged[key];
+      if (!current) {
+        merged[key] = { ...status };
+        continue;
+      }
+      const currentSubmittedAt = current.submittedAt ? new Date(current.submittedAt).getTime() : Number.NEGATIVE_INFINITY;
+      const nextSubmittedAt = status.submittedAt ? new Date(status.submittedAt).getTime() : Number.NEGATIVE_INFINITY;
+      const latest = nextSubmittedAt > currentSubmittedAt ? status : current;
+      const targetVisitCount = Math.max(current.targetVisitCount, status.targetVisitCount);
+      const submittedVisitCount = current.submittedVisitCount + status.submittedVisitCount;
+      merged[key] = {
+        ...latest,
+        rowId: latest.rowId ?? key,
+        targetVisitCount,
+        submittedVisitCount,
+        hasSubmittedVisit: submittedVisitCount > 0,
+        isComplete: targetVisitCount > 0 && submittedVisitCount >= targetVisitCount,
+      };
+    }
+  }
+  return merged;
+}
+
 function normalizeMarketFilterValue(value: string | null | undefined): string {
   return (value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
 }
@@ -418,12 +448,6 @@ function makeWeekOption(start: Date): MarketWeekOption {
     start: normalizedStart,
     end,
   };
-}
-
-function getVisitWeekKey(status: CampaignMarketVisitStatus | null | undefined): string | null {
-  const submittedAt = parseDateInput(status?.submittedAt ?? null);
-  if (!submittedAt) return null;
-  return makeWeekOption(submittedAt).key;
 }
 
 function buildCampaignWeekOptions(
@@ -7655,8 +7679,11 @@ export default function FbManagementPage() {
   const [marketFilters, setMarketFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
   const [marketWeekFilters, setMarketWeekFilters] = useState<string[]>([]);
   const [marketDateRange, setMarketDateRange] = useState<MarketDateRange | null>(null);
-  const [marketDateRangeStatusByMarket, setMarketDateRangeStatusByMarket] = useState<CampaignVisitStatusByMarket | null>(null);
-  const [marketDateRangeStatusLoading, setMarketDateRangeStatusLoading] = useState(false);
+  const [marketTimeframeStatusByMarket, setMarketTimeframeStatusByMarket] = useState<CampaignVisitStatusByMarket | null>(null);
+  const [marketTimeframeStatusLoading, setMarketTimeframeStatusLoading] = useState(false);
+  const [selectedCampaignVisits, setSelectedCampaignVisits] = useState<CampaignMarketVisitExportIndexItem[]>([]);
+  const [selectedCampaignVisitsLoading, setSelectedCampaignVisitsLoading] = useState(false);
+  const [selectedCampaignVisitsError, setSelectedCampaignVisitsError] = useState<string | null>(null);
   const [marketEditMode, setMarketEditMode] = useState<"idle" | "remove" | "add">("idle");
   const [editMenuOpen, setEditMenuOpen] = useState(false);
   const [editMenuPos, setEditMenuPos] = useState({ x: 0, y: 0 });
@@ -8471,38 +8498,81 @@ export default function FbManagementPage() {
   );
 
   useEffect(() => {
-    if (!campaignId || !marketDateRange) {
-      setMarketDateRangeStatusByMarket(null);
-      setMarketDateRangeStatusLoading(false);
+    if (!campaignId) {
+      setSelectedCampaignVisits([]);
+      setSelectedCampaignVisitsLoading(false);
+      setSelectedCampaignVisitsError(null);
       return;
     }
     let cancelled = false;
-    setMarketDateRangeStatusByMarket(null);
-    setMarketDateRangeStatusLoading(true);
-    setVisitLoadError(null);
-    void fetchCampaignMarketVisitStatuses([campaignId], marketDateRange)
-      .then((batches) => {
-        if (cancelled) return;
-        const batch = batches.find((entry) => entry.campaignId === campaignId);
-        setMarketDateRangeStatusByMarket(Object.fromEntries(
-          (batch?.markets ?? []).map((status) => [getCampaignVisitStatusRowId(status), status]),
-        ) as CampaignVisitStatusByMarket);
+    setSelectedCampaignVisits([]);
+    setSelectedCampaignVisitsLoading(true);
+    setSelectedCampaignVisitsError(null);
+    void fetchCampaignMarketVisitExportIndex([campaignId])
+      .then((visits) => {
+        if (!cancelled) setSelectedCampaignVisits(visits.filter((visit) => visit.campaignId === campaignId));
       })
       .catch((error) => {
         if (cancelled) return;
-        setMarketDateRangeStatusByMarket({});
-        setVisitLoadError(error instanceof Error ? error.message : "Zeitraum konnte nicht geladen werden.");
+        setSelectedCampaignVisits([]);
+        setSelectedCampaignVisitsError(error instanceof Error ? error.message : "Besuchsanzahl konnte nicht geladen werden.");
       })
       .finally(() => {
-        if (!cancelled) setMarketDateRangeStatusLoading(false);
+        if (!cancelled) setSelectedCampaignVisitsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [campaignId, marketDateRange]);
+  }, [campaignId]);
 
-  const displayedCampaignVisitStatusByMarket = marketDateRange
-    ? marketDateRangeStatusByMarket ?? {}
+  const marketTimeframeRanges = useMemo<MarketDateRange[]>(() => {
+    if (marketDateRange) return [marketDateRange];
+    return marketWeekFilters.flatMap((key) => {
+      const [dateFrom, dateTo] = key.split("__");
+      return /^\d{4}-\d{2}-\d{2}$/.test(dateFrom ?? "") && /^\d{4}-\d{2}-\d{2}$/.test(dateTo ?? "")
+        ? [{ dateFrom, dateTo }]
+        : [];
+    });
+  }, [marketDateRange, marketWeekFilters]);
+  const hasMarketTimeframeFilter = marketTimeframeRanges.length > 0;
+
+  useEffect(() => {
+    if (!campaignId || marketTimeframeRanges.length === 0) {
+      setMarketTimeframeStatusByMarket(null);
+      setMarketTimeframeStatusLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setMarketTimeframeStatusByMarket(null);
+    setMarketTimeframeStatusLoading(true);
+    setVisitLoadError(null);
+    void mapWithConcurrency(
+      marketTimeframeRanges,
+      VISIT_STATUS_MAX_CONCURRENT_BATCHES,
+      async (range) => fetchCampaignMarketVisitStatuses([campaignId], range),
+    )
+      .then((batchGroups) => {
+        if (cancelled) return;
+        const statusGroups = batchGroups.map((batches) => (
+          batches.find((entry) => entry.campaignId === campaignId)?.markets ?? []
+        ));
+        setMarketTimeframeStatusByMarket(mergeCampaignVisitStatusMaps(statusGroups));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setMarketTimeframeStatusByMarket({});
+        setVisitLoadError(error instanceof Error ? error.message : "Zeitraum konnte nicht geladen werden.");
+      })
+      .finally(() => {
+        if (!cancelled) setMarketTimeframeStatusLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignId, marketTimeframeRanges]);
+
+  const displayedCampaignVisitStatusByMarket = hasMarketTimeframeFilter
+    ? marketTimeframeStatusByMarket ?? {}
     : campaignVisitStatusByMarket;
   const selectedVisitStatus = selectedMarket ? displayedCampaignVisitStatusByMarket[selectedMarket] ?? null : null;
   const selectedMarketId = selectedVisitStatus?.marketId ?? selectedMarket;
@@ -8547,32 +8617,17 @@ export default function FbManagementPage() {
     setMarketWeekFilters(validWeeks);
   }, [marketWeekFilters, marketWeekLabelByKey]);
 
-  const weekFilteredAssignedMarkets = useMemo(() => {
-    if (marketWeekFilters.length === 0) return assignedMarkets;
-    const selectedWeeks = new Set(marketWeekFilters);
-    return assignedMarkets.filter((market) => {
-      const marketId = market.marketId ?? market.id;
-      const visitStatus = campaignVisitStatusByMarket[market.id] ?? campaignVisitStatusByMarket[marketId] ?? null;
-      const visitWeekKey = getVisitWeekKey(visitStatus);
-      return Boolean(visitWeekKey && selectedWeeks.has(visitWeekKey));
-    });
-  }, [assignedMarkets, campaignVisitStatusByMarket, marketWeekFilters]);
-  const dateFilteredAssignedMarkets = useMemo(() => {
-    if (!marketDateRange) return assignedMarkets;
+  const timeframeFilteredAssignedMarkets = useMemo(() => {
+    if (!hasMarketTimeframeFilter) return assignedMarkets;
     return assignedMarkets.filter((market) => {
       const marketId = market.marketId ?? market.id;
       const visitStatus = displayedCampaignVisitStatusByMarket[market.id] ?? displayedCampaignVisitStatusByMarket[marketId] ?? null;
       return Boolean(visitStatus?.hasSubmittedVisit);
     });
-  }, [assignedMarkets, displayedCampaignVisitStatusByMarket, marketDateRange]);
-  const countBaseMarkets = marketDateRange
-    ? dateFilteredAssignedMarkets
-    : marketWeekFilters.length > 0
-      ? weekFilteredAssignedMarkets
-      : assignedMarkets;
+  }, [assignedMarkets, displayedCampaignVisitStatusByMarket, hasMarketTimeframeFilter]);
   const filterScopedMarkets = useMemo(
-    () => applyMarketFilters(countBaseMarkets, marketSearch, marketFilters),
-    [countBaseMarkets, marketFilters, marketSearch],
+    () => applyMarketFilters(timeframeFilteredAssignedMarkets, marketSearch, marketFilters),
+    [marketFilters, marketSearch, timeframeFilteredAssignedMarkets],
   );
   const visitSlotCounts = useMemo(
     () => filterScopedMarkets.reduce(
@@ -8587,9 +8642,75 @@ export default function FbManagementPage() {
     ),
     [displayedCampaignVisitStatusByMarket, filterScopedMarkets],
   );
-  const finishedCount = visitSlotCounts.finished;
-  const pendingCount = visitSlotCounts.pending;
-  const visitSlotCountsLoading = campaignStatusMetricsLoading || marketDateRangeStatusLoading;
+  const marketStatusCounts = useMemo(
+    () => filterScopedMarkets.reduce(
+      (counts, market) => {
+        const progress = getMarketVisitSlotProgress(market, displayedCampaignVisitStatusByMarket);
+        if (progress.completed > 0 && progress.pending === 0) counts.finished += 1;
+        if (progress.pending > 0) counts.pending += 1;
+        return counts;
+      },
+      { finished: 0, pending: 0 },
+    ),
+    [displayedCampaignVisitStatusByMarket, filterScopedMarkets],
+  );
+  const filteredAssignedMarketIds = useMemo(
+    () => new Set(
+      applyMarketFilters(assignedMarkets, marketSearch, marketFilters)
+        .map((market) => market.marketId ?? market.id),
+    ),
+    [assignedMarkets, marketFilters, marketSearch],
+  );
+  const hasActiveMarketDimensionFilter = Boolean(
+    marketSearch.trim()
+    || marketFilters.chain
+    || marketFilters.gm
+    || marketFilters.city
+    || marketFilters.region,
+  );
+  const selectedWeekKeySet = useMemo(() => new Set(marketWeekFilters), [marketWeekFilters]);
+  const filteredSubmittedVisitCount = useMemo(
+    () => selectedCampaignVisits.reduce((count, visit) => {
+      if ((hasActiveMarketDimensionFilter && !filteredAssignedMarketIds.has(visit.marketId)) || !visit.submittedAt) return count;
+      const submittedAt = new Date(visit.submittedAt);
+      if (Number.isNaN(submittedAt.getTime())) return count;
+      if (marketDateRange) {
+        const submittedYmd = toLocalYmd(submittedAt);
+        if (submittedYmd < marketDateRange.dateFrom || submittedYmd > marketDateRange.dateTo) return count;
+      } else if (selectedWeekKeySet.size > 0 && !selectedWeekKeySet.has(makeWeekOption(submittedAt).key)) {
+        return count;
+      }
+      return count + 1;
+    }, 0),
+    [filteredAssignedMarketIds, hasActiveMarketDimensionFilter, marketDateRange, selectedCampaignVisits, selectedWeekKeySet],
+  );
+  const currentVisitCounts = useMemo(() => {
+    const today = new Date();
+    const todayYmd = toLocalYmd(today);
+    const currentWeekKey = makeWeekOption(today).key;
+    return selectedCampaignVisits.reduce(
+      (counts, visit) => {
+        if (!visit.submittedAt) return counts;
+        const submittedAt = new Date(visit.submittedAt);
+        if (Number.isNaN(submittedAt.getTime())) return counts;
+        if (toLocalYmd(submittedAt) === todayYmd) counts.today += 1;
+        if (makeWeekOption(submittedAt).key === currentWeekKey) counts.thisWeek += 1;
+        return counts;
+      },
+      { today: 0, thisWeek: 0 },
+    );
+  }, [selectedCampaignVisits]);
+  const finishedCount = marketStatusCounts.finished;
+  const pendingCount = marketStatusCounts.pending;
+  const visitSlotCountsLoading = campaignStatusMetricsLoading || marketTimeframeStatusLoading;
+  const hasActiveMarketListFilter = Boolean(
+    marketSearch.trim()
+    || marketFilters.chain
+    || marketFilters.gm
+    || marketFilters.city
+    || marketFilters.region
+    || hasMarketTimeframeFilter,
+  );
 
   const filteredMarkets = useMemo(
     () =>
@@ -8597,7 +8718,8 @@ export default function FbManagementPage() {
         ? filterScopedMarkets.filter((market) => !market.finished)
         : marketFilter === "finished"
           ? filterScopedMarkets.filter((market) => (
-            getMarketVisitSlotProgress(market, displayedCampaignVisitStatusByMarket).completed > 0
+            getMarketVisitSlotProgress(market, displayedCampaignVisitStatusByMarket).completed > 0 &&
+            getMarketVisitSlotProgress(market, displayedCampaignVisitStatusByMarket).pending === 0
           ))
           : marketFilter === "pending"
             ? filterScopedMarkets.filter((market) => (
@@ -10625,11 +10747,21 @@ export default function FbManagementPage() {
             {/* Stat pills — fill remaining space */}
             <div style={{ flex: 1, display: "flex", gap: 8 }}>
               {[
-                { label: "HEUTE NEU", value: campaign.todayNew.toString(), red: true },
-                { label: "DIESE WOCHE", value: campaign.thisWeek.toString(), red: false },
+                {
+                  label: "BESUCHE HEUTE",
+                  value: selectedCampaignVisitsLoading ? "…" : selectedCampaignVisitsError ? "—" : currentVisitCounts.today.toLocaleString("de-AT"),
+                  red: true,
+                  title: selectedCampaignVisitsError ?? undefined,
+                },
+                {
+                  label: "BESUCHE DIESE WOCHE",
+                  value: selectedCampaignVisitsLoading ? "…" : selectedCampaignVisitsError ? "—" : currentVisitCounts.thisWeek.toLocaleString("de-AT"),
+                  red: false,
+                  title: selectedCampaignVisitsError ?? undefined,
+                },
                 { label: "ABSCHLUSSRATE", value: `${pct}%`, red: false },
               ].map((s) => (
-                <div key={s.label} style={{
+                <div key={s.label} title={s.title} style={{
                   flex: 1, padding: "13px 12px", borderRadius: 10,
                   backgroundColor: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.045)",
                 }}>
@@ -10766,15 +10898,48 @@ export default function FbManagementPage() {
       <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
 
         {/* Grey header row — Zugewiesene Märkte + all controls */}
-        <div style={{ padding: "11px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>
-              {campaign?.section === "kuehler" ? "Zugewiesene Kühler" : "Zugewiesene Märkte"}
+        <div style={{ padding: "11px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase" as const, color: "rgba(0,0,0,0.3)" }}>
+                {campaign?.section === "kuehler" ? "Zugewiesene Kühler" : "Zugewiesene Märkte"}
+              </span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>
+                {assignedMarketDisplayCount} {campaign?.section === "kuehler" ? "Kühler" : "Märkte"} gesamt
+              </span>
+            </div>
+            <span
+              title={selectedCampaignVisitsError ?? "Zählt jeden tatsächlich eingereichten Besuch und entspricht damit den Besuchszeilen im Export."}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                minHeight: 22,
+                padding: "3px 8px",
+                borderRadius: 7,
+                border: selectedCampaignVisitsError ? "1px solid rgba(220,38,38,0.16)" : "1px solid rgba(220,38,38,0.1)",
+                background: selectedCampaignVisitsError ? "rgba(220,38,38,0.06)" : "rgba(220,38,38,0.045)",
+                color: selectedCampaignVisitsError ? "#b91c1c" : "#c52222",
+                fontSize: 9,
+                fontWeight: 700,
+                fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {selectedCampaignVisitsLoading
+                ? "Besuche laden…"
+                : selectedCampaignVisitsError
+                  ? "Besuche nicht verfügbar"
+                  : `${filteredSubmittedVisitCount.toLocaleString("de-AT")} ${hasActiveMarketListFilter ? "eingereichte Besuche im Filter" : "eingereichte Besuche"}`}
             </span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.35)", fontVariantNumeric: "tabular-nums" }}>
-              {assignedMarketDisplayCount} {campaign?.section === "kuehler" ? "Kühler" : "Märkte"} gesamt
-            </span>
-            {(isVisitStatusLoading || marketDateRangeStatusLoading || assignedMarketMetaPending) && (
+            {!hasMarketTimeframeFilter && !visitSlotCountsLoading && (
+              <span
+                title="Erfüllte und noch offene Soll-Besuche der aktuell gefilterten Märkte."
+                style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.34)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
+              >
+                Soll {visitSlotCounts.finished.toLocaleString("de-AT")}/{visitSlotCounts.total.toLocaleString("de-AT")} · {visitSlotCounts.pending.toLocaleString("de-AT")} offen
+              </span>
+            )}
+            {(isVisitStatusLoading || marketTimeframeStatusLoading || assignedMarketMetaPending) && (
               <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.42)" }}>
                 {assignedMarketMetaPending ? "Märkte laden..." : "Besuchsstatus lädt..."}
               </span>
@@ -10791,7 +10956,7 @@ export default function FbManagementPage() {
                     {visitSlotCountsLoading
                       ? f === "all" ? "Alle (...)" : f === "finished" ? "Abgeschlossen (...)" : "Ausstehend (...)"
                       : f === "all"
-                        ? `Alle (${visitSlotCounts.total})`
+                        ? `Alle (${filterScopedMarkets.length})`
                         : f === "finished" ? `Abgeschlossen (${finishedCount})` : `Ausstehend (${pendingCount})`}
                   </button>
                 ))}
@@ -10894,14 +11059,14 @@ export default function FbManagementPage() {
                 setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
                 setMarketWeekFilters(values);
                 if (values.length > 0) setMarketDateRange(null);
-                if (values.length > 0) setMarketFilter("finished");
+                if (values.length > 0) setMarketFilter("all");
               }}
               onDateRangeChange={(dateRange) => {
                 setMarketRenderLimit(MARKET_LIST_INITIAL_LIMIT);
                 setMarketDateRange(dateRange);
                 if (dateRange) {
                   setMarketWeekFilters([]);
-                  setMarketFilter("finished");
+                  setMarketFilter("all");
                 }
               }}
             />
@@ -10922,7 +11087,7 @@ export default function FbManagementPage() {
           {visibleFilteredMarkets.map((m) => {
             const marketIdForMutation = m.marketId ?? m.id;
             const visitStatus = displayedCampaignVisitStatusByMarket[m.id] ?? displayedCampaignVisitStatusByMarket[marketIdForMutation] ?? null;
-            const rowStatusLoading = marketDateRangeStatusLoading || Boolean(campaign && !campaign.statusLoaded && (campaign.statusLoading || isVisitStatusLoading));
+            const rowStatusLoading = marketTimeframeStatusLoading || Boolean(campaign && !campaign.statusLoaded && (campaign.statusLoading || isVisitStatusLoading));
             return (
               <MarketRow
                 key={m.id}

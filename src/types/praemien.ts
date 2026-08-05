@@ -70,6 +70,8 @@ export interface PraemienPillar {
   color: string;
   isManual?: boolean;
   payoutMode: PraemienPayoutMode;
+  targetPoints: number | null;
+  rewardEur: number;
   maxRewardEur: number;
   metrics: PraemienPillarMetric[];
   tiers: PraemienPillarTier[];
@@ -100,6 +102,16 @@ export interface PraemienFlexSubmission {
   updatedAt: string;
 }
 
+export interface PraemienPillarOverride {
+  id: string;
+  pillarId: string;
+  gmId: string;
+  gmName: string;
+  points: number;
+  note?: string;
+  updatedAt: string;
+}
+
 export interface PraemienQuarter {
   id: string;
   name: string;
@@ -114,6 +126,7 @@ export interface PraemienQuarter {
   thresholds: PraemienThreshold[];
   qualitySubmissions: PraemienQualitySubmission[];
   flexSubmissions: PraemienFlexSubmission[];
+  pillarOverrides: PraemienPillarOverride[];
   createdAt: string;
   updatedAt?: string;
   timezone?: string;
@@ -126,6 +139,9 @@ export interface PraemienGmGoalProgress {
   points: number;
   maxPoints: number;
   percent: number;
+  targetPoints?: number | null;
+  rewardEur?: number;
+  achieved?: boolean;
   isManual?: boolean;
   isPending?: boolean;
   earnedRewardEur?: number;

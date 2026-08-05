@@ -107,6 +107,10 @@ function deleteRequestMarketLabel(request: AdminVisitSessionDeleteRequest): stri
 }
 
 function currentAnswerLabel(snapshot: Record<string, unknown>): string {
+  if (snapshot.changeKind === "comment") {
+    const comment = typeof snapshot.comment === "string" ? snapshot.comment.trim() : "";
+    return comment || "Kein Kommentar";
+  }
   const options = Array.isArray(snapshot.options)
     ? snapshot.options
         .map((entry) => {

@@ -19,14 +19,16 @@ import {
   patchAdminPraemienWave,
   readAuthSession,
   replaceAdminPraemienFlexScores,
+  replaceAdminPraemienPillarOverrides,
   replaceAdminPraemienPillars,
   replaceAdminPraemienQualityScores,
   replaceAdminPraemienSources,
   replaceAdminPraemienThresholds,
+  type PraemienWaveSummary,
 } from "@/lib/api/backend";
 import type {
   PraemienQuarter, PraemienPillar, PraemienThreshold, PraemienSourceRef, SectionType,
-  PraemienFlexSubmission, PraemienQualitySubmission, PraemienQualityCriteria,
+  PraemienFlexSubmission, PraemienPillarOverride, PraemienQualitySubmission, PraemienQualityCriteria,
 } from "@/types/praemien";
 import { exportPraemienExcel } from "@/lib/exports/analysisExports";
 
@@ -35,9 +37,9 @@ import { exportPraemienExcel } from "@/lib/exports/analysisExports";
 const R = "#DC2626";
 const RD = "#b91c1c";
 const WAVE_AUTOSAVE_DEBOUNCE_MS = 700;
-type AutosaveSection = "metadata" | "thresholds" | "pillars" | "sources" | "quality" | "flex";
+type AutosaveSection = "metadata" | "thresholds" | "pillars" | "sources" | "quality" | "flex" | "overrides";
 type AutosaveSectionState = "clean" | "dirty" | "saving" | "blocked" | "conflict";
-const AUTOSAVE_SECTION_ORDER: AutosaveSection[] = ["metadata", "thresholds", "pillars", "sources", "quality", "flex"];
+const AUTOSAVE_SECTION_ORDER: AutosaveSection[] = ["metadata", "thresholds", "pillars", "sources", "quality", "flex", "overrides"];
 const AUTOSAVE_SECTION_LABELS: Record<AutosaveSection, string> = {
   metadata: "Metadaten",
   thresholds: "Schwellen",
@@ -45,6 +47,7 @@ const AUTOSAVE_SECTION_LABELS: Record<AutosaveSection, string> = {
   sources: "Quellen",
   quality: "Qualität",
   flex: "Flex",
+  overrides: "Manuelle Säulenwerte",
 };
 const INITIAL_SECTION_STATES: Record<AutosaveSection, AutosaveSectionState> = {
   metadata: "clean",
@@ -53,6 +56,7 @@ const INITIAL_SECTION_STATES: Record<AutosaveSection, AutosaveSectionState> = {
   sources: "clean",
   quality: "clean",
   flex: "clean",
+  overrides: "clean",
 };
 
 const SECTION_META: Record<SectionType, { label: string; color: string; bg: string; Icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = {
@@ -86,7 +90,7 @@ function isUuid(value: string | null | undefined): boolean {
 function buildDefaultPillars(): PraemienPillar[] {
   return PILLAR_DEFAULTS.map((definition) => {
     const { kind, ...pillarDefinition } = definition;
-    const base = { id: uid(), ...pillarDefinition, sourceRefs: [] };
+    const base = { id: uid(), ...pillarDefinition, targetPoints: null, rewardEur: 0, sourceRefs: [] };
     if (kind === "execution") {
       return {
         ...base,
@@ -238,6 +242,7 @@ function toUiQuarter(serverWave: PraemienQuarter): PraemienQuarter {
     ...serverWave,
     qualitySubmissions: serverWave.qualitySubmissions ?? [],
     flexSubmissions: serverWave.flexSubmissions ?? [],
+    pillarOverrides: serverWave.pillarOverrides ?? [],
   };
 }
 
@@ -276,6 +281,8 @@ function toCreatePayload(input: {
       orderIndex: index,
       isManual: isManualPillar(entry),
       payoutMode: entry.payoutMode,
+      targetPoints: entry.targetPoints,
+      rewardEur: entry.rewardEur,
       maxRewardEur: entry.maxRewardEur,
       metrics: entry.metrics.map((metric, metricIndex) => ({
         key: metric.key,
@@ -350,6 +357,8 @@ function toPillarsPayload(quarter: PraemienQuarter) {
       orderIndex: index,
       isManual: isManualPillar(entry),
       payoutMode: entry.payoutMode,
+      targetPoints: entry.targetPoints,
+      rewardEur: entry.rewardEur,
       maxRewardEur: entry.maxRewardEur,
       metrics: entry.metrics.map((metric, metricIndex) => ({
         id: isUuid(metric.id) ? metric.id : undefined,
@@ -405,6 +414,23 @@ function canonicalSourceAssignments(quarter: PraemienQuarter): Array<{ pillar: P
   return Array.from(assignments.values());
 }
 
+function toWaveSummary(wave: PraemienQuarter): PraemienWaveSummary {
+  return {
+    id: wave.id,
+    name: wave.name,
+    year: wave.year,
+    quarter: wave.quarter,
+    status: wave.status,
+    startDate: wave.startDate,
+    endDate: wave.endDate,
+    description: wave.description,
+    timezone: wave.timezone ?? "Europe/Vienna",
+    rewardModel: wave.rewardModel,
+    createdAt: wave.createdAt,
+    updatedAt: wave.updatedAt ?? wave.createdAt,
+  };
+}
+
 function toSourcesPayload(quarter: PraemienQuarter, serverPillarByName?: Map<string, string>): { sources: Array<{ id?: string; pillarId: string; sectionType: SectionType; fragebogenId: string | null; fragebogenName: string; moduleId: string | null; moduleName: string; questionId: string; questionText: string; scoringKey: string; displayLabel: string; isFactorMode: boolean; boniValue: number; distributionFreqRule: "lt8" | "gt8" | null }>; expectedUpdatedAt?: string } {
   return {
     expectedUpdatedAt: quarter.updatedAt,
@@ -456,6 +482,30 @@ function toFlexPayload(quarter: PraemienQuarter): { flexScores: Array<{ gmUserId
   };
 }
 
+function toPillarOverridesPayload(quarter: PraemienQuarter): {
+  pillarOverrides: Array<{
+    id?: string;
+    pillarId: string;
+    gmUserId: string;
+    points: number;
+    note: string | null;
+  }>;
+  expectedUpdatedAt?: string;
+} {
+  return {
+    expectedUpdatedAt: quarter.updatedAt,
+    pillarOverrides: (quarter.pillarOverrides ?? [])
+      .filter((entry) => isUuid(entry.pillarId) && isUuid(entry.gmId))
+      .map((entry) => ({
+        id: isUuid(entry.id) ? entry.id : undefined,
+        pillarId: entry.pillarId,
+        gmUserId: entry.gmId,
+        points: entry.points,
+        note: entry.note ?? null,
+      })),
+  };
+}
+
 function stableThresholdSignature(entries: PraemienThreshold[]): string {
   return JSON.stringify(entries.map((entry) => ({
     id: entry.id,
@@ -472,6 +522,8 @@ function stablePillarStructureSignature(entries: PraemienPillar[]): string {
     description: entry.description,
     color: entry.color,
     payoutMode: entry.payoutMode,
+    targetPoints: entry.targetPoints,
+    rewardEur: entry.rewardEur,
     maxRewardEur: entry.maxRewardEur,
     metrics: entry.metrics,
     tiers: entry.tiers,
@@ -514,6 +566,20 @@ function stableFlexSignature(entries: PraemienFlexSubmission[]): string {
   })));
 }
 
+function stablePillarOverrideSignature(entries: PraemienPillarOverride[]): string {
+  return JSON.stringify(
+    [...entries]
+      .sort((a, b) => `${a.pillarId}:${a.gmId}`.localeCompare(`${b.pillarId}:${b.gmId}`))
+      .map((entry) => ({
+        id: entry.id,
+        pillarId: entry.pillarId,
+        gmId: entry.gmId,
+        points: entry.points,
+        note: entry.note ?? null,
+      })),
+  );
+}
+
 function detectDirtySections(previous: PraemienQuarter, next: PraemienQuarter): AutosaveSection[] {
   const dirty = new Set<AutosaveSection>();
   if (
@@ -544,6 +610,9 @@ function detectDirtySections(previous: PraemienQuarter, next: PraemienQuarter): 
   if (stableFlexSignature(previous.flexSubmissions ?? []) !== stableFlexSignature(next.flexSubmissions ?? [])) {
     dirty.add("flex");
   }
+  if (stablePillarOverrideSignature(previous.pillarOverrides ?? []) !== stablePillarOverrideSignature(next.pillarOverrides ?? [])) {
+    dirty.add("overrides");
+  }
   return Array.from(dirty);
 }
 
@@ -553,6 +622,7 @@ type PillarsSnapshot = ReturnType<typeof toPillarsPayload>["pillars"];
 type SourcesSnapshot = Array<{ pillarName: string; sourceRefs: PraemienSourceRef[] }>;
 type QualitySnapshot = ReturnType<typeof toQualityPayload>["qualityScores"];
 type FlexSnapshot = ReturnType<typeof toFlexPayload>["flexScores"];
+type PillarOverridesSnapshot = ReturnType<typeof toPillarOverridesPayload>["pillarOverrides"];
 type SectionPayloadSnapshot = {
   metadata: MetadataSnapshot;
   thresholds: ThresholdsSnapshot;
@@ -560,6 +630,7 @@ type SectionPayloadSnapshot = {
   sources: SourcesSnapshot;
   quality: QualitySnapshot;
   flex: FlexSnapshot;
+  overrides: PillarOverridesSnapshot;
 };
 type AnySectionSnapshot = SectionPayloadSnapshot[AutosaveSection];
 
@@ -584,6 +655,9 @@ function snapshotSectionPayload(quarter: PraemienQuarter, section: AutosaveSecti
   }
   if (section === "flex") {
     return toFlexPayload(quarter).flexScores.map((entry) => ({ ...entry }));
+  }
+  if (section === "overrides") {
+    return toPillarOverridesPayload(quarter).pillarOverrides.map((entry) => ({ ...entry }));
   }
   return toQualityPayload(quarter).qualityScores.map((entry) => ({ ...entry }));
 }
@@ -636,6 +710,8 @@ function applySectionPayloadSnapshot(
         description: entry.description,
         color: entry.color,
         payoutMode: entry.payoutMode,
+        targetPoints: entry.targetPoints ?? null,
+        rewardEur: entry.rewardEur ?? 0,
         maxRewardEur: entry.maxRewardEur,
         metrics: entry.metrics.map((metric) => ({ ...metric, id: metric.id ?? uid() })),
         tiers: entry.tiers.map((tier) => ({
@@ -678,6 +754,27 @@ function applySectionPayloadSnapshot(
       }),
     };
   }
+  if (section === "overrides") {
+    const overrides = snapshot as PillarOverridesSnapshot;
+    const existingByKey = new Map(
+      (server.pillarOverrides ?? []).map((entry) => [`${entry.pillarId}:${entry.gmId}`, entry]),
+    );
+    return {
+      ...server,
+      pillarOverrides: overrides.map((entry) => {
+        const existing = existingByKey.get(`${entry.pillarId}:${entry.gmUserId}`);
+        return {
+          id: entry.id ?? existing?.id ?? uid(),
+          pillarId: entry.pillarId,
+          gmId: entry.gmUserId,
+          gmName: existing?.gmName ?? "",
+          points: entry.points,
+          note: entry.note ?? undefined,
+          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+        };
+      }),
+    };
+  }
   const qualityScores = snapshot as QualitySnapshot;
   const qualityByGmId = new Map((server.qualitySubmissions ?? []).map((entry) => [entry.gmId, entry]));
   return {
@@ -711,6 +808,9 @@ function formatSectionError(error: unknown): string {
     distribution_rule_invalid_target: "Frequenzregel ist nur in Distributionsziel erlaubt.",
     quality_invalid_gm: "Mindestens ein GM ist nicht mehr gültig.",
     flex_invalid_gm: "Mindestens ein GM ist nicht mehr gültig.",
+    pillar_override_invalid_gm: "Mindestens ein GM ist nicht mehr gültig.",
+    pillar_override_invalid_pillar: "Mindestens eine Säule gehört nicht mehr zu dieser Prämienwelle.",
+    pillar_override_duplicate: "Für einen GM wurde dieselbe Säule doppelt eingetragen.",
     invalid_payload: "Eingegebene Daten sind ungültig.",
   };
   return `${code}: ${codeMap[code] ?? error.message}`;
@@ -1174,7 +1274,7 @@ function PraemienPageSkeleton() {
 function QuarterSwitcher({
   quarters, activeId, onSelect, onNew,
 }: {
-  quarters: PraemienQuarter[];
+  quarters: PraemienWaveSummary[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
@@ -2479,6 +2579,25 @@ function PillarRewardEditor({ pillar, onChange }: { pillar: PraemienPillar; onCh
           </div>
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "rgba(0,0,0,0.45)" }}>
+          Zielpunkte
+          <input
+            type="number"
+            min={0.01}
+            step={1}
+            value={pillar.targetPoints ?? ""}
+            placeholder="Pflicht"
+            onChange={(event) => {
+              const rawValue = event.target.value;
+              onChange({
+                ...pillar,
+                targetPoints: rawValue === "" ? null : Math.max(0.01, Number(rawValue) || 0.01),
+              });
+            }}
+            style={{ width: 76, height: 26, borderRadius: 7, border: `1px solid ${pillar.targetPoints == null ? "rgba(220,38,38,0.28)" : "rgba(0,0,0,0.1)"}`, background: pillar.targetPoints == null ? "rgba(220,38,38,0.035)" : "#fff", textAlign: "right", padding: "0 7px", fontSize: 10, fontWeight: 750, outline: "none" }}
+          />
+          P
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "rgba(0,0,0,0.45)" }}>
           Maximum
           <input
             type="number"
@@ -2794,6 +2913,197 @@ function QualityPillarCard({
 }
 
 // ── Pillar card ────────────────────────────────────────────────
+
+function PillarOverridesModal({
+  quarter,
+  gms,
+  onSave,
+  onClose,
+}: {
+  quarter: PraemienQuarter;
+  gms: GmRosterEntry[];
+  onSave: (quarter: PraemienQuarter) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const existingByKey = new Map(
+    (quarter.pillarOverrides ?? []).map((entry) => [`${entry.pillarId}:${entry.gmId}`, entry]),
+  );
+  const [draft, setDraft] = useState<Record<string, string>>(() => {
+    const values: Record<string, string> = {};
+    for (const entry of quarter.pillarOverrides ?? []) {
+      values[`${entry.pillarId}:${entry.gmId}`] = String(entry.points);
+    }
+    return values;
+  });
+
+  const visibleGms = [...gms]
+    .filter((gm) => {
+      const token = query.trim().toLocaleLowerCase("de");
+      return token.length === 0
+        || gm.name.toLocaleLowerCase("de").includes(token)
+        || gm.region.toLocaleLowerCase("de").includes(token);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+  const handleSave = () => {
+    const nextVisible: PraemienPillarOverride[] = [];
+    for (const gm of gms) {
+      for (const pillar of quarter.pillars) {
+        const key = `${pillar.id}:${gm.id}`;
+        const raw = draft[key]?.trim() ?? "";
+        if (raw === "") continue;
+        const points = Number(raw.replace(",", "."));
+        if (!Number.isFinite(points) || points < 0) {
+          setError(`Ungültiger Wert bei ${gm.name} · ${pillar.name}.`);
+          return;
+        }
+        const existing = existingByKey.get(key);
+        nextVisible.push({
+          id: existing?.id ?? uid(),
+          pillarId: pillar.id,
+          gmId: gm.id,
+          gmName: gm.name,
+          points: Number(points.toFixed(4)),
+          note: existing?.note,
+          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+        });
+      }
+    }
+    onSave({ ...quarter, pillarOverrides: nextVisible });
+    onClose();
+  };
+
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Manuelle Säulenwerte"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1200,
+        background: "rgba(17,24,39,0.38)",
+        backdropFilter: "blur(7px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <div style={{
+        width: "min(1120px, 96vw)",
+        maxHeight: "90vh",
+        borderRadius: 18,
+        border: "1px solid rgba(0,0,0,0.08)",
+        background: "rgba(255,255,255,0.98)",
+        boxShadow: "0 28px 80px rgba(15,23,42,0.2)",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+      }}>
+        <div style={{ padding: "18px 20px 15px", borderBottom: "1px solid rgba(0,0,0,0.07)", display: "flex", alignItems: "flex-start", gap: 14 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 11, background: "rgba(220,38,38,0.08)", color: R, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Pencil size={15} strokeWidth={1.9} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#171717" }}>Manuelle Säulenwerte</div>
+            <div style={{ marginTop: 4, fontSize: 10.5, color: "rgba(0,0,0,0.48)", lineHeight: 1.5 }}>
+              Ein eingetragener Wert dominiert die automatische Fragebogenberechnung für diesen GM und diese Säule. Leere Felder bleiben automatisch.
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Schließen" style={{ width: 32, height: 32, border: "1px solid rgba(0,0,0,0.08)", borderRadius: 9, background: "#fff", color: "rgba(0,0,0,0.48)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <X size={14} />
+          </button>
+        </div>
+
+        <div style={{ padding: "13px 20px", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+          <div style={{ height: 36, maxWidth: 360, border: "1px solid rgba(0,0,0,0.09)", borderRadius: 10, background: "#fff", display: "flex", alignItems: "center", gap: 8, padding: "0 11px" }}>
+            <Search size={13} color="rgba(0,0,0,0.34)" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="GM oder Region suchen …" style={{ flex: 1, border: 0, outline: 0, background: "transparent", fontSize: 11, color: "#202020" }} />
+          </div>
+        </div>
+
+        <div className="map-scroll" style={{ overflow: "auto", flex: 1, minHeight: 220 }}>
+          <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: 760 }}>
+            <thead style={{ position: "sticky", top: 0, zIndex: 2, background: "rgba(248,248,249,0.98)", backdropFilter: "blur(8px)" }}>
+              <tr>
+                <th style={{ position: "sticky", left: 0, zIndex: 3, width: 240, padding: "11px 18px", textAlign: "left", borderBottom: "1px solid rgba(0,0,0,0.07)", background: "rgba(248,248,249,0.98)", fontSize: 9, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(0,0,0,0.38)" }}>GM</th>
+                {quarter.pillars.map((pillar, index) => (
+                  <th key={pillar.id} style={{ minWidth: 160, padding: "11px 12px", textAlign: "left", borderBottom: "1px solid rgba(0,0,0,0.07)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ width: 3, height: 18, borderRadius: 2, background: [R, "#2563eb", "#16a34a", "#D97706"][index] ?? R }} />
+                      <span style={{ fontSize: 10, fontWeight: 750, color: "#292929" }}>{pillar.name}</span>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {visibleGms.map((gm) => (
+                <tr key={gm.id}>
+                  <td style={{ position: "sticky", left: 0, zIndex: 1, padding: "10px 18px", borderBottom: "1px solid rgba(0,0,0,0.055)", background: "#fff" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#202020" }}>{gm.name}</div>
+                    <div style={{ marginTop: 2, fontSize: 9, color: "rgba(0,0,0,0.38)" }}>{gm.region}</div>
+                  </td>
+                  {quarter.pillars.map((pillar) => {
+                    const key = `${pillar.id}:${gm.id}`;
+                    const hasValue = (draft[key]?.trim() ?? "") !== "";
+                    return (
+                      <td key={pillar.id} style={{ padding: "8px 12px", borderBottom: "1px solid rgba(0,0,0,0.055)", background: hasValue ? "rgba(220,38,38,0.022)" : "#fff" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={draft[key] ?? ""}
+                            onChange={(event) => {
+                              setError(null);
+                              setDraft((current) => ({ ...current, [key]: event.target.value }));
+                            }}
+                            placeholder="Automatisch"
+                            aria-label={`${gm.name}, ${pillar.name}`}
+                            style={{ width: "100%", height: 32, border: `1px solid ${hasValue ? "rgba(220,38,38,0.24)" : "rgba(0,0,0,0.09)"}`, borderRadius: 8, padding: "0 9px", outline: 0, background: "#fff", color: "#202020", fontSize: 11, fontWeight: hasValue ? 700 : 500, fontVariantNumeric: "tabular-nums" }}
+                          />
+                          {hasValue && (
+                            <button
+                              type="button"
+                              title="Override entfernen"
+                              onClick={() => setDraft((current) => ({ ...current, [key]: "" }))}
+                              style={{ width: 27, height: 27, border: 0, borderRadius: 7, background: "rgba(0,0,0,0.035)", color: "rgba(0,0,0,0.4)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                            >
+                              <X size={11} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {visibleGms.length === 0 && <div style={{ padding: 36, textAlign: "center", fontSize: 11, color: "rgba(0,0,0,0.4)" }}>Kein GM gefunden.</div>}
+        </div>
+
+        <div style={{ padding: "13px 20px", borderTop: "1px solid rgba(0,0,0,0.07)", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, fontSize: 10, color: error ? "#b91c1c" : "rgba(0,0,0,0.42)" }}>
+            {error ?? `${Object.values(draft).filter((value) => value.trim() !== "").length} manuelle Werte · leer = automatische Berechnung`}
+          </div>
+          <button onClick={onClose} style={{ height: 36, padding: "0 15px", borderRadius: 9, border: "1px solid rgba(0,0,0,0.1)", background: "#fff", color: "#444", fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>Abbrechen</button>
+          <button onClick={handleSave} style={{ height: 36, padding: "0 18px", borderRadius: 9, border: 0, background: `linear-gradient(135deg,${R},${RD})`, color: "#fff", fontSize: 10.5, fontWeight: 750, cursor: "pointer", boxShadow: "0 7px 16px rgba(220,38,38,0.18)", display: "flex", alignItems: "center", gap: 7 }}>
+            <Check size={13} strokeWidth={2.3} /> Werte übernehmen
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 function PillarCard({
   pillar, pillarIndex, quarter, sources, onChange,
@@ -4311,6 +4621,9 @@ function computeIssues(quarter: PraemienQuarter, sources: BonusSource[], gms: Gm
     if (sorted[i].minPoints <= sorted[i - 1].minPoints) issues.push({ severity: "error", message: `Schwellwerte überschneiden sich: "${sorted[i - 1].label}" & "${sorted[i].label}".` });
   }
   for (const p of quarter.pillars) {
+    if (p.targetPoints == null || p.targetPoints <= 0) {
+      issues.push({ severity: "error", message: `Säule "${p.name}" benötigt positive Zielpunkte.` });
+    }
     if (isManualPillar(p)) continue; // manual pillar - no boni sources expected
     if (p.sourceRefs.length === 0) issues.push({ severity: "warning", message: `Säule "${p.name}" hat keine Quellen.` });
   }
@@ -4506,11 +4819,13 @@ export default function PraemienPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [conflictSection, setConflictSection] = useState<AutosaveSection | null>(null);
   const [quarters, setQuarters] = useState<PraemienQuarter[]>([]);
+  const [waveSummaries, setWaveSummaries] = useState<PraemienWaveSummary[]>([]);
   const [activeQuarterId, setActiveQuarterId] = useState<string | null>(null);
   const [bonusSources, setBonusSources] = useState<BonusSource[]>([]);
   const [gmUsers, setGmUsers] = useState<GmRosterEntry[]>([]);
   const [showGmProgress, setShowGmProgress] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showPillarOverrides, setShowPillarOverrides] = useState(false);
   const [gmRegionFilter, setGmRegionFilter] = useState<RegionFilter>("Alle");
   const [dirtyVersion, setDirtyVersion] = useState(0);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -4524,6 +4839,7 @@ export default function PraemienPage() {
   const blockedFingerprintRef = useRef<Map<AutosaveSection, string>>(new Map());
   const staleRetryRef = useRef<Map<string, number>>(new Map());
   const deletedWaveIdsRef = useRef<Set<string>>(new Set());
+  const waveLoadRequestRef = useRef(0);
 
   const transitionSectionState = useCallback((section: AutosaveSection, event: "dirty" | "saving" | "saved" | "blocked" | "conflict" | "clear") => {
     if (event === "dirty") {
@@ -4580,47 +4896,26 @@ export default function PraemienPage() {
     setShowReloadAction(false);
     clearTransientAutosaveState();
     deletedWaveIdsRef.current.clear();
+    const supportDataPromise = Promise.allSettled([
+      fetchAdminPraemienSources(),
+      fetchGmUsers(),
+    ]);
     try {
-      const [waveList, sourceRows, gmRows] = await Promise.all([
-        fetchAdminPraemienWaves({ limit: 200, offset: 0 }),
-        fetchAdminPraemienSources(),
-        fetchGmUsers().catch(() => []),
-      ]);
-      const mappedSources: BonusSource[] = sourceRows.map((row) => ({
-        key: row.key,
-        sectionType: row.sectionType,
-        fragebogenId: row.fragebogenId ?? "",
-        fragebogenName: row.fragebogenName ?? "",
-        moduleId: row.moduleId ?? "",
-        moduleName: row.moduleName ?? "",
-        questionId: row.questionId,
-        questionText: row.questionText ?? "",
-        scoringKey: row.scoringKey,
-        boniValue: Number(row.boniValue ?? 0),
-        isFactorMode: Boolean(row.isFactorMode),
-        displayLabel: row.displayLabel ?? "",
-      }));
-      setBonusSources(mappedSources);
-      const mappedGmUsers: GmRosterEntry[] = gmRows.map((gm) => ({
-        id: gm.id,
-        name: `${gm.firstName} ${gm.lastName}`.trim(),
-        region: gm.region || "Unbekannt",
-      }));
-      setGmUsers(mappedGmUsers);
-
-      const waveIds = (waveList.waves ?? []).map((entry) => entry.id);
-      if (waveIds.length === 0) {
+      const waveList = await fetchAdminPraemienWaves({ limit: 200, offset: 0, includeInitial: true });
+      const summaries = waveList.waves ?? [];
+      setWaveSummaries(summaries);
+      if (summaries.length === 0) {
         setQuarters([]);
         setActiveQuarterId(null);
         clearTransientAutosaveState();
         return;
       }
-      const loadedWavesRaw = await Promise.all(waveIds.map((waveId) => fetchAdminPraemienWave(waveId)));
-      const loadedWaves = loadedWavesRaw.map(toUiQuarter);
-      const activeWave = loadedWaves[0];
+      const activeWave = toUiQuarter(
+        waveList.initialWave ?? await fetchAdminPraemienWave(summaries[0].id),
+      );
       if (!activeWave) return;
       isHydratingRef.current = true;
-      setQuarters(loadedWaves);
+      setQuarters([activeWave]);
       setActiveQuarterId(activeWave.id);
       isHydratingRef.current = false;
     } catch (error) {
@@ -4628,6 +4923,31 @@ export default function PraemienPage() {
       setLoadError(message);
     } finally {
       setIsLoading(false);
+      void supportDataPromise.then(([sourceResult, gmResult]) => {
+        if (sourceResult.status === "fulfilled") {
+          setBonusSources(sourceResult.value.map((row) => ({
+            key: row.key,
+            sectionType: row.sectionType,
+            fragebogenId: row.fragebogenId ?? "",
+            fragebogenName: row.fragebogenName ?? "",
+            moduleId: row.moduleId ?? "",
+            moduleName: row.moduleName ?? "",
+            questionId: row.questionId,
+            questionText: row.questionText ?? "",
+            scoringKey: row.scoringKey,
+            boniValue: Number(row.boniValue ?? 0),
+            isFactorMode: Boolean(row.isFactorMode),
+            displayLabel: row.displayLabel ?? "",
+          })));
+        }
+        if (gmResult.status === "fulfilled") {
+          setGmUsers(gmResult.value.map((gm) => ({
+            id: gm.id,
+            name: `${gm.firstName} ${gm.lastName}`.trim(),
+            region: gm.region || "Unbekannt",
+          })));
+        }
+      });
     }
   }, [clearTransientAutosaveState]);
 
@@ -4638,14 +4958,47 @@ export default function PraemienPage() {
   useEffect(() => {
     const activeId = activeQuarterId;
     if (!activeId) return;
-    if (quarters.some((entry) => entry.id === activeId)) return;
-    setActiveQuarterId(quarters[0]?.id ?? null);
-  }, [quarters, activeQuarterId]);
+    if (waveSummaries.some((entry) => entry.id === activeId)) return;
+    setActiveQuarterId(waveSummaries[0]?.id ?? null);
+  }, [waveSummaries, activeQuarterId]);
 
   const activeQuarter = quarters.find(q => q.id === activeQuarterId) ?? null;
   const gmRoster = gmUsers.length > 0 ? gmUsers : ALL_GMS;
   const qualityPersistenceReady = gmUsers.length > 0;
   const flexPersistenceReady = gmUsers.length > 0;
+
+  const selectQuarter = useCallback((waveId: string) => {
+    const loaded = quarters.find((entry) => entry.id === waveId);
+    if (loaded) {
+      setActiveQuarterId(waveId);
+      return;
+    }
+    const previousWaveId = activeQuarterId;
+    const requestId = waveLoadRequestRef.current + 1;
+    waveLoadRequestRef.current = requestId;
+    setIsLoading(true);
+    setLoadError(null);
+    setActiveQuarterId(waveId);
+    void fetchAdminPraemienWave(waveId)
+      .then((wave) => {
+        if (waveLoadRequestRef.current !== requestId) return;
+        const hydrated = toUiQuarter(wave);
+        isHydratingRef.current = true;
+        setQuarters((previous) => [
+          hydrated,
+          ...previous.filter((entry) => entry.id !== hydrated.id),
+        ]);
+        isHydratingRef.current = false;
+      })
+      .catch((error) => {
+        if (waveLoadRequestRef.current !== requestId) return;
+        setLoadError(error instanceof Error ? error.message : "Prämien-Welle konnte nicht geladen werden.");
+        setActiveQuarterId(previousWaveId);
+      })
+      .finally(() => {
+        if (waveLoadRequestRef.current === requestId) setIsLoading(false);
+      });
+  }, [activeQuarterId, quarters]);
 
   useEffect(() => {
     clearTransientAutosaveState();
@@ -4655,6 +5008,9 @@ export default function PraemienPage() {
     setSaveError(null);
     setShowReloadAction(false);
     setConflictSection(null);
+    setWaveSummaries((previous) => previous.map((summary) => (
+      summary.id === updated.id ? toWaveSummary(updated) : summary
+    )));
     setQuarters(prev => prev.map((q) => {
       if (q.id !== updated.id) return q;
       if (!isHydratingRef.current) {
@@ -4710,6 +5066,7 @@ export default function PraemienPage() {
       const created = toUiQuarter(createdRaw);
       isHydratingRef.current = true;
       setQuarters(prev => [created, ...prev.filter((entry) => entry.id !== created.id)]);
+      setWaveSummaries((previous) => [toWaveSummary(created), ...previous.filter((entry) => entry.id !== created.id)]);
       setActiveQuarterId(created.id);
       isHydratingRef.current = false;
     } catch (error) {
@@ -4723,8 +5080,24 @@ export default function PraemienPage() {
     setIsExporting(true);
     setExportError(null);
     try {
+      const loadedById = new Map(quarters.map((quarter) => [quarter.id, quarter]));
+      const missingSummaries = waveSummaries.filter((summary) => !loadedById.has(summary.id));
+      const fetchedWaves = await Promise.all(
+        missingSummaries.map((summary) => fetchAdminPraemienWave(summary.id)),
+      );
+      for (const wave of fetchedWaves) loadedById.set(wave.id, toUiQuarter(wave));
+      const exportQuarters = waveSummaries.length > 0
+        ? waveSummaries.map((summary) => loadedById.get(summary.id)).filter((wave): wave is PraemienQuarter => Boolean(wave))
+        : quarters;
+      if (fetchedWaves.length > 0) {
+        setQuarters((previous) => {
+          const merged = new Map(previous.map((quarter) => [quarter.id, quarter]));
+          for (const wave of fetchedWaves) merged.set(wave.id, toUiQuarter(wave));
+          return Array.from(merged.values());
+        });
+      }
       await exportPraemienExcel({
-        quarters,
+        quarters: exportQuarters,
         activeQuarterId,
         sourceCatalog: bonusSources,
         exportedBy: readAuthSession()?.user.email ?? "",
@@ -4760,6 +5133,9 @@ export default function PraemienPage() {
       }
       if (section === "flex") {
         return await replaceAdminPraemienFlexScores(quarter.id, toFlexPayload(quarter));
+      }
+      if (section === "overrides") {
+        return await replaceAdminPraemienPillarOverrides(quarter.id, toPillarOverridesPayload(quarter));
       }
       return await replaceAdminPraemienQualityScores(quarter.id, toQualityPayload(quarter));
     } catch (error) {
@@ -4931,9 +5307,9 @@ export default function PraemienPage() {
       {/* Quarter switcher bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <QuarterSwitcher
-          quarters={quarters}
+          quarters={waveSummaries}
           activeId={activeQuarterId}
-          onSelect={setActiveQuarterId}
+          onSelect={selectQuarter}
           onNew={createNewQuarter}
         />
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -4960,6 +5336,7 @@ export default function PraemienPage() {
                     }));
                     isHydratingRef.current = true;
                     setQuarters(prev => [copy, ...prev.filter((entry) => entry.id !== copy.id)]);
+                    setWaveSummaries((previous) => [toWaveSummary(copy), ...previous.filter((entry) => entry.id !== copy.id)]);
                     setActiveQuarterId(copy.id);
                     isHydratingRef.current = false;
                   } catch (error) {
@@ -4982,15 +5359,13 @@ export default function PraemienPage() {
                     deletedWaveIdsRef.current.add(deletedWaveId);
                     clearTransientAutosaveState(deletedWaveId);
                     await deleteAdminPraemienWave(deletedWaveId);
+                    const nextWaveId = waveSummaries.find((entry) => entry.id !== deletedWaveId)?.id ?? null;
                     isHydratingRef.current = true;
-                    setQuarters((prev) => {
-                      const filtered = prev.filter((entry) => entry.id !== deletedWaveId);
-                      setActiveQuarterId((prevActive) => (
-                        prevActive === deletedWaveId ? (filtered[0]?.id ?? null) : prevActive
-                      ));
-                      return filtered;
-                    });
+                    setQuarters((prev) => prev.filter((entry) => entry.id !== deletedWaveId));
+                    setWaveSummaries((previous) => previous.filter((entry) => entry.id !== deletedWaveId));
+                    setActiveQuarterId(null);
                     isHydratingRef.current = false;
+                    if (nextWaveId) selectQuarter(nextWaveId);
                     setSaveError(null);
                     setShowReloadAction(false);
                     setConflictSection(null);
@@ -5144,13 +5519,44 @@ export default function PraemienPage() {
             {/* Pillars grid */}
             <div style={{ background: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, overflow: "hidden" }}>
               {/* Grey header */}
-              <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "rgba(0,0,0,0.3)" }}>4 Säulen · Boni-Gewichtung</span>
-                <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>
-                  {activeQuarter.rewardModel === "pillar_tiers"
-                    ? `${activeQuarter.pillars.reduce((sum, pillar) => sum + pillar.maxRewardEur, 0).toLocaleString("de-AT")} € maximal · jede Säule separat`
-                    : `Punkte pro Antwort — Ziel: ${activeQuarter.thresholds.find((t) => t.label === "Voller Bonus")?.minPoints ?? [...activeQuarter.thresholds].sort((a, b) => a.minPoints - b.minPoints).at(-1)?.minPoints ?? 0} P`}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", fontWeight: 500 }}>
+                    {activeQuarter.rewardModel === "pillar_tiers"
+                      ? `${activeQuarter.pillars.reduce((sum, pillar) => sum + pillar.maxRewardEur, 0).toLocaleString("de-AT")} € maximal · jede Säule separat`
+                      : `Punkte pro Antwort — Ziel: ${activeQuarter.thresholds.find((t) => t.label === "Voller Bonus")?.minPoints ?? [...activeQuarter.thresholds].sort((a, b) => a.minPoints - b.minPoints).at(-1)?.minPoints ?? 0} P`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowPillarOverrides(true)}
+                    disabled={gmUsers.length === 0}
+                    title={gmUsers.length === 0 ? "GM-Daten werden noch geladen." : "Automatische Säulenwerte je GM manuell überschreiben"}
+                    style={{
+                      height: 30,
+                      padding: "0 11px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(220,38,38,0.16)",
+                      background: (activeQuarter.pillarOverrides ?? []).length > 0 ? "rgba(220,38,38,0.075)" : "#fff",
+                      color: gmUsers.length === 0 ? "rgba(0,0,0,0.28)" : R,
+                      fontSize: 9.5,
+                      fontWeight: 750,
+                      cursor: gmUsers.length === 0 ? "not-allowed" : "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <Pencil size={11} strokeWidth={2} />
+                    Manuelle Werte
+                    {(activeQuarter.pillarOverrides ?? []).length > 0 && (
+                      <span style={{ minWidth: 17, height: 17, padding: "0 4px", borderRadius: 8, background: R, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontVariantNumeric: "tabular-nums" }}>
+                        {activeQuarter.pillarOverrides.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
               {/* White inner card */}
               <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -5198,6 +5604,9 @@ export default function PraemienPage() {
                 {sectionErrors.pillars ? `Säulen: ${sectionErrors.pillars}` : `Quellen: ${sectionErrors.sources}`}
               </div>
             )}
+            {sectionErrors.overrides && (
+              <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>Manuelle Säulenwerte: {sectionErrors.overrides}</div>
+            )}
             {sectionErrors.flex && (
               <div style={{ marginTop: -8, fontSize: 11, color: "#92400e" }}>Flex: {sectionErrors.flex}</div>
             )}
@@ -5231,6 +5640,14 @@ export default function PraemienPage() {
       )}
       {showLeaderboard && (
         <PraemienLeaderboardModal onClose={() => setShowLeaderboard(false)} />
+      )}
+      {showPillarOverrides && activeQuarter && gmUsers.length > 0 && (
+        <PillarOverridesModal
+          quarter={activeQuarter}
+          gms={gmUsers}
+          onSave={updateQuarter}
+          onClose={() => setShowPillarOverrides(false)}
+        />
       )}
     </div>
   );

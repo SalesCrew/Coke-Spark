@@ -405,6 +405,13 @@ export async function exportPraemienExcel(input: {
   );
   const qualityRows = quarters.flatMap((quarter) => quarter.qualitySubmissions.map((submission) => ({ quarter, submission })));
   const flexRows = quarters.flatMap((quarter) => quarter.flexSubmissions.map((submission) => ({ quarter, submission })));
+  const pillarOverrideRows = quarters.flatMap((quarter) =>
+    (quarter.pillarOverrides ?? []).map((override) => ({
+      quarter,
+      override,
+      pillar: quarter.pillars.find((pillar) => pillar.id === override.pillarId) ?? null,
+    })),
+  );
   const filename = `CokeSpark_Prämien_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`;
 
   await buildAndDownloadWorkbook({
@@ -420,6 +427,7 @@ export async function exportPraemienExcel(input: {
         { label: "Quellen", value: sources.length },
         { label: "Qualität Scores", value: qualityRows.length },
         { label: "Flex Scores", value: flexRows.length },
+        { label: "Manuelle Säulenwerte", value: pillarOverrideRows.length },
       ]);
 
       appendTableSheet(XLSX, wb, {
@@ -471,6 +479,8 @@ export async function exportPraemienExcel(input: {
           { header: "Säule", width: 24, value: (row) => row.pillar.name },
           { header: "Beschreibung", width: 42, value: (row) => row.pillar.description },
           { header: "Farbe", width: 12, value: (row) => row.pillar.color },
+          { header: "Zielpunkte", width: 13, value: (row) => row.pillar.targetPoints ?? "", align: "right", numberFormat: "0.0" },
+          { header: "Max. Prämie EUR", width: 17, value: (row) => row.pillar.maxRewardEur, align: "right", numberFormat: "#,##0.00" },
           { header: "Quellen", width: 10, value: (row) => row.pillar.sourceRefs.length, align: "right" },
           { header: "Punkte", width: 12, value: (row) => row.pillar.sourceRefs.reduce((sum, source) => sum + sourceRowPoints(source), 0), align: "right", numberFormat: "0.0" },
         ],
@@ -530,6 +540,22 @@ export async function exportPraemienExcel(input: {
           { header: "Praemie EUR", width: 13, value: (row) => thresholdReward(row.quarter, row.submission.totalPoints), align: "right", numberFormat: "#,##0.00" },
           { header: "Notiz", width: 36, value: (row) => row.submission.note ?? "" },
           { header: "Aktualisiert", width: 24, value: (row) => row.submission.updatedAt },
+        ],
+      });
+
+      appendTableSheet(XLSX, wb, {
+        name: "Manuelle Säulenwerte",
+        title: "Manuelle Säulenwerte",
+        description: "Explizite GM-Werte, die für die jeweilige Säule anstelle der automatischen Fragebogenberechnung verwendet werden.",
+        rows: pillarOverrideRows,
+        columns: [
+          { header: "Welle", width: 34, value: (row) => row.quarter.name },
+          { header: "GM ID", width: 38, value: (row) => row.override.gmId },
+          { header: "GM", width: 24, value: (row) => row.override.gmName },
+          { header: "Säule", width: 26, value: (row) => row.pillar?.name ?? row.override.pillarId },
+          { header: "Manueller Wert", width: 16, value: (row) => row.override.points, align: "right", numberFormat: "0.0000" },
+          { header: "Notiz", width: 36, value: (row) => row.override.note ?? "" },
+          { header: "Aktualisiert", width: 24, value: (row) => row.override.updatedAt },
         ],
       });
 

@@ -3176,9 +3176,48 @@ export type AdminKurtiVisualization =
   | AdminKurtiWaterfallVisualization
   | AdminKurtiTreemapVisualization;
 
+export type AdminKurtiExcelExportKind =
+  | "zeiterfassung"
+  | "zeitenaufstellung"
+  | "diaeten"
+  | "maerkte"
+  | "gebietsmanager"
+  | "shelf_merchandiser"
+  | "lager"
+  | "fragebogen_standard"
+  | "fragebogen_flex"
+  | "fragebogen_billa"
+  | "fragebogen_kuehler"
+  | "fragebogen_mhd"
+  | "fragebogen_durcharbeit"
+  | "fotoarchiv";
+
+export type AdminKurtiExcelExport = {
+  id: string;
+  kind: AdminKurtiExcelExportKind;
+  title: string;
+  description: string | null;
+  filters: {
+    dateFrom: string | null;
+    dateTo: string | null;
+    gmUserIds: string[];
+    gmNames: string[];
+    regions: string[];
+    campaignIds: string[];
+    campaignNames: string[];
+    marketIds: string[];
+    marketSearch: string | null;
+    sections: Array<"standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit">;
+    statuses: string[];
+    search: string | null;
+    includeLive: boolean;
+  };
+};
+
 export type AdminKurtiMessage = GmKurtiMessage & {
   charts?: AdminKurtiChartSpec[];
   visualizations?: AdminKurtiVisualization[];
+  exports?: AdminKurtiExcelExport[];
 };
 
 export type AdminKurtiMessagesPayload = {

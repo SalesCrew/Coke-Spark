@@ -10,8 +10,9 @@ import {
 import type { KuehlerUnitRecord, MarketRecord, MarketVisitLog, MarketFilters, SectionType } from "@/types/markets";
 import {
   readWorkbook, buildPreviewGrid, getColHeader, getColSample,
-  getFieldSpecsForImportType, validateMapping, draftToMarketRecord,
+  getFieldSpecsForImportType, getKuehlerUpdateIdentifierLabel, validateMapping, draftToMarketRecord,
   type ColumnMapping, type WorkbookResult, type ImportSummary, type FieldSpec, type ImportDatasetType,
+  type KuehlerUpdateIdentifier,
 } from "@/utils/marketImport";
 import {
   BackendApiError,
@@ -134,6 +135,7 @@ type ManualMarketCreateInput = {
     kuehlerBd?: string | null;
     kuehlerAnzahlKsAmStandort?: number | null;
     kuehlerSerialNumber?: string | null;
+    kuehlerTechnicalIdentNo?: string | null;
     kuehlerModel?: string | null;
     importSourceFileName?: string;
     importedAt?: string;
@@ -486,11 +488,13 @@ type ImportStep = "type" | "upload" | "review" | "summary";
 
 function getImportDatasetLabel(importType: ImportDatasetType | null | undefined): string {
   if (importType === "kuehler") return "Kühlermärkte";
+  if (importType === "kuehler_update") return "Kühler aktualisieren";
   if (importType === "update") return "Bestehende Märkte";
   return "Universumsmärkte";
 }
 
 function getImportDatasetActionLabel(importType: ImportDatasetType | null | undefined): string {
+  if (importType === "kuehler_update") return "Kühler aktualisieren";
   if (importType === "update") return "Bestehende Märkte aktualisieren";
   return `${getImportDatasetLabel(importType)} importieren`;
 }
@@ -502,6 +506,7 @@ function ImportModal({
 }: {
   onImport: (payload: {
     importType: ImportDatasetType;
+    kuehlerUpdateIdentifier?: KuehlerUpdateIdentifier;
     allowMissingCokeMasterNumber?: boolean;
     fileName: string;
     sheetName: string;
@@ -513,6 +518,7 @@ function ImportModal({
 }) {
   const [step, setStep] = useState<ImportStep>("type");
   const [selectedImportType, setSelectedImportType] = useState<ImportDatasetType | null>(null);
+  const [kuehlerUpdateIdentifier, setKuehlerUpdateIdentifier] = useState<KuehlerUpdateIdentifier | null>(null);
   const [dragging, setDragging] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [parsing, setParsing] = useState(false);
@@ -533,6 +539,10 @@ function ImportModal({
 
   const handleFile = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    if (selectedImportType === "kuehler_update" && !kuehlerUpdateIdentifier) {
+      setParseError("Bitte zuerst die Identifikationsnummer für den Kühler auswählen.");
+      return;
+    }
     const f = files[0];
     if (!f.name.endsWith(".xlsx") && !f.name.endsWith(".xls")) return;
     setParsing(true);
@@ -549,7 +559,7 @@ function ImportModal({
     } finally {
       setParsing(false);
     }
-  }, []);
+  }, [kuehlerUpdateIdentifier, selectedImportType]);
 
   const handleImportClick = useCallback(async () => {
     if (!wb || isSubmitting || !selectedImportType) return;
@@ -558,6 +568,9 @@ function ImportModal({
     try {
       const result = await onImport({
         importType: selectedImportType,
+        ...(selectedImportType === "kuehler_update" && kuehlerUpdateIdentifier
+          ? { kuehlerUpdateIdentifier }
+          : {}),
         allowMissingCokeMasterNumber: selectedImportType === "universum" ? allowMissingCokeMasterNumber : false,
         fileName,
         sheetName: wb.sheetName,
@@ -571,7 +584,7 @@ function ImportModal({
     } finally {
       setIsSubmitting(false);
     }
-  }, [wb, mapping, fileName, onImport, isSubmitting, selectedImportType, allowMissingCokeMasterNumber]);
+  }, [wb, mapping, fileName, onImport, isSubmitting, selectedImportType, kuehlerUpdateIdentifier, allowMissingCokeMasterNumber]);
 
   // Called from summary when user manually fills a skipped row and presses save
   const handleSaveFixedRow = useCallback(async (market: MarketRecord) => {
@@ -580,10 +593,18 @@ function ImportModal({
   }, [onSaveFixedRow]);
 
   const activeFieldSpecs = useMemo(
-    () => getFieldSpecsForImportType(selectedImportType ?? "universum"),
-    [selectedImportType],
+    () => getFieldSpecsForImportType(selectedImportType ?? "universum", kuehlerUpdateIdentifier),
+    [kuehlerUpdateIdentifier, selectedImportType],
   );
   const validation = useMemo(() => validateMapping(mapping, activeFieldSpecs), [mapping, activeFieldSpecs]);
+  const hasKuehlerUpdatePatchMapping = useMemo(
+    () => activeFieldSpecs.some((spec) => !spec.isIdentity && Boolean(mapping[spec.key])),
+    [activeFieldSpecs, mapping],
+  );
+  const canImportMapping = validation.canImport && (
+    selectedImportType !== "kuehler_update" ||
+    Boolean(kuehlerUpdateIdentifier && hasKuehlerUpdatePatchMapping)
+  );
   const preview = useMemo(() => wb ? buildPreviewGrid(wb.rows) : null, [wb]);
 
   if (!mounted || typeof document === "undefined") return null;
@@ -704,6 +725,35 @@ function ImportModal({
                   <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
                 </button>
                 <button
+                  onClick={() => {
+                    setSelectedImportType("kuehler_update");
+                    setKuehlerUpdateIdentifier(null);
+                    setStep("upload");
+                  }}
+                  style={{
+                    padding: "14px 14px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    background: "linear-gradient(to bottom,#fff,#f8f8f8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <span style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(217,119,6,0.09)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <RotateCcw size={13} strokeWidth={2} color="#D97706" />
+                    </span>
+                    <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, minWidth: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Kühler aktualisieren</span>
+                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Kühler per ID finden. Nur gemappte Kühlerfelder ändern.</span>
+                    </span>
+                  </span>
+                  <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
+                </button>
+                <button
                   onClick={() => { setSelectedImportType("update"); setStep("upload"); }}
                   style={{
                     padding: "14px 14px",
@@ -738,6 +788,49 @@ function ImportModal({
           {/* ── STEP 1: Upload ── */}
           {step === "upload" && (
             <div style={{ padding: "20px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+              {selectedImportType === "kuehler_update" && (
+                <div style={{ border: "1px solid rgba(217,119,6,0.14)", borderRadius: 11, background: "rgba(217,119,6,0.035)", padding: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#7c4a03", marginBottom: 3 }}>Kühler erkennen über</div>
+                  <div style={{ fontSize: 9, color: "rgba(0,0,0,0.42)", lineHeight: 1.45, marginBottom: 9 }}>
+                    Diese Nummer sucht genau den bestehenden Kühler. Sie wird nicht automatisch verändert.
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6 }}>
+                    {([
+                      ["kuehlerInternalId", "internal_id"],
+                      ["kuehlerTechnicalIdentNo", "Tech. Ident. No."],
+                      ["kuehlerSerialNumber", "Serial Number"],
+                    ] as Array<[KuehlerUpdateIdentifier, string]>).map(([value, label]) => {
+                      const active = kuehlerUpdateIdentifier === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setKuehlerUpdateIdentifier(value);
+                            setParseError(null);
+                          }}
+                          style={{
+                            minHeight: 34,
+                            padding: "7px 8px",
+                            borderRadius: 8,
+                            border: active ? "1px solid rgba(217,119,6,0.45)" : "1px solid rgba(0,0,0,0.08)",
+                            background: active ? "#fff7e8" : "rgba(255,255,255,0.82)",
+                            color: active ? "#9a5700" : "rgba(0,0,0,0.52)",
+                            fontFamily: "inherit",
+                            fontSize: 9,
+                            fontWeight: 750,
+                            cursor: "pointer",
+                            boxShadow: active ? "0 1px 4px rgba(217,119,6,0.08)" : "none",
+                          }}
+                        >
+                          {active && <Check size={10} strokeWidth={2.4} style={{ marginRight: 4, verticalAlign: -2 }} />}
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {/* Drop zone */}
               <div
                 onDragOver={e => { e.preventDefault(); setDragging(true); }}
@@ -856,7 +949,9 @@ function ImportModal({
                 <div style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", marginTop: 8 }}>
                   {selectedImportType === "update"
                     ? "Update-Modus: Flex-Nummer findet den Markt. Nur gemappte optionale Felder mit Werten werden aktualisiert."
-                    : "Spaltenangabe als Excel-Buchstaben"} · <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>A = 1. Spalte · Z = 26. · AA = 27.</span>
+                    : selectedImportType === "kuehler_update"
+                      ? `${getKuehlerUpdateIdentifierLabel(kuehlerUpdateIdentifier)} findet den Kühler. Leere oder nicht gemappte Felder bleiben unverändert.`
+                      : "Spaltenangabe als Excel-Buchstaben"} · <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>A = 1. Spalte · Z = 26. · AA = 27.</span>
                 </div>
               </div>
 
@@ -870,17 +965,21 @@ function ImportModal({
                 )}
                 <button onClick={() => setStep("upload")} style={{ padding: "7px 14px", fontSize: 11, fontWeight: 600, borderRadius: 8, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)" }}>← Zurück</button>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {!validation.canImport && (
+                  {!canImportMapping && (
                     <span style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>
-                      {!Object.keys(validation.fieldErrors).length && !Object.keys(validation.duplicateErrors).length
-                        ? "Mind. 1 Identitätsspalte + Pflichtfelder nötig"
-                        : "Fehler in der Zuweisung prüfen"}
+                      {selectedImportType === "kuehler_update" && !kuehlerUpdateIdentifier
+                        ? "Identifikationsnummer auswählen"
+                        : selectedImportType === "kuehler_update" && !hasKuehlerUpdatePatchMapping
+                          ? "Mind. 1 Kühlerfeld zum Aktualisieren mappen"
+                          : !Object.keys(validation.fieldErrors).length && !Object.keys(validation.duplicateErrors).length
+                            ? "Mind. 1 Identitätsspalte + Pflichtfelder nötig"
+                            : "Fehler in der Zuweisung prüfen"}
                     </span>
                   )}
                   <button
                     onClick={handleImportClick}
-                    disabled={!validation.canImport || isSubmitting}
-                    style={{ padding: "8px 18px", fontSize: 11, fontWeight: 700, borderRadius: 8, border: "none", cursor: validation.canImport && !isSubmitting ? "pointer" : "not-allowed", color: "#fff", background: validation.canImport && !isSubmitting ? `linear-gradient(to bottom, ${R}, ${RD})` : "rgba(0,0,0,0.15)", boxShadow: validation.canImport && !isSubmitting ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none", display: "flex", alignItems: "center", gap: 6, transition: "all 0.15s ease", opacity: validation.canImport && !isSubmitting ? 1 : 0.7 }}
+                    disabled={!canImportMapping || isSubmitting}
+                    style={{ padding: "8px 18px", fontSize: 11, fontWeight: 700, borderRadius: 8, border: "none", cursor: canImportMapping && !isSubmitting ? "pointer" : "not-allowed", color: "#fff", background: canImportMapping && !isSubmitting ? `linear-gradient(to bottom, ${R}, ${RD})` : "rgba(0,0,0,0.15)", boxShadow: canImportMapping && !isSubmitting ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none", display: "flex", alignItems: "center", gap: 6, transition: "all 0.15s ease", opacity: canImportMapping && !isSubmitting ? 1 : 0.7 }}
                   >
                     <Upload size={11} strokeWidth={2} />
                     {isSubmitting ? "Import läuft…" : "Importieren"}
@@ -892,7 +991,7 @@ function ImportModal({
 
           {/* ── STEP 3: Summary ── */}
           {step === "summary" && summary && (
-            <ImportSummaryView summary={summary} fileName={fileName} onClose={onClose} onSaveFixedRow={handleSaveFixedRow} onRestart={() => { setStep("type"); setSelectedImportType(null); setWb(null); setMapping({}); setSummary(null); setFileName(""); }} />
+            <ImportSummaryView summary={summary} fileName={fileName} onClose={onClose} onSaveFixedRow={handleSaveFixedRow} onRestart={() => { setStep("type"); setSelectedImportType(null); setKuehlerUpdateIdentifier(null); setWb(null); setMapping({}); setSummary(null); setFileName(""); }} />
           )}
         </div>
       </div>
@@ -975,11 +1074,11 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
   const [savedRows, setSavedRows] = useState<Set<number>>(new Set());
   const [savingRows, setSavingRows] = useState<Set<number>>(new Set());
   const summaryFieldSpecs = useMemo(
-    () => getFieldSpecsForImportType(summary.importType ?? "universum"),
-    [summary.importType],
+    () => getFieldSpecsForImportType(summary.importType ?? "universum", summary.kuehlerUpdateIdentifier),
+    [summary.importType, summary.kuehlerUpdateIdentifier],
   );
   const isKuehlerImport = summary.importType === "kuehler";
-  const isUpdateImport = summary.importType === "update";
+  const isUpdateImport = summary.importType === "update" || summary.importType === "kuehler_update";
 
   const toggleRow = (i: number) => setExpandedRows(prev => {
     const next = new Set(prev);
@@ -1037,7 +1136,7 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
         { label: "Gesamt", value: summary.totalParsedRows, color: "rgba(0,0,0,0.5)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
         { label: "Aktualisiert", value: summary.updated, color: "#0891b2", bg: "rgba(8,145,178,0.06)", border: "rgba(8,145,178,0.16)" },
         { label: "Nicht geändert", value: summary.unchanged ?? 0, color: "rgba(0,0,0,0.35)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
-        { label: "Übersprungen", value: localSkipped.length, color: localSkipped.length > 0 ? "#d97706" : "rgba(0,0,0,0.35)", bg: localSkipped.length > 0 ? "rgba(217,119,6,0.06)" : "#fff", border: localSkipped.length > 0 ? "rgba(217,119,6,0.2)" : "rgba(0,0,0,0.08)" },
+        { label: "Übersprungen", value: summary.skipped, color: summary.skipped > 0 ? "#d97706" : "rgba(0,0,0,0.35)", bg: summary.skipped > 0 ? "rgba(217,119,6,0.06)" : "#fff", border: summary.skipped > 0 ? "rgba(217,119,6,0.2)" : "rgba(0,0,0,0.08)" },
       ]
     : [
         { label: "Gesamt", value: summary.totalParsedRows, color: "rgba(0,0,0,0.5)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
@@ -1467,6 +1566,7 @@ function ManualMarketCreateModal({
   const [createKuehlerUnitNow, setCreateKuehlerUnitNow] = useState(false);
   const [kuehlerInternalId, setKuehlerInternalId] = useState("");
   const [kuehlerSerialNumber, setKuehlerSerialNumber] = useState("");
+  const [kuehlerTechnicalIdentNo, setKuehlerTechnicalIdentNo] = useState("");
   const [kuehlerModel, setKuehlerModel] = useState("");
   const [kuehlerBd, setKuehlerBd] = useState("");
   const [kuehlerAnzahlKsAmStandort, setKuehlerAnzahlKsAmStandort] = useState("");
@@ -1543,6 +1643,7 @@ function ManualMarketCreateModal({
                 ? Math.max(0, parseInt(kuehlerAnzahlKsAmStandort, 10) || 0)
                 : null,
               kuehlerSerialNumber: kuehlerSerialNumber.trim() || null,
+              kuehlerTechnicalIdentNo: kuehlerTechnicalIdentNo.trim() || null,
               kuehlerModel: kuehlerModel.trim() || null,
               importSourceFileName: "Manuell",
               importedAt: now,
@@ -1727,6 +1828,7 @@ function ManualMarketCreateModal({
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
                   <ManualMarketField label="Kühlernummer" value={kuehlerInternalId} onChange={setKuehlerInternalId} placeholder="internal_id" />
                   <ManualMarketField label="Serial Number" value={kuehlerSerialNumber} onChange={setKuehlerSerialNumber} placeholder="optional" />
+                  <ManualMarketField label="Tech. Ident. No." value={kuehlerTechnicalIdentNo} onChange={setKuehlerTechnicalIdentNo} placeholder="optional" />
                   <ManualMarketField label="Model" value={kuehlerModel} onChange={setKuehlerModel} placeholder="optional" />
                   <ManualMarketField label="BD" value={kuehlerBd} onChange={setKuehlerBd} placeholder="optional" />
                   <ManualMarketField label="Anzahl KS" value={kuehlerAnzahlKsAmStandort} onChange={setKuehlerAnzahlKsAmStandort} placeholder="optional" type="number" />
@@ -1863,6 +1965,7 @@ function MarketDetailDrawer({
       kuehlerBd?: string | null;
       kuehlerAnzahlKsAmStandort?: number | null;
       kuehlerSerialNumber?: string | null;
+      kuehlerTechnicalIdentNo?: string | null;
       kuehlerModel?: string | null;
       importSourceFileName?: string;
       importedAt?: string;
@@ -1878,6 +1981,7 @@ function MarketDetailDrawer({
       kuehlerBd?: string | null;
       kuehlerAnzahlKsAmStandort?: number | null;
       kuehlerSerialNumber?: string | null;
+      kuehlerTechnicalIdentNo?: string | null;
       kuehlerModel?: string | null;
       importSourceFileName?: string;
       importedAt?: string;
@@ -1900,6 +2004,7 @@ function MarketDetailDrawer({
     kuehlerBd: string;
     kuehlerAnzahlKsAmStandort: string;
     kuehlerSerialNumber: string;
+    kuehlerTechnicalIdentNo: string;
     kuehlerModel: string;
   }>({
     name: "",
@@ -1908,6 +2013,7 @@ function MarketDetailDrawer({
     kuehlerBd: "",
     kuehlerAnzahlKsAmStandort: "",
     kuehlerSerialNumber: "",
+    kuehlerTechnicalIdentNo: "",
     kuehlerModel: "",
   });
   const [unitSaving, setUnitSaving] = useState(false);
@@ -1985,6 +2091,7 @@ function MarketDetailDrawer({
         kuehlerBd: "",
         kuehlerAnzahlKsAmStandort: "",
         kuehlerSerialNumber: "",
+        kuehlerTechnicalIdentNo: "",
         kuehlerModel: "",
       });
       return;
@@ -1998,6 +2105,7 @@ function MarketDetailDrawer({
       kuehlerAnzahlKsAmStandort:
         unit.kuehlerAnzahlKsAmStandort == null ? "" : String(unit.kuehlerAnzahlKsAmStandort),
       kuehlerSerialNumber: unit.kuehlerSerialNumber ?? "",
+      kuehlerTechnicalIdentNo: unit.kuehlerTechnicalIdentNo ?? "",
       kuehlerModel: unit.kuehlerModel ?? "",
     });
   }, [market.employee, market.name]);
@@ -2018,6 +2126,7 @@ function MarketDetailDrawer({
             ? (parseInt(unitEditorDraft.kuehlerAnzahlKsAmStandort, 10) || 0)
             : null,
           kuehlerSerialNumber: unitEditorDraft.kuehlerSerialNumber.trim() || null,
+          kuehlerTechnicalIdentNo: unitEditorDraft.kuehlerTechnicalIdentNo.trim() || null,
           kuehlerModel: unitEditorDraft.kuehlerModel.trim() || null,
           importSourceFileName: market.importSourceFileName || "",
           importedAt: new Date().toISOString(),
@@ -2044,6 +2153,7 @@ function MarketDetailDrawer({
             ? (parseInt(unitEditorDraft.kuehlerAnzahlKsAmStandort, 10) || 0)
             : null,
           kuehlerSerialNumber: unitEditorDraft.kuehlerSerialNumber.trim() || null,
+          kuehlerTechnicalIdentNo: unitEditorDraft.kuehlerTechnicalIdentNo.trim() || null,
           kuehlerModel: unitEditorDraft.kuehlerModel.trim() || null,
         });
         setKuehlerUnits((prev) => prev.map((unit) => (unit.id === updated.id ? updated : unit)));
@@ -2069,6 +2179,7 @@ function MarketDetailDrawer({
     unitEditorDraft.kuehlerInternalId,
     unitEditorDraft.kuehlerModel,
     unitEditorDraft.kuehlerSerialNumber,
+    unitEditorDraft.kuehlerTechnicalIdentNo,
     unitEditorDraft.name,
     unitEditorId,
     unitSaving,
@@ -2294,6 +2405,7 @@ function MarketDetailDrawer({
                               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                                 <input value={unitEditorDraft.kuehlerInternalId} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerInternalId: e.target.value }))} placeholder="internal_id" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
                                 <input value={unitEditorDraft.kuehlerSerialNumber} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerSerialNumber: e.target.value }))} placeholder="Serial Number" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
+                                <input value={unitEditorDraft.kuehlerTechnicalIdentNo} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerTechnicalIdentNo: e.target.value }))} placeholder="Tech. Ident. No." style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
                                 <input value={unitEditorDraft.kuehlerModel} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerModel: e.target.value }))} placeholder="Model" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
                                 <input value={unitEditorDraft.kuehlerBd} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerBd: e.target.value }))} placeholder="BD" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
                                 <input value={unitEditorDraft.kuehlerAnzahlKsAmStandort} onChange={(e) => setUnitEditorDraft((prev) => ({ ...prev, kuehlerAnzahlKsAmStandort: e.target.value }))} placeholder="Anzahl KS" style={{ fontSize: 10, padding: "5px 7px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6 }} />
@@ -2310,6 +2422,9 @@ function MarketDetailDrawer({
                                   <div style={{ fontSize: 9, color: "rgba(0,0,0,0.5)" }}>
                                     {unit?.kuehlerModel || "—"} · {unit?.kuehlerSerialNumber || "—"} · BD {unit?.kuehlerBd || "—"} · KS {unit?.kuehlerAnzahlKsAmStandort == null ? "—" : unit.kuehlerAnzahlKsAmStandort}
                                   </div>
+                                  {unit?.kuehlerTechnicalIdentNo && (
+                                    <div style={{ marginTop: 2, fontSize: 8.5, color: "rgba(0,0,0,0.38)" }}>Tech. Ident. No. {unit.kuehlerTechnicalIdentNo}</div>
+                                  )}
                                 </div>
                                 <button onClick={() => unit && startUnitEdit(unit)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", cursor: "pointer" }}>Bearbeiten</button>
                               </div>
@@ -2454,6 +2569,7 @@ export default function MaerktePage() {
 
   const handleImport = useCallback(async (payload: {
     importType: ImportDatasetType;
+    kuehlerUpdateIdentifier?: KuehlerUpdateIdentifier;
     allowMissingCokeMasterNumber?: boolean;
     fileName: string;
     sheetName: string;
@@ -2510,6 +2626,7 @@ export default function MaerktePage() {
     kuehlerBd?: string | null;
     kuehlerAnzahlKsAmStandort?: number | null;
     kuehlerSerialNumber?: string | null;
+    kuehlerTechnicalIdentNo?: string | null;
     kuehlerModel?: string | null;
     importSourceFileName?: string;
     importedAt?: string;
@@ -2526,6 +2643,7 @@ export default function MaerktePage() {
     kuehlerBd?: string | null;
     kuehlerAnzahlKsAmStandort?: number | null;
     kuehlerSerialNumber?: string | null;
+    kuehlerTechnicalIdentNo?: string | null;
     kuehlerModel?: string | null;
     importSourceFileName?: string;
     importedAt?: string;

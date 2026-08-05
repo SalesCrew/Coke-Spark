@@ -41,6 +41,7 @@ export interface KuehlerUnitRecord {
   kuehlerBd: string | null;
   kuehlerAnzahlKsAmStandort: number | null;
   kuehlerSerialNumber: string | null;
+  kuehlerTechnicalIdentNo: string | null;
   kuehlerModel: string | null;
   importSourceFileName: string;
   importedAt: string;

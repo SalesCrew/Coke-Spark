@@ -362,6 +362,7 @@ export type FbManagementExportVisitRow = {
   sessionId: string;
   startedAt: string;
   gmUserId: string | null;
+  kuehlerTechnicalIdentNo?: string | null;
   sectionTypes: VisitDetailSection["section"][];
   cells: SaraCellValue[];
   dynamicAnswers: Array<{
@@ -620,6 +621,7 @@ export function prepareFbManagementExportVisitRow(input: {
     sessionId: visit.sessionId,
     startedAt: visit.startedAt,
     gmUserId: visit.gmUserId,
+    kuehlerTechnicalIdentNo: visit.kuehlerTechnicalIdentNo ?? null,
     sectionTypes: Array.from(new Set(visit.sections.map((section) => section.section))),
     cells: row,
     dynamicAnswers,
@@ -653,9 +655,15 @@ export function buildPreparedFbManagementExportRows(
   travelByVisitSessionId?: Record<string, { start: string; end: string; durationMin: number }>,
   questionCatalog?: readonly FbManagementExportQuestion[],
   questionIdsByCampaignId?: Readonly<Record<string, readonly string[]>>,
+  options?: { includeKuehlerTechnicalIdentNoColumn?: boolean },
 ) {
   const sortedRows = preparedRows.slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   const staticColumns = getSaraEinsaetzeColumns();
+  const includesKuehler = options?.includeKuehlerTechnicalIdentNoColumn
+    ?? sortedRows.some((row) => row.sectionTypes.includes("kuehler"));
+  if (includesKuehler) {
+    staticColumns.splice(6, 0, { h1: "Tech. Ident. No.", h2: "", width: 18 });
+  }
   const columns = staticColumns.slice();
   const dynamicQuestionByKey = new Map<
     string,
@@ -712,6 +720,9 @@ export function buildPreparedFbManagementExportRows(
     row[9] = travel?.start ?? "";
     row[10] = travel?.end ?? "";
     row[11] = travel?.durationMin ?? "";
+    if (includesKuehler) {
+      row.splice(6, 0, prepared.kuehlerTechnicalIdentNo ?? "");
+    }
     const answerByKey = new Map<string, { value: SaraCellValue; comment: string }>();
     for (const answer of prepared.dynamicAnswers) {
       const current = answerByKey.get(answer.key);
@@ -786,21 +797,25 @@ export function buildFbManagementCampaignSheets(input: {
       dynamicAnswers: row.dynamicAnswers.filter((answer) => allowedQuestionIds.has(answer.key)),
     };
   });
+  const campaignSections = new Set(input.campaigns.map((campaign) => campaign.section));
+  const includesKuehler = campaignSections.has("kuehler");
+  const onlyKuehler = includesKuehler && campaignSections.size === 1;
   const preparedExport = buildPreparedFbManagementExportRows(
     preparedRows,
     input.travelByVisitSessionId,
     input.questionCatalog.questions,
     input.questionCatalog.questionIdsByCampaignId,
+    { includeKuehlerTechnicalIdentNoColumn: includesKuehler },
   );
-  const campaignSections = new Set(input.campaigns.map((campaign) => campaign.section));
-  const includesKuehler = campaignSections.has("kuehler");
-  const onlyKuehler = includesKuehler && campaignSections.size === 1;
   const columns = preparedExport.columns.map((column, index) => {
     if (!includesKuehler) return column;
     if (index === 5) {
       return { ...column, h1: onlyKuehler ? "Interne ID" : "Interne ID / Standardmarkt Nr.", h2: "" };
     }
     if (index === 6) {
+      return { ...column, h1: "Tech. Ident. No.", h2: "" };
+    }
+    if (index === 7) {
       return { ...column, h1: onlyKuehler ? "Externe ID" : "Externe ID / Flexnummer", h2: "" };
     }
     return column;

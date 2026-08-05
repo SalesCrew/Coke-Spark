@@ -222,6 +222,7 @@ type BackendCampaignMarketVisitSummary = {
   sessionId: string | null;
   kuehlerUnitId: string | null;
   kuehlerInternalId: string | null;
+  kuehlerTechnicalIdentNo: string | null;
   startedAt: string | null;
   submittedAt: string | null;
   durationMinutes: number | null;
@@ -2279,6 +2280,7 @@ export type GmKuehlerMhdProgressMarket = {
   campaignName: string;
   kuehlerUnitId?: string | null;
   kuehlerNumber?: string | null;
+  kuehlerTechnicalIdentNo?: string | null;
   chain: string;
   address: string;
   stammnr: string | null;
@@ -2745,6 +2747,7 @@ export type CampaignMarketVisitStatus = {
   marketId: string;
   kuehlerUnitId?: string | null;
   kuehlerNumber?: string | null;
+  kuehlerTechnicalIdentNo?: string | null;
   targetVisitCount: number;
   submittedVisitCount: number;
   isComplete: boolean;

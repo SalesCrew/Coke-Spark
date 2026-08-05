@@ -117,6 +117,7 @@ interface MarketCatalogItem {
   finished: boolean;
   isKuehlerUnitRow?: boolean;
   kuehlerNumber?: string | null;
+  kuehlerTechnicalIdentNo?: string | null;
 }
 
 type CampaignVisitStatusByMarket = Record<string, CampaignMarketVisitStatus>;
@@ -218,6 +219,7 @@ function applyMarketFilters(
         m.flexNumber,
         m.kuehlerStammnr,
         m.kuehlerNumber,
+        m.kuehlerTechnicalIdentNo,
         m.gm,
         m.city,
         m.chain,
@@ -5897,7 +5899,14 @@ function MarketVisitDetail({
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", lineHeight: 1.2 }}>{market.name}</div>
-          <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 2 }}>{market.region}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 2 }}>
+            <span style={{ fontSize: 10, color: "rgba(0,0,0,0.4)" }}>{market.region}</span>
+            {market.kuehlerTechnicalIdentNo ? (
+              <span style={{ fontSize: 9, color: "rgba(217,119,6,0.82)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                Tech. Ident. No. {market.kuehlerTechnicalIdentNo}
+              </span>
+            ) : null}
+          </div>
         </div>
         {visitSummary?.hasSubmittedVisit && (
           <div style={{ display: "flex", gap: 16, flexShrink: 0 }}>
@@ -6693,6 +6702,11 @@ const MarketRow = React.memo(function MarketRow({
           <span style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 520, color: "rgba(0,0,0,0.46)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {market.address}
           </span>
+          {market.kuehlerTechnicalIdentNo ? (
+            <span style={{ flexShrink: 0, marginLeft: 8, fontSize: 9, fontWeight: 680, color: "rgba(217,119,6,0.78)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+              Tech. Ident. No. {market.kuehlerTechnicalIdentNo}
+            </span>
+          ) : null}
         </div>
       </div>
       <span style={{ width: 112, flexShrink: 0, textAlign: "right", fontSize: 10, color: "rgba(0,0,0,0.42)", fontWeight: 600, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
@@ -6728,6 +6742,7 @@ const MarketRow = React.memo(function MarketRow({
     prev.market.finished === next.market.finished &&
     prev.market.name === next.market.name &&
     prev.market.address === next.market.address &&
+    prev.market.kuehlerTechnicalIdentNo === next.market.kuehlerTechnicalIdentNo &&
     prev.market.stammnr === next.market.stammnr &&
     prev.market.city === next.market.city &&
     prev.visitStatus?.targetVisitCount === next.visitStatus?.targetVisitCount &&
@@ -8042,6 +8057,7 @@ export default function FbManagementPage() {
           const market = marketById.get(status.marketId);
           if (!market) continue;
           const kuehlerNumber = status.kuehlerNumber?.trim() || null;
+          const kuehlerTechnicalIdentNo = status.kuehlerTechnicalIdentNo?.trim() || null;
           assigned.push({
             ...market,
             id: getCampaignVisitStatusRowId(status),
@@ -8052,6 +8068,7 @@ export default function FbManagementPage() {
             finished: status.isComplete,
             isKuehlerUnitRow: true,
             kuehlerNumber,
+            kuehlerTechnicalIdentNo,
           });
         }
         byCampaign.set(campaignEntry.id, assigned);

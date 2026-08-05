@@ -114,9 +114,15 @@ export type MarketImportFieldKey =
   | "kuehlerBd"
   | "kuehlerAnzahlKsAmStandort"
   | "kuehlerSerialNumber"
-  | "kuehlerModel";
+  | "kuehlerTechnicalIdentNo"
+  | "kuehlerModel"
+  | "kuehlerMatchValue";
 
-export type ImportDatasetType = "universum" | "kuehler" | "update";
+export type ImportDatasetType = "universum" | "kuehler" | "kuehler_update" | "update";
+export type KuehlerUpdateIdentifier =
+  | "kuehlerInternalId"
+  | "kuehlerSerialNumber"
+  | "kuehlerTechnicalIdentNo";
 
 export const UNIVERSUM_FIELD_SPECS: FieldSpec[] = [
   { key: "standardMarketNumber", label: "Standardmarkt Nr",    required: false, isIdentity: true  },
@@ -142,6 +148,7 @@ export const KUEHLER_FIELD_SPECS: FieldSpec[] = [
   { key: "kuehlerBd",                 label: "BD",                    required: false, isIdentity: false },
   { key: "kuehlerAnzahlKsAmStandort", label: "Anzahl KS am Standort", required: false, isIdentity: false },
   { key: "kuehlerSerialNumber",       label: "Serial Number",         required: false, isIdentity: false },
+  { key: "kuehlerTechnicalIdentNo",   label: "Tech. Ident. No.",      required: false, isIdentity: false },
   { key: "name",                      label: "Name",                  required: true,  isIdentity: false },
   { key: "address",                   label: "Street name",           required: true,  isIdentity: false },
   { key: "postalCode",                label: "PLZ",                   required: true,  isIdentity: false },
@@ -150,6 +157,29 @@ export const KUEHLER_FIELD_SPECS: FieldSpec[] = [
   { key: "kuehlerModel",              label: "Model",                 required: false, isIdentity: false },
   { key: "employee",                  label: "Mitarbeiter",           required: false, isIdentity: false },
 ];
+
+export function getKuehlerUpdateIdentifierLabel(identifier: KuehlerUpdateIdentifier | null | undefined): string {
+  if (identifier === "kuehlerInternalId") return "internal_id";
+  if (identifier === "kuehlerTechnicalIdentNo") return "Tech. Ident. No.";
+  if (identifier === "kuehlerSerialNumber") return "Serial Number";
+  return "Identifikationswert";
+}
+
+export function getKuehlerUpdateFieldSpecs(
+  identifier: KuehlerUpdateIdentifier | null | undefined,
+): FieldSpec[] {
+  return [
+    { key: "kuehlerMatchValue", label: getKuehlerUpdateIdentifierLabel(identifier), required: true, isIdentity: true },
+    { key: "kuehlerInternalId", label: "internal_id", required: false, isIdentity: false },
+    { key: "kuehlerTechnicalIdentNo", label: "Tech. Ident. No.", required: false, isIdentity: false },
+    { key: "kuehlerSerialNumber", label: "Serial Number", required: false, isIdentity: false },
+    { key: "kuehlerBd", label: "BD", required: false, isIdentity: false },
+    { key: "kuehlerAnzahlKsAmStandort", label: "Anzahl KS am Standort", required: false, isIdentity: false },
+    { key: "kuehlerModel", label: "Model", required: false, isIdentity: false },
+    { key: "name", label: "Name", required: false, isIdentity: false },
+    { key: "employee", label: "Mitarbeiter", required: false, isIdentity: false },
+  ];
+}
 
 export const UPDATE_FIELD_SPECS: FieldSpec[] = [
   { key: "flexNumber",            label: "Flex-Nummer",         required: true,  isIdentity: true  },
@@ -173,8 +203,12 @@ export const UPDATE_FIELD_SPECS: FieldSpec[] = [
 
 export const FIELD_SPECS: FieldSpec[] = UNIVERSUM_FIELD_SPECS;
 
-export function getFieldSpecsForImportType(importType: ImportDatasetType): FieldSpec[] {
+export function getFieldSpecsForImportType(
+  importType: ImportDatasetType,
+  kuehlerUpdateIdentifier?: KuehlerUpdateIdentifier | null,
+): FieldSpec[] {
   if (importType === "kuehler") return KUEHLER_FIELD_SPECS;
+  if (importType === "kuehler_update") return getKuehlerUpdateFieldSpecs(kuehlerUpdateIdentifier);
   if (importType === "update") return UPDATE_FIELD_SPECS;
   return UNIVERSUM_FIELD_SPECS;
 }
@@ -296,6 +330,7 @@ export interface ImportSummary {
   fileName: string;
   sheetName: string;
   importType: ImportDatasetType;
+  kuehlerUpdateIdentifier?: KuehlerUpdateIdentifier | null;
   totalParsedRows: number;
   created: number;
   updated: number;

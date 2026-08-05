@@ -12,7 +12,7 @@ import type {
   UpdateCampaignInput,
 } from "@/types/campaign";
 import type { PraemienGmBonusSummary, PraemienQuarter, PraemienSourceRef } from "@/types/praemien";
-import type { ColumnMapping, ImportDatasetType, ImportSummary } from "@/utils/marketImport";
+import type { ColumnMapping, ImportDatasetType, ImportSummary, KuehlerUpdateIdentifier } from "@/utils/marketImport";
 import type { IppQuestionAuditRow } from "@/types/ipp";
 import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod, RedMonthYear } from "@/types/red-month";
@@ -115,6 +115,7 @@ type BackendKuehlerUnit = {
   kuehlerBd?: string | null;
   kuehlerAnzahlKsAmStandort?: number | null;
   kuehlerSerialNumber?: string | null;
+  kuehlerTechnicalIdentNo?: string | null;
   kuehlerModel?: string | null;
   importSourceFileName?: string | null;
   importedAt?: string | null;
@@ -769,6 +770,7 @@ function mapBackendKuehlerUnitToRecord(unit: BackendKuehlerUnit): KuehlerUnitRec
     kuehlerAnzahlKsAmStandort:
       unit.kuehlerAnzahlKsAmStandort == null ? null : Number(unit.kuehlerAnzahlKsAmStandort),
     kuehlerSerialNumber: unit.kuehlerSerialNumber ?? null,
+    kuehlerTechnicalIdentNo: unit.kuehlerTechnicalIdentNo ?? null,
     kuehlerModel: unit.kuehlerModel ?? null,
     importSourceFileName: unit.importSourceFileName ?? "",
     importedAt: unit.importedAt ?? new Date().toISOString(),
@@ -2150,6 +2152,7 @@ export async function updateAdminLager(input: UpdateLagerInput): Promise<LagerRe
 
 type ImportMarketsInput = {
   importType: ImportDatasetType;
+  kuehlerUpdateIdentifier?: KuehlerUpdateIdentifier;
   allowMissingCokeMasterNumber?: boolean;
   fileName: string;
   sheetName: string;
@@ -4349,6 +4352,7 @@ export type WriteKuehlerUnitInput = {
   kuehlerBd?: string | null;
   kuehlerAnzahlKsAmStandort?: number | null;
   kuehlerSerialNumber?: string | null;
+  kuehlerTechnicalIdentNo?: string | null;
   kuehlerModel?: string | null;
   importSourceFileName?: string;
   importedAt?: string;
@@ -4364,6 +4368,7 @@ export async function createMarketKuehlerUnit(input: WriteKuehlerUnitInput): Pro
       kuehlerBd: input.kuehlerBd ?? undefined,
       kuehlerAnzahlKsAmStandort: input.kuehlerAnzahlKsAmStandort ?? undefined,
       kuehlerSerialNumber: input.kuehlerSerialNumber ?? undefined,
+      kuehlerTechnicalIdentNo: input.kuehlerTechnicalIdentNo ?? undefined,
       kuehlerModel: input.kuehlerModel ?? undefined,
       importSourceFileName: input.importSourceFileName ?? "",
       importedAt: input.importedAt,
@@ -4384,6 +4389,7 @@ export async function updateMarketKuehlerUnit(
       kuehlerBd: input.kuehlerBd ?? undefined,
       kuehlerAnzahlKsAmStandort: input.kuehlerAnzahlKsAmStandort ?? undefined,
       kuehlerSerialNumber: input.kuehlerSerialNumber ?? undefined,
+      kuehlerTechnicalIdentNo: input.kuehlerTechnicalIdentNo ?? undefined,
       kuehlerModel: input.kuehlerModel ?? undefined,
       importSourceFileName: input.importSourceFileName,
       importedAt: input.importedAt,

@@ -12,6 +12,7 @@ import { Bot, ChevronLeft, Database, MessageCircle, Minimize2, SendHorizontal, S
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AdminKurtiChart } from "@/components/admin/AdminKurtiChart";
+import { AdminKurtiExportCard } from "@/components/admin/AdminKurtiExportCard";
 import { AdminKurtiVisualization } from "@/components/admin/AdminKurtiVisualization";
 import {
   AdminKurtiVisualizationSkeleton,
@@ -970,13 +971,14 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
           const isTypingMessage = !isUser && typing?.messageId === message.id;
           const showCharts = !isUser && !isTypingMessage && Boolean(message.charts?.length);
           const showVisualizations = !isUser && !isTypingMessage && Boolean(message.visualizations?.length);
+          const showExports = !isUser && !isTypingMessage && Boolean(message.exports?.length);
           const visibleContent = isTypingMessage ? typing.content.slice(0, typing.visibleLength) : message.content;
           return (
             <div
               key={message.id}
               aria-label={isTypingMessage ? message.content : undefined}
               style={{
-                maxWidth: isUser ? "78%" : showCharts || showVisualizations ? "96%" : "88%",
+                maxWidth: isUser ? "78%" : showCharts || showVisualizations || showExports ? "96%" : "88%",
                 alignSelf: isUser ? "flex-end" : "flex-start",
                 borderRadius: isUser ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
                 padding: isUser ? "10px 13px" : "11px 13px",
@@ -1001,6 +1003,9 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
                   )) : null}
                   {showVisualizations ? message.visualizations?.map((visualization, index) => (
                     <AdminKurtiVisualization key={`${message.id}-${index}-${visualization.kind}-${visualization.title}`} visualization={visualization} />
+                  )) : null}
+                  {showExports ? message.exports?.map((exportSpec) => (
+                    <AdminKurtiExportCard key={exportSpec.id} exportSpec={exportSpec} />
                   )) : null}
                 </>
               )}

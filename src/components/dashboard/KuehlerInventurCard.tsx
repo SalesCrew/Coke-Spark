@@ -39,6 +39,7 @@ interface KuehlerMarket {
   campaignName?: string;
   kuehlerUnitId?: string | null;
   kuehlerNumber?: string | null;
+  kuehlerTechnicalIdentNo?: string | null;
   chain: string;
   address: string;
   stammnr?: string | null;
@@ -348,6 +349,7 @@ export function KuehlerInventurCard({
     campaignName: entry.campaignName,
     kuehlerUnitId: entry.kuehlerUnitId ?? null,
     kuehlerNumber: entry.kuehlerNumber ?? null,
+    kuehlerTechnicalIdentNo: entry.kuehlerTechnicalIdentNo ?? null,
     chain: entry.chain,
     address: entry.address,
     stammnr: entry.stammnr,
@@ -360,6 +362,7 @@ export function KuehlerInventurCard({
     campaignName: entry.campaignName,
     kuehlerUnitId: entry.kuehlerUnitId ?? null,
     kuehlerNumber: entry.kuehlerNumber ?? null,
+    kuehlerTechnicalIdentNo: entry.kuehlerTechnicalIdentNo ?? null,
     chain: entry.chain,
     address: entry.address,
     stammnr: entry.stammnr,
@@ -372,6 +375,7 @@ export function KuehlerInventurCard({
     campaignName: entry.campaignName,
     kuehlerUnitId: null,
     kuehlerNumber: null,
+    kuehlerTechnicalIdentNo: null,
     chain: entry.chain,
     address: entry.address,
     stammnr: entry.stammnr,
@@ -436,7 +440,7 @@ export function KuehlerInventurCard({
         (m) =>
           m.chain.toLowerCase().includes(q) ||
           m.address.toLowerCase().includes(q) ||
-          String(m.kuehlerNumber ?? "").toLowerCase().includes(q),
+          String(m.kuehlerTechnicalIdentNo ?? "").toLowerCase().includes(q),
       );
     }
     const pending = list.filter((m) => !m.done);
@@ -454,7 +458,7 @@ export function KuehlerInventurCard({
         campaignName: entry.campaignName || "Kühlerinventur",
         section: "kuehler" as const,
         kuehlerUnitId: entry.kuehlerUnitId ?? null,
-        kuehlerNumber: entry.kuehlerNumber ?? entry.stammnr ?? null,
+        kuehlerNumber: entry.kuehlerTechnicalIdentNo ?? entry.stammnr ?? null,
         done: entry.done,
         doneDate: entry.doneDate,
         isStartable: !entry.done,
@@ -906,7 +910,7 @@ export function KuehlerInventurCard({
                         <span className="text-[9px] font-medium text-gray-500 truncate">{m.address}</span>
                       </div>
                       <div className="flex items-center shrink-0">
-                        <KuehlerNumberValue value={activeTab === "kuehler" ? m.kuehlerNumber : null} />
+                        <KuehlerNumberValue value={activeTab === "kuehler" ? m.kuehlerTechnicalIdentNo : null} />
                         <StammnrValue value={m.stammnr} />
                       </div>
                     </div>
@@ -954,7 +958,7 @@ export function KuehlerInventurCard({
                         <span className="text-[9px] font-medium text-gray-500 truncate">{m.address}</span>
                       </div>
                       <div className="flex items-center shrink-0">
-                        <KuehlerNumberValue value={activeTab === "kuehler" ? m.kuehlerNumber : null} />
+                        <KuehlerNumberValue value={activeTab === "kuehler" ? m.kuehlerTechnicalIdentNo : null} />
                         <StammnrValue value={m.stammnr} />
                         <span className="text-[8px] tabular-nums shrink-0 ml-2" style={{ color: "rgba(5,150,105,0.72)", fontWeight: 650 }}>{m.doneDate}</span>
                       </div>

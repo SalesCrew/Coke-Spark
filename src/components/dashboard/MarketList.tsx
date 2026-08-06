@@ -439,6 +439,7 @@ export function GmMarketDetailModal({
   }, [onClose]);
 
   const record = detail?.market ?? market.record;
+  const kuehlerTechnicalIdentNos = detail?.kuehlerTechnicalIdentNos ?? [];
   const chain = chainColors(market.chain);
   const allowedSections = sectionFilter?.length ? new Set(sectionFilter) : null;
   const visibleCampaigns = detail?.activeCampaigns.filter((campaign) => !allowedSections || allowedSections.has(campaign.section)) ?? [];
@@ -580,6 +581,9 @@ export function GmMarketDetailModal({
             </div>
             <FactRow label="Stammnr." value={record.cokeMasterNumber || record.kuehlerStammnr} />
             <FactRow label="Flex-Nr." value={record.flexNumber} />
+            {(record.marketType === "kuehler" || record.marketType === "both") && (
+              <FactRow label="Tech. Ident. No." value={kuehlerTechnicalIdentNos.join(", ")} />
+            )}
             <FactRow label="Region" value={record.region} />
             <FactRow label="PLZ / Ort" value={[record.postalCode, record.city].filter(Boolean).join(" ")} />
             <FactRow label="EM/EH" value={record.emEh} />

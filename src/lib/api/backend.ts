@@ -2270,6 +2270,7 @@ export type GmMarketDetailPayload = {
   };
   market: MarketRecord;
   activeCampaigns: GmMarketDetailActiveCampaign[];
+  kuehlerTechnicalIdentNos: string[];
   drafts: GmMarketDetailDraft[];
   pastVisits: GmMarketPastVisit[];
 };

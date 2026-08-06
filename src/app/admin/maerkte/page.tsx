@@ -2042,6 +2042,13 @@ function MarketDetailDrawer({
   const visitCount = marketVisits.length;
   const ci = chainInitials(market.name);
   const hasKuehlerDataset = market.marketType === "kuehler" || market.marketType === "both";
+  const kuehlerTechnicalIdentNos = Array.from(
+    new Set(
+      kuehlerUnits
+        .map((unit) => unit.kuehlerTechnicalIdentNo?.trim() ?? "")
+        .filter(Boolean),
+    ),
+  );
   const promotionStammnr = (market.kuehlerStammnr || market.cokeMasterNumber || "").trim();
   const showKuehlerUnitSection = hasKuehlerDataset || unitEditorId === "new" || unitsError !== null;
   const marketTypeMeta =
@@ -2279,6 +2286,12 @@ function MarketDetailDrawer({
                   <InfoRow label="Stammnr. Coke" value={market.cokeMasterNumber} edit={editing} editValue={draft.cokeMasterNumber} onEdit={v => set({ cokeMasterNumber: v })} />
                 )}
                 <InfoRow label="Standardmarkt Nr" value={market.standardMarketNumber} edit={editing} editValue={draft.standardMarketNumber} onEdit={v => set({ standardMarketNumber: v })} />
+                {hasKuehlerDataset && (
+                  <InfoRow
+                    label="Tech. Ident. No."
+                    value={unitsLoading ? "Wird geladen..." : kuehlerTechnicalIdentNos.join(", ")}
+                  />
+                )}
                 {editing && (
                   <div style={{ marginTop: 4, fontSize: 9, lineHeight: 1.45, color: "rgba(0,0,0,0.42)" }}>
                     Identitätsnummern werden zentral geändert. Kampagnen, Besuche und Auswertungen bleiben über die Markt-ID verbunden.

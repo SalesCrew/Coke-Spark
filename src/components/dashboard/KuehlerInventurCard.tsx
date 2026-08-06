@@ -124,6 +124,85 @@ function KuehlerNumberValue({ value }: { value?: string | null }) {
   );
 }
 
+function InventoryMarketRow({
+  market,
+  isLast,
+  completed,
+  showTechnicalIdentNo,
+  onOpen,
+}: {
+  market: KuehlerMarket;
+  isLast: boolean;
+  completed: boolean;
+  showTechnicalIdentNo: boolean;
+  onOpen: (market: KuehlerMarket) => void;
+}) {
+  const cc = chainColor(market.chain);
+
+  return (
+    <button
+      type="button"
+      disabled={!market.marketId}
+      onClick={() => onOpen(market)}
+      className="flex w-full items-start gap-2 text-left transition-colors hover:bg-black/[0.015] disabled:cursor-default"
+      style={{
+        padding: "7px 4px 8px",
+        border: "none",
+        borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.04)",
+        borderRadius: 5,
+        background: "transparent",
+        font: "inherit",
+      }}
+      aria-label={`${market.chain}, ${market.address}`}
+    >
+      {completed ? (
+        <CheckCircle2 size={10} strokeWidth={2} color="#059669" className="mt-0.5 shrink-0" />
+      ) : (
+        <Circle size={10} strokeWidth={2} color="rgba(220,38,38,0.4)" className="mt-0.5 shrink-0" />
+      )}
+
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span
+            className="shrink-0 text-[8px] font-semibold uppercase"
+            style={{
+              padding: "1px 6px",
+              borderRadius: 4,
+              backgroundColor: cc.bg,
+              color: cc.text,
+              letterSpacing: "0.02em",
+            }}
+          >
+            {market.chain}
+          </span>
+
+          <span className="ml-auto flex flex-wrap items-center justify-end gap-y-0.5">
+            <KuehlerNumberValue value={showTechnicalIdentNo ? market.kuehlerTechnicalIdentNo : null} />
+            <StammnrValue value={market.stammnr} />
+          </span>
+        </span>
+
+        <span className="mt-1 flex items-start gap-2">
+          <span
+            className="min-w-0 flex-1 text-[9px] font-medium text-gray-500"
+            style={{ lineHeight: 1.35, whiteSpace: "normal", overflowWrap: "anywhere" }}
+          >
+            {market.address}
+          </span>
+          {completed && market.doneDate ? (
+            <span
+              className="shrink-0 text-[8px] font-semibold tabular-nums"
+              style={{ color: "rgba(5,150,105,0.72)", lineHeight: 1.35 }}
+            >
+              {market.doneDate}
+            </span>
+          ) : null}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function getKuehlerChoiceKey(entry: Pick<KuehlerMarket, "campaignId" | "kuehlerUnitId" | "kuehlerNumber" | "address">, index = 0) {
   return [
     entry.campaignId ?? "campaign",
@@ -440,7 +519,9 @@ export function KuehlerInventurCard({
         (m) =>
           m.chain.toLowerCase().includes(q) ||
           m.address.toLowerCase().includes(q) ||
-          String(m.kuehlerTechnicalIdentNo ?? "").toLowerCase().includes(q),
+          String(m.kuehlerTechnicalIdentNo ?? "").toLowerCase().includes(q) ||
+          String(m.kuehlerNumber ?? "").toLowerCase().includes(q) ||
+          String(m.stammnr ?? "").toLowerCase().includes(q),
       );
     }
     const pending = list.filter((m) => !m.done);
@@ -883,39 +964,16 @@ export function KuehlerInventurCard({
                 >
                   Offen ({filtered.pending.length})
                 </span>
-                {filtered.pending.map((m, i) => {
-                  const cc = chainColor(m.chain);
-                  return (
-                    <div
-                      key={`p-${i}`}
-                      className="flex items-center justify-between"
-                      onClick={() => openMarketDetail(m)}
-                      style={{
-                        padding: "7px 4px",
-                        borderBottom: i < filtered.pending.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
-                        transition: "background-color 0.12s ease",
-                        borderRadius: 5, cursor: m.marketId ? "pointer" : "default",
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.015)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Circle size={10} strokeWidth={2} color="rgba(220,38,38,0.4)" className="shrink-0" />
-                        <span
-                          className="shrink-0 text-[8px] font-semibold uppercase"
-                          style={{ padding: "1px 6px", borderRadius: 4, backgroundColor: cc.bg, color: cc.text, letterSpacing: "0.02em" }}
-                        >
-                          {m.chain}
-                        </span>
-                        <span className="text-[9px] font-medium text-gray-500 truncate">{m.address}</span>
-                      </div>
-                      <div className="flex items-center shrink-0">
-                        <KuehlerNumberValue value={activeTab === "kuehler" ? m.kuehlerTechnicalIdentNo : null} />
-                        <StammnrValue value={m.stammnr} />
-                      </div>
-                    </div>
-                  );
-                })}
+                {filtered.pending.map((market, index) => (
+                  <InventoryMarketRow
+                    key={`pending-${getKuehlerChoiceKey(market, index)}`}
+                    market={market}
+                    isLast={index === filtered.pending.length - 1}
+                    completed={false}
+                    showTechnicalIdentNo={activeTab === "kuehler"}
+                    onOpen={openMarketDetail}
+                  />
+                ))}
               </div>
             )}
 
@@ -931,40 +989,16 @@ export function KuehlerInventurCard({
                 >
                   Erledigt ({filtered.done.length})
                 </span>
-                {filtered.done.map((m, i) => {
-                  const cc = chainColor(m.chain);
-                  return (
-                    <div
-                      key={`d-${i}`}
-                      className="flex items-center justify-between"
-                      onClick={() => openMarketDetail(m)}
-                      style={{
-                        padding: "7px 4px",
-                        borderBottom: i < filtered.done.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
-                        transition: "background-color 0.12s ease",
-                        borderRadius: 5, cursor: m.marketId ? "pointer" : "default",
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.015)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CheckCircle2 size={10} strokeWidth={2} color="#059669" className="shrink-0" />
-                        <span
-                          className="shrink-0 text-[8px] font-semibold uppercase"
-                          style={{ padding: "1px 6px", borderRadius: 4, backgroundColor: cc.bg, color: cc.text, letterSpacing: "0.02em" }}
-                        >
-                          {m.chain}
-                        </span>
-                        <span className="text-[9px] font-medium text-gray-500 truncate">{m.address}</span>
-                      </div>
-                      <div className="flex items-center shrink-0">
-                        <KuehlerNumberValue value={activeTab === "kuehler" ? m.kuehlerTechnicalIdentNo : null} />
-                        <StammnrValue value={m.stammnr} />
-                        <span className="text-[8px] tabular-nums shrink-0 ml-2" style={{ color: "rgba(5,150,105,0.72)", fontWeight: 650 }}>{m.doneDate}</span>
-                      </div>
-                    </div>
-                  );
-                })}
+                {filtered.done.map((market, index) => (
+                  <InventoryMarketRow
+                    key={`done-${getKuehlerChoiceKey(market, index)}`}
+                    market={market}
+                    isLast={index === filtered.done.length - 1}
+                    completed
+                    showTechnicalIdentNo={activeTab === "kuehler"}
+                    onOpen={openMarketDetail}
+                  />
+                ))}
               </div>
             )}
 

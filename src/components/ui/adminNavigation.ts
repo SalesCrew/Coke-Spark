@@ -37,11 +37,14 @@ export type AdminPageKey =
   | "gebietsmanager"
   | "shelfmerchandiser";
 
+export type AdminWorkspace = "gm" | "sm";
+
 export type AdminNavItem = {
   label: string;
   icon: LucideIcon;
   href: string;
   pageKey: AdminPageKey;
+  workspace?: AdminWorkspace;
   adminOnly?: boolean;
   color: {
     bg: string;
@@ -90,6 +93,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { label: "Durcharbeit", icon: ClipboardCheck, href: "/admin/durcharbeit", pageKey: "durcharbeit", color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
       { label: "FB Management", icon: LayoutGrid, href: "/admin/fbmanagement", pageKey: "fbmanagement", color: cokeRed },
       { label: "Fotoarchiv", icon: Images, href: "/admin/fotoarchiv", pageKey: "fotoarchiv", color: cokeRed },
+      { label: "Fragebögen", icon: ClipboardList, href: "/admin/sm/fragebogen", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
     ],
   },
   {
@@ -99,7 +103,8 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { label: "Märkte", icon: MapPin, href: "/admin/maerkte", pageKey: "maerkte", color: cokeRed },
       { label: "Lager", icon: Warehouse, href: "/admin/lager", pageKey: "lager", color: cokeRed },
       { label: "Gebietsmanager", icon: UserCheck, href: "/admin/gebietsmanager", pageKey: "gebietsmanager", color: cokeRed },
-      { label: "Shelf Merchandiser", icon: UserCheck, href: "/admin/shelfmerchandiser", pageKey: "shelfmerchandiser", color: cokeRed },
+      { label: "Märkte", icon: MapPin, href: "/admin/sm/maerkte", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
+      { label: "Shelf Merchandiser", icon: UserCheck, href: "/admin/shelfmerchandiser", pageKey: "shelfmerchandiser", workspace: "sm", color: cokeRed },
       { label: "Datenschutz", icon: ShieldCheck, href: "/admin/datenschutzanfragen", pageKey: "datenschutzanfragen", adminOnly: true, color: cokeRed },
     ],
   },
@@ -110,6 +115,13 @@ export function getAdminPageKeyForPath(pathname: string): AdminPageKey | null {
   const sorted = [...allItems].sort((a, b) => b.href.length - a.href.length);
   const match = sorted.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
   return match?.pageKey ?? null;
+}
+
+export function getAdminWorkspaceForPath(pathname: string): AdminWorkspace {
+  const allItems = ADMIN_NAV_GROUPS.flatMap((group) => group.items);
+  const sorted = [...allItems].sort((a, b) => b.href.length - a.href.length);
+  const match = sorted.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  return match?.workspace ?? "gm";
 }
 
 export function getFirstReadableAdminHref(canRead: (pageKey: AdminPageKey) => boolean): string | null {

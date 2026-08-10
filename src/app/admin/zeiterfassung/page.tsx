@@ -15,6 +15,7 @@ import {
   fetchRedMonthCalendar,
   patchAdminZeiterfassungDaySession,
   patchAdminZeiterfassungSegment,
+  softDeleteAdminZeiterfassungPause,
   softDeleteAdminZeiterfassungDaySession,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
@@ -362,6 +363,7 @@ const ActionRow = React.memo(function ActionRow({
   const [draftComment, setDraftComment] = useState(seg.comment ?? "");
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [pauseDeleteOpen, setPauseDeleteOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const isAnfahrt   = seg.kind === "anfahrt";
   const isHeimfahrt = seg.kind === "heimfahrt";
@@ -388,6 +390,7 @@ const ActionRow = React.memo(function ActionRow({
     setEditingMode(null);
     setSaving(false);
     setEditError(null);
+    setPauseDeleteOpen(false);
   }, [seg.comment, seg.end, seg.id, seg.start]);
 
   useEffect(() => {
@@ -414,7 +417,7 @@ const ActionRow = React.memo(function ActionRow({
   useEffect(() => {
     if (!contextMenu) return;
     const width = menuRef.current?.offsetWidth ?? 170;
-    const height = menuRef.current?.offsetHeight ?? (isZusatz && editableKind ? 78 : 42);
+    const height = menuRef.current?.offsetHeight ?? ((isZusatz || isPause) && editableKind ? 78 : 42);
     const pad = 8;
     let x = contextMenu.x;
     let y = contextMenu.y;
@@ -428,7 +431,7 @@ const ActionRow = React.memo(function ActionRow({
       x: Math.max(pad, x),
       y: Math.max(pad, y),
     });
-  }, [contextMenu, editableKind, isZusatz]);
+  }, [contextMenu, editableKind, isPause, isZusatz]);
 
   async function saveTimeEdit() {
     if (!editableKind || saving) return;
@@ -493,6 +496,25 @@ const ActionRow = React.memo(function ActionRow({
     } catch (error) {
       const message = error instanceof Error ? error.message : "Kommentar konnte nicht gespeichert werden.";
       setEditError(message || "Kommentar konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deletePause() {
+    if (!isPause || !editableKind || saving) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      await softDeleteAdminZeiterfassungPause({
+        sessionId: session.id,
+        pauseId: seg.id,
+      });
+      setPauseDeleteOpen(false);
+      await onSegmentPatched();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Pause konnte nicht gelöscht werden.";
+      setEditError(message || "Pause konnte nicht gelöscht werden.");
     } finally {
       setSaving(false);
     }
@@ -720,6 +742,26 @@ const ActionRow = React.memo(function ActionRow({
                   ✏ Kommentar bearbeiten
                 </button>
               )}
+              {isPause && (
+                <button
+                  onClick={() => {
+                    setContextMenu(null);
+                    setMenuPosition(null);
+                    setPauseDeleteOpen(true);
+                    setEditError(null);
+                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", borderRadius: 6, background: "transparent", padding: "7px 10px", fontSize: 10.5, fontWeight: 650, color: "#c81e1e", cursor: "pointer", transition: "background-color 0.1s ease", fontFamily: "inherit" }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.backgroundColor = "rgba(220,38,38,0.06)";
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <Trash2 size={12} strokeWidth={1.8} />
+                  Pause löschen
+                </button>
+              )}
             </>
           ) : (
             <button
@@ -732,6 +774,59 @@ const ActionRow = React.memo(function ActionRow({
               Fahrtzeit wird automatisch berechnet
             </button>
           )}
+        </div>,
+        document.body,
+      )}
+      {pauseDeleteOpen && typeof document !== "undefined" && createPortal(
+        <div
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) {
+              setPauseDeleteOpen(false);
+              setEditError(null);
+            }
+          }}
+          style={{ position: "fixed", inset: 0, zIndex: 10020, display: "grid", placeItems: "center", padding: 20, background: "rgba(15,23,42,0.28)", backdropFilter: "blur(8px)" }}
+        >
+          <div style={{ width: "min(380px, calc(100vw - 32px))", borderRadius: 14, border: "1px solid rgba(15,23,42,0.09)", background: "#fff", boxShadow: "0 24px 64px rgba(15,23,42,0.20)", padding: 18, fontFamily: "inherit" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ width: 34, height: 34, flexShrink: 0, display: "grid", placeItems: "center", borderRadius: 9, border: "1px solid rgba(220,38,38,0.16)", background: "rgba(220,38,38,0.06)", color: "#d71920" }}>
+                <Trash2 size={16} strokeWidth={1.8} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <h3 style={{ margin: 0, fontSize: 14, lineHeight: 1.3, fontWeight: 760, color: "#111827" }}>Pause wirklich löschen?</h3>
+                <p style={{ margin: "6px 0 0", fontSize: 10.5, lineHeight: 1.55, color: "rgba(15,23,42,0.58)" }}>
+                  Die Pause von {seg.start} bis {seg.end} wird aus diesem Arbeitstag entfernt. Alle anderen Einträge bleiben unverändert.
+                </p>
+              </div>
+            </div>
+            {editError && (
+              <div style={{ marginTop: 12, borderRadius: 8, border: "1px solid rgba(220,38,38,0.14)", background: "rgba(220,38,38,0.05)", padding: "8px 10px", fontSize: 10, lineHeight: 1.45, fontWeight: 600, color: "#b91c1c" }}>
+                {editError}
+              </div>
+            )}
+            <div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setPauseDeleteOpen(false);
+                  setEditError(null);
+                }}
+                disabled={saving}
+                style={{ ...secondaryActionButtonStyle, minWidth: 96, height: 34, padding: "0 14px", fontSize: 10.5, fontWeight: 650, opacity: saving ? 0.7 : 1 }}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => { void deletePause(); }}
+                disabled={saving}
+                style={{ ...primaryActionButtonStyle, minWidth: 116, height: 34, padding: "0 15px", fontSize: 10.5, fontWeight: 760, opacity: saving ? 0.78 : 1 }}
+              >
+                {saving ? "Wird gelöscht..." : "Pause löschen"}
+              </button>
+            </div>
+          </div>
         </div>,
         document.body,
       )}

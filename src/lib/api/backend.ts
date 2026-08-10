@@ -4258,6 +4258,19 @@ export async function patchAdminZeiterfassungSegment(input: {
   })) as { ok: boolean };
 }
 
+export async function softDeleteAdminZeiterfassungPause(input: {
+  sessionId: string;
+  pauseId: string;
+}): Promise<{ ok: boolean; pauseId: string }> {
+  return (await authedFetch(`/admin/zeiterfassung/pauses/${encodeURIComponent(input.pauseId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      sessionId: input.sessionId,
+      confirmation: "SOFT_DELETE_PAUSE",
+    }),
+  })) as { ok: boolean; pauseId: string };
+}
+
 export async function patchAdminZeiterfassungDaySession(input: {
   sessionId: string;
   startTime?: string;

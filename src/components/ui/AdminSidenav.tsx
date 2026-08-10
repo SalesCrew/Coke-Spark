@@ -8,7 +8,7 @@ import { AdminManagerPanel } from "@/components/admin/AdminManagerPanel";
 import { AdminKurtiPanel } from "@/components/admin/AdminKurtiPanel";
 import { AdminProfilePopover } from "@/components/admin/AdminProfilePopover";
 import { CustomerAccessPanel } from "@/components/admin/CustomerAccessPanel";
-import { ADMIN_NAV_GROUPS } from "@/components/ui/adminNavigation";
+import { ADMIN_NAV_GROUPS, getAdminWorkspaceForPath, type AdminWorkspace } from "@/components/ui/adminNavigation";
 import { Plasma } from "@/components/ui/Plasma";
 import { useAdminAccess } from "@/context/AdminAccessContext";
 import { logoutCurrentUser, readAuthSession, subscribeAuthSession } from "@/lib/api/backend";
@@ -28,6 +28,7 @@ export function AdminSidenav() {
   const router = useRouter();
   const profileButtonRef = useRef<HTMLButtonElement | null>(null);
   const adminAccess = useAdminAccess();
+  const activeWorkspace = getAdminWorkspaceForPath(pathname);
 
   useEffect(() => {
     const syncAuthUser = () => {
@@ -101,7 +102,7 @@ export function AdminSidenav() {
     ? "#0891B2"
     : "#DC2626";
 
-  const visibleNavGroups = useMemo(
+  const readableNavGroups = useMemo(
     () =>
       ADMIN_NAV_GROUPS.map((group) => ({
         ...group,
@@ -109,6 +110,35 @@ export function AdminSidenav() {
       })).filter((group) => group.items.length > 0),
     [adminAccess],
   );
+
+  const workspaceHrefs = useMemo(() => {
+    const result: Partial<Record<AdminWorkspace, string>> = {};
+    for (const group of readableNavGroups) {
+      for (const item of group.items) {
+        const workspace = item.workspace ?? "gm";
+        result[workspace] ??= item.href;
+      }
+    }
+    return result;
+  }, [readableNavGroups]);
+
+  const visibleNavGroups = useMemo(
+    () =>
+      readableNavGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => (item.workspace ?? "gm") === activeWorkspace),
+        }))
+        .filter((group) => group.items.length > 0),
+    [activeWorkspace, readableNavGroups],
+  );
+
+  const switchWorkspace = (workspace: AdminWorkspace) => {
+    const href = workspaceHrefs[workspace];
+    if (!href || workspace === activeWorkspace) return;
+    setOverlayState("closed");
+    router.push(href);
+  };
 
   return (
     <>
@@ -219,6 +249,86 @@ export function AdminSidenav() {
             </span>
           </div>
         </button>
+
+        <div
+          style={{
+            height: isSidebarExpanded ? 66 : 0,
+            margin: isSidebarExpanded ? "0 20px 10px" : "0 20px",
+            opacity: isSidebarExpanded ? 1 : 0,
+            overflow: "hidden",
+            flexShrink: 0,
+            transition: "height 0.22s ease, margin 0.22s ease, opacity 0.16s ease",
+          }}
+        >
+          <div
+            style={{
+              height: 14,
+              display: "flex",
+              alignItems: "center",
+              fontSize: 7.5,
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "rgba(0,0,0,0.32)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Arbeitsbereich
+          </div>
+          <div
+            role="tablist"
+            aria-label="Arbeitsbereich"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              height: 42,
+              borderBottom: "1px solid rgba(0,0,0,0.09)",
+            }}
+          >
+            {(["gm", "sm"] as const).map((workspace) => {
+              const isActive = activeWorkspace === workspace;
+              const isAvailable = Boolean(workspaceHrefs[workspace]);
+              return (
+                <button
+                  key={workspace}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  disabled={!isAvailable}
+                  onClick={() => switchWorkspace(workspace)}
+                  style={{
+                    position: "relative",
+                    border: "none",
+                    padding: "2px 0 0",
+                    background: "transparent",
+                    color: isActive ? "#171717" : "rgba(0,0,0,0.38)",
+                    fontFamily: "inherit",
+                    fontSize: 11,
+                    fontWeight: isActive ? 650 : 500,
+                    letterSpacing: "-0.01em",
+                    cursor: isAvailable ? "pointer" : "default",
+                    opacity: isAvailable ? 1 : 0.24,
+                    transition: "color 0.18s ease, opacity 0.18s ease",
+                  }}
+                >
+                  {workspace.toUpperCase()}
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      bottom: -1,
+                      height: 2,
+                      backgroundColor: isActive ? "#ef2028" : "transparent",
+                      transition: "background-color 0.18s ease",
+                    }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <div style={{ flex: 1, padding: "4px 8px" }}>
           {visibleNavGroups.map((group, gi) => (

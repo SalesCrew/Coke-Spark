@@ -191,13 +191,18 @@ function settledActionError(
   return failed.reason instanceof Error ? failed.reason.message : fallback;
 }
 
-export function AnswerChangeRequestFlap() {
+type AnswerChangeRequestFlapProps = {
+  workspace?: "gm" | "sm";
+};
+
+export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequestFlapProps) {
+  const isSmWorkspace = workspace === "sm";
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [requests, setRequests] = useState<AdminAnswerChangeRequest[]>([]);
   const [timeRequests, setTimeRequests] = useState<TimeEntryChangeRequest[]>([]);
   const [deleteRequests, setDeleteRequests] = useState<AdminVisitSessionDeleteRequest[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!isSmWorkspace);
   const [error, setError] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [selectedGmId, setSelectedGmId] = useState<string | null>(null);
@@ -206,6 +211,15 @@ export function AnswerChangeRequestFlap() {
   const [expandedDoneOpen, setExpandedDoneOpen] = useState(false);
 
   const loadRequests = useCallback(async (options?: { preserveError?: boolean }) => {
+    if (isSmWorkspace) {
+      setRequests([]);
+      setTimeRequests([]);
+      setDeleteRequests([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     if (!options?.preserveError) setError(null);
     try {
@@ -223,7 +237,7 @@ export function AnswerChangeRequestFlap() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isSmWorkspace]);
 
   useEffect(() => {
     void loadRequests();
@@ -682,9 +696,9 @@ export function AnswerChangeRequestFlap() {
         <section className="answer-flap-panel" aria-label="?nderungsanfragen">
           <header className="answer-flap-header">
             <div className="answer-flap-title">
-              <div className="answer-flap-eyebrow">Pruefung</div>
-              <h2>Antwortprüfung</h2>
-              <p>Korrekturen aus Fragebögen und Zeiterfassung.</p>
+              <div className="answer-flap-eyebrow">{isSmWorkspace ? "SM Prüfung" : "Pruefung"}</div>
+              <h2>{isSmWorkspace ? "SM Anfragen" : "Antwortprüfung"}</h2>
+              <p>{isSmWorkspace ? "Korrekturen aus SM-Einsätzen und Zeiterfassung." : "Korrekturen aus Fragebögen und Zeiterfassung."}</p>
             </div>
             <div className="answer-flap-header-actions">
               <button type="button" className="answer-icon-button" onClick={() => void loadRequests()} aria-label="Aktualisieren" disabled={loading}>
@@ -713,7 +727,7 @@ export function AnswerChangeRequestFlap() {
                 <div className="answer-empty">
                   <Inbox size={20} />
                   <strong>Keine offenen Anfragen</strong>
-                  <span>Neue Korrekturen erscheinen automatisch in dieser Liste.</span>
+                  <span>{isSmWorkspace ? "Neue SM-Anfragen erscheinen getrennt in dieser Liste." : "Neue Korrekturen erscheinen automatisch in dieser Liste."}</span>
                 </div>
               ) : (
                 <>

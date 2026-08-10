@@ -42,7 +42,7 @@ import { RedMonthHeaderControl } from "@/components/admin/RedMonthHeaderControl"
 import { AnswerChangeRequestFlap } from "@/components/admin/AnswerChangeRequestFlap";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
 import { AdminAccessProvider, useAdminAccess } from "@/context/AdminAccessContext";
-import { getAdminPageKeyForPath, type AdminPageKey } from "@/components/ui/adminNavigation";
+import { getAdminPageKeyForPath, getAdminWorkspaceForPath, type AdminPageKey } from "@/components/ui/adminNavigation";
 
 // ── Purple accent colours (used by MHD) ───────────────────────
 
@@ -126,6 +126,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isFbExtend = pathname.startsWith("/admin/fbmanagement/erweitern/");
   const isPraemien = pathname.startsWith("/admin/praemien");
   const isMaerkte = pathname.startsWith("/admin/maerkte");
+  const isSmMaerkte = pathname.startsWith("/admin/sm/maerkte");
+  const isSmFragebogen = pathname.startsWith("/admin/sm/fragebogen");
   const isLager = pathname.startsWith("/admin/lager");
   const isGebietsmanager = pathname.startsWith("/admin/gebietsmanager");
   const isShelfMerchandiser = pathname.startsWith("/admin/shelfmerchandiser");
@@ -133,6 +135,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isIppBerechnung  = pathname.startsWith("/admin/ipp-berechnung");
   const isGmDashboard    = pathname.startsWith("/admin/gm-dashboard");
   const isDatenschutzAnfragen = pathname.startsWith("/admin/datenschutzanfragen");
+  const adminWorkspace = getAdminWorkspaceForPath(pathname);
 
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [availableMarketChains, setAvailableMarketChains] = useState<string[]>([]);
@@ -770,7 +773,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
+  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmFragebogen ? "Fragebögen" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
   const exportEventName =
     isDurcharbeit ? "admin:durcharbeit:export"
     : isMhd ? "admin:mhd:export"
@@ -780,6 +783,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : isFbManagement ? "admin:fbmanagement:export"
     : isFotoarchiv ? "admin:fotoarchiv:export"
     : isPraemien ? "admin:praemien:export"
+    : isSmFragebogen ? "admin:sm-fragebogen:export"
     : isMaerkte ? "admin:maerkte:export"
     : isLager ? "admin:lager:export"
     : isGebietsmanager ? "admin:gebietsmanager:export"
@@ -828,7 +832,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                 <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", letterSpacing: "0.01em" }}>
                   DSGVO-Prozess, Fristen und Datenpakete
                 </p>
-              ) : !isGmDashboard ? <RedMonthHeaderControl /> : null}
+              ) : !isGmDashboard && adminWorkspace !== "sm" ? <RedMonthHeaderControl /> : null}
             </div>
 
             {/* Centered import notice */}
@@ -966,7 +970,49 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Download size={12} strokeWidth={2} />
                   Exportieren
                 </button>
-              ) : isIppBerechnung ? null : isLager ? null : isMaerkte ? (
+              ) : isIppBerechnung ? null : isLager ? null : isSmFragebogen ? (
+                <>
+                  {canWriteCurrentPage ? <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("sm-fragebogen:openModuleCreate"))}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #2a2a2a, #1a1a1a)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.18), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 0 1px #111111, 0 1px 6px rgba(0,0,0,0.18)" }}
+                  >
+                    <Plus size={12} strokeWidth={2} />
+                    Modul erstellen
+                  </button> : null}
+                  {canWriteCurrentPage ? <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("sm-fragebogen:openQuestionnaireCreate"))}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                  >
+                    <Plus size={12} strokeWidth={2} />
+                    Fragebogen erstellen
+                  </button> : null}
+                </>
+              ) : isSmMaerkte ? (
+                <>
+                  {canWriteCurrentPage ? <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("sm-maerkte:openManualCreate"))}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                  >
+                    <Plus size={12} strokeWidth={2} />
+                    Markt anlegen
+                  </button> : null}
+                  {canWriteCurrentPage ? <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("sm-maerkte:openImport"))}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                  >
+                    <Plus size={12} strokeWidth={2} />
+                    Importieren
+                  </button> : null}
+                </>
+              ) : isMaerkte ? (
                 <>
                   {canUpdateCurrentPage ? <button
                     onClick={() => window.dispatchEvent(new CustomEvent("maerkte:normalizeRegions"))}
@@ -1040,7 +1086,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
             {children}
           </main>
         </div>
-        {session?.user.role === "admin" ? <AnswerChangeRequestFlap /> : null}
+        {session?.user.role === "admin" ? <AnswerChangeRequestFlap key={adminWorkspace} workspace={adminWorkspace} /> : null}
 
         {/* Fragebogen modals */}
         {moduleEditorOpen && (

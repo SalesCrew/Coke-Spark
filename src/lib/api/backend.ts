@@ -4276,6 +4276,23 @@ export async function patchAdminZeiterfassungDaySession(input: {
   })) as { ok: boolean };
 }
 
+export async function softDeleteAdminZeiterfassungDaySession(input: {
+  sessionId: string;
+}): Promise<{
+  ok: boolean;
+  sessionId: string;
+  counts: { visits: number; pauses: number; entries: number; changeRequests: number };
+}> {
+  return (await authedFetch(`/admin/zeiterfassung/day-sessions/${encodeURIComponent(input.sessionId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmation: "SOFT_DELETE_DAY" }),
+  })) as {
+    ok: boolean;
+    sessionId: string;
+    counts: { visits: number; pauses: number; entries: number; changeRequests: number };
+  };
+}
+
 export async function normalizeAllMarketRegions(input?: {
   batchSize?: number;
   reportLimit?: number;

@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   Check, ChevronDown, Clock, Store, Car, Coffee,
   GraduationCap, Wrench, Home, Warehouse, Star, Search,
-  Pencil, X,
+  Pencil, Trash2, X,
 } from "lucide-react";
 import {
   fetchAdminDiaetenExport,
@@ -15,6 +15,7 @@ import {
   fetchRedMonthCalendar,
   patchAdminZeiterfassungDaySession,
   patchAdminZeiterfassungSegment,
+  softDeleteAdminZeiterfassungDaySession,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
 import { DoctorConfirmationProofButton } from "@/components/dashboard/DoctorConfirmationProofButton";
@@ -33,7 +34,7 @@ import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 const R  = "#DC2626";
 const HHMM_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ROW_GRID_TEMPLATE = "minmax(260px, 1.35fr) repeat(4, minmax(112px, 1fr)) 52px 52px 18px";
+const ROW_GRID_TEMPLATE = "minmax(260px, 1.35fr) repeat(4, minmax(112px, 1fr)) 52px 52px 46px";
 const ROW_GRID_COLUMN_GAP = 14;
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -764,6 +765,173 @@ const RowMetricCell = React.memo(function RowMetricCell({ label, value, color }:
 });
 
 // ── GM Day Row (daily view) ───────────────────────────────────
+const DayDeleteButton = React.memo(function DayDeleteButton({
+  session,
+  onDeleted,
+}: {
+  session: Pick<TimeDaySession, "id" | "date" | "gmName">;
+  onDeleted: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const formattedDate = useMemo(() => fmtDateLabel(session.date).date, [session.date]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deleting) setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [deleting, open]);
+
+  const close = () => {
+    if (deleting) return;
+    setOpen(false);
+    setError(null);
+  };
+
+  const confirmDelete = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await softDeleteAdminZeiterfassungDaySession({ sessionId: session.id });
+      await onDeleted();
+      setOpen(false);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Der Arbeitstag konnte nicht gelöscht werden.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`Arbeitstag von ${session.gmName} am ${formattedDate} löschen`}
+        title="Kompletten Arbeitstag soft-deleten"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          setError(null);
+          setOpen(true);
+        }}
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: 7,
+          border: "1px solid transparent",
+          background: "transparent",
+          color: "rgba(185,28,28,0.30)",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          padding: 0,
+          transition: "color 0.15s ease, background 0.15s ease, border-color 0.15s ease",
+        }}
+        onMouseEnter={(event) => {
+          event.currentTarget.style.color = "rgba(185,28,28,0.72)";
+          event.currentTarget.style.background = "rgba(220,38,38,0.055)";
+          event.currentTarget.style.borderColor = "rgba(220,38,38,0.08)";
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.color = "rgba(185,28,28,0.30)";
+          event.currentTarget.style.background = "transparent";
+          event.currentTarget.style.borderColor = "transparent";
+        }}
+      >
+        <Trash2 size={12} strokeWidth={1.7} />
+      </button>
+
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          role="presentation"
+          onMouseDown={(event) => {
+            event.stopPropagation();
+            if (event.target === event.currentTarget) close();
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10050,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            background: "rgba(15,23,42,0.24)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`delete-day-title-${session.id}`}
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              width: "min(460px, 100%)",
+              borderRadius: 16,
+              border: "1px solid rgba(15,23,42,0.08)",
+              background: "rgba(255,255,255,0.98)",
+              boxShadow: "0 24px 70px rgba(15,23,42,0.18), 0 2px 10px rgba(15,23,42,0.06)",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "20px 20px 17px", display: "flex", gap: 13, alignItems: "flex-start" }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(220,38,38,0.07)", color: "#b91c1c" }}>
+                <Trash2 size={16} strokeWidth={1.8} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <h2 id={`delete-day-title-${session.id}`} style={{ margin: 0, fontSize: 15, lineHeight: 1.3, fontWeight: 750, letterSpacing: "-0.02em", color: "#111827" }}>
+                  Zeiterfassungstag löschen
+                </h2>
+                <div style={{ marginTop: 4, fontSize: 11, fontWeight: 650, color: "#374151" }}>
+                  {session.gmName} · {formattedDate}
+                </div>
+                <p style={{ margin: "11px 0 0", fontSize: 11, lineHeight: 1.65, color: "rgba(17,24,39,0.62)" }}>
+                  Alle zusammenhängenden Einträge dieses Tages werden soft-deleted. Das umfasst Tagesstart und -ende, Pausen, Zusatzzeiten, Marktbesuche sowie deren Antworten, Kommentare, Fotos und offene Änderungsanfragen.
+                </p>
+                <p style={{ margin: "8px 0 0", fontSize: 10, lineHeight: 1.55, color: "rgba(17,24,39,0.43)" }}>
+                  Es wird nichts physisch gelöscht. Die historischen Datensätze und Dateien bleiben für eine Wiederherstellung erhalten.
+                </p>
+              </div>
+            </div>
+
+            {error ? (
+              <div style={{ margin: "0 20px 14px", padding: "9px 11px", borderRadius: 9, border: "1px solid rgba(220,38,38,0.12)", background: "rgba(220,38,38,0.045)", color: "#b91c1c", fontSize: 10, lineHeight: 1.5, fontWeight: 600 }}>
+                {error}
+              </div>
+            ) : null}
+
+            <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(15,23,42,0.06)", background: "rgba(15,23,42,0.018)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <button
+                type="button"
+                onClick={close}
+                disabled={deleting}
+                style={{ height: 34, borderRadius: 9, border: "1px solid rgba(15,23,42,0.09)", background: "#fff", padding: "0 14px", fontFamily: "inherit", fontSize: 10, fontWeight: 700, color: "rgba(17,24,39,0.62)", cursor: deleting ? "not-allowed" : "pointer" }}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDelete()}
+                disabled={deleting}
+                style={{ height: 34, borderRadius: 9, border: "1px solid #b91c1c", background: deleting ? "rgba(220,38,38,0.62)" : "linear-gradient(to bottom, #ef4444, #dc2626)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.24), 0 2px 7px rgba(220,38,38,0.15)", padding: "0 15px", fontFamily: "inherit", fontSize: 10, fontWeight: 750, color: "#fff", cursor: deleting ? "wait" : "pointer" }}
+              >
+                {deleting ? "Wird soft-deleted…" : "Tag soft-deleten"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+});
+
 const GMDayRow = React.memo(function GMDayRow({
   session,
   onSegmentPatched,
@@ -853,7 +1021,10 @@ const GMDayRow = React.memo(function GMDayRow({
             <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>Zusatz</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: stats.zusatz > 0 ? "#2563eb" : "rgba(0,0,0,0.2)", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{stats.zusatz > 0 ? stats.zusatz : "—"}</div>
           </div>
-          <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", justifySelf: "end" }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
+            <DayDeleteButton session={session} onDeleted={onSegmentPatched} />
+            <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)" }} />
+          </div>
         </>
       </div>
       <div className="zt-expanded-shell" style={{ maxHeight: expanded ? "none" : "0", overflow: expanded ? "visible" : "hidden", transition: expanded ? "none" : "max-height 0.36s cubic-bezier(0.4,0,0.2,1)" }}>
@@ -994,8 +1165,11 @@ const HistoryDayRow = React.memo(function HistoryDayRow({ session, timeline, sta
             <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", marginBottom: 2 }}>Zusatz</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: stats.zusatz > 0 ? "#2563eb" : "rgba(0,0,0,0.2)", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{stats.zusatz > 0 ? stats.zusatz : "—"}</div>
           </div>
-          <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)"
-            style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", justifySelf: "end" }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
+            <DayDeleteButton session={session} onDeleted={onSegmentPatched} />
+            <ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)"
+              style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)" }} />
+          </div>
         </>
       </div>
 

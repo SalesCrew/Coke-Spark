@@ -39,6 +39,21 @@ export type SmQuestionType =
   | "photo"
   | "matrix";
 
+export type SmConditionalRule = {
+  id: string;
+  triggerQuestionId: string;
+  operator: string;
+  triggerValue: string;
+  triggerValueMax: string;
+  action: "hide" | "show";
+  targetQuestionIds: string[];
+};
+
+export type SmOosConfig = {
+  behobenAnswer?: string;
+  nichtBehobenAnswer?: string;
+};
+
 export type SmQuestion = {
   id: string;
   text: string;
@@ -46,6 +61,8 @@ export type SmQuestion = {
   required: boolean;
   options: string[];
   config: Record<string, unknown>;
+  rules: SmConditionalRule[];
+  oos?: SmOosConfig;
 };
 
 export type SmModule = {
@@ -123,7 +140,15 @@ const question = (
   text: string,
   type: SmQuestionType = "yesno",
   options: string[] = type === "yesno" ? ["Ja", "Nein"] : [],
-): SmQuestion => ({ id, text, type, required: true, options, config: defaultQuestionConfig(type, options) });
+): SmQuestion => ({
+  id,
+  text,
+  type,
+  required: true,
+  options,
+  config: defaultQuestionConfig(type, options),
+  rules: [],
+});
 
 const TEMP_MODULES: SmModule[] = [
   {

@@ -15,6 +15,8 @@ import {
   Images,
   ShieldCheck,
   ClipboardCheck,
+  MessageSquareText,
+  CalendarRange,
   type LucideIcon,
 } from "lucide-react";
 
@@ -99,12 +101,15 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: "Management",
     items: [
+      { label: "Verplanung", icon: CalendarRange, href: "/admin/sm/verplanung", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
+      { label: "Zeiterfassung", icon: Clock, href: "/admin/sm/zeiterfassung", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
       { label: "Zeiterfassung", icon: Clock, href: "/admin/zeiterfassung", pageKey: "zeiterfassung", color: cokeRed },
       { label: "Märkte", icon: MapPin, href: "/admin/maerkte", pageKey: "maerkte", color: cokeRed },
       { label: "Lager", icon: Warehouse, href: "/admin/lager", pageKey: "lager", color: cokeRed },
       { label: "Gebietsmanager", icon: UserCheck, href: "/admin/gebietsmanager", pageKey: "gebietsmanager", color: cokeRed },
       { label: "Märkte", icon: MapPin, href: "/admin/sm/maerkte", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
       { label: "Shelf Merchandiser", icon: UserCheck, href: "/admin/shelfmerchandiser", pageKey: "shelfmerchandiser", workspace: "sm", color: cokeRed },
+      { label: "Nachrichten", icon: MessageSquareText, href: "/admin/sm/nachrichten", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
       { label: "Datenschutz", icon: ShieldCheck, href: "/admin/datenschutzanfragen", pageKey: "datenschutzanfragen", adminOnly: true, color: cokeRed },
     ],
   },

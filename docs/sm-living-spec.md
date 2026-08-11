@@ -647,6 +647,23 @@ The independent SM questionnaire workspace now exists as a UI-only implementatio
 - Create, edit, duplicate, delete, search, filter and assignment interactions currently operate only in component-local state and reset after refresh. The export action is an explicit preview notice rather than a fake file download.
 - No SM questionnaire database tables, API calls, Supabase mutations or production persistence are connected in this checkpoint.
 
+#### 7.5.1 SM Zeiterfassung UI checkpoint (2026-08-11)
+
+- `/admin/sm/zeiterfassung` is an independent SM component tree and does not import the GM Zeiterfassung page or its GM day-session logic.
+- Its visual shell, day grouping, compact rows, expansion behavior, typography and `Tage` / `SM Ansicht` switch mirror the existing GM Zeiterfassung.
+- The SM domain does not display or model Tagesstart, Tagesende, Anfahrt, Heimfahrt, Pausen, Kilometer or GM Zusatzzeiten.
+- A day contains only the SM's planned Einsätze. Every Einsatz shows market identity, Soll-Zeit, Ist-Zeit, deviation, questionnaire state, Pauschale and operational status.
+- The current checkpoint is UI-only and uses component-local temporary Einsätze. No SM time, planning, payroll or questionnaire backend persistence is implied by this screen.
+
+#### 7.5.2 SM Verplanung UI checkpoint (2026-08-11)
+
+- `/admin/sm/verplanung` is a new, isolated SM planning page inside the existing Coke Spark admin shell. It does not reuse GM planning logic or imply any GM campaign assignment behavior.
+- The page follows the approved Coke Spark planning draft: compact week/date context in the header, existing admin-sized export and planning actions, one dense weekly planning table, day groupings, SM/market/status/type filters and a right-side planning drawer.
+- The drawer supports the complete UI distinction between one-time Einsätze and recurring series, including weekday selection, validity range and Soll-Zeit. Editing a recurring occurrence explicitly affects only that occurrence, while a new series shows one unambiguous validity range instead of duplicate date controls.
+- Search, filters, week navigation, real Excel export and drawer interactions are functional in component-local state. All SM, market, duration, recurrence and filter selectors use the custom Coke Spark dropdown UI with portal overlays, keyboard support and searchable long lists where appropriate.
+- All planning dates use the custom Coke Spark month calendar rather than native browser date inputs. The calendar mirrors the established admin styling, renders through a viewport-aware portal above the drawer, supports month navigation, today/selected states and prevents an end date before the series start.
+- This checkpoint deliberately uses temporary planning rows. It does not write SM Einsätze, series, time data or payroll values to the database; production persistence and backend validation remain a separate implementation phase.
+
 ### 7.6 Submission and time
 
 Suggested separation:

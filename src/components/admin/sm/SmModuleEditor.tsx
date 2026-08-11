@@ -2,27 +2,34 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import {
   AlignLeft,
   Camera,
+  Check,
   CheckSquare,
   ChevronDown,
+  CircleAlert,
   CircleDot,
   Grid3x3,
   GripVertical,
   Hash,
   Import,
   ListChecks,
+  Minus,
   Plus,
   SlidersHorizontal,
   Star,
   ToggleLeft,
   Trash2,
   X,
+  Zap,
 } from "lucide-react";
 
 import type {
+  SmConditionalRule,
   SmModule,
+  SmOosConfig,
   SmQuestion,
   SmQuestionType,
 } from "@/components/admin/sm/SmFragebogenWorkspace";
@@ -117,6 +124,7 @@ function createQuestion(type: SmQuestionType): SmQuestion {
     required: true,
     options,
     config,
+    rules: [],
   };
 }
 
@@ -124,6 +132,7 @@ function cloneQuestion(source: SmQuestion): SmQuestion {
   return {
     ...structuredClone(source),
     id: nextId(),
+    rules: source.rules ?? [],
   };
 }
 
@@ -159,6 +168,508 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (value: boolean
         }}
       />
     </button>
+  );
+}
+
+const SM_TRIGGER_ELIGIBLE: SmQuestionType[] = [
+  "single",
+  "yesno",
+  "yesnomulti",
+  "multiple",
+  "likert",
+  "numeric",
+  "slider",
+  "matrix",
+];
+
+const smLogicFieldLabel: CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  color: "rgba(0,0,0,0.4)",
+  width: 80,
+  flexShrink: 0,
+  paddingTop: 1,
+};
+
+const smLogicInputBase: CSSProperties = {
+  width: "100%",
+  fontSize: 11,
+  fontWeight: 500,
+  padding: "7px 10px",
+  border: "1px solid rgba(0,0,0,0.06)",
+  borderRadius: 7,
+  outline: "none",
+  backgroundColor: "#fff",
+  transition: "border-color 0.15s ease",
+};
+
+function smOperatorsForType(type: SmQuestionType): Array<{ value: string; label: string }> {
+  const base = [
+    { value: "equals", label: "ist gleich" },
+    { value: "not_equals", label: "ist nicht gleich" },
+  ];
+  if (type === "numeric" || type === "slider" || type === "likert") {
+    return [
+      ...base,
+      { value: "greater_than", label: "größer als" },
+      { value: "less_than", label: "kleiner als" },
+      { value: "between", label: "zwischen" },
+    ];
+  }
+  return base;
+}
+
+function smQuestionOptions(question: SmQuestion): string[] | null {
+  switch (question.type) {
+    case "yesno":
+      return ["Ja", "Nein"];
+    case "yesnomulti":
+      return ((question.config.answers as string[]) ?? ["Ja", "Nein"]).filter((option) => option.length > 0);
+    case "single":
+    case "multiple":
+      return ((question.config.options as string[]) ?? []).filter((option) => option.length > 0);
+    case "likert": {
+      const min = Number(question.config.min ?? 1);
+      const max = Number(question.config.max ?? 5);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return null;
+      const values: string[] = [];
+      for (let value = min; value <= max; value += 1) values.push(String(value));
+      return values;
+    }
+    case "matrix": {
+      const rows = (question.config.rows as string[]) ?? [];
+      const columns = (question.config.columns as string[]) ?? [];
+      const values: string[] = [];
+      rows.forEach((row) => {
+        if (!row) return;
+        columns.forEach((column) => {
+          if (column) values.push(`${row}: ${column}`);
+        });
+      });
+      return values.length > 0 ? values : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function newSmRule(): SmConditionalRule {
+  return {
+    id: `sm-rule-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    triggerQuestionId: "",
+    operator: "equals",
+    triggerValue: "",
+    triggerValueMax: "",
+    action: "hide",
+    targetQuestionIds: [],
+  };
+}
+
+function SmLogicDropdown({
+  value,
+  options,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, width: 0 });
+
+  const updateMenuPosition = useCallback(() => {
+    const trigger = ref.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const estimatedHeight = Math.min(180, options.length * 34 + 8);
+    const roomBelow = window.innerHeight - rect.bottom;
+    const openAbove = roomBelow < estimatedHeight + 8 && rect.top > estimatedHeight + 8;
+    const width = rect.width;
+
+    setMenuPosition({
+      top: openAbove ? Math.max(8, rect.top - estimatedHeight - 4) : rect.bottom + 4,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      width,
+    });
+  }, [options.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!ref.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
+    };
+    const reposition = () => updateMenuPosition();
+
+    updateMenuPosition();
+    document.addEventListener("mousedown", close);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open, updateMenuPosition]);
+
+  const label = options.find((option) => option.value === value)?.label;
+
+  return (
+    <div ref={ref} style={{ position: "relative", flex: 1 }}>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          if (!open) updateMenuPosition();
+          setOpen((current) => !current);
+        }}
+        style={{
+          ...smLogicInputBase,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          cursor: "pointer",
+          color: value || label ? "#1f2937" : "rgba(0,0,0,0.3)",
+          textAlign: "left",
+          fontFamily: "inherit",
+        }}
+      >
+        <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {label || placeholder || "Auswählen..."}
+        </span>
+        <ChevronDown
+          size={12}
+          strokeWidth={1.8}
+          color="rgba(0,0,0,0.25)"
+          style={{ flexShrink: 0, marginLeft: 6, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }}
+        />
+      </button>
+
+      {open && menuPosition.width > 0 ? createPortal(
+        <div
+          ref={menuRef}
+          className="sm-logic-dropdown"
+          style={{
+            position: "fixed",
+            top: menuPosition.top,
+            left: menuPosition.left,
+            width: menuPosition.width,
+            zIndex: 15050,
+            maxHeight: 180,
+            padding: 4,
+            overflowY: "auto",
+            border: "1px solid rgba(0,0,0,0.06)",
+            borderRadius: 8,
+            backgroundColor: "#fff",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04)",
+          }}
+        >
+          {options.map((option) => {
+            const selected = value === option.value;
+            return (
+              <button
+                type="button"
+                key={`${option.value}-${option.label}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "6px 8px",
+                  border: "none",
+                  borderRadius: 5,
+                  backgroundColor: selected ? "rgba(var(--module-accent-rgb,220,38,38),0.04)" : "transparent",
+                  color: selected ? "var(--module-accent,#DC2626)" : "#374151",
+                  fontFamily: "inherit",
+                  fontSize: 11,
+                  fontWeight: selected ? 600 : 400,
+                  textAlign: "left",
+                  cursor: "pointer",
+                  transition: "background-color 0.1s ease",
+                }}
+                onMouseEnter={(event) => {
+                  if (!selected) event.currentTarget.style.backgroundColor = "rgba(0,0,0,0.025)";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.backgroundColor = selected ? "rgba(var(--module-accent-rgb,220,38,38),0.04)" : "transparent";
+                }}
+              >
+                <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{option.label}</span>
+                {selected ? <Check size={12} strokeWidth={2.5} color="var(--module-accent,#DC2626)" style={{ flexShrink: 0, marginLeft: 6 }} /> : null}
+              </button>
+            );
+          })}
+        </div>,
+        document.body,
+      ) : null}
+    </div>
+  );
+}
+
+function SmConditionalLogicEditor({
+  rules,
+  onChange,
+  allQuestions,
+  currentIndex,
+}: {
+  rules: SmConditionalRule[];
+  onChange: (rules: SmConditionalRule[]) => void;
+  allQuestions: SmQuestion[];
+  currentIndex: number;
+}) {
+  const triggerCandidates = allQuestions
+    .slice(0, currentIndex + 1)
+    .filter((question) => SM_TRIGGER_ELIGIBLE.includes(question.type));
+  const targetCandidates = allQuestions.slice(currentIndex + 1);
+
+  const updateRule = (id: string, patch: Partial<SmConditionalRule>) => {
+    onChange(rules.map((rule) => rule.id === id ? { ...rule, ...patch } : rule));
+  };
+
+  const toggleTarget = (ruleId: string, questionId: string) => {
+    const rule = rules.find((candidate) => candidate.id === ruleId);
+    if (!rule) return;
+    updateRule(ruleId, {
+      targetQuestionIds: rule.targetQuestionIds.includes(questionId)
+        ? rule.targetQuestionIds.filter((id) => id !== questionId)
+        : [...rule.targetQuestionIds, questionId],
+    });
+  };
+
+  if (triggerCandidates.length === 0) {
+    return (
+      <div style={{ padding: "10px 12px", borderRadius: 8, backgroundColor: "rgba(0,0,0,0.015)", color: "rgba(0,0,0,0.3)", fontSize: 10, fontStyle: "italic" }}>
+        Diese Frage hat keinen kompatiblen Typ für bedingte Logik.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ paddingTop: 6 }}>
+      <div style={{ marginBottom: 10, color: "rgba(0,0,0,0.3)", fontSize: 10, lineHeight: 1.5 }}>
+        Definiere Regeln, um Folgefragen basierend auf Antworten anzuzeigen oder zu verstecken.
+      </div>
+
+      {rules.map((rule, ruleIndex) => {
+        const triggerQuestion = allQuestions.find((question) => question.id === rule.triggerQuestionId);
+        const operators = smOperatorsForType(triggerQuestion?.type ?? "single");
+        const answerValues = triggerQuestion ? smQuestionOptions(triggerQuestion) : null;
+        const isBetween = rule.operator === "between";
+
+        return (
+          <div key={rule.id} style={{ marginBottom: 8, padding: "12px 14px 14px", border: "1px solid rgba(0,0,0,0.05)", borderRadius: 10, backgroundColor: "#fff" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <span style={{ color: "rgba(0,0,0,0.3)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Regel {ruleIndex + 1}</span>
+              <button
+                type="button"
+                aria-label={`Regel ${ruleIndex + 1} entfernen`}
+                onClick={() => onChange(rules.filter((candidate) => candidate.id !== rule.id))}
+                style={{ padding: 2, border: "none", background: "none", color: "rgba(0,0,0,0.2)", cursor: "pointer", transition: "color 0.15s ease" }}
+                onMouseEnter={(event) => { event.currentTarget.style.color = "#DC2626"; }}
+                onMouseLeave={(event) => { event.currentTarget.style.color = "rgba(0,0,0,0.2)"; }}
+              >
+                <Trash2 size={12} strokeWidth={1.6} />
+              </button>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+              <span style={smLogicFieldLabel}>Wenn Frage</span>
+              <SmLogicDropdown
+                value={rule.triggerQuestionId}
+                options={triggerCandidates.map((question) => ({
+                  value: question.id,
+                  label: `Frage ${allQuestions.indexOf(question) + 1}: ${question.text || typeLabel(question.type)}`,
+                }))}
+                onChange={(value) => updateRule(rule.id, { triggerQuestionId: value, triggerValue: "", triggerValueMax: "" })}
+                placeholder="Frage wählen..."
+              />
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+              <span style={smLogicFieldLabel}>Operator</span>
+              <SmLogicDropdown
+                value={rule.operator}
+                options={operators}
+                onChange={(value) => updateRule(rule.id, { operator: value, triggerValue: value === "between" ? "" : rule.triggerValue, triggerValueMax: "" })}
+              />
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+              <span style={smLogicFieldLabel}>{isBetween ? "Bereich" : "Antwort"}</span>
+              {isBetween ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+                  <input
+                    type="number"
+                    value={rule.triggerValue}
+                    onChange={(event) => updateRule(rule.id, { triggerValue: event.target.value })}
+                    placeholder="Min"
+                    onClick={(event) => event.stopPropagation()}
+                    style={{ ...smLogicInputBase, flex: 1, color: rule.triggerValue ? "#1f2937" : "rgba(0,0,0,0.3)", fontFamily: "inherit" }}
+                  />
+                  <Minus size={12} color="rgba(0,0,0,0.2)" style={{ flexShrink: 0 }} />
+                  <input
+                    type="number"
+                    value={rule.triggerValueMax}
+                    onChange={(event) => updateRule(rule.id, { triggerValueMax: event.target.value })}
+                    placeholder="Max"
+                    onClick={(event) => event.stopPropagation()}
+                    style={{ ...smLogicInputBase, flex: 1, color: rule.triggerValueMax ? "#1f2937" : "rgba(0,0,0,0.3)", fontFamily: "inherit" }}
+                  />
+                </div>
+              ) : answerValues ? (
+                <SmLogicDropdown
+                  value={rule.triggerValue}
+                  options={answerValues.map((answer) => ({ value: answer, label: answer }))}
+                  onChange={(value) => updateRule(rule.id, { triggerValue: value })}
+                  placeholder="Antwort wählen..."
+                />
+              ) : (
+                <input
+                  type="number"
+                  value={rule.triggerValue}
+                  onChange={(event) => updateRule(rule.id, { triggerValue: event.target.value })}
+                  placeholder="Wert eingeben..."
+                  onClick={(event) => event.stopPropagation()}
+                  style={{ ...smLogicInputBase, flex: 1, color: rule.triggerValue ? "#1f2937" : "rgba(0,0,0,0.3)", fontFamily: "inherit" }}
+                />
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+              <span style={smLogicFieldLabel}>Dann</span>
+              <SmLogicDropdown
+                value={rule.action}
+                options={[{ value: "hide", label: "Verstecke Fragen" }, { value: "show", label: "Zeige Fragen" }]}
+                onChange={(value) => updateRule(rule.id, { action: value as "hide" | "show" })}
+              />
+            </div>
+
+            <div>
+              <span style={{ display: "block", marginBottom: 6, color: "rgba(0,0,0,0.4)", fontSize: 10, fontWeight: 600 }}>Betroffene Fragen:</span>
+              {targetCandidates.length === 0 ? (
+                <div style={{ padding: "8px 10px", border: "1px dashed rgba(0,0,0,0.06)", borderRadius: 7, backgroundColor: "rgba(0,0,0,0.015)", color: "rgba(0,0,0,0.25)", fontSize: 10, fontStyle: "italic" }}>
+                  Keine Fragen verfügbar (Fragen müssen nach dieser Frage kommen)
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  {targetCandidates.map((target) => {
+                    const selected = rule.targetQuestionIds.includes(target.id);
+                    return (
+                      <button
+                        type="button"
+                        key={target.id}
+                        onClick={() => toggleTarget(rule.id, target.id)}
+                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", border: "none", borderRadius: 6, backgroundColor: selected ? "rgba(var(--module-accent-rgb,220,38,38),0.03)" : "transparent", color: "#374151", fontFamily: "inherit", fontSize: 11, fontWeight: 400, textAlign: "left", cursor: "pointer", transition: "background-color 0.12s ease" }}
+                        onMouseEnter={(event) => { if (!selected) event.currentTarget.style.backgroundColor = "rgba(0,0,0,0.02)"; }}
+                        onMouseLeave={(event) => { event.currentTarget.style.backgroundColor = selected ? "rgba(var(--module-accent-rgb,220,38,38),0.03)" : "transparent"; }}
+                      >
+                        <span style={{ width: 16, height: 16, borderRadius: 4, border: selected ? "none" : "1.5px solid rgba(0,0,0,0.12)", backgroundColor: selected ? "var(--module-accent,#DC2626)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s ease" }}>
+                          {selected ? <Check size={10} strokeWidth={3} color="#fff" /> : null}
+                        </span>
+                        <span style={{ color: "rgba(0,0,0,0.3)", fontSize: 10, fontWeight: 600, flexShrink: 0 }}>F{allQuestions.indexOf(target) + 1}</span>
+                        <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selected ? "#374151" : "rgba(0,0,0,0.45)" }}>{target.text || typeLabel(target.type)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      <button
+        type="button"
+        onClick={() => onChange([...rules, newSmRule()])}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "8px 0", border: "1px dashed rgba(var(--module-accent-rgb,220,38,38),0.15)", borderRadius: 8, backgroundColor: "rgba(var(--module-accent-rgb,220,38,38),0.03)", color: "var(--module-accent,#DC2626)", fontFamily: "inherit", fontSize: 10, fontWeight: 600, cursor: "pointer", transition: "all 0.15s ease" }}
+        onMouseEnter={(event) => {
+          event.currentTarget.style.backgroundColor = "rgba(var(--module-accent-rgb,220,38,38),0.06)";
+          event.currentTarget.style.borderColor = "rgba(var(--module-accent-rgb,220,38,38),0.25)";
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.backgroundColor = "rgba(var(--module-accent-rgb,220,38,38),0.03)";
+          event.currentTarget.style.borderColor = "rgba(var(--module-accent-rgb,220,38,38),0.15)";
+        }}
+      >
+        <Plus size={11} strokeWidth={2} />
+        Regel hinzufügen
+      </button>
+    </div>
+  );
+}
+
+function SmOosQuestionEditor({
+  question,
+  onUpdate,
+}: {
+  question: SmQuestion;
+  onUpdate: (question: SmQuestion) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const options = smQuestionOptions(question) ?? [];
+  const supportsOos = question.type === "yesno" || question.type === "yesnomulti" || question.type === "single";
+  const config = question.oos ?? {};
+  const configuredCount = Number(Boolean(config.behobenAnswer)) + Number(Boolean(config.nichtBehobenAnswer));
+
+  if (!supportsOos) return null;
+
+  const answerOptions = [
+    { value: "", label: "Nicht zugeordnet" },
+    ...options.map((option) => ({ value: option, label: option })),
+  ];
+
+  const setOutcome = (field: keyof SmOosConfig, answer: string) => {
+    const otherField: keyof SmOosConfig = field === "behobenAnswer" ? "nichtBehobenAnswer" : "behobenAnswer";
+    const next: SmOosConfig = {
+      ...config,
+      [field]: answer || undefined,
+      ...(answer && config[otherField] === answer ? { [otherField]: undefined } : {}),
+    };
+    const hasValue = Boolean(next.behobenAnswer || next.nichtBehobenAnswer);
+    onUpdate({ ...question, oos: hasValue ? next : undefined });
+  };
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <button
+        type="button"
+        onClick={(event) => { event.stopPropagation(); setOpen((current) => !current); }}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 7, padding: "8px 0 6px", border: "none", borderTop: "1px solid rgba(0,0,0,0.04)", background: "none", color: configuredCount > 0 ? "var(--module-accent,#DC2626)" : "rgba(0,0,0,0.35)", fontFamily: "inherit", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+      >
+        <CircleAlert size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+        <span style={{ flex: 1, textAlign: "left" }}>OOS Frage</span>
+        {configuredCount > 0 ? (
+          <span style={{ padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(var(--module-accent-rgb,220,38,38),0.08)", color: "var(--module-accent,#DC2626)", fontSize: 9, fontWeight: 700 }}>{configuredCount}/2</span>
+        ) : null}
+        <ChevronDown size={12} strokeWidth={2} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }} />
+      </button>
+
+      <div style={{ maxHeight: open ? 240 : 0, opacity: open ? 1 : 0, overflow: "hidden", transition: "max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease" }}>
+        <div style={{ paddingTop: 8, paddingBottom: 4 }}>
+          <div style={{ marginBottom: 10, color: "rgba(0,0,0,0.3)", fontSize: 10, lineHeight: 1.5 }}>
+            Ordne den beiden OOS-Ergebnissen die passende Antwort dieser Frage zu.
+          </div>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+            <span style={smLogicFieldLabel}>OOS behoben</span>
+            <SmLogicDropdown value={config.behobenAnswer ?? ""} options={answerOptions} onChange={(answer) => setOutcome("behobenAnswer", answer)} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <span style={smLogicFieldLabel}>OOS nicht behoben</span>
+            <SmLogicDropdown value={config.nichtBehobenAnswer ?? ""} options={answerOptions} onChange={(answer) => setOutcome("nichtBehobenAnswer", answer)} />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -575,6 +1086,7 @@ function ImageAttachment({ value, onChange }: { value: string[]; onChange: (valu
 
 function QuestionCard({
   question,
+  allQuestions,
   index,
   isExpanded,
   onToggle,
@@ -587,6 +1099,7 @@ function QuestionCard({
   dropTarget,
 }: {
   question: SmQuestion;
+  allQuestions: SmQuestion[];
   index: number;
   isExpanded: boolean;
   onToggle: () => void;
@@ -599,6 +1112,8 @@ function QuestionCard({
   dropTarget: boolean;
 }) {
   const badge = typeBadgeColor(question.type);
+  const [logicOpen, setLogicOpen] = useState(false);
+  const rules = question.rules ?? [];
 
   return (
     <div style={{ position: "relative" }}>
@@ -662,6 +1177,73 @@ function QuestionCard({
               <span style={{ color: "#6b7280", fontSize: 10, fontWeight: 500 }}>Pflichtfrage</span>
             </div>
             <TypeConfig question={question} onUpdate={onUpdate} />
+            <SmOosQuestionEditor question={question} onUpdate={onUpdate} />
+
+            <div style={{ marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setLogicOpen((current) => !current);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  width: "100%",
+                  padding: "8px 0 6px",
+                  border: "none",
+                  borderTop: "1px solid rgba(0,0,0,0.04)",
+                  background: "none",
+                  color: rules.length > 0 ? "var(--module-accent,#DC2626)" : "rgba(0,0,0,0.35)",
+                  fontFamily: "inherit",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <Zap size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1, textAlign: "left" }}>Bedingte Logik</span>
+                {rules.length > 0 ? (
+                  <span
+                    style={{
+                      padding: "1px 7px",
+                      borderRadius: 10,
+                      backgroundColor: "rgba(var(--module-accent-rgb,220,38,38),0.08)",
+                      color: "var(--module-accent,#DC2626)",
+                      fontSize: 9,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {rules.length} {rules.length === 1 ? "Regel" : "Regeln"}
+                  </span>
+                ) : null}
+                <ChevronDown
+                  size={12}
+                  strokeWidth={2}
+                  style={{
+                    flexShrink: 0,
+                    transform: logicOpen ? "rotate(180deg)" : "rotate(0)",
+                    transition: "transform 0.2s ease",
+                  }}
+                />
+              </button>
+              <div
+                style={{
+                  maxHeight: logicOpen ? 2000 : 0,
+                  opacity: logicOpen ? 1 : 0,
+                  overflow: "hidden",
+                  transition: "max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease",
+                }}
+              >
+                <SmConditionalLogicEditor
+                  rules={rules}
+                  onChange={(nextRules) => onUpdate({ ...question, rules: nextRules })}
+                  allQuestions={allQuestions}
+                  currentIndex={index}
+                />
+              </div>
+            </div>
             <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
               <button
                 type="button"
@@ -831,6 +1413,8 @@ export function SmModuleEditor({
         input[type="number"] { -moz-appearance: textfield; }
         .sm-existing-question-scroll { scrollbar-width: none; -ms-overflow-style: none; }
         .sm-existing-question-scroll::-webkit-scrollbar { width: 0; height: 0; }
+        .sm-logic-dropdown { scrollbar-width: none; -ms-overflow-style: none; }
+        .sm-logic-dropdown::-webkit-scrollbar { width: 0; height: 0; }
       `}</style>
 
       <div style={{ height: 56, padding: "0 24px", borderBottom: "1px solid rgba(0,0,0,.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
@@ -924,6 +1508,7 @@ export function SmModuleEditor({
               <QuestionCard
                 key={question.id}
                 question={question}
+                allQuestions={questions}
                 index={index}
                 isExpanded={expandedId === question.id}
                 onToggle={() => setExpandedId((current) => current === question.id ? null : question.id)}
@@ -954,7 +1539,15 @@ export function SmModuleEditor({
             setQuestions((current) => current.map((question) => {
               if (question.id !== typeMenu.questionId) return question;
               const fresh = createQuestion(type);
-              return { ...fresh, id: question.id, text: question.text, required: question.required, config: { ...fresh.config, images: question.config.images } };
+              return {
+                ...fresh,
+                id: question.id,
+                text: question.text,
+                required: question.required,
+                config: { ...fresh.config, images: question.config.images },
+                rules: question.rules ?? [],
+                oos: undefined,
+              };
             }));
             setTypeMenu(null);
           }}

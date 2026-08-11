@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { Plus, Download, FileSpreadsheet } from "lucide-react";
+import { CalendarDays, Plus, Download, FileSpreadsheet } from "lucide-react";
 import { AdminSidenav } from "@/components/ui/AdminSidenav";
 import { ModuleEditor } from "@/components/admin/ModuleEditor";
 import { FragebogenEditor } from "@/components/admin/FragebogenEditor";
@@ -128,6 +128,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isMaerkte = pathname.startsWith("/admin/maerkte");
   const isSmMaerkte = pathname.startsWith("/admin/sm/maerkte");
   const isSmFragebogen = pathname.startsWith("/admin/sm/fragebogen");
+  const isSmVerplanung = pathname.startsWith("/admin/sm/verplanung");
+  const isSmZeiterfassung = pathname.startsWith("/admin/sm/zeiterfassung");
+  const isSmNachrichten = pathname.startsWith("/admin/sm/nachrichten");
   const isLager = pathname.startsWith("/admin/lager");
   const isGebietsmanager = pathname.startsWith("/admin/gebietsmanager");
   const isShelfMerchandiser = pathname.startsWith("/admin/shelfmerchandiser");
@@ -139,6 +142,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [availableMarketChains, setAvailableMarketChains] = useState<string[]>([]);
+  const [smPlanningContext, setSmPlanningContext] = useState("Aktuelle Woche");
   const importTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentPageKey = getAdminPageKeyForPath(pathname);
   const isKunde = session?.user.role === "kunde";
@@ -165,6 +169,16 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener("maerkte:imported", handler);
     return () => { window.removeEventListener("maerkte:imported", handler); if (importTimerRef.current) clearTimeout(importTimerRef.current); };
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const label = (event as CustomEvent<{ label?: string }>).detail?.label;
+      if (label) setSmPlanningContext(label);
+    };
+    window.addEventListener("sm-verplanung:weekContext", handler);
+    window.dispatchEvent(new CustomEvent("sm-verplanung:requestWeekContext"));
+    return () => window.removeEventListener("sm-verplanung:weekContext", handler);
   }, []);
 
   // ── Fragebogen-side state ──────────────────────────────────
@@ -773,7 +787,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmFragebogen ? "Fragebögen" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
+  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmFragebogen ? "Fragebögen" : isSmVerplanung ? "Verplanung" : isSmZeiterfassung ? "Zeiterfassung" : isSmNachrichten ? "Nachrichten" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
   const exportEventName =
     isDurcharbeit ? "admin:durcharbeit:export"
     : isMhd ? "admin:mhd:export"
@@ -784,6 +798,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : isFotoarchiv ? "admin:fotoarchiv:export"
     : isPraemien ? "admin:praemien:export"
     : isSmFragebogen ? "admin:sm-fragebogen:export"
+    : isSmVerplanung ? "admin:sm-verplanung:export"
     : isMaerkte ? "admin:maerkte:export"
     : isLager ? "admin:lager:export"
     : isGebietsmanager ? "admin:gebietsmanager:export"
@@ -828,7 +843,16 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           <header style={{ height: 80, backgroundColor: "#ffffff", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", flexShrink: 0, position: "relative" }}>
             <div>
               <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", margin: 0 }}>{pageTitle}</h1>
-              {isDatenschutzAnfragen ? (
+              {isSmVerplanung ? (
+                <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", color: "rgba(0,0,0,0.38)", backgroundColor: "#ffffff", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 999, fontSize: 9, fontWeight: 600, lineHeight: 1, letterSpacing: "0.01em" }}>
+                  <CalendarDays size={10} strokeWidth={1.8} />
+                  {smPlanningContext}
+                </div>
+              ) : isSmNachrichten ? (
+                <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", letterSpacing: "0.01em" }}>
+                  Mitteilungen an Shelf Merchandiser senden und Lesestatus prüfen
+                </p>
+              ) : isDatenschutzAnfragen ? (
                 <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", letterSpacing: "0.01em" }}>
                   DSGVO-Prozess, Fristen und Datenpakete
                 </p>
@@ -858,7 +882,51 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   {headerExportLabel}
                 </button>
               ) : null}
-              {isDurcharbeit && canWriteCurrentPage ? (
+              {isSmVerplanung ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("sm-verplanung:today"))}
+                    style={headerSecondaryButtonStyle}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.82"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                  >
+                    <CalendarDays size={12} strokeWidth={2} />
+                    Heute
+                  </button>
+                  {canWriteCurrentPage ? <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("sm-verplanung:openSingle"))}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                  >
+                    <Plus size={12} strokeWidth={2} />
+                    Einsatz planen
+                  </button> : null}
+                  {canWriteCurrentPage ? <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("sm-verplanung:openSeries"))}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                  >
+                    <Plus size={12} strokeWidth={2} />
+                    Serie planen
+                  </button> : null}
+                </>
+              ) : isSmNachrichten ? (
+                canWriteCurrentPage ? <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent("sm-nachrichten:openComposer"))}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                >
+                  <Plus size={12} strokeWidth={2} />
+                  Nachricht erstellen
+                </button> : null
+              ) : isDurcharbeit && canWriteCurrentPage ? (
                 <>
                   <button
                     onClick={() => { setDurcharbeitEditingModule(null); setDurcharbeitModuleEditorOpen(true); }}

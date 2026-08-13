@@ -68,6 +68,7 @@ type ExportSelection = {
   timeframeMode: ExportTimeframeMode;
   week?: string;
   redMonthId?: string;
+  chains: string[];
   tagKeys: string[];
 };
 type ExportCampaignOption = AdminPhotoArchiveFacets["campaigns"][number] & {
@@ -717,11 +718,19 @@ function ExportCampaignPicker({
   );
 }
 
-function ExportTagPicker({
+function ExportMultiPicker({
+  label,
+  allLabel,
+  searchPlaceholder,
+  emptyLabel,
   options,
   values,
   onChange,
 }: {
+  label: string;
+  allLabel: string;
+  searchPlaceholder: string;
+  emptyLabel: string;
   options: Array<{ value: string; label: string }>;
   values: string[];
   onChange: (values: string[]) => void;
@@ -734,10 +743,10 @@ function ExportTagPicker({
   const needle = search.trim().toLocaleLowerCase("de-AT");
   const visibleOptions = options.filter((option) => !needle || option.label.toLocaleLowerCase("de-AT").includes(needle));
   const selectionLabel = selectedOptions.length === 0
-    ? "Alle Tags"
+    ? allLabel
     : selectedOptions.length === 1
-      ? selectedOptions[0]?.label ?? "1 Tag ausgewählt"
-      : `${selectedOptions.length} Tags ausgewählt`;
+      ? selectedOptions[0]?.label ?? "1 ausgewählt"
+      : `${selectedOptions.length} ausgewählt`;
 
   useEffect(() => {
     if (!open) return;
@@ -762,7 +771,7 @@ function ExportTagPicker({
 
   return (
     <div ref={rootRef} style={{ position: "relative", minWidth: 0 }}>
-      <span style={{ display: "block", marginBottom: 6, fontSize: 9, fontWeight: 800, color: "rgba(15,23,42,0.38)", letterSpacing: "0.085em", textTransform: "uppercase" }}>Foto-Tags</span>
+      <span style={{ display: "block", marginBottom: 6, fontSize: 9, fontWeight: 800, color: "rgba(15,23,42,0.38)", letterSpacing: "0.085em", textTransform: "uppercase" }}>{label}</span>
       <button type="button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setSearch(""); }} style={{ width: "100%", height: 38, borderRadius: 10, border: open ? "1px solid rgba(220,38,38,0.26)" : "1px solid rgba(15,23,42,0.09)", background: "linear-gradient(to bottom, #fff, #fafafa)", boxShadow: open ? "0 0 0 3px rgba(220,38,38,0.055), 0 2px 8px rgba(15,23,42,0.06)" : "0 1px 3px rgba(15,23,42,0.045)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 11px", color: selectedOptions.length ? "#111827" : "rgba(15,23,42,0.42)", fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer", textAlign: "left" }}>
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectionLabel}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }} />
@@ -771,15 +780,15 @@ function ExportTagPicker({
         <div style={{ position: "absolute", top: 62, left: 0, right: 0, zIndex: 30, borderRadius: 12, border: "1px solid rgba(15,23,42,0.10)", background: "rgba(255,255,255,0.985)", boxShadow: "0 18px 44px rgba(15,23,42,0.16)", padding: 6, overflow: "hidden" }}>
           <label style={{ height: 34, marginBottom: 5, display: "flex", alignItems: "center", gap: 7, borderRadius: 8, border: "1px solid rgba(15,23,42,0.08)", background: "#f8fafc", padding: "0 9px" }}>
             <Search size={12} color="rgba(15,23,42,0.35)" />
-            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tag suchen..." style={{ width: "100%", border: 0, outline: 0, background: "transparent", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: "#111827" }} />
+            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholder} style={{ width: "100%", border: 0, outline: 0, background: "transparent", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: "#111827" }} />
           </label>
           <button type="button" onClick={() => onChange([])} style={{ width: "100%", minHeight: 34, border: 0, borderRadius: 8, background: values.length === 0 ? "rgba(220,38,38,0.07)" : "transparent", color: values.length === 0 ? R : "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 9px", fontFamily: "inherit", fontSize: 10.5, fontWeight: values.length === 0 ? 800 : 650, textAlign: "left", cursor: "pointer" }}>
-            <span>Alle Tags</span>
+            <span>{allLabel}</span>
             {values.length === 0 && <Check size={12} strokeWidth={2.4} />}
           </button>
           <div className="fotoExportScrollbar" style={{ maxHeight: 190, overflowY: "auto", paddingRight: 2 }}>
             {visibleOptions.length === 0 ? (
-              <div style={{ padding: "16px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "rgba(15,23,42,0.42)" }}>Keine Tags gefunden</div>
+              <div style={{ padding: "16px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "rgba(15,23,42,0.42)" }}>{emptyLabel}</div>
             ) : visibleOptions.map((option) => {
               const active = selectedValues.has(option.value);
               return (
@@ -800,6 +809,7 @@ function FotoExportModal({
   open,
   campaigns,
   photoCampaigns,
+  chains,
   tags,
   redMonths,
   exporting,
@@ -810,6 +820,7 @@ function FotoExportModal({
   open: boolean;
   campaigns: Campaign[];
   photoCampaigns: AdminPhotoArchiveFacets["campaigns"];
+  chains: AdminPhotoArchiveFacets["chains"];
   tags: AdminPhotoArchiveFacets["tags"];
   redMonths: RedMonthPeriod[];
   exporting: boolean;
@@ -817,7 +828,7 @@ function FotoExportModal({
   onClose: () => void;
   onExport: (filters: AdminPhotoArchiveFilters) => void;
 }) {
-  const [selection, setSelection] = useState<ExportSelection>({ timeframeMode: "all", tagKeys: [] });
+  const [selection, setSelection] = useState<ExportSelection>({ timeframeMode: "all", chains: [], tagKeys: [] });
   const weekOptions = useMemo(() => exportWeekOptions(campaigns), [campaigns]);
   const campaignOptions = useMemo<ExportCampaignOption[]>(() => {
     const byId = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
@@ -854,9 +865,12 @@ function FotoExportModal({
       .map(({ value, label }) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "de"));
   }, [tags]);
+  const chainOptions = useMemo(() => Array.from(new Set(chains.map((chain) => chain.trim()).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, "de"))
+    .map((chain) => ({ value: chain, label: chain })), [chains]);
 
   useEffect(() => {
-    if (open) setSelection({ timeframeMode: "all", tagKeys: [] });
+    if (open) setSelection({ timeframeMode: "all", chains: [], tagKeys: [] });
   }, [open]);
 
   useEffect(() => {
@@ -896,6 +910,11 @@ function FotoExportModal({
     : selection.tagKeys.length === 1
       ? tagOptions.find((option) => option.value === selection.tagKeys[0])?.label ?? "1 Tag"
       : `${selection.tagKeys.length} Tags (mindestens einer)`;
+  const chainSummary = selection.chains.length === 0
+    ? "Alle Handelsketten"
+    : selection.chains.length === 1
+      ? selection.chains[0]
+      : `${selection.chains.length} Handelsketten`;
 
   const submit = () => {
     if (!selectionComplete || exporting) return;
@@ -906,6 +925,7 @@ function FotoExportModal({
       exportFilters.dateFrom = selectedRedMonth.start;
       exportFilters.dateTo = selectedRedMonth.end;
     }
+    if (selection.chains.length > 0) exportFilters.chains = selection.chains;
     const tagIds = selection.tagKeys.filter((key) => key.startsWith("id:")).map((key) => key.slice(3));
     const tagLabels = selection.tagKeys
       .map((key) => tagOptions.find((option) => option.value === key)?.label)
@@ -966,7 +986,12 @@ function FotoExportModal({
             </div>
 
             <div style={{ marginTop: 14 }}>
-              <ExportTagPicker options={tagOptions} values={selection.tagKeys} onChange={(tagKeys) => setSelection((current) => ({ ...current, tagKeys }))} />
+              <ExportMultiPicker label="Handelsketten" allLabel="Alle Handelsketten" searchPlaceholder="Handelskette suchen..." emptyLabel="Keine Handelsketten gefunden" options={chainOptions} values={selection.chains} onChange={(chains) => setSelection((current) => ({ ...current, chains }))} />
+              <div style={{ marginTop: 5, fontSize: 8.8, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Bei mehreren Handelsketten werden Fotos aus mindestens einer ausgewählten Kette exportiert.</div>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <ExportMultiPicker label="Foto-Tags" allLabel="Alle Tags" searchPlaceholder="Tag suchen..." emptyLabel="Keine Tags gefunden" options={tagOptions} values={selection.tagKeys} onChange={(tagKeys) => setSelection((current) => ({ ...current, tagKeys }))} />
               <div style={{ marginTop: 5, fontSize: 8.8, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Bei mehreren Tags werden Fotos mit mindestens einem ausgewählten Tag exportiert.</div>
             </div>
 
@@ -975,6 +1000,7 @@ function FotoExportModal({
               <div style={{ marginTop: 8, display: "grid", gap: 7 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Kampagne</span><span style={{ fontWeight: 800, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedCampaign?.name ?? "Alle Kampagnen"}</span></div>
                 <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Zeitraum</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{timeframeSummary}</span></div>
+                <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Ketten</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{chainSummary}</span></div>
                 <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Tags</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{tagSummary}</span></div>
               </div>
             </div>
@@ -1917,6 +1943,7 @@ export default function FotoarchivPage() {
         open={exportOpen}
         campaigns={campaignCatalog}
         photoCampaigns={facets.campaigns}
+        chains={facets.chains}
         tags={facets.tags}
         redMonths={redMonths}
         exporting={isExporting}

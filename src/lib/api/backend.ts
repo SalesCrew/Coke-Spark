@@ -2788,6 +2788,7 @@ export type AdminPhotoArchiveFilters = {
   city?: string;
   postalCode?: string;
   chain?: string;
+  chains?: string[];
   gmUserId?: string;
   tagId?: string;
   tagLabel?: string;

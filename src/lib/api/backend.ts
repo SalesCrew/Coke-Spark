@@ -2791,6 +2791,8 @@ export type AdminPhotoArchiveFilters = {
   gmUserId?: string;
   tagId?: string;
   tagLabel?: string;
+  tagIds?: string[];
+  tagLabels?: string[];
   questionId?: string;
   moduleId?: string;
 };
@@ -4856,7 +4858,8 @@ export async function downloadAdminPhotoArchiveZip(
   };
 
   const suggestedName = `CokeSpark_Fotoexport_${new Date().toISOString().slice(0, 10)}.zip`;
-  const picker = (window as SaveFilePickerWindow).showSaveFilePicker;
+  const isKunde = readAuthSession()?.user.role === "kunde";
+  const picker = isKunde ? undefined : (window as SaveFilePickerWindow).showSaveFilePicker;
   let fileHandle: SaveFileHandle | null = null;
   if (typeof picker === "function") {
     try {
@@ -4868,16 +4871,24 @@ export async function downloadAdminPhotoArchiveZip(
       if (error instanceof DOMException && error.name === "AbortError") {
         return { downloaded: false, filename: null };
       }
-      throw error;
+      // Browsers may expose the picker even when the selected filesystem is
+      // read-only. Falling back to a regular browser download is more reliable.
+      fileHandle = null;
     }
   }
 
-  const response = await fetchAdminPhotoExportResponse(filters);
+  let response = await fetchAdminPhotoExportResponse(filters);
   const filename = photoExportFilename(response);
   if (fileHandle && response.body) {
-    const writable = await fileHandle.createWritable();
-    await response.body.pipeTo(writable);
-    return { downloaded: true, filename };
+    try {
+      const writable = await fileHandle.createWritable();
+      await response.body.pipeTo(writable);
+      return { downloaded: true, filename };
+    } catch {
+      // The response may already be partially consumed. Request it again and
+      // let the browser save the ZIP through its normal download mechanism.
+      response = await fetchAdminPhotoExportResponse(filters);
+    }
   }
 
   const blob = await response.blob();

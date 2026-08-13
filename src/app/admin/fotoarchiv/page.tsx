@@ -68,6 +68,7 @@ type ExportSelection = {
   timeframeMode: ExportTimeframeMode;
   week?: string;
   redMonthId?: string;
+  tagKeys: string[];
 };
 type ExportCampaignOption = AdminPhotoArchiveFacets["campaigns"][number] & {
   historical: boolean;
@@ -716,10 +717,90 @@ function ExportCampaignPicker({
   );
 }
 
+function ExportTagPicker({
+  options,
+  values,
+  onChange,
+}: {
+  options: Array<{ value: string; label: string }>;
+  values: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selectedValues = useMemo(() => new Set(values), [values]);
+  const selectedOptions = options.filter((option) => selectedValues.has(option.value));
+  const needle = search.trim().toLocaleLowerCase("de-AT");
+  const visibleOptions = options.filter((option) => !needle || option.label.toLocaleLowerCase("de-AT").includes(needle));
+  const selectionLabel = selectedOptions.length === 0
+    ? "Alle Tags"
+    : selectedOptions.length === 1
+      ? selectedOptions[0]?.label ?? "1 Tag ausgewählt"
+      : `${selectedOptions.length} Tags ausgewählt`;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const toggle = (value: string) => {
+    if (selectedValues.has(value)) onChange(values.filter((entry) => entry !== value));
+    else onChange([...values, value]);
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: "relative", minWidth: 0 }}>
+      <span style={{ display: "block", marginBottom: 6, fontSize: 9, fontWeight: 800, color: "rgba(15,23,42,0.38)", letterSpacing: "0.085em", textTransform: "uppercase" }}>Foto-Tags</span>
+      <button type="button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setSearch(""); }} style={{ width: "100%", height: 38, borderRadius: 10, border: open ? "1px solid rgba(220,38,38,0.26)" : "1px solid rgba(15,23,42,0.09)", background: "linear-gradient(to bottom, #fff, #fafafa)", boxShadow: open ? "0 0 0 3px rgba(220,38,38,0.055), 0 2px 8px rgba(15,23,42,0.06)" : "0 1px 3px rgba(15,23,42,0.045)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 11px", color: selectedOptions.length ? "#111827" : "rgba(15,23,42,0.42)", fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer", textAlign: "left" }}>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectionLabel}</span>
+        <ChevronDown size={13} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }} />
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: 62, left: 0, right: 0, zIndex: 30, borderRadius: 12, border: "1px solid rgba(15,23,42,0.10)", background: "rgba(255,255,255,0.985)", boxShadow: "0 18px 44px rgba(15,23,42,0.16)", padding: 6, overflow: "hidden" }}>
+          <label style={{ height: 34, marginBottom: 5, display: "flex", alignItems: "center", gap: 7, borderRadius: 8, border: "1px solid rgba(15,23,42,0.08)", background: "#f8fafc", padding: "0 9px" }}>
+            <Search size={12} color="rgba(15,23,42,0.35)" />
+            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tag suchen..." style={{ width: "100%", border: 0, outline: 0, background: "transparent", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: "#111827" }} />
+          </label>
+          <button type="button" onClick={() => onChange([])} style={{ width: "100%", minHeight: 34, border: 0, borderRadius: 8, background: values.length === 0 ? "rgba(220,38,38,0.07)" : "transparent", color: values.length === 0 ? R : "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 9px", fontFamily: "inherit", fontSize: 10.5, fontWeight: values.length === 0 ? 800 : 650, textAlign: "left", cursor: "pointer" }}>
+            <span>Alle Tags</span>
+            {values.length === 0 && <Check size={12} strokeWidth={2.4} />}
+          </button>
+          <div className="fotoExportScrollbar" style={{ maxHeight: 190, overflowY: "auto", paddingRight: 2 }}>
+            {visibleOptions.length === 0 ? (
+              <div style={{ padding: "16px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "rgba(15,23,42,0.42)" }}>Keine Tags gefunden</div>
+            ) : visibleOptions.map((option) => {
+              const active = selectedValues.has(option.value);
+              return (
+                <button key={option.value} type="button" onClick={() => toggle(option.value)} style={{ width: "100%", minHeight: 34, border: 0, borderRadius: 8, background: active ? "rgba(220,38,38,0.07)" : "transparent", color: active ? R : "rgba(15,23,42,0.72)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 9px", fontFamily: "inherit", fontSize: 10.5, lineHeight: 1.25, fontWeight: active ? 800 : 650, textAlign: "left", cursor: "pointer" }}>
+                  <span>{option.label}</span>
+                  {active && <Check size={12} strokeWidth={2.4} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FotoExportModal({
   open,
   campaigns,
   photoCampaigns,
+  tags,
   redMonths,
   exporting,
   error,
@@ -729,13 +810,14 @@ function FotoExportModal({
   open: boolean;
   campaigns: Campaign[];
   photoCampaigns: AdminPhotoArchiveFacets["campaigns"];
+  tags: AdminPhotoArchiveFacets["tags"];
   redMonths: RedMonthPeriod[];
   exporting: boolean;
   error: string | null;
   onClose: () => void;
   onExport: (filters: AdminPhotoArchiveFilters) => void;
 }) {
-  const [selection, setSelection] = useState<ExportSelection>({ timeframeMode: "all" });
+  const [selection, setSelection] = useState<ExportSelection>({ timeframeMode: "all", tagKeys: [] });
   const weekOptions = useMemo(() => exportWeekOptions(campaigns), [campaigns]);
   const campaignOptions = useMemo<ExportCampaignOption[]>(() => {
     const byId = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
@@ -757,9 +839,24 @@ function FotoExportModal({
     .slice()
     .sort((a, b) => b.start.localeCompare(a.start))
     .map((period) => ({ value: period.id, label: `${period.label} · ${fmtDate(period.start)} – ${fmtDate(period.end)}` })), [redMonths]);
+  const tagOptions = useMemo(() => {
+    const byLabel = new Map<string, { value: string; label: string; hasId: boolean }>();
+    for (const tag of tags) {
+      const label = tag.label.trim();
+      if (!label) continue;
+      const key = label.toLocaleLowerCase("de-AT");
+      const current = byLabel.get(key);
+      if (!current || (!current.hasId && Boolean(tag.id))) {
+        byLabel.set(key, { value: tag.id ? `id:${tag.id}` : `label:${label}`, label, hasId: Boolean(tag.id) });
+      }
+    }
+    return Array.from(byLabel.values())
+      .map(({ value, label }) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "de"));
+  }, [tags]);
 
   useEffect(() => {
-    if (open) setSelection({ timeframeMode: "all" });
+    if (open) setSelection({ timeframeMode: "all", tagKeys: [] });
   }, [open]);
 
   useEffect(() => {
@@ -794,6 +891,11 @@ function FotoExportModal({
     : selection.timeframeMode === "redMonth"
       ? redMonthOptions.find((option) => option.value === selection.redMonthId)?.label ?? "RED Month wählen"
       : "Gesamter Zeitraum";
+  const tagSummary = selection.tagKeys.length === 0
+    ? "Alle Tags"
+    : selection.tagKeys.length === 1
+      ? tagOptions.find((option) => option.value === selection.tagKeys[0])?.label ?? "1 Tag"
+      : `${selection.tagKeys.length} Tags (mindestens einer)`;
 
   const submit = () => {
     if (!selectionComplete || exporting) return;
@@ -804,6 +906,12 @@ function FotoExportModal({
       exportFilters.dateFrom = selectedRedMonth.start;
       exportFilters.dateTo = selectedRedMonth.end;
     }
+    const tagIds = selection.tagKeys.filter((key) => key.startsWith("id:")).map((key) => key.slice(3));
+    const tagLabels = selection.tagKeys
+      .map((key) => tagOptions.find((option) => option.value === key)?.label)
+      .filter((label): label is string => Boolean(label));
+    if (tagIds.length > 0) exportFilters.tagIds = tagIds;
+    if (tagLabels.length > 0) exportFilters.tagLabels = tagLabels;
     onExport(exportFilters);
   };
 
@@ -857,11 +965,17 @@ function FotoExportModal({
               )}
             </div>
 
+            <div style={{ marginTop: 14 }}>
+              <ExportTagPicker options={tagOptions} values={selection.tagKeys} onChange={(tagKeys) => setSelection((current) => ({ ...current, tagKeys }))} />
+              <div style={{ marginTop: 5, fontSize: 8.8, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Bei mehreren Tags werden Fotos mit mindestens einem ausgewählten Tag exportiert.</div>
+            </div>
+
             <div style={{ marginTop: 16, borderRadius: 13, border: "1px solid rgba(220,38,38,0.10)", background: "linear-gradient(145deg, rgba(220,38,38,0.052), rgba(248,250,252,0.74))", padding: 13 }}>
               <div style={{ fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.36)", letterSpacing: "0.085em", textTransform: "uppercase" }}>Exportauswahl</div>
               <div style={{ marginTop: 8, display: "grid", gap: 7 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Kampagne</span><span style={{ fontWeight: 800, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedCampaign?.name ?? "Alle Kampagnen"}</span></div>
                 <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Zeitraum</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{timeframeSummary}</span></div>
+                <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Tags</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{tagSummary}</span></div>
               </div>
             </div>
           </section>
@@ -1803,6 +1917,7 @@ export default function FotoarchivPage() {
         open={exportOpen}
         campaigns={campaignCatalog}
         photoCampaigns={facets.campaigns}
+        tags={facets.tags}
         redMonths={redMonths}
         exporting={isExporting}
         error={exportError}

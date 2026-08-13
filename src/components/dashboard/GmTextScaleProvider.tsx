@@ -10,9 +10,13 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { fetchGmTextSettings, updateGmTextSettings } from "@/lib/api/backend";
+import {
+  fetchGmTextSettings,
+  fetchSmTextSettings,
+  updateGmTextSettings,
+  updateSmTextSettings,
+} from "@/lib/api/backend";
 
-const STORAGE_KEY = "coke-spark:gm-text-scale-percent";
 const MIN_PERCENT = 0;
 const MAX_PERCENT = 50;
 const EFFECTIVE_SCALE_FACTOR = 0.8;
@@ -73,17 +77,24 @@ export function useGmTextScale() {
   return useContext(GmTextScaleContext);
 }
 
-export function GmTextScaleProvider({ children }: { children: React.ReactNode }) {
+export function GmTextScaleProvider({
+  children,
+  scope = "gm",
+}: {
+  children: React.ReactNode;
+  scope?: "gm" | "sm";
+}) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const serverLoadedRef = useRef(false);
   const [percent, setPercentState] = useState(0);
   const [previewPercent, setPreviewPercentState] = useState(0);
 
   const scale = useMemo(() => 1 + (percent * EFFECTIVE_SCALE_FACTOR) / 100, [percent]);
+  const storageKey = `coke-spark:${scope}-text-scale-percent`;
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
+      const stored = window.localStorage.getItem(storageKey);
       if (stored !== null) {
         const storedPercent = clampPercent(Number(stored));
         setPercentState(storedPercent);
@@ -92,12 +103,14 @@ export function GmTextScaleProvider({ children }: { children: React.ReactNode })
     } catch {
       // Local storage is a convenience only; the app must work without it.
     }
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
     let active = true;
 
-    fetchGmTextSettings()
+    const fetchSettings = scope === "sm" ? fetchSmTextSettings : fetchGmTextSettings;
+
+    fetchSettings()
       .then((settings) => {
         if (!active) return;
         const serverPercent = clampPercent(settings.textScalePercent);
@@ -112,27 +125,28 @@ export function GmTextScaleProvider({ children }: { children: React.ReactNode })
     return () => {
       active = false;
     };
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, String(percent));
+      window.localStorage.setItem(storageKey, String(percent));
     } catch {
       // Ignore private-mode/storage failures.
     }
-  }, [percent]);
+  }, [percent, storageKey]);
 
   useEffect(() => {
     if (!serverLoadedRef.current) return;
 
     const timer = window.setTimeout(() => {
-      updateGmTextSettings({ textScalePercent: percent }).catch(() => {
+      const updateSettings = scope === "sm" ? updateSmTextSettings : updateGmTextSettings;
+      updateSettings({ textScalePercent: percent }).catch(() => {
         // Local storage remains the fallback if the network is unavailable.
       });
     }, 450);
 
     return () => window.clearTimeout(timer);
-  }, [percent]);
+  }, [percent, scope]);
 
   const setPercent = useCallback((value: number) => {
     const nextPercent = clampPercent(value);

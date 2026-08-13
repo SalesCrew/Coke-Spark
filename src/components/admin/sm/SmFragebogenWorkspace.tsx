@@ -49,7 +49,30 @@ export type SmConditionalRule = {
   targetQuestionIds: string[];
 };
 
+export type SmOosRole = "detection" | "remediation";
+
+export type SmOosCategory =
+  | "action_placements"
+  | "softdrinks_energy"
+  | "water_near_water"
+  | "juice_iced_tea";
+
+export type SmOosAnswerOutcome =
+  | "oos_present"
+  | "oos_absent"
+  | "resolved"
+  | "partially_resolved"
+  | "not_resolved"
+  | "not_applicable";
+
 export type SmOosConfig = {
+  enabled?: boolean;
+  role?: SmOosRole;
+  category?: SmOosCategory;
+  detectionQuestionId?: string;
+  answerOutcomes?: Record<string, SmOosAnswerOutcome>;
+  partialCountsAsResolved?: boolean;
+  /** Legacy preview fields retained while the SM backend is still being built. */
   behobenAnswer?: string;
   nichtBehobenAnswer?: string;
 };

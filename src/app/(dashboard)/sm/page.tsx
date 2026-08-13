@@ -1,12 +1,21 @@
 "use client";
 
+import { Activity, Clock, Home, LogOut, User } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { CollapsibleMenu, defaultMenuItems } from "@/components/ui/CollapsibleMenu";
+import { CollapsibleMenu, type MenuItem } from "@/components/ui/CollapsibleMenu";
 import { StatusCard } from "@/components/dashboard/StatusCard";
 import { AssignmentList } from "@/components/dashboard/AssignmentList";
 import { WeekStrip } from "@/components/dashboard/WeekStrip";
 import { NachrichtenCard } from "@/components/dashboard/NachrichtenCard";
 import { logoutCurrentUser } from "@/lib/api/backend";
+
+const SM_MENU_ITEMS: MenuItem[] = [
+  { label: "Home", href: "/sm", icon: <Home size={11} strokeWidth={1.8} /> },
+  { label: "Aktivitäten", href: "/sm/aktivitaet", icon: <Activity size={11} strokeWidth={1.8} /> },
+  { label: "Zeiterfassung", href: "/sm/zeiterfassung", icon: <Clock size={11} strokeWidth={1.8} /> },
+  { label: "Profil", href: "/sm/profil", icon: <User size={11} strokeWidth={1.8} /> },
+  { label: "Logout", icon: <LogOut size={11} strokeWidth={1.9} />, action: "logout", tone: "danger" },
+];
 
 export default function SMDashboard() {
   const router = useRouter();
@@ -27,12 +36,26 @@ export default function SMDashboard() {
 
       <div className="fixed bottom-6 left-0 right-0 z-50">
         <CollapsibleMenu
-          items={defaultMenuItems}
+          items={SM_MENU_ITEMS}
+          enableKurti
+          featureKurti={false}
+          kurtiMaxWidth={420}
+          enableClickToggle
           defaultIndex={0}
-          onLogout={() => {
-            logoutCurrentUser();
-            router.push("/");
-            router.refresh();
+          onSelect={(_index, item) => {
+            if (item.action === "logout") {
+              logoutCurrentUser();
+              if (typeof window !== "undefined") {
+                window.location.assign("/");
+                return;
+              }
+              router.replace("/");
+              router.refresh();
+              return;
+            }
+            if (item.href) {
+              router.push(item.href);
+            }
           }}
         />
       </div>

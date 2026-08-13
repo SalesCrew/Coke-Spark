@@ -108,7 +108,11 @@ export function WeekStrip({ onDateChange }: WeekStripProps) {
     <div>
       <div
         className="overflow-hidden"
-        style={{ width: VISIBLE * SLOT_WIDTH, margin: "0 auto" }}
+        style={{
+          width: VISIBLE * SLOT_WIDTH,
+          margin: "-9px auto -11px",
+          padding: "9px 0 11px",
+        }}
       >
         <div
           ref={trackRef}
@@ -167,7 +171,7 @@ export function WeekStrip({ onDateChange }: WeekStripProps) {
                         ? "rgba(220,38,38,0.07)"
                         : "rgba(0,0,0,0.04)",
                     boxShadow: isHighlighted
-                      ? "0 2px 8px rgba(220,38,38,0.3)"
+                      ? "0 0 0 1px rgba(185,28,28,0.10), 0 0 12px rgba(220,38,38,0.24), 0 4px 8px rgba(185,28,28,0.16)"
                       : "none",
                     transform: isHighlighted ? "scale(1)" : "scale(0.92)",
                     transition: "all 350ms cubic-bezier(0.32, 0.72, 0, 1)",

@@ -1756,6 +1756,17 @@ export async function updateGmTextSettings(input: { textScalePercent: number }):
   })) as GmTextSettingsPayload;
 }
 
+export async function fetchSmTextSettings(): Promise<GmTextSettingsPayload> {
+  return (await authedFetch("/sm/settings/text-scale", { cache: "no-store" })) as GmTextSettingsPayload;
+}
+
+export async function updateSmTextSettings(input: { textScalePercent: number }): Promise<GmTextSettingsPayload> {
+  return (await authedFetch("/sm/settings/text-scale", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as GmTextSettingsPayload;
+}
+
 export async function presignGmProfilePhoto(input: {
   extension?: string;
   mimeType?: string;

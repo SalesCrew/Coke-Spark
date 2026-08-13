@@ -37,6 +37,8 @@ interface CollapsibleMenuProps {
   onSelect?: (index: number, item: MenuItem) => void;
   onLogout?: () => void;
   enableKurti?: boolean;
+  featureKurti?: boolean;
+  kurtiMaxWidth?: number;
   enableClickToggle?: boolean;
 }
 
@@ -102,6 +104,8 @@ export function CollapsibleMenu({
   onSelect,
   onLogout,
   enableKurti = false,
+  featureKurti = true,
+  kurtiMaxWidth = 606,
   enableClickToggle = false,
 }: CollapsibleMenuProps) {
   const [activeIndex, setActiveIndex] = useState(defaultIndex);
@@ -136,6 +140,44 @@ export function CollapsibleMenu({
   const textScaleProgress = Math.min(100, Math.max(0, textScalePercent * 2));
   const sliderDraftPercentRef = useRef(textScalePercent);
   const utilityPanelOpen = settingsOpen || chatOpen;
+
+  useEffect(() => {
+    if (!expanded || typeof window === "undefined") return;
+
+    const body = document.body;
+    const root = document.documentElement;
+    const scrollY = window.scrollY;
+    const previousBody = {
+      overflow: body.style.overflow,
+      overscrollBehavior: body.style.overscrollBehavior,
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+    };
+    const previousRoot = {
+      overflow: root.style.overflow,
+      overscrollBehavior: root.style.overscrollBehavior,
+    };
+
+    root.style.overflow = "hidden";
+    root.style.overscrollBehavior = "none";
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+
+    return () => {
+      root.style.overflow = previousRoot.overflow;
+      root.style.overscrollBehavior = previousRoot.overscrollBehavior;
+      body.style.overflow = previousBody.overflow;
+      body.style.overscrollBehavior = previousBody.overscrollBehavior;
+      body.style.position = previousBody.position;
+      body.style.top = previousBody.top;
+      body.style.width = previousBody.width;
+      window.scrollTo(0, scrollY);
+    };
+  }, [expanded]);
 
   useEffect(() => {
     if (!chatOpen) return;
@@ -519,17 +561,6 @@ export function CollapsibleMenu({
     [clearHold, enableClickToggle, expanded, getIndexFromY, select]
   );
 
-  const onClick = useCallback(() => {
-    if (!enableClickToggle || expanded || utilityPanelOpen) return;
-    clearHold();
-    isHolding.current = false;
-    holdActivated.current = false;
-    pointerMoved.current = false;
-    pointerStart.current = null;
-    setHoveredIndex(null);
-    setExpanded(true);
-  }, [clearHold, enableClickToggle, expanded, utilityPanelOpen]);
-
   const onTouchCancel = useCallback(() => {
     clearHold();
     isHolding.current = false;
@@ -634,7 +665,7 @@ export function CollapsibleMenu({
       <div
         className="relative mx-auto px-6"
         style={{
-          maxWidth: chatOpen ? 606 : 420,
+          maxWidth: chatOpen ? kurtiMaxWidth : 420,
           transition: "max-width 480ms cubic-bezier(0.32,0.72,0,1)",
         }}
       >
@@ -645,7 +676,6 @@ export function CollapsibleMenu({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         onTouchCancel={onTouchCancel}
-        onClick={onClick}
         className={cn(
           "gm-menu-scrollbars-hidden relative w-full overflow-hidden select-none",
           "transition-all duration-[480ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
@@ -659,6 +689,7 @@ export function CollapsibleMenu({
             ? "0 6px 24px rgba(0,0,0,0.06)"
             : "0 1px 3px rgba(0,0,0,0.03)",
           touchAction: utilityPanelOpen ? "pan-y" : "none",
+          overscrollBehavior: expanded ? "contain" : "auto",
         }}
       >
         <div
@@ -694,7 +725,8 @@ export function CollapsibleMenu({
                   : row.item;
               const isSelected = i === displayIndex;
               const isKurti = row.type === "chat";
-              const isHighlighted = isSelected || isKurti;
+              const isFeaturedKurti = isKurti && featureKurti;
+              const isHighlighted = isSelected || isFeaturedKurti;
               const isDanger = item.tone === "danger" || item.action === "logout";
               const dangerSoftBackground =
                 "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(254,226,226,0.94))";
@@ -715,14 +747,14 @@ export function CollapsibleMenu({
                     marginRight: CARD_PADDING,
                     gridTemplateColumns: "1fr auto 8px auto 1fr",
                     backgroundColor: isHighlighted ? undefined : "transparent",
-                    background: isKurti
+                    background: isFeaturedKurti
                       ? "linear-gradient(135deg, rgba(239,68,68,0.13) 0%, rgba(220,38,38,0.075) 54%, rgba(185,28,28,0.1) 100%)"
                       : isSelected
                       ? "linear-gradient(to bottom, #DC2626, #e84040)"
                       : isDanger
                         ? dangerSoftBackground
                         : undefined,
-                    boxShadow: isKurti
+                    boxShadow: isFeaturedKurti
                       ? "inset 0 1px 0.8px rgba(255,255,255,0.58), 0 0 0 1px rgba(220,38,38,0.14), 0 2px 7px rgba(185,28,28,0.065)"
                       : isSelected
                         ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
@@ -736,7 +768,7 @@ export function CollapsibleMenu({
                     className="transition-colors duration-200"
                     style={{
                       gridColumn: 2,
-                      color: isKurti ? "#b91c1c" : isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.3)",
+                      color: isFeaturedKurti ? "#b91c1c" : isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.3)",
                     }}
                   >
                     {item.icon}
@@ -749,12 +781,12 @@ export function CollapsibleMenu({
                     )}
                     style={{
                       gridColumn: 4,
-                      color: isKurti ? "#991b1b" : isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.45)",
+                      color: isFeaturedKurti ? "#991b1b" : isSelected ? "#ffffff" : isDanger ? "#b91c1c" : "rgba(0,0,0,0.45)",
                     }}
                   >
                     {item.label}
                   </span>
-                  {isKurti ? (
+                  {isFeaturedKurti ? (
                     <span
                       style={{
                         position: "absolute",
@@ -1176,7 +1208,7 @@ export function CollapsibleMenu({
                 setTextScalePreviewPercent(nextPercent);
                 commitTextScalePreviewPercent(nextPercent);
               }}
-              aria-label="GM Textgröße"
+              aria-label="Textgröße"
               style={{
                 width: "100%",
                 display: "none",
@@ -1189,7 +1221,7 @@ export function CollapsibleMenu({
               ref={sliderTrackRef}
               role="slider"
               tabIndex={0}
-              aria-label="GM Textgröße"
+              aria-label="Textgröße"
               aria-valuemin={0}
               aria-valuemax={50}
               aria-valuenow={textScalePercent}

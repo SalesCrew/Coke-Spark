@@ -655,7 +655,16 @@ The independent SM questionnaire workspace now exists as a UI-only implementatio
 - A day contains only the SM's planned Einsätze. Every Einsatz shows market identity, Soll-Zeit, Ist-Zeit, deviation, questionnaire state, Pauschale and operational status.
 - The current checkpoint is UI-only and uses component-local temporary Einsätze. No SM time, planning, payroll or questionnaire backend persistence is implied by this screen.
 
-#### 7.5.2 SM Verplanung UI checkpoint (2026-08-11)
+#### 7.5.2 SM Zeitkorrektur UI checkpoint (2026-08-13)
+
+- Completed SM Einsätze expose one compact correction action directly beside the completion state; open Einsätze do not need a request because their Ist-Zeit has not been submitted yet.
+- The phone-first bottom sheet offers exactly two request types: a changed Ist-Zeit or deletion of the submitted Ist-Zeit. It never deletes the planned Einsatz, Soll-Zeit or planning record.
+- A time change requires a positive, genuinely changed duration in integer minutes. Both request types require a written reason.
+- Once submitted in the current UI checkpoint, the Einsatz shows `Anfrage offen`; opening it again presents the requested value and reason rather than allowing a second parallel request.
+- This remains component-local preview state until the dedicated SM assignment/time backend exists. The future persistent contract is `sm_time_change_requests`, linked to the immutable Einsatz and active time submission, with request kind, original/requested minute snapshots, reason, status, reviewer, reviewed timestamp, admin note and soft-delete/audit fields. One pending request per Einsatz must be enforced transactionally.
+- Admin approval of a time change creates a new time-submission version or correction event; approval of a deletion soft-deletes only the active time submission. Neither operation may silently rewrite the Einsatz, questionnaire submission, Soll-Zeit, Pauschale or historical request snapshot.
+
+#### 7.5.3 SM Verplanung UI checkpoint (2026-08-11)
 
 - `/admin/sm/verplanung` is a new, isolated SM planning page inside the existing Coke Spark admin shell. It does not reuse GM planning logic or imply any GM campaign assignment behavior.
 - The page follows the approved Coke Spark planning draft: compact week/date context in the header, existing admin-sized export and planning actions, one dense weekly planning table, day groupings, SM/market/status/type filters and a right-side planning drawer.
@@ -663,6 +672,15 @@ The independent SM questionnaire workspace now exists as a UI-only implementatio
 - Search, filters, week navigation, real Excel export and drawer interactions are functional in component-local state. All SM, market, duration, recurrence and filter selectors use the custom Coke Spark dropdown UI with portal overlays, keyboard support and searchable long lists where appropriate.
 - All planning dates use the custom Coke Spark month calendar rather than native browser date inputs. The calendar mirrors the established admin styling, renders through a viewport-aware portal above the drawer, supports month navigation, today/selected states and prevents an end date before the series start.
 - This checkpoint deliberately uses temporary planning rows. It does not write SM Einsätze, series, time data or payroll values to the database; production persistence and backend validation remain a separate implementation phase.
+
+#### 7.5.4 SM Aktivitäten and questionnaire-correction UI checkpoint (2026-08-13)
+
+- `/sm/aktivitaet` is the independent, phone-first SM counterpart to the GM activity page. It copies the proven visual hierarchy and request workflow, but does not import the GM page, GM components or GM visit/campaign data.
+- The overview contains only completed SM Einsatz questionnaire submissions and shows market, date, questionnaire, Soll/Ist time, question completeness and pending-request state. Search and an `all` / `with request` switch are available.
+- Opening an activity presents the immutable submitted questionnaire as read-only. Each answer exposes a correction request action; the request stores the original and requested answer snapshots plus a mandatory reason. A pending request remains visible and blocks a second parallel request for the same question.
+- A separate deletion request applies only to the concrete questionnaire submission. It must never delete or alter the planned Einsatz, assignment series, market link, Soll/Ist time, fixed allowance or payroll snapshot.
+- This checkpoint remains component-local preview state because the SM assignment/questionnaire backend tables do not yet exist. Persistent implementation should use a dedicated `sm_answer_change_requests` table and `sm_questionnaire_submission_delete_requests`, each linked to immutable SM submission/question/answer IDs with original/requested snapshots, status, reviewer, review timestamp, admin note and soft-delete/audit fields.
+- Admin approval must create a new active answer/submission version or a traceable correction event. Historical raw submissions and request snapshots must remain reproducible; the GM request tables and routes are not reused.
 
 ### 7.6 Submission and time
 

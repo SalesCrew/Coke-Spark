@@ -78,6 +78,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { label: "GM Dashboard", icon: Gauge, href: "/admin/gm-dashboard", pageKey: "gm_dashboard", color: darkRed },
       { label: "IPP Berechnung", icon: TrendingUp, href: "/admin/ipp-berechnung", pageKey: "ipp_berechnung", color: darkRed },
+      { label: "SM Dashboard", icon: Gauge, href: "/admin/sm/dashboard", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: darkRed },
     ],
   },
   {

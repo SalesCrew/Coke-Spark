@@ -29,7 +29,10 @@ import {
 import type {
   SmConditionalRule,
   SmModule,
+  SmOosAnswerOutcome,
+  SmOosCategory,
   SmOosConfig,
+  SmOosRole,
   SmQuestion,
   SmQuestionType,
 } from "@/components/admin/sm/SmFragebogenWorkspace";
@@ -608,65 +611,175 @@ function SmConditionalLogicEditor({
   );
 }
 
+const SM_OOS_ROLE_OPTIONS: Array<{ value: SmOosRole; label: string }> = [
+  { value: "detection", label: "OOS-Erkennung" },
+  { value: "remediation", label: "OOS-Behebung" },
+];
+
+const SM_OOS_CATEGORY_OPTIONS: Array<{ value: SmOosCategory; label: string }> = [
+  { value: "action_placements", label: "Aktionsplatzierungen" },
+  { value: "softdrinks_energy", label: "Limonaden & Energy" },
+  { value: "water_near_water", label: "Wasser & Near Water" },
+  { value: "juice_iced_tea", label: "Säfte & Eistee" },
+];
+
+const SM_OOS_DETECTION_OUTCOMES: Array<{ value: SmOosAnswerOutcome | ""; label: string }> = [
+  { value: "", label: "Nicht zugeordnet" },
+  { value: "oos_present", label: "OOS vorhanden" },
+  { value: "oos_absent", label: "Kein OOS vorhanden" },
+  { value: "not_applicable", label: "Nicht anwendbar" },
+];
+
+const SM_OOS_REMEDIATION_OUTCOMES: Array<{ value: SmOosAnswerOutcome | ""; label: string }> = [
+  { value: "", label: "Nicht zugeordnet" },
+  { value: "resolved", label: "OOS behoben" },
+  { value: "partially_resolved", label: "OOS teilweise behoben" },
+  { value: "not_resolved", label: "OOS nicht behoben" },
+  { value: "not_applicable", label: "Nicht anwendbar" },
+];
+
 function SmOosQuestionEditor({
   question,
+  allQuestions,
   onUpdate,
 }: {
   question: SmQuestion;
+  allQuestions: SmQuestion[];
   onUpdate: (question: SmQuestion) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const options = smQuestionOptions(question) ?? [];
   const supportsOos = question.type === "yesno" || question.type === "yesnomulti" || question.type === "single";
   const config = question.oos ?? {};
-  const configuredCount = Number(Boolean(config.behobenAnswer)) + Number(Boolean(config.nichtBehobenAnswer));
+  const enabled = config.enabled === true;
+  const role = config.role;
+  const category = config.category;
+  const answerOutcomes = config.answerOutcomes ?? {};
+  const outcomeOptions = role === "remediation" ? SM_OOS_REMEDIATION_OUTCOMES : SM_OOS_DETECTION_OUTCOMES;
+  const detectionQuestions = category
+    ? allQuestions.filter((candidate) => (
+        candidate.id !== question.id
+        && candidate.oos?.enabled === true
+        && candidate.oos.role === "detection"
+        && candidate.oos.category === category
+      ))
+    : [];
+  const configuredAnswerCount = Object.values(answerOutcomes).filter(Boolean).length;
+  const configured = Boolean(role && category && configuredAnswerCount > 0 && (role !== "remediation" || config.detectionQuestionId));
 
   if (!supportsOos) return null;
 
-  const answerOptions = [
-    { value: "", label: "Nicht zugeordnet" },
-    ...options.map((option) => ({ value: option, label: option })),
-  ];
+  const updateConfig = (patch: Partial<SmOosConfig>) => {
+    onUpdate({ ...question, oos: { ...config, enabled: true, ...patch } });
+  };
 
-  const setOutcome = (field: keyof SmOosConfig, answer: string) => {
-    const otherField: keyof SmOosConfig = field === "behobenAnswer" ? "nichtBehobenAnswer" : "behobenAnswer";
-    const next: SmOosConfig = {
-      ...config,
-      [field]: answer || undefined,
-      ...(answer && config[otherField] === answer ? { [otherField]: undefined } : {}),
-    };
-    const hasValue = Boolean(next.behobenAnswer || next.nichtBehobenAnswer);
-    onUpdate({ ...question, oos: hasValue ? next : undefined });
+  const setEnabled = (nextEnabled: boolean) => {
+    onUpdate({
+      ...question,
+      oos: nextEnabled
+        ? {
+            enabled: true,
+            role: config.role,
+            category: config.category,
+            detectionQuestionId: config.detectionQuestionId,
+            answerOutcomes: config.answerOutcomes ?? {},
+            partialCountsAsResolved: config.partialCountsAsResolved ?? true,
+          }
+        : undefined,
+    });
+  };
+
+  const setRole = (nextRole: SmOosRole) => {
+    updateConfig({
+      role: nextRole,
+      detectionQuestionId: undefined,
+      answerOutcomes: {},
+      partialCountsAsResolved: nextRole === "remediation" ? true : undefined,
+    });
+  };
+
+  const setCategory = (nextCategory: SmOosCategory) => {
+    updateConfig({ category: nextCategory, detectionQuestionId: undefined });
+  };
+
+  const setAnswerOutcome = (answer: string, outcome: string) => {
+    const nextOutcomes = { ...answerOutcomes };
+    if (outcome) nextOutcomes[answer] = outcome as SmOosAnswerOutcome;
+    else delete nextOutcomes[answer];
+    updateConfig({ answerOutcomes: nextOutcomes });
   };
 
   return (
-    <div style={{ marginTop: 14 }}>
-      <button
-        type="button"
-        onClick={(event) => { event.stopPropagation(); setOpen((current) => !current); }}
-        style={{ width: "100%", display: "flex", alignItems: "center", gap: 7, padding: "8px 0 6px", border: "none", borderTop: "1px solid rgba(0,0,0,0.04)", background: "none", color: configuredCount > 0 ? "var(--module-accent,#DC2626)" : "rgba(0,0,0,0.35)", fontFamily: "inherit", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
-      >
-        <CircleAlert size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
-        <span style={{ flex: 1, textAlign: "left" }}>OOS Frage</span>
-        {configuredCount > 0 ? (
-          <span style={{ padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(var(--module-accent-rgb,220,38,38),0.08)", color: "var(--module-accent,#DC2626)", fontSize: 9, fontWeight: 700 }}>{configuredCount}/2</span>
+    <div style={{ marginTop: 14, borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+      <div style={{ minHeight: 40, display: "flex", alignItems: "center", gap: 7 }}>
+        <CircleAlert size={12} strokeWidth={2} color={enabled ? "var(--module-accent,#DC2626)" : "rgba(0,0,0,0.35)"} style={{ flexShrink: 0 }} />
+        <span style={{ flex: 1, color: enabled ? "var(--module-accent,#DC2626)" : "rgba(0,0,0,0.35)", fontSize: 11, fontWeight: 600 }}>OOS-Zuordnung</span>
+        {enabled && configured ? (
+          <span style={{ padding: "1px 7px", borderRadius: 10, backgroundColor: "rgba(var(--module-accent-rgb,220,38,38),0.08)", color: "var(--module-accent,#DC2626)", fontSize: 9, fontWeight: 700 }}>vollständig</span>
         ) : null}
-        <ChevronDown size={12} strokeWidth={2} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s ease" }} />
-      </button>
+        <span style={{ color: "rgba(0,0,0,.4)", fontSize: 10, fontWeight: 500 }}>Zuordnung aktivieren</span>
+        <Toggle value={enabled} onChange={setEnabled} />
+      </div>
 
-      <div style={{ maxHeight: open ? 240 : 0, opacity: open ? 1 : 0, overflow: "hidden", transition: "max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease" }}>
-        <div style={{ paddingTop: 8, paddingBottom: 4 }}>
-          <div style={{ marginBottom: 10, color: "rgba(0,0,0,0.3)", fontSize: 10, lineHeight: 1.5 }}>
-            Ordne den beiden OOS-Ergebnissen die passende Antwort dieser Frage zu.
+      <div style={{ maxHeight: enabled ? 1100 : 0, opacity: enabled ? 1 : 0, overflow: "hidden", transition: "max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease" }}>
+        <div style={{ padding: "3px 0 5px" }}>
+          <div style={{ marginBottom: 11, color: "rgba(0,0,0,0.3)", fontSize: 10, lineHeight: 1.5 }}>
+            Definiert, wie diese Frage später in der OOS-Auswertung nach Kategorie verwendet wird.
           </div>
+
           <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-            <span style={smLogicFieldLabel}>OOS behoben</span>
-            <SmLogicDropdown value={config.behobenAnswer ?? ""} options={answerOptions} onChange={(answer) => setOutcome("behobenAnswer", answer)} />
+            <span style={smLogicFieldLabel}>Rolle</span>
+            <SmLogicDropdown
+              value={role ?? ""}
+              options={SM_OOS_ROLE_OPTIONS}
+              placeholder="Rolle auswählen..."
+              onChange={(value) => setRole(value as SmOosRole)}
+            />
           </div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <span style={smLogicFieldLabel}>OOS nicht behoben</span>
-            <SmLogicDropdown value={config.nichtBehobenAnswer ?? ""} options={answerOptions} onChange={(answer) => setOutcome("nichtBehobenAnswer", answer)} />
+
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+            <span style={smLogicFieldLabel}>Kategorie</span>
+            <SmLogicDropdown
+              value={category ?? ""}
+              options={SM_OOS_CATEGORY_OPTIONS}
+              placeholder="Kategorie auswählen..."
+              onChange={(value) => setCategory(value as SmOosCategory)}
+            />
           </div>
+
+          {role === "remediation" ? (
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+              <span style={smLogicFieldLabel}>OOS-Frage</span>
+              <SmLogicDropdown
+                value={config.detectionQuestionId ?? ""}
+                options={detectionQuestions.map((candidate) => ({ value: candidate.id, label: candidate.text || "Frage ohne Titel" }))}
+                placeholder={category ? "Erkennungsfrage auswählen..." : "Zuerst Kategorie auswählen"}
+                onChange={(value) => updateConfig({ detectionQuestionId: value || undefined })}
+              />
+            </div>
+          ) : null}
+
+          {role ? (
+            <div style={{ marginTop: 12 }}>
+              <span style={{ display: "block", marginBottom: 5, color: "rgba(0,0,0,.35)", fontSize: 9, fontWeight: 650, letterSpacing: ".04em", textTransform: "uppercase" }}>Antwortzuordnung</span>
+              {options.map((answer) => (
+                <div key={answer} style={{ minHeight: 38, display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid rgba(0,0,0,.035)" }}>
+                  <span title={answer} style={{ width: 240, flexShrink: 0, overflow: "hidden", color: "#4b5563", fontSize: 10, fontWeight: 500, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{answer}</span>
+                  <SmLogicDropdown
+                    value={answerOutcomes[answer] ?? ""}
+                    options={outcomeOptions}
+                    onChange={(value) => setAnswerOutcome(answer, value)}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {role === "remediation" && Object.values(answerOutcomes).includes("partially_resolved") ? (
+            <div style={{ minHeight: 38, display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid rgba(0,0,0,.035)" }}>
+              <Toggle value={config.partialCountsAsResolved !== false} onChange={(value) => updateConfig({ partialCountsAsResolved: value })} />
+              <span style={{ color: "#6b7280", fontSize: 10, fontWeight: 500 }}>Teilweise behoben zählt in der Behebungsquote als behoben</span>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1177,7 +1290,7 @@ function QuestionCard({
               <span style={{ color: "#6b7280", fontSize: 10, fontWeight: 500 }}>Pflichtfrage</span>
             </div>
             <TypeConfig question={question} onUpdate={onUpdate} />
-            <SmOosQuestionEditor question={question} onUpdate={onUpdate} />
+            <SmOosQuestionEditor question={question} allQuestions={allQuestions} onUpdate={onUpdate} />
 
             <div style={{ marginTop: 14 }}>
               <button

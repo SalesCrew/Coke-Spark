@@ -995,14 +995,25 @@ function FotoExportModal({
               <div style={{ marginTop: 5, fontSize: 8.8, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Bei mehreren Tags werden Fotos mit mindestens einem ausgewählten Tag exportiert.</div>
             </div>
 
-            <div style={{ marginTop: 16, borderRadius: 13, border: "1px solid rgba(220,38,38,0.10)", background: "linear-gradient(145deg, rgba(220,38,38,0.052), rgba(248,250,252,0.74))", padding: 13 }}>
-              <div style={{ fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.36)", letterSpacing: "0.085em", textTransform: "uppercase" }}>Exportauswahl</div>
-              <div style={{ marginTop: 8, display: "grid", gap: 7 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Kampagne</span><span style={{ fontWeight: 800, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedCampaign?.name ?? "Alle Kampagnen"}</span></div>
-                <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Zeitraum</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{timeframeSummary}</span></div>
-                <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Ketten</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{chainSummary}</span></div>
-                <div style={{ display: "grid", gridTemplateColumns: "82px minmax(0,1fr)", gap: 8, fontSize: 10 }}><span style={{ fontWeight: 700, color: "rgba(15,23,42,0.40)" }}>Tags</span><span style={{ fontWeight: 800, color: "#111827", lineHeight: 1.35 }}>{tagSummary}</span></div>
-              </div>
+          </section>
+
+          <section style={{ gridColumn: "1 / -1", minWidth: 0, marginTop: 2, paddingTop: 14, borderTop: "1px solid rgba(15,23,42,0.075)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ width: 3, height: 12, borderRadius: 999, background: R, opacity: 0.72 }} />
+              <div style={{ fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.38)", letterSpacing: "0.085em", textTransform: "uppercase" }}>Exportauswahl</div>
+            </div>
+            <div className="fotoExportSummaryValues" style={{ marginTop: 10, display: "grid", gridTemplateColumns: "minmax(190px, 1.55fr) repeat(3, minmax(105px, 1fr))", gap: 0 }}>
+              {[
+                ["Kampagne", selectedCampaign?.name ?? "Alle Kampagnen"],
+                ["Zeitraum", timeframeSummary],
+                ["Handelsketten", chainSummary],
+                ["Foto-Tags", tagSummary],
+              ].map(([label, value], index) => (
+                <div key={label} className="fotoExportSummaryItem" style={{ minWidth: 0, padding: index === 0 ? "0 16px 0 0" : "0 16px", borderLeft: index === 0 ? 0 : "1px solid rgba(15,23,42,0.07)" }}>
+                  <span style={{ display: "block", fontSize: 8.5, fontWeight: 750, color: "rgba(15,23,42,0.36)" }}>{label}</span>
+                  <strong title={value} style={{ display: "block", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#111827", fontSize: 10, lineHeight: 1.35, fontWeight: 800 }}>{value}</strong>
+                </div>
+              ))}
             </div>
           </section>
         </div>
@@ -1756,6 +1767,11 @@ export default function FotoarchivPage() {
         .fotoExportHiddenScrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
         @media (max-width: 760px) {
           .fotoExportGrid { grid-template-columns: minmax(0, 1fr) !important; }
+          .fotoExportSummaryValues { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+          .fotoExportSummaryItem { padding: 8px 12px !important; }
+          .fotoExportSummaryItem:nth-child(odd) { padding-left: 0 !important; border-left: 0 !important; }
+          .fotoExportSummaryItem:nth-child(even) { padding-right: 0 !important; }
+          .fotoExportSummaryItem:nth-child(n+3) { border-top: 1px solid rgba(15,23,42,0.07); }
         }
       `}</style>
 

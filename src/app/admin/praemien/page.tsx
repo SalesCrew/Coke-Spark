@@ -175,6 +175,46 @@ function isFlexPillar(pillar: Pick<PraemienPillar, "name">): boolean {
   return normalizePillarName(pillar.name).includes("flexziel");
 }
 
+function getFlexComponentMetrics(pillar: PraemienPillar | undefined) {
+  return (pillar?.metrics ?? [])
+    .filter((metric) => metric.valueSource === "flex_component" && Boolean(metric.sourceKey))
+    .sort((a, b) => a.orderIndex - b.orderIndex);
+}
+
+function getFlexMetricInputMax(pillar: PraemienPillar | undefined, metricKey: string): number {
+  const configuredMaximum = Math.max(
+    0,
+    ...(pillar?.tiers ?? []).flatMap((tier) =>
+      tier.conditions
+        .filter((condition) => condition.metricKey === metricKey)
+        .map((condition) => condition.thresholdValue),
+    ),
+  );
+  return Math.max(10, Math.ceil(configuredMaximum / 5) * 5);
+}
+
+function getFlexTotalThresholds(pillar: PraemienPillar | undefined): number[] {
+  const totalMetricKeys = new Set(
+    (pillar?.metrics ?? [])
+      .filter((metric) => metric.valueSource === "flex_total_points")
+      .map((metric) => metric.key),
+  );
+  return Array.from(new Set(
+    (pillar?.tiers ?? []).flatMap((tier) =>
+      tier.conditions
+        .filter((condition) => totalMetricKeys.has(condition.metricKey))
+        .map((condition) => condition.thresholdValue),
+    ),
+  )).sort((a, b) => a - b);
+}
+
+function getFlexScoreColor(points: number, pillar: PraemienPillar | undefined): string {
+  const thresholds = getFlexTotalThresholds(pillar);
+  const highest = thresholds.at(-1) ?? 15;
+  const first = thresholds[0] ?? Math.min(10, highest);
+  return points >= highest ? "#16a34a" : points >= first ? "#D97706" : R;
+}
+
 function isQualityPillar(pillar: Pick<PraemienPillar, "name">): boolean {
   const normalized = normalizePillarName(pillar.name);
   return normalized.includes("qualitatsziele") || normalized.includes("qualitaetsziele") || normalized.includes("qualitat");
@@ -2319,11 +2359,17 @@ function FlexGoalsModal({
   onClose: () => void;
 }) {
   const subs = quarter.flexSubmissions ?? [];
+  const flexPillar = quarter.pillars.find(isFlexPillar);
+  const componentMetrics = getFlexComponentMetrics(flexPillar);
+  const componentKeysSignature = componentMetrics.map((metric) => metric.sourceKey).join("|");
+  const maximumDraftPoints = componentMetrics.reduce(
+    (sum, metric) => sum + getFlexMetricInputMax(flexPillar, metric.key),
+    0,
+  );
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "open" | "done">("all");
   const [selectedGmId, setSelectedGmId] = useState<string>(gms[0]?.id ?? "");
-  const [draftCoolerPoints, setDraftCoolerPoints] = useState(0);
-  const [draftRedPoints, setDraftRedPoints] = useState(0);
+  const [draftComponentValues, setDraftComponentValues] = useState<Record<string, number>>({});
   const [draftNote, setDraftNote] = useState("");
   const [localSubs, setLocalSubs] = useState<PraemienFlexSubmission[]>(subs);
   const [unsaved, setUnsaved] = useState(false);
@@ -2340,24 +2386,24 @@ function FlexGoalsModal({
   useEffect(() => {
     const existing = localSubs.find(s => s.gmId === selectedGmId);
     if (existing) {
-      setDraftCoolerPoints(existing.componentValues?.cooler_points ?? 0);
-      setDraftRedPoints(existing.componentValues?.red_points ?? 0);
+      setDraftComponentValues(Object.fromEntries(
+        componentMetrics.map((metric) => [metric.sourceKey!, existing.componentValues?.[metric.sourceKey!] ?? 0]),
+      ));
       setDraftNote(existing.note ?? "");
     } else {
-      setDraftCoolerPoints(0);
-      setDraftRedPoints(0);
+      setDraftComponentValues(Object.fromEntries(componentMetrics.map((metric) => [metric.sourceKey!, 0])));
       setDraftNote("");
     }
     setUnsaved(false);
-  }, [selectedGmId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedGmId, componentKeysSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveGm = () => {
     if (!selectedGmId) return;
     const newSub: PraemienFlexSubmission = {
       gmId: selectedGmId,
       gmName: gms.find(g => g.id === selectedGmId)?.name ?? selectedGmId,
-      totalPoints: draftCoolerPoints + draftRedPoints,
-      componentValues: { cooler_points: draftCoolerPoints, red_points: draftRedPoints },
+      totalPoints: Object.values(draftComponentValues).reduce((sum, value) => sum + value, 0),
+      componentValues: draftComponentValues,
       note: draftNote || undefined,
       updatedAt: new Date().toISOString(),
     };
@@ -2369,8 +2415,7 @@ function FlexGoalsModal({
   };
 
   const handleReset = () => {
-    setDraftCoolerPoints(0);
-    setDraftRedPoints(0);
+    setDraftComponentValues(Object.fromEntries(componentMetrics.map((metric) => [metric.sourceKey!, 0])));
     setDraftNote("");
     setUnsaved(true);
   };
@@ -2390,8 +2435,8 @@ function FlexGoalsModal({
   });
 
   const doneCount = localSubs.length;
-  const draftPoints = draftCoolerPoints + draftRedPoints;
-  const scoreColor = draftPoints >= 15 ? "#16a34a" : draftPoints >= 10 ? "#D97706" : "#DC2626";
+  const draftPoints = Object.values(draftComponentValues).reduce((sum, value) => sum + value, 0);
+  const scoreColor = getFlexScoreColor(draftPoints, flexPillar);
   const selectedGm = gms.find(g => g.id === selectedGmId);
   const selectedSub = localSubs.find(s => s.gmId === selectedGmId);
 
@@ -2455,7 +2500,7 @@ function FlexGoalsModal({
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: active ? "#16a34a" : "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{gm.name}</div>
                       {sub
-                        ? <div style={{ fontSize: 9, fontWeight: 600, color: "#16a34a" }}>{sub.totalPoints} / 20 P</div>
+                        ? <div style={{ fontSize: 9, fontWeight: 600, color: "#16a34a" }}>{sub.totalPoints} / {maximumDraftPoints} P</div>
                         : <div style={{ fontSize: 9, color: "rgba(0,0,0,0.3)" }}>Nicht bewertet</div>
                       }
                     </div>
@@ -2481,7 +2526,7 @@ function FlexGoalsModal({
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "-0.04em", color: scoreColor, fontVariantNumeric: "tabular-nums", transition: "color 0.2s ease" }}>{draftPoints}</div>
-                  <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)" }}>/ 20 Punkte</div>
+                  <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)" }}>/ {maximumDraftPoints} Punkte</div>
                 </div>
               </div>
               {unsaved && (
@@ -2493,22 +2538,28 @@ function FlexGoalsModal({
             </div>
 
             <div style={{ padding: "16px 20px 8px", display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
-              <QualityScoreSlider
-                label="Kühler-Nettoaufbau"
-                hint="0, 5 oder 10 Punkte"
-                value={draftCoolerPoints}
-                max={10}
-                step={5}
-                onChange={v => { setDraftCoolerPoints(v); setUnsaved(true); }}
-              />
-              <QualityScoreSlider
-                label="RED / IR-Nutzung"
-                hint="0, 5 oder 10 Punkte"
-                value={draftRedPoints}
-                max={10}
-                step={5}
-                onChange={v => { setDraftRedPoints(v); setUnsaved(true); }}
-              />
+              {componentMetrics.map((metric) => {
+                const inputMax = getFlexMetricInputMax(flexPillar, metric.key);
+                return (
+                  <QualityScoreSlider
+                    key={metric.id}
+                    label={metric.label}
+                    hint={`0, 5 oder ${inputMax} Punkte`}
+                    value={draftComponentValues[metric.sourceKey!] ?? 0}
+                    max={inputMax}
+                    step={5}
+                    onChange={(value) => {
+                      setDraftComponentValues((current) => ({ ...current, [metric.sourceKey!]: value }));
+                      setUnsaved(true);
+                    }}
+                  />
+                );
+              })}
+              {componentMetrics.length === 0 && (
+                <div style={{ padding: "16px", borderRadius: 10, background: "rgba(220,38,38,0.035)", border: "1px solid rgba(220,38,38,0.12)", fontSize: 10, color: "#991b1b", lineHeight: 1.5 }}>
+                  Für diese Prämienwelle sind keine Flexziel-Komponenten konfiguriert.
+                </div>
+              )}
               <div>
                 <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(0,0,0,0.28)", marginBottom: 5 }}>Notiz (optional)</div>
                 <textarea
@@ -2679,6 +2730,10 @@ function FlexPillarCard({
   const doneCount = subs.length;
   const avgPts = flexAvgForQuarter(quarter);
   const complete = flexIsComplete(quarter, gms);
+  const maximumPoints = getFlexComponentMetrics(pillar).reduce(
+    (sum, metric) => sum + getFlexMetricInputMax(pillar, metric.key),
+    0,
+  );
 
   return (
     <div style={{ backgroundColor: "#fff", borderRadius: 12, border: `1px solid rgba(0,0,0,0.07)`, boxShadow: "0 1px 6px rgba(0,0,0,0.04)", overflow: "hidden" }}>
@@ -2721,7 +2776,7 @@ function FlexPillarCard({
               </div>
               <div style={{ fontSize: 9, color: "rgba(0,0,0,0.4)", fontWeight: 500 }}>
                 {flexPersistenceReady
-                  ? `${doneCount} von ${gms.length} GMs bewertet · Ø ${avgPts} / 20 Punkte`
+                  ? `${doneCount} von ${gms.length} GMs bewertet · Ø ${avgPts} / ${maximumPoints} Punkte`
                   : "GM-Daten werden geladen. Flexziel ist vorübergehend schreibgeschützt."}
               </div>
             </div>
@@ -2745,7 +2800,7 @@ function FlexPillarCard({
           {subs.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {subs.map(sub => {
-                const scoreColor = sub.totalPoints >= 15 ? "#16a34a" : sub.totalPoints >= 10 ? "#D97706" : R;
+                const scoreColor = getFlexScoreColor(sub.totalPoints, pillar);
                 return (
                   <div key={sub.gmId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.045)" }}>
                     <div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(22,163,74,0.09)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#16a34a", flexShrink: 0 }}>

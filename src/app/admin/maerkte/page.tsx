@@ -2387,7 +2387,18 @@ function MarketDetailDrawer({
                     />
                   </div>
                 </div>
-                <InfoRow label="Besuchsfrequenz / Jahr" value={String(market.visitFrequencyPerYear)} edit={editing} editValue={String(draft.visitFrequencyPerYear)} onEdit={v => set({ visitFrequencyPerYear: parseInt(v, 10) || market.visitFrequencyPerYear })} />
+                <InfoRow
+                  label="Besuchsfrequenz / Jahr"
+                  value={String(market.visitFrequencyPerYear)}
+                  edit={editing}
+                  editValue={String(draft.visitFrequencyPerYear)}
+                  onEdit={(value) => {
+                    const parsed = Number.parseInt(value, 10);
+                    if (Number.isInteger(parsed) && parsed >= 0) {
+                      set({ visitFrequencyPerYear: parsed });
+                    }
+                  }}
+                />
               </InfoSection>
 
               {showKuehlerUnitSection && (

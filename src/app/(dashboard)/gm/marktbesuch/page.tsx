@@ -2405,17 +2405,23 @@ function QuestionCard({
       {/* ── JA/NEIN MULTI ── */}
       {question.type === "yesnomulti" && (() => {
         // answer encoded as JSON: { sel: string | null, subs: string[] }
-        let ynmState: { sel: string | null; subs: string[] } = { sel: null, subs: [] };
-        try {
-          if (typeof answer === "string" && answer.startsWith("{")) {
-            ynmState = JSON.parse(answer);
-          }
-        } catch { /* ignore */ }
+        const parsedAnswer = parseYesNoMultiAnswer(answer);
+        const ynmState: { sel: string | null; subs: string[] } = parsedAnswer ?? { sel: null, subs: [] };
 
         const ynmSel = ynmState.sel;
         const ynmSubs = ynmState.subs;
-        const ynmAnswers2 = cfg.answers ?? ["Ja", "Nein"];
-        const activeBranch = (cfg.branches ?? []).find((b) => b.answer === ynmSel);
+        const ynmAnswers2 = (cfg.answers ?? ["Ja", "Nein"])
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
+        const configuredBranch = (cfg.branches ?? []).find((branch) => branch.answer.trim() === ynmSel);
+        const activeBranch = configuredBranch
+          ? {
+              ...configuredBranch,
+              options: configuredBranch.options
+                .map((entry) => entry.trim())
+                .filter((entry) => entry.length > 0),
+            }
+          : undefined;
 
         const selectTop = (ans: string) => {
           // radio: selecting same again deselects, selecting new clears subs
@@ -2423,9 +2429,10 @@ function QuestionCard({
           onAnswer(JSON.stringify({ sel: newSel, subs: [] }));
         };
         const toggleSub = (sub: string) => {
-          const next = ynmSubs.includes(sub)
-            ? ynmSubs.filter((x) => x !== sub)
-            : [...ynmSubs, sub];
+          const normalizedSub = sub.trim();
+          const next = ynmSubs.includes(normalizedSub)
+            ? ynmSubs.filter((x) => x !== normalizedSub)
+            : [...ynmSubs, normalizedSub];
           onAnswer(JSON.stringify({ sel: ynmSel, subs: next }));
         };
 

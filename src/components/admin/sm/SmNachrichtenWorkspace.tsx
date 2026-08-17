@@ -609,13 +609,13 @@ export function SmNachrichtenWorkspace() {
   return (
     <div className="sm-message-page">
       <style>{`
-        .sm-message-page { --sm-border: rgba(0,0,0,.075); --sm-muted: rgba(0,0,0,.38); min-width:1030px; padding:2px 12px 0 7px; box-sizing:border-box; }
-        .sm-message-shell { width:100%; min-height:720px; height:calc(100vh - 180px); max-height:844px; padding:10px; display:grid; grid-template-columns:minmax(270px,1.06fr) minmax(500px,1.93fr) minmax(286px,1fr); gap:11px; border:1px solid rgba(0,0,0,.07); border-radius:14px; background:rgba(0,0,0,.025); box-sizing:border-box; animation:smMessageIn .24s ease both; }
+        .sm-message-page { --sm-border: rgba(0,0,0,.075); --sm-muted: rgba(0,0,0,.38); min-width:940px; padding:2px 12px 0 7px; box-sizing:border-box; }
+        .sm-message-shell { width:100%; min-height:min(720px,calc(100dvh - 112px)); height:calc(100dvh - 180px); max-height:844px; padding:10px; display:grid; grid-template-columns:minmax(210px,1.06fr) minmax(430px,1.93fr) minmax(250px,1fr); gap:11px; border:1px solid rgba(0,0,0,.07); border-radius:14px; background:rgba(0,0,0,.025); box-sizing:border-box; animation:smMessageIn .24s ease both; }
         .sm-message-list-panel,.sm-message-detail-panel,.sm-message-side-panel { min-width:0; min-height:0; overflow:hidden; border:1px solid var(--sm-border); border-radius:11px; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.04); }
         .sm-message-list-panel { display:flex; flex-direction:column; }
         .sm-message-detail-panel { display:flex; flex-direction:column; }
-        .sm-message-side-panel { display:flex; flex-direction:column; overflow:hidden; }
-        .sm-message-side-panel::-webkit-scrollbar,.sm-message-table-body::-webkit-scrollbar { display:none; }
+        .sm-message-side-panel { container-name:sm-message-side; container-type:size; display:flex; flex-direction:column; overflow:hidden; }
+        .sm-message-table-body::-webkit-scrollbar { display:none; }
         .sm-message-panel-heading { height:43px; padding:0 17px; display:flex; align-items:center; border-bottom:1px solid rgba(0,0,0,.05); }
         .sm-message-section-label { color:rgba(0,0,0,.34); font-size:8px; font-weight:750; letter-spacing:.085em; text-transform:uppercase; }
         .sm-message-list-tools { padding:9px 16px 16px; display:flex; flex-direction:column; gap:9px; border-bottom:1px solid rgba(0,0,0,.05); }
@@ -676,8 +676,7 @@ export function SmNachrichtenWorkspace() {
         .sm-message-badge-unread { background:rgba(217,119,6,.09); color:#b45309; }
         .sm-message-empty { padding:38px 20px; color:rgba(0,0,0,.35); font-size:10px; text-align:center; }
         .sm-message-summary-card,.sm-message-parallel-card,.sm-message-compose { padding:16px 17px; border-bottom:1px solid rgba(0,0,0,.065); background:#fff; box-sizing:border-box; }
-        .sm-message-summary-card { height:238px; flex:none; }
-        .sm-message-parallel-card { height:218px; flex:none; }
+        .sm-message-summary-card,.sm-message-parallel-card { height:auto; flex:none; }
         .sm-message-summary-main { margin-top:17px; display:flex; align-items:center; gap:19px; }
         .sm-message-ring { width:98px; height:98px; padding:7px; flex-shrink:0; border-radius:50%; background:conic-gradient(#22a958 var(--read-progress),rgba(0,0,0,.075) 0); }
         .sm-message-ring > div { width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:50%; background:#fff; }
@@ -697,14 +696,15 @@ export function SmNachrichtenWorkspace() {
         .sm-message-parallel-title { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
         .sm-message-parallel-title strong { color:#34383d; font-size:9.5px; line-height:1.35; }
         .sm-message-parallel-item > span { display:block; margin-top:7px; color:rgba(0,0,0,.38); font-size:8px; }
-        .sm-message-compose { min-height:0; flex:1; padding:0; border-bottom:0; }
-        .sm-message-compose-heading { width:100%; height:43px; padding:0 16px; display:flex; align-items:center; border:0; background:#fff; color:rgba(0,0,0,.4); }
-        .sm-message-compose-body { margin-top:-7px; padding:0 16px 15px; }
-        .sm-message-compose-body label,.sm-message-compose-field { display:block; margin-top:10px; }
+        .sm-message-compose { min-height:0; flex:1 1 0; padding:0; display:flex; flex-direction:column; border-bottom:0; }
+        .sm-message-compose-heading { width:100%; height:43px; padding:0 16px; flex:none; display:flex; align-items:center; border:0; background:#fff; color:rgba(0,0,0,.4); }
+        .sm-message-compose-body { min-height:0; margin-top:-7px; padding:0 16px 15px; flex:1; display:flex; flex-direction:column; }
+        .sm-message-compose-body label,.sm-message-compose-field { flex:none; display:block; margin-top:10px; }
+        .sm-message-compose-body > label:nth-of-type(2) { min-height:58px; flex:1; display:flex; flex-direction:column; }
         .sm-message-compose-body label > span,.sm-message-compose-field > span { display:block; margin-bottom:5px; color:rgba(0,0,0,.52); font-size:8.5px; font-weight:650; }
         .sm-message-compose-body input,.sm-message-compose-body textarea { width:100%; border:1px solid rgba(0,0,0,.09); border-radius:7px; outline:0; background:#fff; color:#34383d; font-family:inherit; font-size:9.5px; font-weight:500; line-height:1.5; box-shadow:inset 0 1px 2px rgba(0,0,0,.02); }
         .sm-message-compose-body input::placeholder,.sm-message-compose-body textarea::placeholder { color:rgba(0,0,0,.24); font-weight:400; opacity:1; }
-        .sm-message-compose-body input { height:30px; padding:0 9px; }.sm-message-compose-body textarea { padding:8px 9px; resize:none; }
+        .sm-message-compose-body input { height:30px; padding:0 9px; }.sm-message-compose-body textarea { min-height:48px; padding:8px 9px; flex:1; resize:none; }
         .sm-message-compose-body input:focus,.sm-message-compose-body textarea:focus { border-color:rgba(220,38,38,.3); box-shadow:0 0 0 2px rgba(220,38,38,.06); }
         .sm-message-recipient-picker { position:relative; }
         .sm-message-recipient-trigger { width:100%; min-height:31px; padding:4px 7px; display:flex; align-items:center; justify-content:space-between; gap:6px; border:1px solid rgba(0,0,0,.09); border-radius:7px; background:#fff; color:rgba(0,0,0,.35); cursor:pointer; }
@@ -717,13 +717,51 @@ export function SmNachrichtenWorkspace() {
         .sm-message-picker-menu button:hover { background:rgba(0,0,0,.025); }
         .sm-message-picker-menu button > span { display:flex; flex-direction:column; gap:2px; }.sm-message-picker-menu strong { color:#30343a; font-size:9px; }.sm-message-picker-menu small { color:rgba(0,0,0,.35); font-size:7.5px; }
         .sm-message-picker-menu button > i { width:16px; height:16px; display:flex; align-items:center; justify-content:center; border-radius:5px; background:rgba(0,0,0,.04); color:#fff; }.sm-message-picker-menu button > i.selected { background:${RED}; }
-        .sm-message-mode-row { margin-top:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        .sm-message-mode-row { margin-top:12px; flex:none; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
         .sm-message-mode-row button { padding:0; display:flex; align-items:center; gap:5px; border:0; background:transparent; color:rgba(0,0,0,.48); font-family:inherit; font-size:8px; font-weight:550; cursor:pointer; }
         .sm-message-mode-row button > i { width:13px; height:13px; display:flex; align-items:center; justify-content:center; border:1px solid rgba(0,0,0,.15); border-radius:50%; }.sm-message-mode-row button.is-active > i { border-color:rgba(220,38,38,.34); }.sm-message-mode-row button > i span { width:6px; height:6px; border-radius:50%; background:${RED}; }
-        .sm-message-send-button { width:100%; height:34px; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:6px; border:0; border-radius:7px; background:linear-gradient(to bottom,#DC2626,#b91c1c); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,.14); font-family:inherit; font-size:9.5px; font-weight:650; cursor:pointer; transition:opacity .15s ease; }
+        .sm-message-send-button { width:100%; height:34px; margin-top:10px; flex:none; display:flex; align-items:center; justify-content:center; gap:6px; border:0; border-radius:7px; background:linear-gradient(to bottom,#DC2626,#b91c1c); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,.14); font-family:inherit; font-size:9.5px; font-weight:650; cursor:pointer; transition:opacity .15s ease; }
         .sm-message-send-button:not(:disabled):hover { opacity:.9; }
         .sm-message-send-button:disabled { opacity:.45; cursor:not-allowed; }
         button:focus-visible { outline:2px solid rgba(220,38,38,.25); outline-offset:2px; }
+        @container sm-message-side (max-height:720px) {
+          .sm-message-summary-card,.sm-message-parallel-card { padding:13px 15px; }
+          .sm-message-summary-main { margin-top:12px; gap:15px; }
+          .sm-message-ring { width:84px; height:84px; }
+          .sm-message-summary-values { gap:8px; }
+          .sm-message-summary-actions { margin-top:12px; }
+          .sm-message-parallel-card p { margin:7px 0 10px; }
+          .sm-message-parallel-item { padding:10px; }
+          .sm-message-parallel-item > span { margin-top:5px; }
+          .sm-message-compose-heading { height:39px; }
+          .sm-message-compose-body { margin-top:-6px; padding:0 14px 12px; }
+          .sm-message-compose-body label,.sm-message-compose-field { margin-top:8px; }
+          .sm-message-compose-body textarea { min-height:44px; }
+          .sm-message-mode-row { margin-top:9px; }
+          .sm-message-send-button { margin-top:8px; }
+        }
+        @container sm-message-side (max-height:620px) {
+          .sm-message-summary-card,.sm-message-parallel-card { padding:10px 13px; }
+          .sm-message-summary-main { margin-top:8px; gap:12px; }
+          .sm-message-ring { width:72px; height:72px; padding:5px; }
+          .sm-message-summary-values { gap:6px; }
+          .sm-message-summary-actions { margin-top:8px; }
+          .sm-message-summary-actions button { height:28px; }
+          .sm-message-parallel-card p { margin:5px 0 8px; }
+          .sm-message-parallel-item { padding:8px 10px; }
+          .sm-message-parallel-item > span { margin-top:4px; }
+          .sm-message-parallel-item .sm-message-progress { margin-top:6px; }
+          .sm-message-compose-heading { height:34px; }
+          .sm-message-compose-body { margin-top:-5px; padding:0 12px 10px; }
+          .sm-message-compose-body label,.sm-message-compose-field { margin-top:6px; }
+          .sm-message-compose-body label > span,.sm-message-compose-field > span { margin-bottom:4px; }
+          .sm-message-compose-body input { height:27px; }
+          .sm-message-compose-body > label:nth-of-type(2) { min-height:44px; }
+          .sm-message-compose-body textarea { min-height:36px; padding-top:6px; padding-bottom:6px; }
+          .sm-message-recipient-trigger { min-height:28px; }
+          .sm-message-mode-row { margin-top:8px; }
+          .sm-message-send-button { height:30px; margin-top:6px; }
+        }
         @keyframes smMessageIn { from { opacity:0; transform:translateY(7px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
 

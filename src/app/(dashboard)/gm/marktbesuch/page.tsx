@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   BackendApiError,
   cancelGmVisitSession,
+  clearLatestActiveGmVisitHandoff,
   clearGmVisitPreloadCache,
   commitGmVisitPhotos,
   createGmVisitSession,
@@ -17,7 +18,6 @@ import {
   fetchGmVisitStartPayload,
   presignGmVisitPhoto,
   clearGmVisitStartPreloadCache,
-  readGmVisitPreloadCache,
   readGmVisitStartPreloadCache,
   saveGmVisitAnswer,
   setLatestActiveGmVisitHandoff,
@@ -62,6 +62,16 @@ type SubmittedVisitTimeSummary = {
   startedAt: string;
   submittedAt: string;
 };
+
+function isRunningVisitSession(payload: GmVisitSessionReadPayload): boolean {
+  return payload.session.status === "draft" && !payload.session.submittedAt;
+}
+
+function isClosedVisitStartUpdateError(error: unknown): boolean {
+  return error instanceof BackendApiError
+    && error.status === 409
+    && error.message.includes("laufenden Fragebögen");
+}
 
 interface Answer {
   questionId: string;
@@ -3786,6 +3796,14 @@ function MarktbesuchInner() {
     router.replace(`?${next.toString()}`, { scroll: false });
   }, [paramsString, router]);
 
+  const clearSessionIdInUrl = useCallback(() => {
+    const next = new URLSearchParams(paramsString);
+    if (!next.has("sessionId")) return;
+    next.delete("sessionId");
+    const query = next.toString();
+    router.replace(query ? `?${query}` : "/gm/marktbesuch", { scroll: false });
+  }, [paramsString, router]);
+
   const hydrateFromStartPayload = useCallback((payload: GmVisitStartPayload) => {
     setVisitSections(payload.sections ?? []);
     setVisitSessionId(null);
@@ -4024,20 +4042,6 @@ function MarktbesuchInner() {
     const isStale = () => !active || bootstrapRequestSeqRef.current !== requestSeq;
     const resumeId = sessionIdFromParams.trim();
 
-    if (resumeId) {
-      const preloaded = readGmVisitPreloadCache(resumeId);
-      if (preloaded && preloaded.session?.id === resumeId && Array.isArray(preloaded.sections)) {
-        hydrateFromSessionPayload(preloaded);
-        clearGmVisitPreloadCache(resumeId);
-        setVisitStartError(null);
-        setVisitStartLoading(false);
-        setVisitBootstrapDone(true);
-        return () => {
-          active = false;
-        };
-      }
-    }
-
     if (!resumeId) {
       const preloaded = readGmVisitStartPreloadCache({ marketId, campaignIds, kuehlerUnitId });
       if (preloaded && Array.isArray(preloaded.sections)) {
@@ -4057,11 +4061,30 @@ function MarktbesuchInner() {
     const run = async () => {
       try {
         if (resumeId) {
-          const payload = await fetchGmVisitSession(resumeId);
+          let payload: GmVisitSessionReadPayload | null = null;
+          try {
+            payload = await fetchGmVisitSession(resumeId);
+          } catch (error) {
+            if (!(error instanceof BackendApiError) || error.status !== 404) throw error;
+          }
           if (isStale()) return;
-          hydrateFromSessionPayload(payload);
-          setVisitBootstrapDone(true);
-          return;
+          if (payload && isRunningVisitSession(payload)) {
+            hydrateFromSessionPayload(payload);
+            clearGmVisitPreloadCache(resumeId);
+            setVisitBootstrapDone(true);
+            return;
+          }
+
+          clearGmVisitPreloadCache(resumeId);
+          clearLatestActiveGmVisitHandoff(resumeId);
+          clearSessionIdInUrl();
+          setVisitSessionId(null);
+          setVisitSessionStartedAt(null);
+          setTimerRunning(false);
+          setTimerStopped(false);
+          setTimerSeconds(0);
+          setPhase("idle");
+          setPhaseVisible(true);
         }
 
         const activeVisit = await fetchActiveGmVisitSession({ marketId, campaignIds, kuehlerUnitId });
@@ -4099,6 +4122,7 @@ function MarktbesuchInner() {
   }, [
     campaignIdsParam,
     campaignIds,
+    clearSessionIdInUrl,
     hasVisitStartParams,
     hydrateFromSessionPayload,
     hydrateFromStartPayload,
@@ -4595,6 +4619,8 @@ function MarktbesuchInner() {
     try {
       if (visitSessionId) {
         await cancelGmVisitSession(visitSessionId);
+        clearGmVisitPreloadCache(visitSessionId);
+        clearLatestActiveGmVisitHandoff(visitSessionId);
       }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
@@ -4668,6 +4694,8 @@ function MarktbesuchInner() {
         await submitGmVisitSession(visitSessionId);
         submittedSummary = { startedAt: startedAtIso, submittedAt: submittedAtIso };
       }
+      clearGmVisitPreloadCache(visitSessionId);
+      clearLatestActiveGmVisitHandoff(visitSessionId);
       setSubmittedVisitTimeSummary(submittedSummary);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("gm:kuehler-mhd-progress-updated"));
@@ -5062,6 +5090,22 @@ function MarktbesuchInner() {
       const hydratedPayload = await fetchGmVisitSession(created.session.id);
       hydrateFromSessionPayload(hydratedPayload);
     } catch (error) {
+      if (visitSessionId && isClosedVisitStartUpdateError(error)) {
+        clearGmVisitPreloadCache(visitSessionId);
+        clearLatestActiveGmVisitHandoff(visitSessionId);
+        clearSessionIdInUrl();
+        setVisitSessionId(null);
+        setVisitSessionStartedAt(null);
+        setTimerRunning(false);
+        setTimerStopped(false);
+        setTimerSeconds(0);
+        setPhase("idle");
+        setPhaseVisible(true);
+        bootstrapRunKeyRef.current = null;
+        setVisitBootstrapDone(false);
+        setVisitStartRetryNonce((prev) => prev + 1);
+        return;
+      }
       const message = error instanceof Error && error.message
         ? error.message
         : "Start konnte nicht gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.";

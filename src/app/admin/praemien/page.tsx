@@ -5549,7 +5549,7 @@ export default function PraemienPage() {
             />
 
             {activeQuarter.rewardModel === "pillar_tiers" ? (
-              <Card style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 14, background: "linear-gradient(135deg,rgba(220,38,38,0.045),rgba(255,255,255,0.92))", border: "1px solid rgba(220,38,38,0.11)" }}>
+              <Card style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 14, background: "linear-gradient(135deg,rgba(220,38,38,0.045),rgba(255,255,255,0.92))", border: "1px solid rgba(220,38,38,0.2)", backgroundClip: "padding-box" }}>
                 <div style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(220,38,38,0.09)", display: "flex", alignItems: "center", justifyContent: "center", color: R, flexShrink: 0 }}>
                   <Award size={16} strokeWidth={1.8} />
                 </div>

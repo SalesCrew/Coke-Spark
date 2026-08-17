@@ -944,7 +944,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Plus size={12} strokeWidth={2} />
                   Nachricht erstellen
                 </button> : null
-              ) : isDurcharbeit && canWriteCurrentPage ? (
+              ) : isSmZeiterfassung ? null
+              : isDurcharbeit && canWriteCurrentPage ? (
                 <>
                   <button
                     onClick={() => { setDurcharbeitEditingModule(null); setDurcharbeitModuleEditorOpen(true); }}

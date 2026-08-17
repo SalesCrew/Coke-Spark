@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, History, RotateCcw, Search, X } from "lucide-react";
 import {
   clearAdminIppAdjustment,
@@ -215,8 +216,8 @@ function GmAdjustmentModal({
     }
   }
 
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 70, background: "rgba(15,23,42,0.18)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onSubmit={submit} style={{ width: "min(560px, calc(100vw - 40px))", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 24px 70px rgba(15,23,42,0.24)", overflow: "hidden" }}>
         <div style={{ padding: "15px 16px 13px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <div>
@@ -309,7 +310,8 @@ function GmAdjustmentModal({
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

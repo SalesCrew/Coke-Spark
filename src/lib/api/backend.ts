@@ -59,6 +59,7 @@ type BackendUser = {
   city?: string | null;
   postalCode?: string | null;
   region?: string | null;
+  travelTimeEnabled?: boolean | null;
   isBillaGm?: boolean | null;
   ipp?: number | null;
   ippSampleCount?: number | null;
@@ -517,11 +518,7 @@ function mapBackendUserToSmRecord(user: BackendUser, oneTimePassword?: string): 
     firstName: user.firstName,
     lastName: user.lastName,
     email: user.email,
-    phone: user.phone ?? "",
-    address: user.address ?? "",
-    city: user.city ?? "",
-    postalCode: user.postalCode ?? "",
-    region: user.region ?? "",
+    travelTimeEnabled: Boolean(user.travelTimeEnabled),
     visitCount: 0,
     createdAt: user.createdAt ?? new Date().toISOString(),
     password: oneTimePassword,
@@ -2096,11 +2093,7 @@ export async function createSmUser(payload: Omit<SMRecord, "id" | "createdAt" | 
       firstName: payload.firstName,
       lastName: payload.lastName,
       email: payload.email,
-      phone: payload.phone,
-      address: payload.address,
-      city: payload.city,
-      postalCode: payload.postalCode,
-      region: payload.region,
+      travelTimeEnabled: payload.travelTimeEnabled,
     }),
   })) as { user: BackendUser; oneTimePassword?: string };
   const next = mapBackendUserToSmRecord(data.user, data.oneTimePassword);
@@ -2115,11 +2108,7 @@ export async function updateSmUser(payload: SMRecord): Promise<SMRecord> {
       firstName: payload.firstName,
       lastName: payload.lastName,
       email: payload.email,
-      phone: payload.phone,
-      address: payload.address,
-      city: payload.city,
-      postalCode: payload.postalCode,
-      region: payload.region,
+      travelTimeEnabled: payload.travelTimeEnabled,
     }),
   })) as { user: BackendUser };
   const next = mapBackendUserToSmRecord(data.user);

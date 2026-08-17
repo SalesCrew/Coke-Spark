@@ -281,7 +281,7 @@ export async function exportShelfMerchandiserExcel(input: {
   visits?: MarketVisitLog[];
   exportedBy?: string;
 }) {
-  const sms = input.sms.slice().sort((a, b) => a.region.localeCompare(b.region, "de") || smFullName(a).localeCompare(smFullName(b), "de"));
+  const sms = input.sms.slice().sort((a, b) => smFullName(a).localeCompare(smFullName(b), "de"));
   const visits = input.visits ?? [];
   const visitsBySm = new Map<string, MarketVisitLog[]>();
   visits.forEach((visit) => {
@@ -297,7 +297,7 @@ export async function exportShelfMerchandiserExcel(input: {
       appendTableSheet(XLSX, wb, {
         name: "Shelf Merchandiser",
         title: "Shelf Merchandiser",
-        description: "Stammdaten, Regionen und Besuchsplatzhalter.",
+        description: "SM-Stammdaten und Besuchsplatzhalter.",
         rows: sms,
         columns: [
           { header: "SM ID", width: 38, value: (sm) => sm.id },
@@ -305,11 +305,7 @@ export async function exportShelfMerchandiserExcel(input: {
           { header: "Nachname", width: 18, value: (sm) => sm.lastName },
           { header: "Name", width: 26, value: (sm) => smFullName(sm) },
           { header: "E-Mail", width: 30, value: (sm) => sm.email },
-          { header: "Telefon", width: 18, value: (sm) => sm.phone },
-          { header: "Adresse", width: 28, value: (sm) => sm.address },
-          { header: "PLZ", width: 9, value: (sm) => sm.postalCode },
-          { header: "Ort", width: 20, value: (sm) => sm.city },
-          { header: "Region", width: 12, value: (sm) => sm.region },
+          { header: "Fahrtzeiten", width: 14, value: (sm) => sm.travelTimeEnabled ? "Ja" : "Nein" },
           { header: "Besuche", width: 10, value: (sm) => sm.visitCount ?? 0, align: "right" },
           { header: "Erstellt am", width: 24, value: (sm) => sm.createdAt },
         ],
@@ -335,7 +331,7 @@ export async function exportShelfMerchandiserExcel(input: {
         rows: smSummary,
         columns: [
           { header: "SM", width: 26, value: (row) => smFullName(row.sm) },
-          { header: "Region", width: 12, value: (row) => row.sm.region },
+          { header: "Fahrtzeiten", width: 14, value: (row) => row.sm.travelTimeEnabled ? "Ja" : "Nein" },
           { header: "Besuche", width: 10, value: (row) => row.total, align: "right" },
           { header: "Standard", width: 10, value: (row) => row.standard, align: "right" },
           { header: "Flex", width: 10, value: (row) => row.flex, align: "right" },
@@ -363,17 +359,6 @@ export async function exportShelfMerchandiserExcel(input: {
         ],
       });
 
-      const regionRows = countBy(sms, (sm) => sm.region).map((row) => ({ region: row.key, anzahl: row.count }));
-      appendTableSheet(XLSX, wb, {
-        name: "Regionen",
-        title: "Regionen",
-        description: "SM-Verteilung nach Region.",
-        rows: regionRows,
-        columns: [
-          { header: "Region", width: 16, value: (row) => row.region },
-          { header: "SMs", width: 10, value: (row) => row.anzahl, align: "right" },
-        ],
-      });
     },
   });
 }

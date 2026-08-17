@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
+import { Plus, X, Copy, Check, UserCheck, Mail, Car, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
 import type { SMRecord } from "@/types/shelfmerchandiser";
 import type { MarketVisitLog } from "@/types/markets";
 import { createSmUser, fetchSmUsers, readAuthSession, updateSmUser } from "@/lib/api/backend";
@@ -13,7 +13,6 @@ const R  = "#DC2626";
 const RD = "#b91c1c";
 const LS_VISITS_PREFIX = "admin_market_visits_v2:";
 const LS_VISITS_LEGACY = "admin_market_visits_v1";
-const REGIONS = ["Nord", "Ost", "Süd", "West", "Mitte"];
 
 function getVisitsStorageKey(): string {
   const userId = readAuthSession()?.user.id ?? "anonymous";
@@ -86,12 +85,32 @@ function inp(extra?: React.CSSProperties): React.CSSProperties {
   };
 }
 
-// ── Region badge ──────────────────────────────────────────────
-function RegionBadge({ region }: { region: string }) {
+function TravelTimeBadge({ enabled }: { enabled: boolean }) {
   return (
-    <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: "rgba(0,0,0,0.06)", color: "rgba(0,0,0,0.45)", letterSpacing: "0.06em", textTransform: "uppercase" as const, whiteSpace: "nowrap" as const }}>
-      {region}
+    <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: enabled ? "rgba(22,163,74,0.09)" : "rgba(0,0,0,0.055)", color: enabled ? "#15803d" : "rgba(0,0,0,0.4)", whiteSpace: "nowrap" as const }}>
+      {enabled ? "Ja" : "Nein"}
     </span>
+  );
+}
+
+function TravelTimeToggle({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 3, borderRadius: 9, background: "rgba(0,0,0,0.045)", border: "1px solid rgba(0,0,0,0.06)" }} role="group" aria-label="Fahrtzeiten">
+      {[true, false].map(option => {
+        const selected = value === option;
+        return (
+          <button
+            key={String(option)}
+            type="button"
+            onClick={() => onChange(option)}
+            aria-pressed={selected}
+            style={{ height: 30, borderRadius: 6, border: selected ? "1px solid rgba(0,0,0,0.08)" : "1px solid transparent", background: selected ? "#fff" : "transparent", boxShadow: selected ? "0 1px 4px rgba(0,0,0,0.07)" : "none", color: selected ? (option ? "#15803d" : "#374151") : "rgba(0,0,0,0.4)", fontSize: 11, fontWeight: selected ? 700 : 500, fontFamily: "inherit", cursor: "pointer", transition: "all 0.14s" }}
+          >
+            {option ? "Ja" : "Nein"}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -135,38 +154,24 @@ function SMCard({
             <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>Shelf Merchandiser</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
-          <RegionBadge region={gm.region} />
-        </div>
       </div>
       <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
         <div style={{ padding: "16px 16px 12px", textAlign: "center", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 4 }}>Besuche</div>
           <div style={{ fontSize: 32, fontWeight: 900, color: "#16a34a", letterSpacing: "-0.05em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{visitCount}</div>
         </div>
-        <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+        <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <Mail size={10} strokeWidth={1.8} color="rgba(0,0,0,0.3)" style={{ flexShrink: 0 }} />
             <span style={{ fontSize: 11, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{gm.email}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <Phone size={10} strokeWidth={1.8} color="rgba(0,0,0,0.3)" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: "#374151" }}>{gm.phone}</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <Car size={10} strokeWidth={1.8} color="rgba(0,0,0,0.3)" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)" }}>Fahrtzeiten</span>
+            </div>
+            <TravelTimeBadge enabled={gm.travelTimeEnabled} />
           </div>
-        </div>
-        <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 7 }}>
-          <Home size={10} strokeWidth={1.8} color="rgba(0,0,0,0.3)" style={{ flexShrink: 0 }} />
-          <a
-            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${gm.address}, ${gm.postalCode} ${gm.city}`)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            style={{ fontSize: 11, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, minWidth: 0, flex: 1, textDecoration: "none", transition: "color 0.12s" }}
-            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = R; (e.currentTarget as HTMLAnchorElement).style.textDecoration = "underline"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = "#374151"; (e.currentTarget as HTMLAnchorElement).style.textDecoration = "none"; }}
-          >
-            {gm.address}, {gm.postalCode} {gm.city}
-          </a>
         </div>
       </div>
     </div>
@@ -251,63 +256,6 @@ function DrawerField({ label, value, onChange }: { label: string; value: string;
   );
 }
 
-function DrawerSelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
-  const [open, setOpen] = React.useState(false);
-  const btnRef = React.useRef<HTMLButtonElement>(null);
-  const [pos, setPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
-
-  React.useEffect(() => {
-    if (!open) return;
-    function update() {
-      if (!btnRef.current) return;
-      const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, left: r.left, width: r.width });
-    }
-    update();
-    window.addEventListener("scroll", update, true);
-    window.addEventListener("resize", update);
-    return () => { window.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
-  }, [open]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      const portal = document.getElementById("gm-drawer-select-portal");
-      if (btnRef.current?.contains(e.target as Node) || portal?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <label style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(0,0,0,0.3)" }}>{label}</label>
-      <button ref={btnRef} type="button" onClick={() => setOpen(o => !o)}
-        style={{ ...inp(), display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", background: "#fff", textAlign: "left" as const, borderColor: open ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.12)", boxShadow: open ? "0 0 0 2px rgba(0,0,0,0.06)" : "none" }}>
-        <span style={{ fontSize: 11, color: "#1a1a1a" }}>{value}</span>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}>
-          <path d="M2 3.5L5 6.5L8 3.5" stroke="rgba(0,0,0,0.4)" strokeWidth="1.3" strokeLinecap="round" />
-        </svg>
-      </button>
-      {open && pos && typeof document !== "undefined" && createPortal(
-        <div id="gm-drawer-select-portal" style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 9999, background: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 6px 20px rgba(0,0,0,0.10)", padding: 4 }}>
-          {options.map(o => (
-            <button key={o} type="button" onMouseDown={e => { e.preventDefault(); onChange(o); setOpen(false); }}
-              style={{ width: "100%", textAlign: "left" as const, padding: "6px 10px", fontSize: 11, borderRadius: 5, border: "none", cursor: "pointer", background: value === o ? "rgba(220,38,38,0.06)" : "transparent", color: value === o ? R : "#374151", fontWeight: value === o ? 600 : 400, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "space-between" }}
-              onMouseEnter={e => { if (value !== o) e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
-              onMouseLeave={e => { if (value !== o) e.currentTarget.style.background = "transparent"; }}>
-              {o}
-              {value === o && <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 5.5L4.5 8L9 3" stroke={R} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-            </button>
-          ))}
-        </div>,
-        document.body,
-      )}
-    </div>
-  );
-}
-
 function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose: () => void; onSave: (updated: SMRecord) => Promise<void> | void; visits: MarketVisitLog[] }) {
   const [tab, setTab] = useState<"profil" | "besuche">("profil");
   const [draft, setDraft] = useState<SMRecord>({ ...gm });
@@ -323,8 +271,14 @@ function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose
   // Reset draft when gm changes
   useEffect(() => { setDraft({ ...gm }); setDirty(false); setTab("profil"); }, [gm.id]);
 
-  const set = (k: keyof SMRecord) => (v: string) => {
+  const set = (k: "firstName" | "lastName" | "email") => (v: string) => {
     setDraft(d => ({ ...d, [k]: v }));
+    setDirty(true);
+    setSaved(false);
+  };
+
+  const setTravelTimeEnabled = (value: boolean) => {
+    setDraft(d => ({ ...d, travelTimeEnabled: value }));
     setDirty(true);
     setSaved(false);
   };
@@ -398,7 +352,7 @@ function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose
               </div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", lineHeight: 1.2 }}>{draft.firstName} {draft.lastName}</div>
-                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>Shelf Merchandiser · {draft.region}</div>
+                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>Shelf Merchandiser</div>
               </div>
             </div>
             <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.05)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(0,0,0,0.4)", transition: "all 0.12s", flexShrink: 0 }}
@@ -447,25 +401,15 @@ function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose
                 <DrawerField label="Nachname" value={draft.lastName} onChange={set("lastName")} />
               </div>
               <DrawerField label="E-Mail" value={draft.email} onChange={set("email")} />
-              <DrawerField label="Telefon" value={draft.phone} onChange={set("phone")} />
             </div>
           </div>
 
           <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
 
-          {/* Section: Adresse & Region */}
           <div>
-            <div style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 10 }}>Adresse & Region</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <DrawerField label="Adresse" value={draft.address} onChange={set("address")} />
-              <div style={{ display: "flex", gap: 8 }}>
-                <DrawerField label="Ort" value={draft.city} onChange={set("city")} />
-                <div style={{ flex: "0 0 90px" }}>
-                  <DrawerField label="PLZ" value={draft.postalCode} onChange={set("postalCode")} />
-                </div>
-              </div>
-              <DrawerSelectField label="Region" value={draft.region} onChange={set("region")} options={REGIONS} />
-            </div>
+            <div style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 7 }}>Fahrtzeiten</div>
+            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", lineHeight: 1.5, marginBottom: 9 }}>Dürfen Fahrtzeiten für diesen SM erfasst werden?</div>
+            <TravelTimeToggle value={draft.travelTimeEnabled} onChange={setTravelTimeEnabled} />
           </div>
 
           <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
@@ -553,14 +497,13 @@ function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose
 // ── Create Modal form helpers ─────────────────────────────────
 type FormState = {
   firstName: string; lastName: string;
-  email: string; phone: string;
-  address: string; city: string; postalCode: string; region: string;
+  email: string;
+  travelTimeEnabled: boolean;
 };
-const EMPTY_FORM: FormState = { firstName: "", lastName: "", email: "", phone: "", address: "", city: "", postalCode: "", region: "" };
+const EMPTY_FORM: FormState = { firstName: "", lastName: "", email: "", travelTimeEnabled: false };
 function isValidEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function isFormValid(f: FormState) {
-  return f.firstName.trim() && f.lastName.trim() && f.email.trim() && isValidEmail(f.email) &&
-    f.phone.trim() && f.address.trim() && f.city.trim() && f.postalCode.trim() && f.region;
+  return Boolean(f.firstName.trim() && f.lastName.trim() && f.email.trim() && isValidEmail(f.email));
 }
 
 function InputField({ label, value, onChange, placeholder, type = "text", error }: {
@@ -574,59 +517,6 @@ function InputField({ label, value, onChange, placeholder, type = "text", error 
         onFocus={e => { e.currentTarget.style.borderColor = error ? R : "rgba(0,0,0,0.28)"; e.currentTarget.style.boxShadow = error ? "0 0 0 2px rgba(220,38,38,0.08)" : "0 0 0 2px rgba(0,0,0,0.06)"; }}
         onBlur={e => { e.currentTarget.style.borderColor = error ? "rgba(220,38,38,0.5)" : "rgba(0,0,0,0.12)"; e.currentTarget.style.boxShadow = "none"; }}
       />
-    </div>
-  );
-}
-
-function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
-  const [open, setOpen] = React.useState(false);
-  const btnRef = React.useRef<HTMLButtonElement>(null);
-  const [pos, setPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
-  React.useEffect(() => {
-    if (!open) return;
-    function update() {
-      if (!btnRef.current) return;
-      const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, left: r.left, width: r.width });
-    }
-    update();
-    window.addEventListener("scroll", update, true); window.addEventListener("resize", update);
-    return () => { window.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
-  }, [open]);
-  React.useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      const portal = document.getElementById("gm-select-portal");
-      if (btnRef.current?.contains(e.target as Node) || portal?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0 }}>
-      <label style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: value ? "rgba(0,0,0,0.35)" : R }}>{label}</label>
-      <button ref={btnRef} type="button" onClick={() => setOpen(o => !o)}
-        style={{ ...inp(), display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", background: "#fff", textAlign: "left" as const, borderColor: open ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.12)", boxShadow: open ? "0 0 0 2px rgba(0,0,0,0.06)" : "none" }}>
-        <span style={{ fontSize: 11, color: value ? "#1a1a1a" : "rgba(0,0,0,0.38)" }}>{value || "Region wählen…"}</span>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}>
-          <path d="M2 3.5L5 6.5L8 3.5" stroke="rgba(0,0,0,0.4)" strokeWidth="1.3" strokeLinecap="round" />
-        </svg>
-      </button>
-      {open && pos && typeof document !== "undefined" && createPortal(
-        <div id="gm-select-portal" style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 9999, background: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 6px 20px rgba(0,0,0,0.10)", padding: 4 }}>
-          {options.map(o => (
-            <button key={o} type="button" onMouseDown={e => { e.preventDefault(); onChange(o); setOpen(false); }}
-              style={{ width: "100%", textAlign: "left" as const, padding: "6px 10px", fontSize: 11, borderRadius: 5, border: "none", cursor: "pointer", background: value === o ? "rgba(220,38,38,0.06)" : "transparent", color: value === o ? R : "#374151", fontWeight: value === o ? 600 : 400, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "space-between" }}
-              onMouseEnter={e => { if (value !== o) e.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
-              onMouseLeave={e => { if (value !== o) e.currentTarget.style.background = "transparent"; }}>
-              {o}
-              {value === o && <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 5.5L4.5 8L9 3" stroke={R} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-            </button>
-          ))}
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }
@@ -685,15 +575,13 @@ function CreateModal({
   onCreate: (form: FormState) => Promise<{ sm: SMRecord; password: string }>;
 }) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [touched, setTouched] = useState<Partial<Record<keyof FormState, boolean>>>({});
   const [step, setStep] = useState<"form" | "success">("form");
   const [password, setPassword] = useState("");
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const valid = isFormValid(form);
-  const set = (k: keyof FormState) => (v: string) => setForm(f => ({ ...f, [k]: v }));
-  const touch = (k: keyof FormState) => setTouched(t => ({ ...t, [k]: true }));
+  const set = (k: "firstName" | "lastName" | "email") => (v: string) => setForm(f => ({ ...f, [k]: v }));
   const handleSubmit = async () => {
     if (!valid) return;
     setSubmitting(true);
@@ -709,13 +597,13 @@ function CreateModal({
     }
   };
   const handleCopy = () => { navigator.clipboard.writeText(password).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
-  const emailError = touched.email && form.email && !isValidEmail(form.email);
+  const emailError = Boolean(form.email && !isValidEmail(form.email));
 
   return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.32)", backdropFilter: "blur(2px)", animation: "bdIn 0.18s ease both" }} />
       <style>{`@keyframes bdIn{from{opacity:0}to{opacity:1}} @keyframes modalIn{from{opacity:0;transform:scale(0.97) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}} @keyframes successIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
-      <div style={{ position: "relative", zIndex: 1, width: 480, background: "#fff", borderRadius: 16, boxShadow: "0 8px 48px rgba(0,0,0,0.18), 0 2px 12px rgba(0,0,0,0.1)", border: "1px solid rgba(0,0,0,0.07)", animation: "modalIn 0.22s cubic-bezier(0.4,0,0.2,1) both", overflow: "hidden" }}>
+      <div style={{ position: "relative", zIndex: 1, width: 440, background: "#fff", borderRadius: 16, boxShadow: "0 8px 48px rgba(0,0,0,0.18), 0 2px 12px rgba(0,0,0,0.1)", border: "1px solid rgba(0,0,0,0.07)", animation: "modalIn 0.22s cubic-bezier(0.4,0,0.2,1) both", overflow: "hidden" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(220,38,38,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -723,7 +611,7 @@ function CreateModal({
             </div>
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>{step === "form" ? "Shelf Merchandiser erstellen" : "SM erfolgreich erstellt"}</div>
-              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 1 }}>{step === "form" ? "Alle Felder ausfüllen" : `${form.firstName} ${form.lastName}`}</div>
+              <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginTop: 1 }}>{step === "form" ? "Name, E-Mail und Fahrtzeiten festlegen" : `${form.firstName} ${form.lastName}`}</div>
             </div>
           </div>
           <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 6, border: "none", background: "rgba(0,0,0,0.05)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(0,0,0,0.45)", transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,0,0,0.09)"; }} onMouseLeave={e => { e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}>
@@ -736,15 +624,18 @@ function CreateModal({
               <InputField label="Vorname *" value={form.firstName} onChange={set("firstName")} placeholder="Max" />
               <InputField label="Nachname *" value={form.lastName} onChange={set("lastName")} placeholder="Mustermann" />
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
+            <div>
               <InputField label="E-Mail *" value={form.email} onChange={set("email")} placeholder="m.mustermann@salescrew.at" type="email" error={!!emailError} />
-              <InputField label="Telefon *" value={form.phone} onChange={set("phone")} placeholder="+43 664 …" />
             </div>
-            <InputField label="Adresse *" value={form.address} onChange={set("address")} placeholder="Mariahilfer Str. 58" />
-            <div style={{ display: "flex", gap: 10 }}>
-              <InputField label="Ort *" value={form.city} onChange={set("city")} placeholder="Wien" />
-              <div style={{ flex: "0 0 90px" }}><InputField label="PLZ *" value={form.postalCode} onChange={set("postalCode")} placeholder="1060" /></div>
-              <SelectField label="Region *" value={form.region} onChange={set("region")} options={REGIONS} />
+            <div style={{ padding: 12, borderRadius: 10, border: "1px solid rgba(0,0,0,0.07)", background: "rgba(0,0,0,0.018)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+                <Car size={12} strokeWidth={1.9} color="rgba(0,0,0,0.42)" />
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#374151" }}>Fahrtzeiten</div>
+                  <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>Fahrtzeiterfassung für diesen SM erlauben</div>
+                </div>
+              </div>
+              <TravelTimeToggle value={form.travelTimeEnabled} onChange={travelTimeEnabled => setForm(current => ({ ...current, travelTimeEnabled }))} />
             </div>
             {error ? (
               <div style={{ fontSize: 10, fontWeight: 600, color: "#b91c1c" }}>{error}</div>
@@ -841,11 +732,7 @@ export default function ShelfMerchandiserPage() {
       firstName: form.firstName,
       lastName: form.lastName,
       email: form.email,
-      phone: form.phone,
-      address: form.address,
-      city: form.city,
-      postalCode: form.postalCode,
-      region: form.region,
+      travelTimeEnabled: form.travelTimeEnabled,
     });
     setGms((prev) => [created, ...prev]);
     setNewId(created.id);

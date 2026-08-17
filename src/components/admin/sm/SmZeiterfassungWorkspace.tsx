@@ -4,7 +4,7 @@ import { memo, useMemo, useState } from "react";
 import { CheckCircle2, ChevronDown, CircleAlert, Clock, Search, Store } from "lucide-react";
 
 const RED = "#DC2626";
-const ROW_GRID = "minmax(260px, 1.35fr) repeat(5, minmax(112px, 1fr)) 28px";
+const ROW_GRID = "minmax(280px, 1.6fr) repeat(3, minmax(110px, .7fr)) minmax(130px, .9fr) 28px";
 const ROW_GAP = 14;
 
 type SmAssignmentStatus = "completed" | "open" | "missed";
@@ -51,10 +51,6 @@ function formatDuration(minutes: number | null): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}min`;
-}
-
-function formatMoney(cents: number): string {
-  return new Intl.NumberFormat("de-AT", { style: "currency", currency: "EUR" }).format(cents / 100);
 }
 
 function formatDateLabel(dateIso: string): { weekday: string; date: string } {
@@ -131,8 +127,7 @@ const AssignmentRow = memo(function AssignmentRow({ assignment }: { assignment: 
       <MetricCell label="Soll-Zeit" value={formatDuration(assignment.plannedMinutes)} />
       <MetricCell label="Ist-Zeit" value={formatDuration(assignment.actualMinutes)} color={assignment.actualMinutes === null ? "rgba(0,0,0,0.2)" : "#374151"} />
       <MetricCell label="Abweichung" value={deviationLabel(deviation)} color={deviationColor(deviation)} />
-      <MetricCell label="Pauschale" value={formatMoney(assignment.flatRateCents)} />
-      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gridColumn: "6 / 8", justifySelf: "end", alignItems: "flex-end", gap: 4, textAlign: "right" }}>
+      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gridColumn: "5 / 7", justifySelf: "end", alignItems: "flex-end", gap: 4, textAlign: "right" }}>
         <span style={{ padding: "2px 7px", borderRadius: 999, background: meta.background, color: meta.color, fontSize: 8, fontWeight: 750 }}>{meta.label}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: assignment.questionnaireComplete ? "#15803d" : "rgba(0,0,0,0.34)", fontSize: 8.5, fontWeight: 600 }}>
           {assignment.questionnaireComplete ? <CheckCircle2 size={9} strokeWidth={2.2} /> : <CircleAlert size={9} strokeWidth={2} />}
@@ -149,7 +144,6 @@ const SmDayRow = memo(function SmDayRow({ day }: { day: SmDay }) {
   const actual = totalMinutes(day.assignments, "actualMinutes");
   const hasOpen = day.assignments.some((row) => row.actualMinutes === null);
   const deviation = hasOpen ? null : actual - planned;
-  const flatRate = day.assignments.reduce((sum, row) => sum + row.flatRateCents, 0);
   const completedCount = day.assignments.filter((row) => row.status === "completed").length;
   const allCompleted = completedCount === day.assignments.length;
   const avatar = avatarColors(day.smName);
@@ -167,7 +161,6 @@ const SmDayRow = memo(function SmDayRow({ day }: { day: SmDay }) {
         <MetricCell label="Soll-Zeit" value={formatDuration(planned)} />
         <MetricCell label="Ist-Zeit" value={hasOpen && actual === 0 ? "—" : formatDuration(actual)} />
         <MetricCell label="Abweichung" value={deviationLabel(deviation)} color={deviationColor(deviation)} />
-        <MetricCell label="Pauschale" value={formatMoney(flatRate)} />
         <div style={{ minWidth: 0, textAlign: "right" }}>
           <div style={{ marginBottom: 2, color: "rgba(0,0,0,0.28)", fontSize: 8, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Einsätze erledigt</div>
           <div style={{ color: allCompleted ? "#16a34a" : RED, fontSize: 13, fontWeight: 800, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{completedCount}/{day.assignments.length}</div>
@@ -286,7 +279,7 @@ export function SmZeiterfassungWorkspace() {
             ) : (
               <div>
                 <div style={{ padding: "6px 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: ROW_GAP, alignItems: "center", borderBottom: "1px solid rgba(0,0,0,0.05)", background: "rgba(0,0,0,0.018)" }}>
-                  <span />{["Soll-Zeit", "Ist-Zeit", "Abweichung", "Pauschale", "Einsätze erledigt"].map((label, index) => <span key={label} style={{ color: "rgba(0,0,0,0.28)", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.07em", textAlign: index === 4 ? "right" : "left", textTransform: "uppercase", whiteSpace: "nowrap" }}>{label}</span>)}<span />
+                  <span />{["Soll-Zeit", "Ist-Zeit", "Abweichung", "Einsätze erledigt"].map((label, index) => <span key={label} style={{ color: "rgba(0,0,0,0.28)", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.07em", textAlign: index === 3 ? "right" : "left", textTransform: "uppercase", whiteSpace: "nowrap" }}>{label}</span>)}<span />
                 </div>
                 {smGroups.map((group) => {
                   const first = group.rows[0];

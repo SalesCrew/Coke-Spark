@@ -13,8 +13,10 @@ import { createPortal } from "react-dom";
 import {
   Check,
   ChevronDown,
-  Info,
+  LockKeyhole,
   MapPin,
+  Pencil,
+  Plus,
   Search,
   Store,
   UserRound,
@@ -36,6 +38,7 @@ type SmMarketPreview = {
   id: string;
   name: string;
   dbName: string;
+  chain?: string;
   internalId: string;
   address: string;
   postalCode: string;
@@ -44,6 +47,14 @@ type SmMarketPreview = {
   infoFlag: boolean;
   infoNote: string;
   isActive: boolean;
+};
+
+type EditableMarketFields = Pick<SmMarketPreview, "name" | "dbName" | "internalId" | "infoNote" | "address" | "postalCode" | "city" | "region" | "isActive"> & {
+  chain: string;
+};
+
+type NewSmMarketInput = EditableMarketFields & {
+  assignedSmId: string | null;
 };
 
 type MarketFilters = {
@@ -71,10 +82,10 @@ const EMPTY_FILTERS: MarketFilters = {
 };
 
 const TEMP_SM_USERS: SMRecord[] = [
-  { id: "preview-sm-adriana", firstName: "Adriana", lastName: "Maier", email: "adriana.maier@merch.at", phone: "+43 660 120 10 01", address: "Wiener Straße 12", city: "Wien", postalCode: "1010", region: "Ost", createdAt: "2026-08-01T08:00:00.000Z" },
-  { id: "preview-sm-sophie", firstName: "Sophie", lastName: "Gruber", email: "sophie.gruber@merch.at", phone: "+43 660 120 10 02", address: "Bahnhofstraße 8", city: "Graz", postalCode: "8010", region: "Süd", createdAt: "2026-08-01T08:00:00.000Z" },
-  { id: "preview-sm-daniel", firstName: "Daniel", lastName: "Huber", email: "daniel.huber@merch.at", phone: "+43 660 120 10 03", address: "Landstraße 20", city: "Linz", postalCode: "4020", region: "Nord", createdAt: "2026-08-01T08:00:00.000Z" },
-  { id: "preview-sm-miriam", firstName: "Miriam", lastName: "Leitner", email: "miriam.leitner@merch.at", phone: "+43 660 120 10 04", address: "Innrain 4", city: "Innsbruck", postalCode: "6020", region: "West", createdAt: "2026-08-01T08:00:00.000Z" },
+  { id: "preview-sm-adriana", firstName: "Adriana", lastName: "Maier", email: "adriana.maier@merch.at", travelTimeEnabled: true, createdAt: "2026-08-01T08:00:00.000Z" },
+  { id: "preview-sm-sophie", firstName: "Sophie", lastName: "Gruber", email: "sophie.gruber@merch.at", travelTimeEnabled: false, createdAt: "2026-08-01T08:00:00.000Z" },
+  { id: "preview-sm-daniel", firstName: "Daniel", lastName: "Huber", email: "daniel.huber@merch.at", travelTimeEnabled: true, createdAt: "2026-08-01T08:00:00.000Z" },
+  { id: "preview-sm-miriam", firstName: "Miriam", lastName: "Leitner", email: "miriam.leitner@merch.at", travelTimeEnabled: false, createdAt: "2026-08-01T08:00:00.000Z" },
 ];
 
 const TEMP_SM_MARKETS: SmMarketPreview[] = [
@@ -116,7 +127,22 @@ function marketInternalId(market: SmMarketPreview): string {
 }
 
 function marketChain(market: SmMarketPreview): string {
-  return market.dbName.trim() || market.name.split(" ")[0]?.trim() || "Markt";
+  return market.chain?.trim() || market.dbName.trim() || market.name.split(" ")[0]?.trim() || "Markt";
+}
+
+function editableMarketFields(market: SmMarketPreview): EditableMarketFields {
+  return {
+    name: market.name,
+    dbName: market.dbName,
+    chain: marketChain(market),
+    internalId: market.internalId,
+    infoNote: market.infoNote,
+    address: market.address,
+    postalCode: market.postalCode,
+    city: market.city,
+    region: market.region,
+    isActive: market.isActive,
+  };
 }
 
 function chainColors(name: string): { background: string; color: string } {
@@ -193,6 +219,7 @@ function PortalSelectMenu({
   options,
   value,
   nullLabel,
+  allowNull = true,
   searchable,
   onChange,
   onClose,
@@ -202,6 +229,7 @@ function PortalSelectMenu({
   options: SelectOption[];
   value: string | null;
   nullLabel: string;
+  allowNull?: boolean;
   searchable?: boolean;
   onChange: (value: string | null) => void;
   onClose: () => void;
@@ -268,7 +296,7 @@ function PortalSelectMenu({
         </div>
       ) : null}
 
-      <button
+      {allowNull ? <button
         type="button"
         role="option"
         aria-selected={value === null}
@@ -281,7 +309,7 @@ function PortalSelectMenu({
       >
         <span>{nullLabel}</span>
         {value === null ? <Check size={11} strokeWidth={2.5} /> : null}
-      </button>
+      </button> : null}
 
       {visibleOptions.map((option) => {
         const selected = option.value === value;
@@ -312,6 +340,31 @@ function PortalSelectMenu({
       ) : null}
     </div>,
     document.body,
+  );
+}
+
+function MarketFieldSelect({ value, options, large = false, onChange }: { value: string; options: SelectOption[]; large?: boolean; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
+
+  return (
+    <div style={{ minWidth: 0 }}>
+      <button ref={anchorRef} type="button" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)} className={`sm-market-edit-field sm-market-field-select${large ? " is-large" : ""}`}>
+        <span>{selectedLabel}</span>
+        <ChevronDown size={10.5} strokeWidth={2} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .15s" }} />
+      </button>
+      <PortalSelectMenu
+        anchorRef={anchorRef}
+        open={open}
+        options={options}
+        value={value}
+        nullLabel=""
+        allowNull={false}
+        onChange={(nextValue) => { if (nextValue !== null) onChange(nextValue); }}
+        onClose={() => setOpen(false)}
+      />
+    </div>
   );
 }
 
@@ -471,21 +524,17 @@ const MarketRow = memo(function MarketRow({
         <span style={{ flexShrink: 0, padding: "2px 7px", borderRadius: 5, background: colors.background, color: colors.color, fontSize: 9, fontWeight: 750, letterSpacing: "0.02em", textTransform: "uppercase" }}>
           {chain}
         </span>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: 650, color: active ? COKE_RED : "#1a1a1a", letterSpacing: "-0.01em" }}>{market.name}</div>
-          <div style={{ marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 9, color: "rgba(0,0,0,0.35)" }}>{market.dbName}</div>
-        </div>
       </div>
       <div className="sm-table-value sm-tabular">{marketInternalId(market)}</div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {market.infoFlag || market.infoNote.trim() ? <span title={market.infoNote || "Info vorhanden"} style={{ width: 6, height: 6, borderRadius: 999, background: COKE_RED }} /> : null}
+        {market.infoNote.trim() ? <span title={`Admin-Info: ${market.infoNote}`} aria-label="Admin-Info vorhanden" style={{ width: 6, height: 6, borderRadius: 999, background: COKE_RED }} /> : null}
       </div>
       <div className="sm-table-value">{market.address}</div>
       <div className="sm-table-value">{market.region}</div>
       <div className="sm-table-value sm-tabular">{market.postalCode}</div>
       <div className="sm-table-value">{market.city}</div>
       <SmAssignmentSelect value={assignedSmId} users={users} compact onChange={(smId) => onAssign(market.id, smId)} />
-      <span style={{ justifySelf: "start", padding: "3px 7px", borderRadius: 999, background: market.isActive ? "rgba(22,163,74,0.07)" : "rgba(0,0,0,0.04)", color: market.isActive ? "#15803d" : "rgba(0,0,0,0.4)", fontSize: 9, fontWeight: 700 }}>
+      <span style={{ justifySelf: "end", padding: "3px 7px", borderRadius: 999, background: market.isActive ? "rgba(22,163,74,0.07)" : "rgba(220,38,38,.075)", color: market.isActive ? "#15803d" : COKE_RED, fontSize: 9, fontWeight: 700 }}>
         {market.isActive ? "Aktiv" : "Inaktiv"}
       </span>
     </div>
@@ -582,22 +631,38 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function EditInfoRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: "grid", gridTemplateColumns: "112px minmax(0,1fr)", gap: 10, alignItems: "center" }}>
+      <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+
 function MarketDetailDrawer({
   market,
   users,
   assignedSmId,
   onAssign,
+  onSave,
   onClose,
 }: {
   market: SmMarketPreview;
   users: SMRecord[];
   assignedSmId: string | null;
   onAssign: (smId: string | null) => void;
+  onSave: (fields: EditableMarketFields) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"info" | "assignments">("info");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<EditableMarketFields>(() => editableMarketFields(market));
   const chain = marketChain(market);
   const colors = chainColors(chain);
+  const updateDraft = <K extends keyof EditableMarketFields>(field: K, value: EditableMarketFields[K]) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
 
   return createPortal(
     <aside style={{ position: "fixed", inset: "0 0 0 auto", zIndex: 8000, width: 430, maxWidth: "calc(100vw - 56px)", display: "flex", flexDirection: "column", background: "#fff", borderLeft: "1px solid rgba(0,0,0,0.08)", boxShadow: "-12px 0 38px rgba(0,0,0,0.08)", animation: "smDrawerIn .18s ease both" }}>
@@ -608,12 +673,13 @@ function MarketDetailDrawer({
             <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: 750, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{market.name}</div>
             <div style={{ marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 9.5, color: "rgba(0,0,0,0.38)", textTransform: "uppercase", letterSpacing: "0.02em" }}>{market.address} · {market.postalCode} {market.city}</div>
           </div>
+          {tab === "info" ? <button type="button" onClick={() => { if (editing) setDraft(editableMarketFields(market)); setEditing((current) => !current); }} aria-label={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} title={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} className="sm-icon-button" style={editing ? { background: "rgba(220,38,38,.07)", color: COKE_RED } : undefined}><Pencil size={12.5} strokeWidth={1.9} /></button> : null}
           <button type="button" onClick={onClose} aria-label="Detailansicht schließen" className="sm-icon-button"><X size={13} strokeWidth={2} /></button>
         </div>
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ padding: "3px 7px", borderRadius: 999, background: "rgba(220,38,38,0.06)", color: COKE_RED, fontSize: 8.5, fontWeight: 750 }}>SM Markt</span>
           <span style={{ padding: "3px 7px", borderRadius: 999, background: "rgba(0,0,0,0.035)", color: "rgba(0,0,0,0.48)", fontSize: 8.5, fontWeight: 650 }}>{market.region || "Keine Region"}</span>
-          <span style={{ padding: "3px 7px", borderRadius: 999, background: market.isActive ? "rgba(22,163,74,0.07)" : "rgba(0,0,0,0.04)", color: market.isActive ? "#15803d" : "rgba(0,0,0,0.42)", fontSize: 8.5, fontWeight: 700 }}>{market.isActive ? "Aktiv" : "Inaktiv"}</span>
+          <span style={{ padding: "3px 7px", borderRadius: 999, background: market.isActive ? "rgba(22,163,74,0.07)" : "rgba(220,38,38,.075)", color: market.isActive ? "#15803d" : COKE_RED, fontSize: 8.5, fontWeight: 700 }}>{market.isActive ? "Aktiv" : "Inaktiv"}</span>
         </div>
       </div>
 
@@ -633,17 +699,17 @@ function MarketDetailDrawer({
         {tab === "info" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <InfoSection label="Identität">
-              <InfoRow label="Name" value={market.name} />
-              <InfoRow label="Name lt. DB" value={market.dbName} />
-              <InfoRow label="Interne ID" value={marketInternalId(market)} />
-              <InfoRow label="Info" value={market.infoNote} />
+              {editing ? <EditInfoRow label="Name"><input className="sm-market-edit-field" value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></EditInfoRow> : <InfoRow label="Name" value={market.name} />}
+              {editing ? <EditInfoRow label="Name lt. DB"><input className="sm-market-edit-field" value={draft.dbName} onChange={(event) => updateDraft("dbName", event.target.value)} /></EditInfoRow> : <InfoRow label="Name lt. DB" value={market.dbName} />}
+              {editing ? <EditInfoRow label="Interne ID"><input className="sm-market-edit-field sm-tabular" value={draft.internalId} onChange={(event) => updateDraft("internalId", event.target.value)} /></EditInfoRow> : <InfoRow label="Interne ID" value={marketInternalId(market)} />}
+              {editing ? <EditInfoRow label="Info-Kommentar"><div style={{ minWidth: 0 }}><textarea className="sm-market-edit-field is-textarea" value={draft.infoNote} onChange={(event) => updateDraft("infoNote", event.target.value)} placeholder="Internen Kommentar eingeben…" /><span style={{ marginTop: 5, display: "inline-flex", alignItems: "center", gap: 4, color: "rgba(0,0,0,.34)", fontSize: 8.5, fontWeight: 600 }}><LockKeyhole size={9} strokeWidth={1.9}/> Nur für Admins sichtbar</span></div></EditInfoRow> : <InfoRow label="Info-Kommentar" value={<div><div>{market.infoNote || "—"}</div><span style={{ marginTop: 5, display: "inline-flex", alignItems: "center", gap: 4, color: "rgba(0,0,0,.34)", fontSize: 8.5, fontWeight: 600 }}><LockKeyhole size={9} strokeWidth={1.9}/> Nur für Admins sichtbar</span></div>} />}
             </InfoSection>
             <div className="sm-drawer-divider" />
             <InfoSection label="Standort">
-              <InfoRow label="Adresse" value={market.address} />
-              <InfoRow label="Postleitzahl" value={market.postalCode} />
-              <InfoRow label="Ort" value={market.city} />
-              <InfoRow label="Region" value={market.region} />
+              {editing ? <EditInfoRow label="Adresse"><input className="sm-market-edit-field" value={draft.address} onChange={(event) => updateDraft("address", event.target.value)} /></EditInfoRow> : <InfoRow label="Adresse" value={market.address} />}
+              {editing ? <EditInfoRow label="Postleitzahl"><input className="sm-market-edit-field sm-tabular" value={draft.postalCode} onChange={(event) => updateDraft("postalCode", event.target.value)} /></EditInfoRow> : <InfoRow label="Postleitzahl" value={market.postalCode} />}
+              {editing ? <EditInfoRow label="Ort"><input className="sm-market-edit-field" value={draft.city} onChange={(event) => updateDraft("city", event.target.value)} /></EditInfoRow> : <InfoRow label="Ort" value={market.city} />}
+              {editing ? <EditInfoRow label="Region"><input className="sm-market-edit-field" value={draft.region} onChange={(event) => updateDraft("region", event.target.value)} /></EditInfoRow> : <InfoRow label="Region" value={market.region} />}
             </InfoSection>
             <div className="sm-drawer-divider" />
             <InfoSection label="Zuordnung & Klassifikation">
@@ -651,8 +717,8 @@ function MarketDetailDrawer({
                 <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Stammmarkt von</span>
                 <SmAssignmentSelect value={assignedSmId} users={users} onChange={onAssign} />
               </div>
-              <InfoRow label="Handelskette" value={marketChain(market)} />
-              <InfoRow label="Status" value={<span style={{ color: market.isActive ? "#15803d" : "rgba(0,0,0,0.45)", fontWeight: 700 }}>{market.isActive ? "Aktiv" : "Inaktiv"}</span>} />
+              {editing ? <EditInfoRow label="Handelskette"><input className="sm-market-edit-field" value={draft.chain} onChange={(event) => updateDraft("chain", event.target.value)} /></EditInfoRow> : <InfoRow label="Handelskette" value={marketChain(market)} />}
+              {editing ? <EditInfoRow label="Status"><MarketFieldSelect value={draft.isActive ? "active" : "inactive"} options={[{ value: "active", label: "Aktiv" }, { value: "inactive", label: "Inaktiv" }]} onChange={(value) => updateDraft("isActive", value === "active")} /></EditInfoRow> : <InfoRow label="Status" value={<span style={{ color: market.isActive ? "#15803d" : COKE_RED, fontWeight: 700 }}>{market.isActive ? "Aktiv" : "Inaktiv"}</span>} />}
             </InfoSection>
           </div>
         ) : (
@@ -665,7 +731,139 @@ function MarketDetailDrawer({
           </div>
         )}
       </div>
+      {editing && tab === "info" ? <div style={{ padding: "10px 16px", display: "flex", justifyContent: "flex-end", gap: 8, borderTop: "1px solid rgba(0,0,0,.07)", background: "#fff" }}>
+        <button type="button" onClick={() => { setDraft(editableMarketFields(market)); setEditing(false); }} className="sm-market-edit-button is-secondary">Abbrechen</button>
+        <button type="button" onClick={() => { onSave(draft); setEditing(false); }} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2}/> Speichern</button>
+      </div> : null}
     </aside>,
+    document.body,
+  );
+}
+
+function SmMarketCreateField({ label, value, placeholder, required = false, onChange }: { label: string; value: string; placeholder?: string; required?: boolean; onChange: (value: string) => void }) {
+  return (
+    <label className="sm-market-create-label">
+      <span>{label}{required ? " *" : ""}</span>
+      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="sm-market-create-field" autoComplete="off" />
+    </label>
+  );
+}
+
+function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: { users: SMRecord[]; existingInternalIds: Set<string>; onCreate: (input: NewSmMarketInput) => void; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [dbName, setDbName] = useState("");
+  const [chain, setChain] = useState("");
+  const [internalId, setInternalId] = useState("");
+  const [address, setAddress] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("Ost");
+  const [infoNote, setInfoNote] = useState("");
+  const [assignedSmId, setAssignedSmId] = useState<string | null>(null);
+  const [isActive, setIsActive] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const submit = () => {
+    const nextName = name.trim();
+    const nextChain = chain.trim();
+    const nextInternalId = internalId.trim();
+    const nextAddress = address.trim();
+    const nextPostalCode = postalCode.trim();
+    const nextCity = city.trim();
+    if (!nextName || !nextChain || !nextInternalId || !nextAddress || !nextPostalCode || !nextCity || !region.trim()) {
+      setError("Bitte alle Pflichtfelder ausfüllen.");
+      return;
+    }
+    if (existingInternalIds.has(nextInternalId.toLocaleLowerCase("de-AT"))) {
+      setError("Diese interne ID ist bereits vergeben.");
+      return;
+    }
+    onCreate({
+      name: nextName,
+      dbName: dbName.trim() || nextChain,
+      chain: nextChain,
+      internalId: nextInternalId,
+      address: nextAddress,
+      postalCode: nextPostalCode,
+      city: nextCity,
+      region: region.trim(),
+      infoNote: infoNote.trim(),
+      assignedSmId,
+      isActive,
+    });
+  };
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 9900, padding: 24, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.24)", backdropFilter: "blur(5px)" }}>
+      <form onSubmit={(event) => { event.preventDefault(); submit(); }} onClick={(event) => event.stopPropagation()} style={{ width: 720, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 48px)", overflow: "hidden", display: "flex", flexDirection: "column", border: "1px solid rgba(15,23,42,.08)", borderRadius: 16, background: "#fff", boxShadow: "0 18px 60px rgba(15,23,42,.18),inset 0 1px 0 rgba(255,255,255,.8)" }}>
+        <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, borderBottom: "1px solid rgba(15,23,42,.06)" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
+            <span style={{ width: 34, height: 34, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: "rgba(220,38,38,.065)", color: COKE_RED }}><Store size={15} strokeWidth={1.8}/></span>
+            <div>
+              <div style={{ marginBottom: 4, color: "rgba(15,23,42,.35)", fontSize: 8.5, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase" }}>Marktverwaltung</div>
+              <div style={{ color: "#111827", fontSize: 17, fontWeight: 850, letterSpacing: "-.03em" }}>Markt anlegen</div>
+              <div style={{ marginTop: 4, color: "rgba(15,23,42,.48)", fontSize: 11, fontWeight: 550 }}>Neuen Shelf-Merchandising-Markt erfassen und optional direkt zuordnen.</div>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fenster schließen" className="sm-icon-button"><X size={14} strokeWidth={2.2}/></button>
+        </div>
+
+        <div className="sm-market-scroll" style={{ minHeight: 0, padding: 20, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+          {error ? <div role="alert" style={{ padding: "9px 11px", border: "1px solid rgba(220,38,38,.16)", borderRadius: 9, background: "rgba(220,38,38,.055)", color: COKE_RED, fontSize: 10.5, fontWeight: 700 }}>{error}</div> : null}
+
+          <div className="sm-market-create-grid">
+            <section className="sm-market-create-card">
+              <div className="sm-market-create-section-title">Identität</div>
+              <div className="sm-market-create-fields">
+                <SmMarketCreateField label="Name" value={name} onChange={setName} placeholder="z. B. Billa Plus" required />
+                <SmMarketCreateField label="Name lt. DB" value={dbName} onChange={setDbName} placeholder="optional" />
+                <SmMarketCreateField label="Handelskette" value={chain} onChange={setChain} placeholder="z. B. BILLA PLUS" required />
+                <SmMarketCreateField label="Interne ID" value={internalId} onChange={setInternalId} placeholder="z. B. 120024810" required />
+              </div>
+            </section>
+
+            <section className="sm-market-create-card">
+              <div className="sm-market-create-section-title">Standort</div>
+              <div className="sm-market-create-fields">
+                <SmMarketCreateField label="Adresse" value={address} onChange={setAddress} placeholder="Straße und Hausnummer" required />
+                <div style={{ display: "grid", gridTemplateColumns: ".7fr 1.3fr", gap: 10 }}>
+                  <SmMarketCreateField label="PLZ" value={postalCode} onChange={setPostalCode} placeholder="1010" required />
+                  <SmMarketCreateField label="Ort" value={city} onChange={setCity} placeholder="Wien" required />
+                </div>
+                <label className="sm-market-create-label"><span>Region *</span><MarketFieldSelect large value={region} options={["Nord", "Ost", "Süd", "West"].map((value) => ({ value, label: value }))} onChange={setRegion} /></label>
+              </div>
+            </section>
+          </div>
+
+          <section className="sm-market-create-card">
+            <div className="sm-market-create-section-title">Zuordnung &amp; interner Hinweis</div>
+            <div className="sm-market-create-grid is-bottom">
+              <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                <label className="sm-market-create-label"><span>Stammmarkt von</span><SmAssignmentSelect value={assignedSmId} users={users} onChange={setAssignedSmId} /></label>
+                <label className="sm-market-create-label"><span>Status</span><button type="button" onClick={() => setIsActive((current) => !current)} className={`sm-market-create-status${isActive ? " is-active" : " is-inactive"}`}>{isActive ? "Aktiv" : "Inaktiv"}</button></label>
+              </div>
+              <label className="sm-market-create-label">
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>Info-Kommentar <small style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "rgba(15,23,42,.32)", fontSize: 8, fontWeight: 700, letterSpacing: 0, textTransform: "none" }}><LockKeyhole size={8.5} strokeWidth={1.9}/> Nur Admins</small></span>
+                <textarea value={infoNote} onChange={(event) => setInfoNote(event.target.value)} placeholder="Interne Information zum Markt…" className="sm-market-create-field is-textarea" />
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderTop: "1px solid rgba(15,23,42,.06)", background: "#fff" }}>
+          <button type="button" onClick={onClose} className="sm-market-create-button is-secondary">Abbrechen</button>
+          <button type="submit" className="sm-market-create-button is-primary"><Plus size={12} strokeWidth={2.4}/> Markt anlegen</button>
+        </div>
+      </form>
+    </div>,
     document.body,
   );
 }
@@ -695,7 +893,7 @@ function PageSkeleton() {
 }
 
 export default function SmMaerktePage() {
-  const [markets] = useState<SmMarketPreview[]>(TEMP_SM_MARKETS);
+  const [markets, setMarkets] = useState<SmMarketPreview[]>(TEMP_SM_MARKETS);
   const [users, setUsers] = useState<SMRecord[]>(TEMP_SM_USERS);
   const [assignments, setAssignments] = useState<AssignmentMap>(() => ({
     "sm-market-001": TEMP_SM_USERS[0]?.id ?? null,
@@ -712,6 +910,7 @@ export default function SmMaerktePage() {
   const deferredSearch = useDeferredValue(search);
   const [filters, setFilters] = useState<MarketFilters>(EMPTY_FILTERS);
   const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -744,7 +943,17 @@ export default function SmMaerktePage() {
     };
   }, []);
 
+  useEffect(() => {
+    const openCreate = () => {
+      setSelectedId(null);
+      setShowCreate(true);
+    };
+    window.addEventListener("sm-maerkte:openManualCreate", openCreate);
+    return () => window.removeEventListener("sm-maerkte:openManualCreate", openCreate);
+  }, []);
+
   const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const existingInternalIds = useMemo(() => new Set(markets.map((market) => market.internalId.trim().toLocaleLowerCase("de-AT"))), [markets]);
   const options = useMemo(() => ({
     region: uniqueSorted(markets.map((market) => market.region)),
     city: uniqueSorted(markets.map((market) => market.city)),
@@ -777,6 +986,22 @@ export default function SmMaerktePage() {
     setAssignments((current) => ({ ...current, [marketId]: smId }));
   }, []);
 
+  const handleMarketSave = useCallback((marketId: string, fields: EditableMarketFields) => {
+    setMarkets((current) => current.map((market) => market.id === marketId ? { ...market, ...fields } : market));
+  }, []);
+
+  const handleCreateMarket = useCallback((input: NewSmMarketInput) => {
+    const { assignedSmId, ...fields } = input;
+    const id = `sm-market-${Date.now()}`;
+    const market: SmMarketPreview = { id, ...fields, infoFlag: fields.infoNote.trim().length > 0 };
+    setMarkets((current) => [market, ...current]);
+    setAssignments((current) => ({ ...current, [id]: assignedSmId }));
+    setFilters(EMPTY_FILTERS);
+    setSearch("");
+    setShowCreate(false);
+    setSelectedId(id);
+  }, []);
+
   const setFilter = useCallback(<K extends keyof MarketFilters>(key: K, value: MarketFilters[K]) => {
     setFilters((current) => ({ ...current, [key]: value }));
   }, []);
@@ -800,10 +1025,38 @@ export default function SmMaerktePage() {
         .sm-select-option { width: 100%; min-height: 31px; padding: 6px 9px; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-family: inherit; font-size: 10.5px; cursor: pointer; }
         .sm-select-option:hover { background: rgba(0,0,0,.027) !important; }
         .sm-icon-button { width: 28px; height: 28px; border: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: rgba(0,0,0,.035); color: rgba(0,0,0,.42); cursor: pointer; }
+        .sm-market-edit-field { width:100%; min-width:0; height:29px; box-sizing:border-box; padding:0 8px; border:1px solid rgba(0,0,0,.10); border-radius:7px; outline:0; background:#fff; color:#1a1a1a; font-family:inherit; font-size:10.5px; font-weight:550; transition:border-color .14s,box-shadow .14s; }
+        .sm-market-edit-field:focus { border-color:rgba(220,38,38,.34); box-shadow:0 0 0 2px rgba(220,38,38,.055); }
+        .sm-market-edit-field.is-textarea { min-height:58px; padding:7px 8px; resize:vertical; line-height:1.45; }
+        .sm-market-field-select { display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; text-align:left; }
+        .sm-market-field-select:hover { border-color:rgba(0,0,0,.17); background:#fdfdfd; }
+        .sm-market-edit-field.is-large { height:36px; padding:0 11px; border-radius:9px; font-size:11px; font-weight:650; }
+        .sm-market-edit-button { height:30px; padding:0 12px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:0; border-radius:7px; font-family:inherit; font-size:10px; font-weight:700; cursor:pointer; }
+        .sm-market-edit-button.is-secondary { background:rgba(0,0,0,.045); color:rgba(0,0,0,.55); }
+        .sm-market-edit-button.is-primary { background:${COKE_RED}; color:#fff; box-shadow:0 2px 6px rgba(220,38,38,.16); }
+        .sm-market-edit-button:hover { opacity:.84; }
+        .sm-market-create-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+        .sm-market-create-grid.is-bottom { grid-template-columns:.8fr 1.2fr; gap:16px; }
+        .sm-market-create-card { min-width:0; padding:14px; border:1px solid rgba(15,23,42,.07); border-radius:13px; background:#fff; }
+        .sm-market-create-section-title { margin-bottom:11px; color:rgba(15,23,42,.36); font-size:8.5px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+        .sm-market-create-fields { display:flex; flex-direction:column; gap:10px; }
+        .sm-market-create-label { min-width:0; display:flex; flex-direction:column; gap:5px; }
+        .sm-market-create-label > span { color:rgba(15,23,42,.38); font-size:8.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+        .sm-market-create-field { width:100%; min-width:0; height:36px; box-sizing:border-box; padding:0 11px; border:1px solid rgba(15,23,42,.08); border-radius:9px; outline:0; background:#fff; color:#111827; font-family:inherit; font-size:11px; font-weight:650; box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 1px 3px rgba(15,23,42,.035); transition:border-color .14s,box-shadow .14s; }
+        .sm-market-create-field:focus { border-color:rgba(220,38,38,.3); box-shadow:0 0 0 2px rgba(220,38,38,.05); }
+        .sm-market-create-field.is-textarea { min-height:76px; padding:9px 11px; resize:vertical; line-height:1.45; }
+        .sm-market-create-status { width:100%; height:34px; padding:0 10px; border:1px solid rgba(15,23,42,.08); border-radius:9px; font-family:inherit; font-size:10.5px; font-weight:800; text-align:left; cursor:pointer; }
+        .sm-market-create-status.is-active { background:rgba(22,163,74,.07); color:#15803d; }
+        .sm-market-create-status.is-inactive { background:rgba(220,38,38,.07); color:${COKE_RED}; }
+        .sm-market-create-button { height:34px; padding:0 16px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:9px; font-family:inherit; font-size:11px; font-weight:800; cursor:pointer; }
+        .sm-market-create-button.is-secondary { background:linear-gradient(to bottom,#fff,#f5f5f5); color:rgba(15,23,42,.48); box-shadow:inset 0 1px .6px rgba(255,255,255,.9),inset 0 -1px 0 rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.09),0 1px 4px rgba(0,0,0,.06); }
+        .sm-market-create-button.is-primary { padding:0 18px; background:linear-gradient(to bottom,${COKE_RED},#b91c1c); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 0 0 1px #a91b1b,0 1px 8px rgba(180,20,20,.18); }
+        .sm-market-create-button:hover { opacity:.88; }
         .sm-drawer-divider { height: 1px; background: rgba(0,0,0,.06); }
         .sm-skeleton { display: block; border-radius: 7px; background: linear-gradient(90deg, rgba(0,0,0,.035) 25%, rgba(0,0,0,.075) 37%, rgba(0,0,0,.035) 63%); background-size: 400% 100%; animation: smSkeleton 1.25s ease-in-out infinite; }
         @keyframes smSkeleton { from { background-position: 100% 0; } to { background-position: 0 0; } }
         @keyframes smDrawerIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
+        @media (max-width:640px) { .sm-market-create-grid,.sm-market-create-grid.is-bottom { grid-template-columns:1fr; } }
       `}</style>
 
       {loading ? <PageSkeleton /> : (
@@ -849,7 +1102,7 @@ export default function SmMaerktePage() {
 
             <div style={{ display: "grid", gridTemplateColumns: LIST_GRID, gap: LIST_GAP, padding: "7px 18px", borderBottom: "1px solid rgba(0,0,0,0.05)", background: "rgba(0,0,0,0.018)" }}>
               {["Markt", "Interne ID", "Info", "Adresse", "Region", "PLZ", "Ort", "Stammmarkt von", "Status"].map((label) => (
-                <span key={label} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 8.5, fontWeight: 750, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)" }}>{label}</span>
+                <span key={label} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 8.5, fontWeight: 750, textTransform: "uppercase", letterSpacing: "0.07em", color: "rgba(0,0,0,0.28)", justifySelf: label === "Status" ? "end" : "start", textAlign: label === "Status" ? "right" : "left" }}>{label}</span>
               ))}
             </div>
 
@@ -867,13 +1120,16 @@ export default function SmMaerktePage() {
 
       {selectedMarket ? (
         <MarketDetailDrawer
+          key={selectedMarket.id}
           market={selectedMarket}
           users={users}
           assignedSmId={assignments[selectedMarket.id] ?? null}
           onAssign={(smId) => handleAssignment(selectedMarket.id, smId)}
+          onSave={(fields) => handleMarketSave(selectedMarket.id, fields)}
           onClose={() => setSelectedId(null)}
         />
       ) : null}
+      {showCreate ? <SmMarketCreateModal users={users} existingInternalIds={existingInternalIds} onCreate={handleCreateMarket} onClose={() => setShowCreate(false)} /> : null}
     </div>
   );
 }

@@ -3,11 +3,7 @@ export interface SMRecord {
   firstName: string;
   lastName: string;
   email: string;
-  phone: string;
-  address: string;
-  city: string;
-  postalCode: string;
-  region: string;
+  travelTimeEnabled: boolean;
   visitCount?: number;
   createdAt: string;
   password?: string;

@@ -195,12 +195,11 @@ function filterGms(gms: GMRecord[], exportSpec: AdminKurtiExcelExport): GMRecord
 }
 
 function filterSms(sms: SMRecord[], exportSpec: AdminKurtiExcelExport): SMRecord[] {
-  const { gmUserIds, gmNames, regions, search } = exportSpec.filters;
+  const { gmUserIds, gmNames, search } = exportSpec.filters;
   return sms.filter((sm) => {
     const name = `${sm.firstName} ${sm.lastName}`;
     if (!matchesIdentity(sm.id, `${name} ${sm.email}`, gmUserIds, gmNames)) return false;
-    if (!matchesExact(sm.region, regions)) return false;
-    return matchesSearch(`${name} ${sm.email} ${sm.region} ${sm.city} ${sm.postalCode}`, search);
+    return matchesSearch(`${name} ${sm.email} Fahrtzeiten ${sm.travelTimeEnabled ? "Ja" : "Nein"}`, search);
   });
 }
 

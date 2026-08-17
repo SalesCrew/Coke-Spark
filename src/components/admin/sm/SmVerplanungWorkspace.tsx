@@ -2,6 +2,7 @@
 
 import {
   Calendar,
+  CalendarClock,
   CalendarDays,
   Check,
   ChevronDown,
@@ -26,6 +27,7 @@ type DrawerMode = "single" | "series" | null;
 type PlanningRow = {
   id: string;
   date: string;
+  rescheduledFromDate?: string | null;
   sm: string;
   market: string;
   address: string;
@@ -36,7 +38,7 @@ type PlanningRow = {
   replacementSm?: string | null;
 };
 
-type PlanningDraft = Omit<PlanningRow, "id" | "status" | "replacementSm"> & {
+type PlanningDraft = Omit<PlanningRow, "id" | "status" | "replacementSm" | "rescheduledFromDate"> & {
   status?: PlanStatus;
   replacementSm?: string | null;
   weekdays: string[];
@@ -130,6 +132,8 @@ function statusMeta(status: PlanStatus) {
   return { label: "Geplant", color: "#4B5563", background: "rgba(15,23,42,.055)" };
 }
 
+const RESCHEDULED_META = { label: "Verschoben", color: "#6D28D9", background: "rgba(124,58,237,.10)" };
+
 function avatarColors(name: string) {
   const palettes = [
     { background: "#FEF3C7", color: "#B45309" },
@@ -197,6 +201,7 @@ function SmPlanDropdown({
   placeholder,
   compact = false,
   searchable = false,
+  disabled = false,
 }: {
   value: string;
   options: SmPlanDropdownOption[];
@@ -205,6 +210,7 @@ function SmPlanDropdown({
   placeholder: string;
   compact?: boolean;
   searchable?: boolean;
+  disabled?: boolean;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -264,6 +270,10 @@ function SmPlanDropdown({
     if (highlightedIndex >= filteredOptions.length) setHighlightedIndex(Math.max(0, filteredOptions.length - 1));
   }, [filteredOptions.length, highlightedIndex]);
 
+  useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
+
   const choose = (nextValue: string) => {
     onChange(nextValue);
     setOpen(false);
@@ -294,7 +304,7 @@ function SmPlanDropdown({
     }
   };
 
-  const menu = open && position && typeof document !== "undefined" ? createPortal(
+  const menu = !disabled && open && position && typeof document !== "undefined" ? createPortal(
     <div
       ref={menuRef}
       role="listbox"
@@ -357,7 +367,8 @@ function SmPlanDropdown({
         type="button"
         aria-label={ariaLabel}
         aria-haspopup="listbox"
-        aria-expanded={open}
+        aria-expanded={disabled ? false : open}
+        disabled={disabled}
         className={`sm-plan-dropdown-trigger${compact ? " is-compact" : ""}${active && compact ? " is-active" : ""}${open ? " is-open" : ""}`}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={handleKeyDown}
@@ -534,7 +545,7 @@ function SmPlanDatePicker({
   );
 }
 
-function PlanningDrawer({ mode, row, defaultDate, onClose, onSaved, onDeleted }: { mode: Exclude<DrawerMode, null>; row: PlanningRow | null; defaultDate: string; onClose: () => void; onSaved: (draft: PlanningDraft, rowId: string | null) => void; onDeleted: (rowId: string) => void }) {
+function PlanningDrawer({ mode, row, defaultDate, onClose, onSaved, onRescheduled, onDeleted }: { mode: Exclude<DrawerMode, null>; row: PlanningRow | null; defaultDate: string; onClose: () => void; onSaved: (draft: PlanningDraft, rowId: string | null) => void; onRescheduled: (rowId: string, nextDate: string) => void; onDeleted: (rowId: string) => void }) {
   const isSeries = mode === "series";
   const isSeriesOccurrence = row?.type === "weekly";
   const selectedMarket = MARKET_OPTIONS.find((entry) => entry.market === row?.market) ?? MARKET_OPTIONS[0];
@@ -544,6 +555,7 @@ function PlanningDrawer({ mode, row, defaultDate, onClose, onSaved, onDeleted }:
   const [minutes, setMinutes] = useState(String(row?.plannedMinutes ?? 90));
   const [isAbsence, setIsAbsence] = useState(row?.status === "cancelled" || row?.status === "replaced");
   const [replacementSm, setReplacementSm] = useState(row?.replacementSm ?? "none");
+  const [isRescheduling, setIsRescheduling] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [recurring, setRecurring] = useState(isSeries || row?.type === "weekly");
   const [weekdays, setWeekdays] = useState<string[]>([SHORT_DAYS[parseDate(date).getDay() - 1] ?? "Mo"]);
@@ -563,16 +575,19 @@ function PlanningDrawer({ mode, row, defaultDate, onClose, onSaved, onDeleted }:
   const createsSeries = recurring && !row;
   const seriesRangeInvalid = createsSeries && parseDate(end).getTime() < parseDate(start).getTime();
   const weekdaysInvalid = createsSeries && weekdays.length === 0;
+  const rescheduleDateInvalid = Boolean(row && isRescheduling && date === row.date);
   const seriesOccurrenceCount = createsSeries && !seriesRangeInvalid && !weekdaysInvalid
     ? buildSeriesDates({ date, sm, market, address: marketInfo.address, region: marketInfo.region, plannedMinutes: Number(minutes), type: "weekly", weekdays, start, end, frequency }).length
     : 0;
-  const validationMessage = weekdaysInvalid
-    ? "Wähle mindestens einen Wochentag aus."
-    : seriesRangeInvalid
-      ? "Das Serienende muss nach dem Beginn liegen."
-      : createsSeries && seriesOccurrenceCount === 0
-        ? "Im gewählten Zeitraum liegt kein passender Wochentag."
-        : null;
+  const validationMessage = rescheduleDateInvalid
+    ? "Wähle für die Verschiebung einen anderen Tag aus."
+    : weekdaysInvalid
+      ? "Wähle mindestens einen Wochentag aus."
+      : seriesRangeInvalid
+        ? "Das Serienende muss nach dem Beginn liegen."
+        : createsSeries && seriesOccurrenceCount === 0
+          ? "Im gewählten Zeitraum liegt kein passender Wochentag."
+          : null;
 
   const toggleWeekday = (weekday: string) => {
     setWeekdays((current) => current.includes(weekday) ? current.filter((entry) => entry !== weekday) : [...current, weekday]);
@@ -626,10 +641,16 @@ function PlanningDrawer({ mode, row, defaultDate, onClose, onSaved, onDeleted }:
         </div>
 
         <div style={{ marginTop: 17, display: "grid", gap: 14 }}>
-          {!createsSeries ? <div><FieldLabel>Datum</FieldLabel><SmPlanDatePicker ariaLabel="Datum" value={date} onChange={(nextDate) => { setDate(nextDate); setStart(nextDate); }} /></div> : null}
-          <div><FieldLabel>Markt</FieldLabel><SmPlanDropdown ariaLabel="Markt" value={market} options={MARKET_DROPDOWN_OPTIONS} onChange={setMarket} placeholder="Markt" searchable /></div>
-          <div><FieldLabel>Shelf Merchandiser</FieldLabel><SmPlanDropdown ariaLabel="Shelf Merchandiser" value={sm} options={SM_DROPDOWN_OPTIONS} onChange={setSm} placeholder="Shelf Merchandiser" searchable /></div>
-          <div><FieldLabel>Sollzeit</FieldLabel><SmPlanDropdown ariaLabel="Sollzeit" value={minutes} options={DURATION_OPTIONS} onChange={setMinutes} placeholder="Sollzeit" /></div>
+          {!createsSeries ? <div>
+            <FieldLabel>Datum</FieldLabel>
+            {row ? <>
+              <div className="sm-plan-date-trigger is-readonly" aria-label={`Aktuelles Datum ${formatDate(row.date)}`}><span>{formatDate(row.date)}</span><Calendar size={12} strokeWidth={1.8}/></div>
+              {row.rescheduledFromDate ? <div style={{ marginTop: 7, padding: "7px 9px", display: "flex", alignItems: "center", gap: 7, border: "1px solid rgba(124,58,237,.18)", borderRadius: 7, background: "rgba(124,58,237,.045)", color: "#6D28D9", fontSize: 9.2, fontWeight: 650 }}><CalendarClock size={11.5} strokeWidth={1.9}/><span>Verschoben: {formatDate(row.rescheduledFromDate)} → {formatDate(row.date)}</span></div> : null}
+            </> : <SmPlanDatePicker ariaLabel="Datum" value={date} onChange={(nextDate) => { setDate(nextDate); setStart(nextDate); }} />}
+          </div> : null}
+          <div><FieldLabel>Markt</FieldLabel><SmPlanDropdown disabled={isRescheduling} ariaLabel="Markt" value={market} options={MARKET_DROPDOWN_OPTIONS} onChange={setMarket} placeholder="Markt" searchable /></div>
+          <div><FieldLabel>Shelf Merchandiser</FieldLabel><SmPlanDropdown disabled={isRescheduling} ariaLabel="Shelf Merchandiser" value={sm} options={SM_DROPDOWN_OPTIONS} onChange={setSm} placeholder="Shelf Merchandiser" searchable /></div>
+          <div><FieldLabel>Sollzeit</FieldLabel><SmPlanDropdown disabled={isRescheduling} ariaLabel="Sollzeit" value={minutes} options={DURATION_OPTIONS} onChange={setMinutes} placeholder="Sollzeit" /></div>
         </div>
 
         {row ? <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid rgba(0,0,0,.06)" }}>
@@ -638,7 +659,7 @@ function PlanningDrawer({ mode, row, defaultDate, onClose, onSaved, onDeleted }:
               <span style={{ width: 28, height: 28, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: isAbsence ? "rgba(220,38,38,.08)" : "rgba(0,0,0,.035)", color: isAbsence ? RED : "rgba(0,0,0,.42)" }}><UserX size={13} strokeWidth={1.9}/></span>
               <div><div style={{ color: "#1a1a1a", fontSize: 11, fontWeight: 700 }}>Als Ausfall markieren</div><div style={{ marginTop: 2, color: "rgba(0,0,0,.38)", fontSize: 9.2, lineHeight: 1.45 }}>Optional kann direkt ein Ersatz eingetragen werden.</div></div>
             </div>
-            <button type="button" aria-label="Als Ausfall markieren" aria-pressed={isAbsence} onClick={() => { setIsAbsence((current) => !current); if (isAbsence) setReplacementSm("none"); }} className={`sm-plan-switch${isAbsence ? " is-active" : ""}`}><span /></button>
+            <button type="button" disabled={isRescheduling} aria-label="Als Ausfall markieren" aria-pressed={isAbsence} onClick={() => { setIsAbsence((current) => !current); if (isAbsence) setReplacementSm("none"); }} className={`sm-plan-switch${isAbsence ? " is-active" : ""}`}><span /></button>
           </div>
           {isAbsence ? <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
             <div><FieldLabel>Ersatz (optional)</FieldLabel><SmPlanDropdown searchable ariaLabel="Ersatz" value={replacementSm} options={replacementOptions} onChange={setReplacementSm} placeholder="Kein Ersatz" /></div>
@@ -647,6 +668,40 @@ function PlanningDrawer({ mode, row, defaultDate, onClose, onSaved, onDeleted }:
               <span style={{ padding: "3px 7px", borderRadius: 999, background: statusMeta(derivedStatus).background, color: statusMeta(derivedStatus).color, fontSize: 8.5, fontWeight: 750 }}>{statusMeta(derivedStatus).label}</span>
             </div>
           </div> : null}
+
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(0,0,0,.06)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                <span style={{ width: 28, height: 28, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: isRescheduling ? "rgba(220,38,38,.08)" : "rgba(0,0,0,.035)", color: isRescheduling ? RED : "rgba(0,0,0,.42)" }}><CalendarClock size={13} strokeWidth={1.9}/></span>
+                <div><div style={{ color: "#1a1a1a", fontSize: 11, fontWeight: 700 }}>Einsatz verschieben</div><div style={{ marginTop: 2, color: "rgba(0,0,0,.38)", fontSize: 9.2, lineHeight: 1.45 }}>Nur das Datum ändern. Alle übrigen Angaben bleiben erhalten.</div></div>
+              </div>
+              <button
+                type="button"
+                aria-label="Einsatz verschieben"
+                aria-pressed={isRescheduling}
+                onClick={() => {
+                  const next = !isRescheduling;
+                  setIsRescheduling(next);
+                  setDate(row.date);
+                  if (next) {
+                    setIsAbsence(false);
+                    setReplacementSm("none");
+                    setMarket(row.market);
+                    setSm(row.sm);
+                    setMinutes(String(row.plannedMinutes));
+                  }
+                }}
+                className={`sm-plan-switch${isRescheduling ? " is-active" : ""}`}
+              ><span /></button>
+            </div>
+            {isRescheduling ? <div style={{ marginTop: 14, display: "grid", gap: 9 }}>
+              <div><FieldLabel>Neues Datum</FieldLabel><SmPlanDatePicker ariaLabel="Neues Datum" value={date} onChange={setDate} /></div>
+              <div style={{ padding: "9px 10px", display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid ${rescheduleDateInvalid ? "rgba(220,38,38,.16)" : "rgba(22,163,74,.14)"}`, borderRadius: 8, background: rescheduleDateInvalid ? "rgba(220,38,38,.035)" : "rgba(22,163,74,.035)" }}>
+                <CalendarClock size={12} strokeWidth={1.9} color={rescheduleDateInvalid ? RED : "#15803D"} style={{ marginTop: 1, flexShrink: 0 }}/>
+                <div style={{ color: rescheduleDateInvalid ? "#B91C1C" : "rgba(0,0,0,.48)", fontSize: 9.2, lineHeight: 1.5 }}>{rescheduleDateInvalid ? "Wähle einen anderen Tag aus." : isSeriesOccurrence ? `Nur dieser Serientermin wird auf den ${formatDate(date)} verschoben. Die übrige Serie bleibt unverändert.` : `Der Einsatz wird auf den ${formatDate(date)} verschoben.`}</div>
+              </div>
+            </div> : null}
+          </div>
         </div> : null}
 
         {row ? (
@@ -679,11 +734,15 @@ function PlanningDrawer({ mode, row, defaultDate, onClose, onSaved, onDeleted }:
           disabled={Boolean(validationMessage)}
           onClick={() => {
             if (validationMessage) return;
+            if (row && isRescheduling) {
+              onRescheduled(row.id, date);
+              return;
+            }
             onSaved({ date: createsSeries ? start : date, sm, market, address: marketInfo.address, region: marketInfo.region, plannedMinutes: Number(minutes), type: row?.type ?? (recurring ? "weekly" : "single"), status: derivedStatus, replacementSm: derivedStatus === "replaced" ? replacementSm : null, weekdays, start, end, frequency }, row?.id ?? null);
           }}
           className="sm-plan-primary-button"
         >
-          {row ? "Änderung speichern" : createsSeries ? "Serie planen" : "Einsatz planen"}
+          {row && isRescheduling ? "Einsatz verschieben" : row ? "Änderung speichern" : createsSeries ? "Serie planen" : "Einsatz planen"}
         </button>
       </div>
     </aside>
@@ -773,6 +832,17 @@ export function SmVerplanungWorkspace() {
     setSelectedRow(null);
   }, []);
 
+  const reschedulePlanning = useCallback((rowId: string, nextDate: string) => {
+    setPlanningRows((current) => current.map((row) => {
+      if (row.id !== rowId) return row;
+      const originalDate = row.rescheduledFromDate ?? row.date;
+      return { ...row, date: nextDate, rescheduledFromDate: nextDate === originalDate ? null : originalDate };
+    }));
+    setNotice({ message: `Einsatz wurde auf den ${formatDate(nextDate)} verschoben`, tone: "success" });
+    setDrawerMode(null);
+    setSelectedRow(null);
+  }, []);
+
   const deletePlanning = useCallback((rowId: string) => {
     setPlanningRows((current) => current.filter((row) => row.id !== rowId));
     setNotice({ message: "Einsatz wurde gelöscht", tone: "success" });
@@ -842,6 +912,7 @@ export function SmVerplanungWorkspace() {
         .sm-plan-dropdown-trigger{width:100%;height:32px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid rgba(0,0,0,.10);border-radius:7px;outline:0;background:linear-gradient(to bottom,#fff,#fafafa);color:#374151;font-family:inherit;font-size:10.5px;font-weight:550;text-align:left;cursor:pointer;box-shadow:inset 0 1px .6px rgba(255,255,255,.9),0 1px 3px rgba(0,0,0,.03);transition:border-color .14s,box-shadow .14s,background .14s}
         .sm-plan-dropdown-trigger:hover{border-color:rgba(0,0,0,.16);background:#fff}
         .sm-plan-dropdown-trigger.is-open{border-color:rgba(0,0,0,.18);box-shadow:0 0 0 2px rgba(0,0,0,.04)}
+        .sm-plan-dropdown-trigger:disabled{cursor:not-allowed;opacity:.52;background:rgba(0,0,0,.028);box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
         .sm-plan-dropdown-trigger.is-compact{width:auto;height:29px;padding:0 9px;font-size:10px;font-weight:600;color:rgba(0,0,0,.55);white-space:nowrap}
         .sm-plan-dropdown-trigger.is-compact.is-active{border-color:rgba(220,38,38,.22);background:rgba(220,38,38,.035);color:${RED}}
         .sm-plan-dropdown-menu{padding:4px;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(0,0,0,.08);border-radius:9px;background:rgba(255,255,255,.99);box-shadow:0 9px 28px rgba(0,0,0,.13),0 1px 4px rgba(0,0,0,.06);animation:smPlanDropdownIn .14s ease both}
@@ -860,6 +931,8 @@ export function SmVerplanungWorkspace() {
         .sm-plan-date-trigger{width:100%;height:32px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid rgba(0,0,0,.10);border-radius:7px;outline:0;background:linear-gradient(to bottom,#fff,#fafafa);color:#374151;font-family:inherit;font-size:10.5px;font-weight:550;text-align:left;cursor:pointer;box-shadow:inset 0 1px .6px rgba(255,255,255,.9),0 1px 3px rgba(0,0,0,.03);transition:border-color .14s,box-shadow .14s,background .14s}
         .sm-plan-date-trigger:hover{border-color:rgba(0,0,0,.16);background:#fff}
         .sm-plan-date-trigger.is-open{border-color:rgba(0,0,0,.18);box-shadow:0 0 0 2px rgba(0,0,0,.04)}
+        .sm-plan-date-trigger.is-readonly{cursor:default;background:rgba(0,0,0,.025);color:rgba(0,0,0,.48);box-shadow:inset 0 0 0 1px rgba(0,0,0,.015)}
+        .sm-plan-date-trigger.is-readonly:hover{border-color:rgba(0,0,0,.10);background:rgba(0,0,0,.025)}
         .sm-plan-date-trigger svg{flex-shrink:0;color:rgba(0,0,0,.30)}
         .sm-plan-date-trigger.is-open svg{color:rgba(0,0,0,.58)}
         .sm-plan-calendar-panel{padding:12px 12px 9px;border:1px solid rgba(0,0,0,.07);border-radius:12px;background:rgba(255,255,255,.995);box-shadow:0 10px 32px rgba(0,0,0,.14),0 2px 8px rgba(0,0,0,.06);user-select:none;animation:smPlanDropdownIn .14s ease both}
@@ -890,6 +963,7 @@ export function SmVerplanungWorkspace() {
         .sm-plan-switch{width:34px;height:20px;padding:2px;border:0;border-radius:999px;background:rgba(0,0,0,.14);cursor:pointer;transition:background .18s}
         .sm-plan-switch span{display:block;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18);transition:transform .18s}
         .sm-plan-switch.is-active{background:${RED}}.sm-plan-switch.is-active span{transform:translateX(14px)}
+        .sm-plan-switch:disabled{cursor:not-allowed;opacity:.42}
         .sm-plan-weekday{width:35px;height:27px;border:1px solid rgba(0,0,0,.09);border-radius:6px;background:linear-gradient(to bottom,#fff,#f7f7f7);color:rgba(0,0,0,.48);font-family:inherit;font-size:9.5px;font-weight:650;cursor:pointer}
         .sm-plan-weekday.is-active{border-color:#b91c1c;background:linear-gradient(to bottom,#DC2626,#b91c1c);color:#fff;box-shadow:inset 0 1px .6px rgba(255,255,255,.28),0 1px 4px rgba(180,20,20,.15)}
         .sm-plan-primary-button,.sm-plan-secondary-button{height:32px;padding:0 15px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:7px;font-family:inherit;font-size:10.5px;font-weight:650;cursor:pointer;transition:opacity .15s}
@@ -955,16 +1029,21 @@ export function SmVerplanungWorkspace() {
                   </button>
                   {!collapsed ? dayRows.map((row) => {
                     const meta = statusMeta(row.status);
+                    const displayMeta = row.rescheduledFromDate ? RESCHEDULED_META : meta;
                     const isSelected = selectedRow?.id === row.id && drawerMode !== null;
-                    return <button key={row.id} type="button" aria-label={`${row.sm}${row.replacementSm ? `, Ersatz ${row.replacementSm}` : ""}, ${row.market}, ${formatDate(row.date)}, ${row.type === "weekly" ? "Wöchentlich" : "Einmalig"}, ${meta.label} bearbeiten`} onClick={() => openDrawer(row.type === "weekly" ? "series" : "single", row)} className={`sm-plan-row${isSelected ? " is-selected" : ""}`} style={{ position: "relative", width: "100%", minHeight: 52, padding: "0 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: 12, alignItems: "center", border: 0, borderBottom: "1px solid rgba(0,0,0,.045)", background: "transparent", color: "#374151", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
+                    const rescheduleAria = row.rescheduledFromDate ? `, verschoben von ${formatDate(row.rescheduledFromDate)} auf ${formatDate(row.date)}` : "";
+                    return <button key={row.id} type="button" aria-label={`${row.sm}${row.replacementSm ? `, Ersatz ${row.replacementSm}` : ""}, ${row.market}, ${formatDate(row.date)}${rescheduleAria}, ${row.type === "weekly" ? "Wöchentlich" : "Einmalig"}, ${meta.label} bearbeiten`} onClick={() => openDrawer(row.type === "weekly" ? "series" : "single", row)} className={`sm-plan-row${isSelected ? " is-selected" : ""}`} style={{ position: "relative", width: "100%", minHeight: row.rescheduledFromDate ? 60 : 52, padding: "0 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: 12, alignItems: "center", border: 0, borderBottom: "1px solid rgba(0,0,0,.045)", background: "transparent", color: "#374151", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
                       {isSelected ? <span style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 2, background: RED }}/>: null}
-                      <span style={{ color: "rgba(0,0,0,.36)", fontSize: 9.5, fontWeight: 600 }}>{formatDate(row.date)}</span>
+                      <span style={{ minWidth: 0, display: "grid", gap: 3 }}>
+                        <span style={{ color: "rgba(0,0,0,.42)", fontSize: 9.5, fontWeight: 650 }}>{formatDate(row.date)}</span>
+                        {row.rescheduledFromDate ? <span style={{ display: "inline-flex", alignItems: "center", gap: 3.5, color: "#6D28D9", fontSize: 8, fontWeight: 700, whiteSpace: "nowrap" }}><CalendarClock size={9.5} strokeWidth={2}/>{formatDate(row.rescheduledFromDate)} → {formatDate(row.date)}</span> : null}
+                      </span>
                       <span style={{ minWidth: 0 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1a1a1a", fontSize: 10.5, fontWeight: 650 }}>{row.sm}</span>{row.replacementSm ? <span style={{ display: "block", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1D4ED8", fontSize: 8.5, fontWeight: 650 }}>Ersatz: {row.replacementSm}</span> : null}</span>
                       <span style={{ color: "#374151", fontSize: 10.5, fontWeight: 600 }}>{row.market}</span>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(0,0,0,.46)", fontSize: 9.8 }}>{row.address}</span>
                       <span style={{ color: "#374151", fontSize: 10.5, fontWeight: 650 }}>{formatDuration(row.plannedMinutes)}</span>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "rgba(0,0,0,.54)", fontSize: 9.8 }}>{row.type === "weekly" ? <RefreshCw size={11} strokeWidth={1.8}/> : null}{row.type === "weekly" ? "Wöchentlich" : "Einmalig"}</span>
-                      <span style={{ justifySelf: "start", padding: "3px 7px", borderRadius: 999, background: meta.background, color: meta.color, fontSize: 8.5, fontWeight: 700 }}>{meta.label}</span>
+                      <span title={row.rescheduledFromDate ? `Fachlicher Status: ${meta.label}` : undefined} style={{ justifySelf: "start", padding: "3px 7px", borderRadius: 999, background: displayMeta.background, color: displayMeta.color, fontSize: 8.5, fontWeight: 700 }}>{displayMeta.label}</span>
                     </button>;
                   }) : null}
                 </div>;
@@ -975,7 +1054,7 @@ export function SmVerplanungWorkspace() {
         </div>
       </section>
 
-      {drawerMode ? <PlanningDrawer key={`${drawerMode}-${selectedRow?.id ?? "new"}-${weekStartKey}`} mode={drawerMode} row={selectedRow} defaultDate={weekStartKey} onClose={() => { setDrawerMode(null); setSelectedRow(null); }} onSaved={savePlanning} onDeleted={deletePlanning}/> : null}
+      {drawerMode ? <PlanningDrawer key={`${drawerMode}-${selectedRow?.id ?? "new"}-${weekStartKey}`} mode={drawerMode} row={selectedRow} defaultDate={weekStartKey} onClose={() => { setDrawerMode(null); setSelectedRow(null); }} onSaved={savePlanning} onRescheduled={reschedulePlanning} onDeleted={deletePlanning}/> : null}
     </div>
   );
 }

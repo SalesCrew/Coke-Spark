@@ -4274,6 +4274,19 @@ export async function softDeleteAdminZeiterfassungPause(input: {
   })) as { ok: boolean; pauseId: string };
 }
 
+export async function softDeleteAdminZeiterfassungEntry(input: {
+  sessionId: string;
+  entryId: string;
+}): Promise<{ ok: boolean; entryId: string }> {
+  return (await authedFetch(`/admin/zeiterfassung/entries/${encodeURIComponent(input.entryId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      sessionId: input.sessionId,
+      confirmation: "SOFT_DELETE_TIME_ENTRY",
+    }),
+  })) as { ok: boolean; entryId: string };
+}
+
 export async function patchAdminZeiterfassungDaySession(input: {
   sessionId: string;
   startTime?: string;

@@ -15,6 +15,7 @@ import {
   fetchRedMonthCalendar,
   patchAdminZeiterfassungDaySession,
   patchAdminZeiterfassungSegment,
+  softDeleteAdminZeiterfassungEntry,
   softDeleteAdminZeiterfassungPause,
   softDeleteAdminZeiterfassungDaySession,
   type AdminZeiterfassungAggregateRow,
@@ -363,7 +364,7 @@ const ActionRow = React.memo(function ActionRow({
   const [draftComment, setDraftComment] = useState(seg.comment ?? "");
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [pauseDeleteOpen, setPauseDeleteOpen] = useState(false);
+  const [segmentDeleteOpen, setSegmentDeleteOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const isAnfahrt   = seg.kind === "anfahrt";
   const isHeimfahrt = seg.kind === "heimfahrt";
@@ -382,6 +383,7 @@ const ActionRow = React.memo(function ActionRow({
   const isDayStartEdit = editableKind === "day_start";
   const isDayEndEdit = editableKind === "day_end";
   const isDayWrapperEdit = isDayStartEdit || isDayEndEdit;
+  const deleteSegmentLabel = isPause ? "Pause" : smeta?.label ?? seg.title ?? "Zusatzzeit";
 
   useEffect(() => {
     setDraftStart(seg.start);
@@ -390,7 +392,7 @@ const ActionRow = React.memo(function ActionRow({
     setEditingMode(null);
     setSaving(false);
     setEditError(null);
-    setPauseDeleteOpen(false);
+    setSegmentDeleteOpen(false);
   }, [seg.comment, seg.end, seg.id, seg.start]);
 
   useEffect(() => {
@@ -417,7 +419,7 @@ const ActionRow = React.memo(function ActionRow({
   useEffect(() => {
     if (!contextMenu) return;
     const width = menuRef.current?.offsetWidth ?? 170;
-    const height = menuRef.current?.offsetHeight ?? ((isZusatz || isPause) && editableKind ? 78 : 42);
+    const height = menuRef.current?.offsetHeight ?? (isZusatz && editableKind ? 112 : isPause && editableKind ? 78 : 42);
     const pad = 8;
     let x = contextMenu.x;
     let y = contextMenu.y;
@@ -501,20 +503,28 @@ const ActionRow = React.memo(function ActionRow({
     }
   }
 
-  async function deletePause() {
-    if (!isPause || !editableKind || saving) return;
+  async function deleteSegment() {
+    if ((!isPause && !isZusatz) || !editableKind || saving) return;
     setSaving(true);
     setEditError(null);
     try {
-      await softDeleteAdminZeiterfassungPause({
-        sessionId: session.id,
-        pauseId: seg.id,
-      });
-      setPauseDeleteOpen(false);
+      if (isPause) {
+        await softDeleteAdminZeiterfassungPause({
+          sessionId: session.id,
+          pauseId: seg.id,
+        });
+      } else {
+        await softDeleteAdminZeiterfassungEntry({
+          sessionId: session.id,
+          entryId: seg.id,
+        });
+      }
+      setSegmentDeleteOpen(false);
       await onSegmentPatched();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Pause konnte nicht gelöscht werden.";
-      setEditError(message || "Pause konnte nicht gelöscht werden.");
+      const fallback = `${deleteSegmentLabel} konnte nicht gelöscht werden.`;
+      const message = error instanceof Error ? error.message : fallback;
+      setEditError(message || fallback);
     } finally {
       setSaving(false);
     }
@@ -679,6 +689,40 @@ const ActionRow = React.memo(function ActionRow({
               doctorConfirmation={seg.doctorConfirmation}
               canUpload={false}
             />
+            {isZusatz && editableKind && (
+              <>
+                <button
+                  type="button"
+                  aria-label={`${deleteSegmentLabel} löschen`}
+                  title={`${deleteSegmentLabel} löschen`}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSegmentDeleteOpen(true);
+                    setEditError(null);
+                  }}
+                  disabled={saving}
+                  style={{ width: 24, height: 24, flexShrink: 0, display: "inline-grid", placeItems: "center", borderRadius: 999, border: "1px solid rgba(220,38,38,0.12)", background: "rgba(220,38,38,0.04)", color: "#c81e1e", cursor: saving ? "not-allowed" : "pointer", padding: 0, opacity: saving ? 0.55 : 1 }}
+                >
+                  <Trash2 size={12} strokeWidth={1.9} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${deleteSegmentLabel} bearbeiten`}
+                  title="Zeit bearbeiten"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setEditingMode("time");
+                    setEditError(null);
+                  }}
+                  disabled={saving}
+                  style={{ width: 24, height: 24, flexShrink: 0, display: "inline-grid", placeItems: "center", borderRadius: 999, border: "1px solid rgba(15,23,42,0.10)", background: "#fff", color: "rgba(15,23,42,0.55)", cursor: saving ? "not-allowed" : "pointer", padding: 0, opacity: saving ? 0.55 : 1 }}
+                >
+                  <Pencil size={12} strokeWidth={1.9} />
+                </button>
+              </>
+            )}
             <span style={{ fontSize: 10, fontWeight: 600, color: isFahrtzeit ? "rgba(0,0,0,0.35)" : "#374151", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const }}>
               {seg.end ? `${seg.start}–${seg.end}` : `${seg.start}`}
             </span>
@@ -742,12 +786,12 @@ const ActionRow = React.memo(function ActionRow({
                   ✏ Kommentar bearbeiten
                 </button>
               )}
-              {isPause && (
+              {(isPause || isZusatz) && (
                 <button
                   onClick={() => {
                     setContextMenu(null);
                     setMenuPosition(null);
-                    setPauseDeleteOpen(true);
+                    setSegmentDeleteOpen(true);
                     setEditError(null);
                   }}
                   style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", borderRadius: 6, background: "transparent", padding: "7px 10px", fontSize: 10.5, fontWeight: 650, color: "#c81e1e", cursor: "pointer", transition: "background-color 0.1s ease", fontFamily: "inherit" }}
@@ -759,7 +803,7 @@ const ActionRow = React.memo(function ActionRow({
                   }}
                 >
                   <Trash2 size={12} strokeWidth={1.8} />
-                  Pause löschen
+                  {deleteSegmentLabel} löschen
                 </button>
               )}
             </>
@@ -777,12 +821,12 @@ const ActionRow = React.memo(function ActionRow({
         </div>,
         document.body,
       )}
-      {pauseDeleteOpen && typeof document !== "undefined" && createPortal(
+      {segmentDeleteOpen && typeof document !== "undefined" && createPortal(
         <div
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !saving) {
-              setPauseDeleteOpen(false);
+              setSegmentDeleteOpen(false);
               setEditError(null);
             }
           }}
@@ -794,9 +838,9 @@ const ActionRow = React.memo(function ActionRow({
                 <Trash2 size={16} strokeWidth={1.8} />
               </div>
               <div style={{ minWidth: 0 }}>
-                <h3 style={{ margin: 0, fontSize: 14, lineHeight: 1.3, fontWeight: 760, color: "#111827" }}>Pause wirklich löschen?</h3>
+                <h3 style={{ margin: 0, fontSize: 14, lineHeight: 1.3, fontWeight: 760, color: "#111827" }}>{deleteSegmentLabel} wirklich löschen?</h3>
                 <p style={{ margin: "6px 0 0", fontSize: 10.5, lineHeight: 1.55, color: "rgba(15,23,42,0.58)" }}>
-                  Die Pause von {seg.start} bis {seg.end} wird aus diesem Arbeitstag entfernt. Alle anderen Einträge bleiben unverändert.
+                  {isPause ? "Die Pause" : `Die Zusatzzeit „${deleteSegmentLabel}“`} von {seg.start} bis {seg.end} wird aus diesem Arbeitstag entfernt. Alle anderen Einträge bleiben unverändert.
                 </p>
               </div>
             </div>
@@ -809,7 +853,7 @@ const ActionRow = React.memo(function ActionRow({
               <button
                 type="button"
                 onClick={() => {
-                  setPauseDeleteOpen(false);
+                  setSegmentDeleteOpen(false);
                   setEditError(null);
                 }}
                 disabled={saving}
@@ -819,11 +863,11 @@ const ActionRow = React.memo(function ActionRow({
               </button>
               <button
                 type="button"
-                onClick={() => { void deletePause(); }}
+                onClick={() => { void deleteSegment(); }}
                 disabled={saving}
                 style={{ ...primaryActionButtonStyle, minWidth: 116, height: 34, padding: "0 15px", fontSize: 10.5, fontWeight: 760, opacity: saving ? 0.78 : 1 }}
               >
-                {saving ? "Wird gelöscht..." : "Pause löschen"}
+                {saving ? "Wird gelöscht..." : `${deleteSegmentLabel} löschen`}
               </button>
             </div>
           </div>

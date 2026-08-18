@@ -1,6 +1,6 @@
 "use client";
 
-export type AuthUserRole = "admin" | "gm" | "sm" | "kunde";
+export type AuthUserRole = "admin" | "sm_admin" | "gm" | "sm" | "kunde";
 export type AuthStorageTarget = "local" | "session";
 export type KundePermissionAction = "read" | "write" | "update";
 export type KundePagePermissions = Record<string, KundePermissionAction[]>;
@@ -67,7 +67,7 @@ function parseJson<T>(raw: string | null): T | null {
 }
 
 function isValidAuthRole(value: unknown): value is AuthUserRole {
-  return value === "admin" || value === "gm" || value === "sm" || value === "kunde";
+  return value === "admin" || value === "sm_admin" || value === "gm" || value === "sm" || value === "kunde";
 }
 
 function normalizeKundePermissions(value: unknown): KundePagePermissions | null {

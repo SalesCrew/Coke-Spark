@@ -1,12 +1,13 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, Loader2, Plus, ShieldCheck, UserX, X } from "lucide-react";
 import {
   BackendApiError,
   createAdminUser,
   deactivateAdminUser,
   fetchAdminUsers,
+  type AdminAccountRole,
   type AdminUserRecord,
 } from "@/lib/api/backend";
 
@@ -14,6 +15,7 @@ type AdminManagerPanelProps = {
   open: boolean;
   anchorRect: DOMRect | null;
   currentUserId: string | null;
+  defaultRole?: AdminAccountRole;
   onClose: () => void;
 };
 
@@ -33,7 +35,8 @@ function formatDate(value: string): string {
   });
 }
 
-export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: AdminManagerPanelProps) {
+export function AdminManagerPanel({ open, anchorRect, currentUserId, defaultRole = "admin", onClose }: AdminManagerPanelProps) {
+  const [activeRole, setActiveRole] = useState<AdminAccountRole>(defaultRole);
   const [admins, setAdmins] = useState<AdminUserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,23 +50,29 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
   const [oneTimePassword, setOneTimePassword] = useState<string | null>(null);
   const [passwordCopied, setPasswordCopied] = useState(false);
   const [entered, setEntered] = useState(false);
+  const loadSequenceRef = useRef(0);
+  const roleLabel = activeRole === "admin" ? "GM-Admin" : "SM-Admin";
 
   const loadAdmins = useCallback(async () => {
+    const loadSequence = loadSequenceRef.current + 1;
+    loadSequenceRef.current = loadSequence;
     setIsLoading(true);
     setError(null);
     try {
-      const rows = await fetchAdminUsers();
+      const rows = await fetchAdminUsers(activeRole);
+      if (loadSequence !== loadSequenceRef.current) return;
       setAdmins(rows);
     } catch (err) {
+      if (loadSequence !== loadSequenceRef.current) return;
       if (err instanceof BackendApiError) {
-        setError(err.message || "Admins konnten nicht geladen werden.");
+        setError(err.message || `${roleLabel}s konnten nicht geladen werden.`);
       } else {
-        setError("Admins konnten nicht geladen werden.");
+        setError(`${roleLabel}s konnten nicht geladen werden.`);
       }
     } finally {
-      setIsLoading(false);
+      if (loadSequence === loadSequenceRef.current) setIsLoading(false);
     }
-  }, []);
+  }, [activeRole, roleLabel]);
 
   useEffect(() => {
     if (!open) return;
@@ -72,10 +81,19 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
 
   useEffect(() => {
     if (!open) {
+      loadSequenceRef.current += 1;
+      setActiveRole(defaultRole);
+      setAdmins([]);
       setConfirmDeactivateId(null);
       setConfirmDeactivateText("");
+      setFirstName("");
+      setLastName("");
+      setEmail("");
+      setOneTimePassword(null);
+      setPasswordCopied(false);
+      setError(null);
     }
-  }, [open]);
+  }, [defaultRole, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -119,6 +137,7 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
     setError(null);
     try {
       const created = await createAdminUser({
+        role: activeRole,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
@@ -131,9 +150,9 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
       setEmail("");
     } catch (err) {
       if (err instanceof BackendApiError) {
-        setError(err.message || "Admin konnte nicht erstellt werden.");
+        setError(err.message || `${roleLabel} konnte nicht erstellt werden.`);
       } else {
-        setError("Admin konnte nicht erstellt werden.");
+        setError(`${roleLabel} konnte nicht erstellt werden.`);
       }
     } finally {
       setIsCreating(false);
@@ -271,15 +290,52 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
           }
         `}</style>
 
+        <div
+          role="tablist"
+          aria-label="Admin-Arbeitsbereich"
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", padding: "0 16px", background: "rgba(248,250,252,0.72)", borderBottom: "1px solid rgba(15,23,42,0.06)" }}
+        >
+          {([[
+            "admin",
+            "GM",
+          ], [
+            "sm_admin",
+            "SM",
+          ]] as Array<[AdminAccountRole, string]>).map(([role, label]) => {
+            const active = activeRole === role;
+            return (
+              <button
+                key={role}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  if (role === activeRole || isCreating) return;
+                  setActiveRole(role);
+                  setAdmins([]);
+                  setConfirmDeactivateId(null);
+                  setConfirmDeactivateText("");
+                  setOneTimePassword(null);
+                  setPasswordCopied(false);
+                  setError(null);
+                }}
+                style={{ position: "relative", height: 42, border: 0, borderBottom: active ? "2px solid #dc2626" : "2px solid transparent", background: "transparent", color: active ? "#dc2626" : "rgba(15,23,42,0.48)", fontFamily: "inherit", fontSize: 11, fontWeight: active ? 800 : 650, cursor: isCreating ? "default" : "pointer", transition: "color 160ms ease, border-color 160ms ease" }}
+              >
+                {label} Admins
+              </button>
+            );
+          })}
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 248px", gap: 0, minHeight: 292 }}>
           <div style={{ padding: 16, borderRight: "1px solid rgba(15,23,42,0.06)", overflow: "hidden" }}>
             {isLoading ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(15,23,42,0.6)", fontSize: 12 }}>
                 <Loader2 size={14} className="animate-spin" />
-                Admins werden geladen...
+                {roleLabel}s werden geladen...
               </div>
             ) : sortedAdmins.length === 0 ? (
-              <div style={{ fontSize: 12, color: "rgba(15,23,42,0.55)" }}>Keine Admin-Konten gefunden.</div>
+              <div style={{ fontSize: 12, color: "rgba(15,23,42,0.55)" }}>Keine {roleLabel}-Konten gefunden.</div>
             ) : (
               <div
                 className="admin-manager-scroll"
@@ -445,9 +501,9 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
 
           <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>Neuen Admin erstellen</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>Neuen {roleLabel} erstellen</div>
               <div style={{ fontSize: 11, color: "rgba(15,23,42,0.56)", marginTop: 2 }}>
-                Rolle ist in diesem Schritt fix auf Admin.
+                {activeRole === "admin" ? "Bestehende GM-Admin-Rolle." : "Vollzugriff mit SM als Startansicht."}
               </div>
             </div>
 
@@ -517,7 +573,7 @@ export function AdminManagerPanel({ open, anchorRect, currentUserId, onClose }: 
                 }}
               >
                 {isCreating ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                Admin erstellen
+                {roleLabel} erstellen
               </button>
             </form>
 

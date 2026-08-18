@@ -29,7 +29,7 @@ import {
   type KundePagePermissions,
 } from "@/lib/auth/sessionRegistry";
 
-export type LoginRole = "gm" | "sm" | "admin" | "kunde";
+export type LoginRole = "gm" | "sm" | "admin" | "sm_admin" | "kunde";
 export type { AuthSessionPayload };
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000").replace(/\/$/, "");
@@ -50,7 +50,7 @@ export class BackendApiError extends Error {
 
 type BackendUser = {
   id: string;
-  role: "admin" | "gm" | "sm" | "kunde";
+  role: "admin" | "sm_admin" | "gm" | "sm" | "kunde";
   email: string;
   firstName: string;
   lastName: string;
@@ -366,7 +366,8 @@ function purgeAuthScopedClientState(options?: { emit?: boolean }): void {
   }
 }
 
-export function resolveRoleHomePath(role: "admin" | "gm" | "sm" | "kunde"): string {
+export function resolveRoleHomePath(role: "admin" | "sm_admin" | "gm" | "sm" | "kunde"): string {
+  if (role === "sm_admin") return "/admin/sm/dashboard";
   if (role === "admin" || role === "kunde") return "/admin";
   if (role === "gm") return "/gm";
   return "/sm";
@@ -527,7 +528,7 @@ function mapBackendUserToSmRecord(user: BackendUser, oneTimePassword?: string): 
 
 export type AdminUserRecord = {
   id: string;
-  role: "admin";
+  role: AdminAccountRole;
   email: string;
   firstName: string;
   lastName: string;
@@ -537,7 +538,10 @@ export type AdminUserRecord = {
   deletedAt: string | null;
 };
 
+export type AdminAccountRole = "admin" | "sm_admin";
+
 export type CreateAdminUserInput = {
+  role?: AdminAccountRole;
   firstName: string;
   lastName: string;
   email: string;
@@ -680,7 +684,7 @@ export type UpdateDsarRequestInput = {
 function mapBackendUserToAdminRecord(user: BackendUser): AdminUserRecord {
   return {
     id: user.id,
-    role: "admin",
+    role: user.role === "sm_admin" ? "sm_admin" : "admin",
     email: user.email,
     firstName: user.firstName,
     lastName: user.lastName,
@@ -1904,9 +1908,9 @@ export async function fetchSmUsers(): Promise<SMRecord[]> {
   return smUsersDirectoryInFlight;
 }
 
-export async function fetchAdminUsers(): Promise<AdminUserRecord[]> {
-  const data = (await authedFetch("/admin/users?role=admin")) as { users?: BackendUser[] };
-  return (data.users ?? []).filter((user) => user.role === "admin").map((user) => mapBackendUserToAdminRecord(user));
+export async function fetchAdminUsers(role: AdminAccountRole = "admin"): Promise<AdminUserRecord[]> {
+  const data = (await authedFetch(`/admin/users?role=${encodeURIComponent(role)}`)) as { users?: BackendUser[] };
+  return (data.users ?? []).filter((user) => user.role === role).map((user) => mapBackendUserToAdminRecord(user));
 }
 
 export async function createAdminUser(
@@ -1915,7 +1919,7 @@ export async function createAdminUser(
   const data = (await authedFetch("/admin/users", {
     method: "POST",
     body: JSON.stringify({
-      role: "admin",
+      role: payload.role ?? "admin",
       firstName: payload.firstName,
       lastName: payload.lastName,
       email: payload.email,

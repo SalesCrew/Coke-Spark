@@ -9,7 +9,7 @@ import {
   type AuthSessionPayload,
 } from "@/lib/api/backend";
 
-type GuardRole = "admin" | "gm" | "sm" | "kunde";
+type GuardRole = "admin" | "sm_admin" | "gm" | "sm" | "kunde";
 type GuardStatus = "checking" | "authorized" | "redirecting";
 
 export function useAuthGuard(requiredRole: GuardRole | GuardRole[] | null): {

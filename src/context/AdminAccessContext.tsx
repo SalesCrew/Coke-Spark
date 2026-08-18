@@ -18,6 +18,7 @@ type AdminAccessContextValue = {
   firstReadableHref: string | null;
   currentPageKey: AdminPageKey | null;
   isAdmin: boolean;
+  isSmAdmin: boolean;
   isKunde: boolean;
 };
 
@@ -80,7 +81,8 @@ export function AdminAccessProvider({
     };
   }, [session, sessionPermissionSignature]);
 
-  const isAdmin = session?.user.role === "admin";
+  const isSmAdmin = session?.user.role === "sm_admin";
+  const isAdmin = session?.user.role === "admin" || isSmAdmin;
   const isKunde = session?.user.role === "kunde";
 
   const can = useCallback(
@@ -100,12 +102,13 @@ export function AdminAccessProvider({
       canRead,
       canWrite: (pageKey) => can(pageKey, "write"),
       canUpdate: (pageKey) => can(pageKey, "update"),
-      firstReadableHref: isAdmin ? "/admin/gm-dashboard" : getFirstReadableAdminHref(canRead),
+      firstReadableHref: isSmAdmin ? "/admin/sm/dashboard" : isAdmin ? "/admin/gm-dashboard" : getFirstReadableAdminHref(canRead),
       currentPageKey: getAdminPageKeyForPath(pathname),
       isAdmin,
+      isSmAdmin,
       isKunde,
     };
-  }, [can, isAdmin, livePermissions, pathname, session?.user.role]);
+  }, [can, isAdmin, isSmAdmin, livePermissions, pathname, session?.user.role]);
 
   return <AdminAccessContext.Provider value={value}>{children}</AdminAccessContext.Provider>;
 }
@@ -122,6 +125,7 @@ export function useAdminAccess(): AdminAccessContextValue {
       firstReadableHref: null,
       currentPageKey: null,
       isAdmin: false,
+      isSmAdmin: false,
       isKunde: false,
     };
   }

@@ -2013,7 +2013,7 @@ export default function FotoarchivPage() {
         previewUrl={selectedPhoto ? previewUrls[selectedPhoto.id] : undefined}
         originalUrl={selectedPhoto ? originalUrls[selectedPhoto.id] : undefined}
         onOriginalNeeded={(photoId) => requestOriginalUrls([photoId])}
-        canEditTags={readAuthSession()?.user.role === "admin"}
+        canEditTags={["admin", "sm_admin"].includes(readAuthSession()?.user.role ?? "")}
         onTagsUpdated={handlePhotoTagsUpdated}
         onClose={() => setSelectedPhotoId(null)}
       />

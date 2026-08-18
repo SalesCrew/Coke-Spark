@@ -213,28 +213,6 @@ export function AdminProfilePopover({
                 <ShieldCheck size={13} />
                 Datenschutzinformation
               </button>
-              <button
-                type="button"
-                onClick={onLogout}
-                style={{
-                  height: 34,
-                  borderRadius: 10,
-                  border: "1px solid rgba(185,28,28,0.16)",
-                  background: "linear-gradient(180deg, rgba(254,242,242,0.98), rgba(254,226,226,0.96))",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#b91c1c",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 7,
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.85), 0 1px 2px rgba(185,28,28,0.12)",
-                }}
-              >
-                <LogOut size={13} />
-                Logout
-              </button>
               {onOpenManager ? <button
                 type="button"
                 onClick={onOpenManager}
@@ -279,6 +257,28 @@ export function AdminProfilePopover({
                 <Building2 size={13} />
                 Kundenzugang verwalten
               </button> : null}
+              <button
+                type="button"
+                onClick={onLogout}
+                style={{
+                  height: 34,
+                  borderRadius: 10,
+                  border: "1px solid rgba(185,28,28,0.16)",
+                  background: "linear-gradient(180deg, rgba(254,242,242,0.98), rgba(254,226,226,0.96))",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#b91c1c",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 7,
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.85), 0 1px 2px rgba(185,28,28,0.12)",
+                }}
+              >
+                <LogOut size={13} />
+                Logout
+              </button>
             </div>
 
             <div style={{ width: "50%", padding: "0 14px 14px" }}>

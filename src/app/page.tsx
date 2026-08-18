@@ -55,6 +55,11 @@ export default function Home() {
             return;
           }
 
+          if (result.user.role === "sm_admin") {
+            router.push("/admin/sm/dashboard");
+            return;
+          }
+
           router.push("/admin");
         }}
         onForgot={(email) => {

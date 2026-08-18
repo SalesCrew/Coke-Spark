@@ -106,7 +106,7 @@ export function AdminSidenav() {
     () =>
       ADMIN_NAV_GROUPS.map((group) => ({
         ...group,
-        items: group.items.filter((item) => (!item.adminOnly || adminAccess.isAdmin) && adminAccess.canRead(item.pageKey)),
+        items: group.items.filter((item) => (!item.adminOnly || adminAccess.isAdmin || adminAccess.isSmAdmin) && adminAccess.canRead(item.pageKey)),
       })).filter((group) => group.items.length > 0),
     [adminAccess],
   );
@@ -579,6 +579,7 @@ export function AdminSidenav() {
         open={overlayState === "manager"}
         anchorRect={anchorRect}
         currentUserId={authUser?.id ?? null}
+        defaultRole={authUser?.role === "sm_admin" ? "sm_admin" : "admin"}
         onClose={() => setOverlayState("closed")}
       />
       <CustomerAccessPanel

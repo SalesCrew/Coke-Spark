@@ -64,7 +64,7 @@ function AdminAccessGate({ children }: { children: React.ReactNode }) {
   const access = useAdminAccess();
 
   useEffect(() => {
-    if (!access.isKunde) return;
+    if (!access.isKunde && !access.isSmAdmin) return;
     if (!access.firstReadableHref) return;
     if (pathname === "/admin") {
       router.replace(access.firstReadableHref);
@@ -113,7 +113,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const { addModule, updateModule, deleteModule, setEditHandler: setModuleEditHandler, modules } = useModules();
   const { addFragebogen, updateFragebogen, deleteFragebogen, setEditHandler: setFbEditHandler, fragebogenList } = useFragebogen();
   const pathname = usePathname();
-  const { session, status } = useAuthGuard(["admin", "kunde"]);
+  const { session, status } = useAuthGuard(["admin", "sm_admin", "kunde"]);
   const authChecked = status === "authorized";
   const isKuehler = pathname.startsWith("/admin/kuehlerinventur");
   const isMhd = pathname.startsWith("/admin/mhd");
@@ -147,6 +147,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const importTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentPageKey = getAdminPageKeyForPath(pathname);
   const isKunde = session?.user.role === "kunde";
+  const isFullAdmin = session?.user.role === "admin" || session?.user.role === "sm_admin";
   const sessionPermissions = useMemo(() => session?.user.permissions ?? {}, [session?.user.permissions]);
   const canAccessCurrentPage = (action: "read" | "write" | "update") => {
     if (!isKunde) return true;
@@ -156,9 +157,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const canWriteCurrentPage = canAccessCurrentPage("write");
   const canUpdateCurrentPage = canAccessCurrentPage("update");
   const shouldPreloadFragebogenCatalog =
-    !isKunde ||
+    isFullAdmin ||
     (["fragebogen", "flexbesuche", "billa", "kuehlerinventur", "mhd", "durcharbeit", "fbmanagement"] as AdminPageKey[]).some((pageKey) =>
-      (sessionPermissions[pageKey] ?? []).includes("read"),
+      isKunde && (sessionPermissions[pageKey] ?? []).includes("read"),
     );
 
   useEffect(() => {
@@ -1173,7 +1174,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
             {children}
           </main>
         </div>
-        {session?.user.role === "admin" ? <AnswerChangeRequestFlap key={adminWorkspace} workspace={adminWorkspace} /> : null}
+        {isFullAdmin ? <AnswerChangeRequestFlap key={adminWorkspace} workspace={adminWorkspace} /> : null}
 
         {/* Fragebogen modals */}
         {moduleEditorOpen && (

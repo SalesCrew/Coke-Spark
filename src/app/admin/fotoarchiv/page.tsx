@@ -62,10 +62,11 @@ const TYPE_META: Record<AdminPhotoCampaignType, { label: string; color: string; 
 type ViewMode = "grid" | "list";
 type Filters = AdminPhotoArchiveFilters & { redMonthId?: string };
 type PhotoSignedUrlState = Pick<AdminPhotoSignedUrl, "signedUrl" | "expiresAt">;
-type ExportTimeframeMode = "all" | "week" | "redMonth";
+type ExportTimeframeMode = "all" | "date" | "week" | "redMonth";
 type ExportSelection = {
   campaignId?: string;
   timeframeMode: ExportTimeframeMode;
+  date?: string;
   week?: string;
   redMonthId?: string;
   chains: string[];
@@ -885,26 +886,35 @@ function FotoExportModal({
   if (!open) return null;
 
   const selectMode = (mode: ExportTimeframeMode) => {
+    if (mode === "date") {
+      setSelection((current) => ({ ...current, timeframeMode: mode, week: undefined, redMonthId: undefined }));
+      return;
+    }
     if (mode === "week") {
-      setSelection((current) => ({ ...current, timeframeMode: mode, week: current.week ?? weekOptions[0]?.value, redMonthId: undefined }));
+      setSelection((current) => ({ ...current, timeframeMode: mode, date: undefined, week: current.week ?? weekOptions[0]?.value, redMonthId: undefined }));
       return;
     }
     if (mode === "redMonth") {
       const currentRedMonth = redMonths.find((period) => period.isCurrent)?.id ?? redMonthOptions[0]?.value;
-      setSelection((current) => ({ ...current, timeframeMode: mode, redMonthId: current.redMonthId ?? currentRedMonth, week: undefined }));
+      setSelection((current) => ({ ...current, timeframeMode: mode, date: undefined, redMonthId: current.redMonthId ?? currentRedMonth, week: undefined }));
       return;
     }
-    setSelection((current) => ({ ...current, timeframeMode: mode, week: undefined, redMonthId: undefined }));
+    setSelection((current) => ({ ...current, timeframeMode: mode, date: undefined, week: undefined, redMonthId: undefined }));
   };
 
-  const selectionComplete = selection.timeframeMode === "all" || (selection.timeframeMode === "week" ? Boolean(selection.week) : Boolean(selection.redMonthId));
+  const selectionComplete = selection.timeframeMode === "all"
+    || (selection.timeframeMode === "date" && Boolean(selection.date))
+    || (selection.timeframeMode === "week" && Boolean(selection.week))
+    || (selection.timeframeMode === "redMonth" && Boolean(selection.redMonthId));
   const selectedCampaign = campaignOptions.find((campaign) => campaign.id === selection.campaignId);
   const selectedRedMonth = redMonths.find((period) => period.id === selection.redMonthId);
-  const timeframeSummary = selection.timeframeMode === "week"
-    ? weekOptions.find((option) => option.value === selection.week)?.label ?? "Kalenderwoche wählen"
-    : selection.timeframeMode === "redMonth"
-      ? redMonthOptions.find((option) => option.value === selection.redMonthId)?.label ?? "RED Month wählen"
-      : "Gesamter Zeitraum";
+  const timeframeSummary = selection.timeframeMode === "date"
+    ? selection.date ? fmtDate(selection.date) : "Datum wählen"
+    : selection.timeframeMode === "week"
+      ? weekOptions.find((option) => option.value === selection.week)?.label ?? "Kalenderwoche wählen"
+      : selection.timeframeMode === "redMonth"
+        ? redMonthOptions.find((option) => option.value === selection.redMonthId)?.label ?? "RED Month wählen"
+        : "Gesamter Zeitraum";
   const tagSummary = selection.tagKeys.length === 0
     ? "Alle Tags"
     : selection.tagKeys.length === 1
@@ -920,6 +930,10 @@ function FotoExportModal({
     if (!selectionComplete || exporting) return;
     const exportFilters: AdminPhotoArchiveFilters = {};
     if (selection.campaignId) exportFilters.campaignId = selection.campaignId;
+    if (selection.timeframeMode === "date" && selection.date) {
+      exportFilters.dateFrom = selection.date;
+      exportFilters.dateTo = selection.date;
+    }
     if (selection.timeframeMode === "week" && selection.week) exportFilters.week = selection.week;
     if (selection.timeframeMode === "redMonth" && selectedRedMonth) {
       exportFilters.dateFrom = selectedRedMonth.start;
@@ -961,11 +975,12 @@ function FotoExportModal({
           <section style={{ minWidth: 0 }}>
             <div style={{ marginBottom: 9 }}>
               <div style={{ fontSize: 10.5, fontWeight: 800, color: "#111827" }}>Zeitraum</div>
-              <div style={{ marginTop: 3, fontSize: 9.5, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.44)" }}>Nach Kalenderwoche oder nach dem hinterlegten RED-Month-Kalender filtern.</div>
+              <div style={{ marginTop: 3, fontSize: 9.5, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.44)" }}>Nach einem einzelnen Datum, einer Kalenderwoche oder dem RED-Month-Kalender filtern.</div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", borderBottom: "1px solid rgba(15,23,42,0.09)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", borderBottom: "1px solid rgba(15,23,42,0.09)" }}>
               {([
                 ["all", "Alle"],
+                ["date", "Datum"],
                 ["week", "Woche"],
                 ["redMonth", "RED Month"],
               ] as Array<[ExportTimeframeMode, string]>).map(([mode, label]) => {
@@ -975,6 +990,25 @@ function FotoExportModal({
             </div>
 
             <div style={{ marginTop: 12 }}>
+              {selection.timeframeMode === "date" && (
+                <label className="fotoExportDatePicker" style={{ minHeight: 76, borderRadius: 12, border: "1px solid rgba(15,23,42,0.09)", background: "linear-gradient(to bottom, #fff, rgba(248,250,252,0.72))", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: 12 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <span style={{ width: 32, height: 32, flexShrink: 0, borderRadius: 9, display: "grid", placeItems: "center", color: R, background: "rgba(220,38,38,0.07)", border: "1px solid rgba(220,38,38,0.10)" }}><Calendar size={15} strokeWidth={1.9} /></span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: 10.5, fontWeight: 750, color: "rgba(15,23,42,0.68)" }}>Exportdatum</span>
+                      <span style={{ display: "block", marginTop: 2, fontSize: 9, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Nur Fotos dieses Tages werden exportiert.</span>
+                    </span>
+                  </span>
+                  <input
+                    className="fotoExportDateInput"
+                    type="date"
+                    aria-label="Exportdatum auswählen"
+                    value={selection.date ?? ""}
+                    onChange={(event) => setSelection((current) => ({ ...current, date: event.target.value || undefined }))}
+                    style={{ width: 142, height: 34, flexShrink: 0, borderRadius: 9, border: SOFT_BORDER, background: "#fff", boxShadow: BUTTON_SHADOW, padding: "0 9px", color: selection.date ? "#111827" : "rgba(15,23,42,0.42)", fontFamily: "inherit", fontSize: 10.5, fontWeight: 750, outline: "none", cursor: "pointer" }}
+                  />
+                </label>
+              )}
               {selection.timeframeMode === "week" && <ExportDropdown label="Kalenderwoche" value={selection.week} placeholder="Woche wählen" options={weekOptions} searchable onChange={(week) => setSelection((current) => ({ ...current, week }))} />}
               {selection.timeframeMode === "redMonth" && <ExportDropdown label="RED Month" value={selection.redMonthId} placeholder="RED Month wählen" options={redMonthOptions} searchable onChange={(redMonthId) => setSelection((current) => ({ ...current, redMonthId }))} />}
               {selection.timeframeMode === "all" && (
@@ -1772,6 +1806,10 @@ export default function FotoarchivPage() {
           .fotoExportSummaryItem:nth-child(odd) { padding-left: 0 !important; border-left: 0 !important; }
           .fotoExportSummaryItem:nth-child(even) { padding-right: 0 !important; }
           .fotoExportSummaryItem:nth-child(n+3) { border-top: 1px solid rgba(15,23,42,0.07); }
+        }
+        @media (max-width: 520px) {
+          .fotoExportDatePicker { align-items: stretch !important; flex-direction: column; }
+          .fotoExportDateInput { width: 100% !important; }
         }
       `}</style>
 

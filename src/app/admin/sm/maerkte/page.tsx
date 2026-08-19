@@ -11,19 +11,24 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  CalendarDays,
   Check,
   ChevronDown,
+  Clock3,
   LockKeyhole,
   MapPin,
   Pencil,
   Plus,
   Search,
   Store,
+  Trash2,
   UserRound,
   UsersRound,
   X,
 } from "lucide-react";
-import { fetchSmUsers } from "@/lib/api/backend";
+import { SmMarketImportModal } from "@/components/admin/sm/SmMarketImportModal";
+import { createSmMarket, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket } from "@/lib/api/backend";
+import type { ImportSmMarketsInput, SmMarketImportSummary, SmMarketRecord } from "@/types/smMarkets";
 import type { SMRecord } from "@/types/shelfmerchandiser";
 
 const COKE_RED = "#DC2626";
@@ -32,29 +37,16 @@ const OVERSCAN = 8;
 const LIST_GRID = "minmax(225px,1.45fr) minmax(100px,.64fr) 34px minmax(170px,1.05fr) minmax(70px,.46fr) 56px minmax(120px,.76fr) minmax(185px,1.08fr) 76px";
 const LIST_GAP = "0 10px";
 
-type AssignmentMap = Record<string, string | null>;
+type WeekdayKey = "mo" | "di" | "mi" | "do" | "fr";
 
-type SmMarketPreview = {
-  id: string;
-  name: string;
-  dbName: string;
-  chain?: string;
-  internalId: string;
-  address: string;
-  postalCode: string;
-  city: string;
-  region: string;
-  infoFlag: boolean;
-  infoNote: string;
-  isActive: boolean;
-};
+type SmMarketPreview = SmMarketRecord;
 
 type EditableMarketFields = Pick<SmMarketPreview, "name" | "dbName" | "internalId" | "infoNote" | "address" | "postalCode" | "city" | "region" | "isActive"> & {
   chain: string;
 };
 
 type NewSmMarketInput = EditableMarketFields & {
-  assignedSmId: string | null;
+  assignedSmUserId: string | null;
 };
 
 type MarketFilters = {
@@ -81,32 +73,12 @@ const EMPTY_FILTERS: MarketFilters = {
   status: null,
 };
 
-const TEMP_SM_USERS: SMRecord[] = [
-  { id: "preview-sm-adriana", firstName: "Adriana", lastName: "Maier", email: "adriana.maier@merch.at", travelTimeEnabled: true, createdAt: "2026-08-01T08:00:00.000Z" },
-  { id: "preview-sm-sophie", firstName: "Sophie", lastName: "Gruber", email: "sophie.gruber@merch.at", travelTimeEnabled: false, createdAt: "2026-08-01T08:00:00.000Z" },
-  { id: "preview-sm-daniel", firstName: "Daniel", lastName: "Huber", email: "daniel.huber@merch.at", travelTimeEnabled: true, createdAt: "2026-08-01T08:00:00.000Z" },
-  { id: "preview-sm-miriam", firstName: "Miriam", lastName: "Leitner", email: "miriam.leitner@merch.at", travelTimeEnabled: false, createdAt: "2026-08-01T08:00:00.000Z" },
-];
-
-const TEMP_SM_MARKETS: SmMarketPreview[] = [
-  { id: "sm-market-001", name: "Billa Plus", dbName: "Billa Plus", internalId: "120076320", address: "Habsburg Lothringen Straße 002", postalCode: "3950", city: "Gmünd", region: "Ost", infoFlag: true, infoNote: "Warenübernahme über den Seiteneingang.", isActive: true },
-  { id: "sm-market-002", name: "Billa", dbName: "Billa", internalId: "120008341", address: "Technologiepark 1", postalCode: "8380", city: "Jennersdorf", region: "Süd", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-003", name: "Eurospar", dbName: "Eurospar", internalId: "120010557", address: "Hauptstraße 74", postalCode: "5600", city: "St. Johann im Pongau", region: "West", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-004", name: "Interspar", dbName: "Interspar", internalId: "120011204", address: "Industriezeile 76", postalCode: "4020", city: "Linz", region: "Nord", infoFlag: true, infoNote: "Anmeldung zuerst beim Infopoint.", isActive: true },
-  { id: "sm-market-005", name: "ADEG", dbName: "ADEG", internalId: "120015908", address: "Oberwarter Straße 339", postalCode: "7355", city: "St. Michael im Burgenland", region: "Ost", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-006", name: "Sparmarkt", dbName: "Sparmarkt", internalId: "120018128", address: "Gemeindeplatz 002", postalCode: "5591", city: "Ramingstein", region: "West", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-007", name: "Billa", dbName: "Billa", internalId: "120021234", address: "Pass Thurn Straße 017", postalCode: "6380", city: "St. Johann in Tirol", region: "West", infoFlag: true, infoNote: "Kurze Zufahrt über die Rückseite.", isActive: true },
-  { id: "sm-market-008", name: "Billa Plus", dbName: "Billa Plus", internalId: "120024810", address: "Salzburgerstraße 223 TOP 1/9", postalCode: "4600", city: "Wels", region: "Nord", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-009", name: "Penny", dbName: "Penny", internalId: "120027445", address: "Grazer Straße 41", postalCode: "2700", city: "Wiener Neustadt", region: "Ost", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-010", name: "Spar", dbName: "Spar", internalId: "120030112", address: "Bahnhofstraße 18", postalCode: "6850", city: "Dornbirn", region: "West", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-011", name: "Billa", dbName: "Billa", internalId: "120033520", address: "Kärntner Straße 25", postalCode: "8510", city: "Stainz", region: "Süd", infoFlag: true, infoNote: "Fixes Zeitfenster vor Marktöffnung beachten.", isActive: true },
-  { id: "sm-market-012", name: "Eurospar", dbName: "Eurospar", internalId: "120036819", address: "Schmiedingerstraße 35", postalCode: "5020", city: "Salzburg", region: "West", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-013", name: "Billa Plus", dbName: "Billa Plus", internalId: "120039551", address: "Mariahilfer Straße 38–48", postalCode: "1070", city: "Wien", region: "Ost", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-014", name: "ADEG", dbName: "ADEG", internalId: "120042667", address: "Dorfstraße 35", postalCode: "2460", city: "Bruck an der Leitha", region: "Ost", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-015", name: "Billa", dbName: "Billa", internalId: "120045301", address: "Seiersberg 1–9", postalCode: "8055", city: "Seiersberg-Pirka", region: "Süd", infoFlag: false, infoNote: "", isActive: true },
-  { id: "sm-market-016", name: "Interspar", dbName: "Interspar", internalId: "120048974", address: "Neu-Rum Serlesstraße 11", postalCode: "6063", city: "Rum", region: "West", infoFlag: true, infoNote: "Zutritt zum Lager nur mit Marktleitung.", isActive: true },
-  { id: "sm-market-017", name: "Billa", dbName: "Billa", internalId: "120051006", address: "Landstraße 82", postalCode: "4020", city: "Linz", region: "Nord", infoFlag: false, infoNote: "", isActive: false },
-  { id: "sm-market-018", name: "Sparmarkt", dbName: "Sparmarkt", internalId: "120054620", address: "Kirchenstraße 3", postalCode: "4800", city: "Attnang-Puchheim", region: "Nord", infoFlag: false, infoNote: "", isActive: true },
+const WEEKDAYS: Array<{ key: WeekdayKey; label: string }> = [
+  { key: "mo", label: "Mo" },
+  { key: "di", label: "Di" },
+  { key: "mi", label: "Mi" },
+  { key: "do", label: "Do" },
+  { key: "fr", label: "Fr" },
 ];
 
 function normalize(value: string): string {
@@ -128,6 +100,16 @@ function marketInternalId(market: SmMarketPreview): string {
 
 function marketChain(market: SmMarketPreview): string {
   return market.chain?.trim() || market.dbName.trim() || market.name.split(" ")[0]?.trim() || "Markt";
+}
+
+function formatPlanningHours(value: number | undefined): string {
+  if (value === undefined) return "—";
+  return `${value.toLocaleString("de-AT", { minimumFractionDigits: value % 1 === 0 ? 0 : 1, maximumFractionDigits: 1 })} h`;
+}
+
+function planningInitials(value: string | undefined): string {
+  if (!value?.trim()) return "—";
+  return value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase("de-AT") ?? "").join("");
 }
 
 function editableMarketFields(market: SmMarketPreview): EditableMarketFields {
@@ -544,14 +526,12 @@ const MarketRow = memo(function MarketRow({
 function VirtualMarketList({
   markets,
   users,
-  assignments,
   selectedId,
   onSelect,
   onAssign,
 }: {
   markets: SmMarketPreview[];
   users: SMRecord[];
-  assignments: AssignmentMap;
   selectedId: string | null;
   onSelect: (marketId: string) => void;
   onAssign: (marketId: string, smId: string | null) => void;
@@ -602,7 +582,7 @@ function VirtualMarketList({
             key={market.id}
             market={market}
             active={market.id === selectedId}
-            assignedSmId={assignments[market.id] ?? null}
+            assignedSmId={market.assignedSmUserId}
             users={users}
             onSelect={onSelect}
             onAssign={onAssign}
@@ -646,22 +626,62 @@ function MarketDetailDrawer({
   assignedSmId,
   onAssign,
   onSave,
+  onDelete,
   onClose,
 }: {
   market: SmMarketPreview;
   users: SMRecord[];
   assignedSmId: string | null;
   onAssign: (smId: string | null) => void;
-  onSave: (fields: EditableMarketFields) => void;
+  onSave: (fields: EditableMarketFields) => Promise<void>;
+  onDelete: () => Promise<void>;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"info" | "assignments">("info");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<EditableMarketFields>(() => editableMarketFields(market));
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const chain = marketChain(market);
   const colors = chainColors(chain);
+  const weekdayHours = market.weekdayHours ?? {};
+  const derivedServiceDays = WEEKDAYS.filter(({ key }) => weekdayHours[key] !== undefined).length;
+  const derivedWeeklyHours = WEEKDAYS.reduce((sum, { key }) => sum + (weekdayHours[key] ?? 0), 0);
+  const serviceDaysPerWeek = market.serviceDaysPerWeek ?? (derivedServiceDays || undefined);
+  const weeklyHours = market.weeklyHours ?? (derivedWeeklyHours || undefined);
   const updateDraft = <K extends keyof EditableMarketFields>(field: K, value: EditableMarketFields[K]) => {
     setDraft((current) => ({ ...current, [field]: value }));
+  };
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setActionError(null);
+    try {
+      await onSave(draft);
+      setEditing(false);
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : "SM-Markt konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const remove = async () => {
+    if (deleting) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setDeleting(true);
+    setActionError(null);
+    try {
+      await onDelete();
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : "SM-Markt konnte nicht gelöscht werden.");
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
   };
 
   return createPortal(
@@ -701,7 +721,8 @@ function MarketDetailDrawer({
             <InfoSection label="Identität">
               {editing ? <EditInfoRow label="Name"><input className="sm-market-edit-field" value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></EditInfoRow> : <InfoRow label="Name" value={market.name} />}
               {editing ? <EditInfoRow label="Name lt. DB"><input className="sm-market-edit-field" value={draft.dbName} onChange={(event) => updateDraft("dbName", event.target.value)} /></EditInfoRow> : <InfoRow label="Name lt. DB" value={market.dbName} />}
-              {editing ? <EditInfoRow label="Interne ID"><input className="sm-market-edit-field sm-tabular" value={draft.internalId} onChange={(event) => updateDraft("internalId", event.target.value)} /></EditInfoRow> : <InfoRow label="Interne ID" value={marketInternalId(market)} />}
+              <InfoRow label="Flexnummer" value={market.flexNumber} />
+              {editing ? <EditInfoRow label="Stammnummern"><input className="sm-market-edit-field sm-tabular" value={draft.internalId} onChange={(event) => updateDraft("internalId", event.target.value)} /></EditInfoRow> : <InfoRow label="Stammnummern" value={market.masterNumber ?? marketInternalId(market)} />}
               {editing ? <EditInfoRow label="Info-Kommentar"><div style={{ minWidth: 0 }}><textarea className="sm-market-edit-field is-textarea" value={draft.infoNote} onChange={(event) => updateDraft("infoNote", event.target.value)} placeholder="Internen Kommentar eingeben…" /><span style={{ marginTop: 5, display: "inline-flex", alignItems: "center", gap: 4, color: "rgba(0,0,0,.34)", fontSize: 8.5, fontWeight: 600 }}><LockKeyhole size={9} strokeWidth={1.9}/> Nur für Admins sichtbar</span></div></EditInfoRow> : <InfoRow label="Info-Kommentar" value={<div><div>{market.infoNote || "—"}</div><span style={{ marginTop: 5, display: "inline-flex", alignItems: "center", gap: 4, color: "rgba(0,0,0,.34)", fontSize: 8.5, fontWeight: 600 }}><LockKeyhole size={9} strokeWidth={1.9}/> Nur für Admins sichtbar</span></div>} />}
             </InfoSection>
             <div className="sm-drawer-divider" />
@@ -717,23 +738,76 @@ function MarketDetailDrawer({
                 <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Stammmarkt von</span>
                 <SmAssignmentSelect value={assignedSmId} users={users} onChange={onAssign} />
               </div>
-              {editing ? <EditInfoRow label="Handelskette"><input className="sm-market-edit-field" value={draft.chain} onChange={(event) => updateDraft("chain", event.target.value)} /></EditInfoRow> : <InfoRow label="Handelskette" value={marketChain(market)} />}
+              {editing ? <EditInfoRow label="Markt"><input className="sm-market-edit-field" value={draft.chain} onChange={(event) => updateDraft("chain", event.target.value)} /></EditInfoRow> : <InfoRow label="Markt" value={marketChain(market)} />}
               {editing ? <EditInfoRow label="Status"><MarketFieldSelect value={draft.isActive ? "active" : "inactive"} options={[{ value: "active", label: "Aktiv" }, { value: "inactive", label: "Inaktiv" }]} onChange={(value) => updateDraft("isActive", value === "active")} /></EditInfoRow> : <InfoRow label="Status" value={<span style={{ color: market.isActive ? "#15803d" : COKE_RED, fontWeight: 700 }}>{market.isActive ? "Aktiv" : "Inaktiv"}</span>} />}
             </InfoSection>
           </div>
         ) : (
-          <div style={{ minHeight: 280, border: "1px solid rgba(0,0,0,0.06)", borderRadius: 12, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 10, textAlign: "center", padding: 28 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 10, background: "rgba(220,38,38,0.055)", color: COKE_RED, display: "flex", alignItems: "center", justifyContent: "center" }}><Store size={16} strokeWidth={1.7} /></div>
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: "#1a1a1a" }}>Noch keine SM-Einsätze</div>
-              <div style={{ maxWidth: 250, marginTop: 4, fontSize: 10, lineHeight: 1.5, color: "rgba(0,0,0,0.4)" }}>Die spätere Einsatzplanung erscheint hier marktbezogen. In diesem Schritt wird ausschließlich die Markt-UI aufgebaut.</div>
+          <section className="sm-planning-surface">
+            <div className="sm-planning-header">
+              <div className="sm-planning-heading">
+                <span className="sm-planning-heading-icon"><CalendarDays size={14} strokeWidth={1.9} /></span>
+                <div><strong>Wochenplanung</strong><span>Regelmäßige Marktbetreuung</span></div>
+              </div>
+              <span className="sm-planning-status"><i /> Plan hinterlegt</span>
             </div>
-          </div>
+
+            <div className="sm-planning-metrics">
+              <div className="sm-planning-metric">
+                <span className="sm-planning-metric-icon"><CalendarDays size={13} strokeWidth={1.8} /></span>
+                <div><span>Betreuungstage</span><strong>{serviceDaysPerWeek ?? "—"}<small> / Woche</small></strong></div>
+              </div>
+              <div className="sm-planning-metric">
+                <span className="sm-planning-metric-icon"><Clock3 size={13} strokeWidth={1.8} /></span>
+                <div><span>Wochenstunden</span><strong>{formatPlanningHours(weeklyHours)}</strong></div>
+              </div>
+            </div>
+
+            <div className="sm-planning-section">
+              <div className="sm-planning-section-heading"><span>Einsatztage</span><small>{serviceDaysPerWeek ?? 0} von 5 Tagen</small></div>
+              <div className="sm-weekday-grid">
+                {WEEKDAYS.map(({ key, label }) => {
+                  const hours = weekdayHours[key];
+                  return (
+                    <div key={key} className={`sm-weekday${hours === undefined ? " is-empty" : " is-active"}`}>
+                      <span>{label}</span>
+                      <strong>{formatPlanningHours(hours)}</strong>
+                      <i />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="sm-planning-section is-people">
+              <div className="sm-planning-section-heading"><span>Zuständigkeit</span><small>Aus Marktdatei</small></div>
+              <div className="sm-planning-people">
+                <div className="sm-planning-person">
+                  <span className="sm-planning-avatar is-sm">{planningInitials(market.shelfMerchandiserName)}</span>
+                  <div><span>Shelf Merchandising Mitarbeiter</span><strong>{market.shelfMerchandiserName || "—"}</strong></div>
+                  <small>SM</small>
+                </div>
+                <div className="sm-planning-person">
+                  <span className="sm-planning-avatar is-gl">{planningInitials(market.fieldServiceManagerName)}</span>
+                  <div><span>Field Service Gebietsleiter</span><strong>{market.fieldServiceManagerName || "—"}</strong></div>
+                  <small>GL</small>
+                </div>
+              </div>
+            </div>
+
+            <div className={`sm-source-info${market.sourceInfo ? " has-value" : ""}`}>
+              <span>i</span>
+              <div><small>Info</small><strong>{market.sourceInfo || "Keine Information hinterlegt"}</strong></div>
+            </div>
+          </section>
         )}
       </div>
-      {editing && tab === "info" ? <div style={{ padding: "10px 16px", display: "flex", justifyContent: "flex-end", gap: 8, borderTop: "1px solid rgba(0,0,0,.07)", background: "#fff" }}>
-        <button type="button" onClick={() => { setDraft(editableMarketFields(market)); setEditing(false); }} className="sm-market-edit-button is-secondary">Abbrechen</button>
-        <button type="button" onClick={() => { onSave(draft); setEditing(false); }} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2}/> Speichern</button>
+      {tab === "info" ? <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderTop: "1px solid rgba(0,0,0,.07)", background: "#fff" }}>
+        {actionError ? <span role="alert" style={{ minWidth: 0, flex: 1, color: COKE_RED, fontSize: 9, fontWeight: 650 }}>{actionError}</span> : editing ? <span /> : <button type="button" onClick={() => void remove()} disabled={deleting} className="sm-market-edit-button is-secondary" style={{ color: confirmDelete ? "#fff" : COKE_RED, background: confirmDelete ? COKE_RED : undefined }}><Trash2 size={11} strokeWidth={2}/>{deleting ? "Wird gelöscht…" : confirmDelete ? "Löschen bestätigen" : "Markt löschen"}</button>}
+        {editing ? <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button type="button" disabled={saving} onClick={() => { setDraft(editableMarketFields(market)); setEditing(false); setActionError(null); }} className="sm-market-edit-button is-secondary">Abbrechen</button>
+          <button type="button" disabled={saving} onClick={() => void save()} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2}/> {saving ? "Speichert…" : "Speichern"}</button>
+        </div> : actionError ? <button type="button" onClick={() => setActionError(null)} className="sm-market-edit-button is-secondary">Schließen</button> : null}
       </div> : null}
     </aside>,
     document.body,
@@ -749,7 +823,7 @@ function SmMarketCreateField({ label, value, placeholder, required = false, onCh
   );
 }
 
-function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: { users: SMRecord[]; existingInternalIds: Set<string>; onCreate: (input: NewSmMarketInput) => void; onClose: () => void }) {
+function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: { users: SMRecord[]; existingInternalIds: Set<string>; onCreate: (input: NewSmMarketInput) => Promise<void>; onClose: () => void }) {
   const [name, setName] = useState("");
   const [dbName, setDbName] = useState("");
   const [chain, setChain] = useState("");
@@ -762,16 +836,17 @@ function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: 
   const [assignedSmId, setAssignedSmId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !submitting) onClose();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, [onClose, submitting]);
 
-  const submit = () => {
+  const submit = async () => {
     const nextName = name.trim();
     const nextChain = chain.trim();
     const nextInternalId = internalId.trim();
@@ -786,24 +861,31 @@ function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: 
       setError("Diese interne ID ist bereits vergeben.");
       return;
     }
-    onCreate({
-      name: nextName,
-      dbName: dbName.trim() || nextChain,
-      chain: nextChain,
-      internalId: nextInternalId,
-      address: nextAddress,
-      postalCode: nextPostalCode,
-      city: nextCity,
-      region: region.trim(),
-      infoNote: infoNote.trim(),
-      assignedSmId,
-      isActive,
-    });
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onCreate({
+        name: nextName,
+        dbName: dbName.trim() || nextChain,
+        chain: nextChain,
+        internalId: nextInternalId,
+        address: nextAddress,
+        postalCode: nextPostalCode,
+        city: nextCity,
+        region: region.trim(),
+        infoNote: infoNote.trim(),
+        assignedSmUserId: assignedSmId,
+        isActive,
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "SM-Markt konnte nicht angelegt werden.");
+      setSubmitting(false);
+    }
   };
 
   return createPortal(
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 9900, padding: 24, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.24)", backdropFilter: "blur(5px)" }}>
-      <form onSubmit={(event) => { event.preventDefault(); submit(); }} onClick={(event) => event.stopPropagation()} style={{ width: 720, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 48px)", overflow: "hidden", display: "flex", flexDirection: "column", border: "1px solid rgba(15,23,42,.08)", borderRadius: 16, background: "#fff", boxShadow: "0 18px 60px rgba(15,23,42,.18),inset 0 1px 0 rgba(255,255,255,.8)" }}>
+    <div onClick={() => { if (!submitting) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 9900, padding: 24, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.24)", backdropFilter: "blur(5px)" }}>
+      <form onSubmit={(event) => { event.preventDefault(); void submit(); }} onClick={(event) => event.stopPropagation()} style={{ width: 720, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 48px)", overflow: "hidden", display: "flex", flexDirection: "column", border: "1px solid rgba(15,23,42,.08)", borderRadius: 16, background: "#fff", boxShadow: "0 18px 60px rgba(15,23,42,.18),inset 0 1px 0 rgba(255,255,255,.8)" }}>
         <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, borderBottom: "1px solid rgba(15,23,42,.06)" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
             <span style={{ width: 34, height: 34, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: "rgba(220,38,38,.065)", color: COKE_RED }}><Store size={15} strokeWidth={1.8}/></span>
@@ -860,7 +942,7 @@ function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: 
 
         <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderTop: "1px solid rgba(15,23,42,.06)", background: "#fff" }}>
           <button type="button" onClick={onClose} className="sm-market-create-button is-secondary">Abbrechen</button>
-          <button type="submit" className="sm-market-create-button is-primary"><Plus size={12} strokeWidth={2.4}/> Markt anlegen</button>
+          <button type="submit" disabled={submitting} className="sm-market-create-button is-primary"><Plus size={12} strokeWidth={2.4}/> {submitting ? "Wird angelegt…" : "Markt anlegen"}</button>
         </div>
       </form>
     </div>,
@@ -893,46 +975,31 @@ function PageSkeleton() {
 }
 
 export default function SmMaerktePage() {
-  const [markets, setMarkets] = useState<SmMarketPreview[]>(TEMP_SM_MARKETS);
-  const [users, setUsers] = useState<SMRecord[]>(TEMP_SM_USERS);
-  const [assignments, setAssignments] = useState<AssignmentMap>(() => ({
-    "sm-market-001": TEMP_SM_USERS[0]?.id ?? null,
-    "sm-market-002": TEMP_SM_USERS[0]?.id ?? null,
-    "sm-market-003": TEMP_SM_USERS[3]?.id ?? null,
-    "sm-market-004": TEMP_SM_USERS[2]?.id ?? null,
-    "sm-market-006": TEMP_SM_USERS[3]?.id ?? null,
-    "sm-market-008": TEMP_SM_USERS[2]?.id ?? null,
-    "sm-market-011": TEMP_SM_USERS[1]?.id ?? null,
-    "sm-market-015": TEMP_SM_USERS[1]?.id ?? null,
-  }));
+  const [markets, setMarkets] = useState<SmMarketPreview[]>([]);
+  const [users, setUsers] = useState<SMRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [filters, setFilters] = useState<MarketFilters>(EMPTY_FILTERS);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       setLoading(true);
+      setLoadError(null);
       try {
-        const smRows = await fetchSmUsers();
-        if (!active || smRows.length === 0) return;
+        const [smRows, marketRows] = await Promise.all([fetchSmUsers(), fetchSmMarkets()]);
+        if (!active) return;
         const sortedUsers = [...smRows].sort((a, b) => formatSmName(a).localeCompare(formatSmName(b), "de-AT", { sensitivity: "base" }));
         setUsers(sortedUsers);
-        setAssignments({
-          "sm-market-001": sortedUsers[0]?.id ?? null,
-          "sm-market-002": sortedUsers[0]?.id ?? null,
-          "sm-market-003": sortedUsers[3]?.id ?? sortedUsers[0]?.id ?? null,
-          "sm-market-004": sortedUsers[2]?.id ?? sortedUsers[0]?.id ?? null,
-          "sm-market-006": sortedUsers[3]?.id ?? sortedUsers[0]?.id ?? null,
-          "sm-market-008": sortedUsers[2]?.id ?? sortedUsers[0]?.id ?? null,
-          "sm-market-011": sortedUsers[1]?.id ?? sortedUsers[0]?.id ?? null,
-          "sm-market-015": sortedUsers[1]?.id ?? sortedUsers[0]?.id ?? null,
-        });
-      } catch {
-        // UI-only preview: keep the temporary SM directory when no backend directory is available.
+        setMarkets(marketRows);
+      } catch (reason) {
+        if (active) setLoadError(reason instanceof Error ? reason.message : "SM-Märkte konnten nicht geladen werden.");
       } finally {
         if (active) setLoading(false);
       }
@@ -952,8 +1019,17 @@ export default function SmMaerktePage() {
     return () => window.removeEventListener("sm-maerkte:openManualCreate", openCreate);
   }, []);
 
+  useEffect(() => {
+    const openImport = () => {
+      setSelectedId(null);
+      setShowImport(true);
+    };
+    window.addEventListener("sm-maerkte:openImport", openImport);
+    return () => window.removeEventListener("sm-maerkte:openImport", openImport);
+  }, []);
+
   const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
-  const existingInternalIds = useMemo(() => new Set(markets.map((market) => market.internalId.trim().toLocaleLowerCase("de-AT"))), [markets]);
+  const existingInternalIds = useMemo(() => new Set(markets.map((market) => market.internalId.trim().toLocaleLowerCase("de-AT")).filter(Boolean)), [markets]);
   const options = useMemo(() => ({
     region: uniqueSorted(markets.map((market) => market.region)),
     city: uniqueSorted(markets.map((market) => market.city)),
@@ -964,7 +1040,7 @@ export default function SmMaerktePage() {
   const filteredMarkets = useMemo(() => {
     const query = normalize(deferredSearch);
     return markets.filter((market) => {
-      const assignedSmId = assignments[market.id] ?? null;
+      const assignedSmId = market.assignedSmUserId;
       const assignedSm = assignedSmId ? userById.get(assignedSmId) : undefined;
       if (query && !buildSearchText(market, assignedSm).includes(query)) return false;
       if (filters.region && market.region !== filters.region) return false;
@@ -976,30 +1052,100 @@ export default function SmMaerktePage() {
       if (filters.status === "Inaktiv" && market.isActive) return false;
       return true;
     });
-  }, [assignments, deferredSearch, filters, markets, userById]);
+  }, [deferredSearch, filters, markets, userById]);
 
   const selectedMarket = useMemo(() => markets.find((market) => market.id === selectedId) ?? null, [markets, selectedId]);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
-  const assignedCount = useMemo(() => Object.values(assignments).filter(Boolean).length, [assignments]);
+  const assignedCount = useMemo(() => markets.filter((market) => market.assignedSmUserId).length, [markets]);
 
-  const handleAssignment = useCallback((marketId: string, smId: string | null) => {
-    setAssignments((current) => ({ ...current, [marketId]: smId }));
+  const handleAssignment = useCallback(async (marketId: string, smId: string | null) => {
+    const previous = markets.find((market) => market.id === marketId)?.assignedSmUserId ?? null;
+    setMutationError(null);
+    setMarkets((current) => current.map((market) => market.id === marketId ? { ...market, assignedSmUserId: smId } : market));
+    try {
+      const updated = await updateSmMarket(marketId, { assignedSmUserId: smId });
+      setMarkets((current) => current.map((market) => market.id === marketId && market.assignedSmUserId === smId ? updated : market));
+    } catch (reason) {
+      setMarkets((current) => current.map((market) => market.id === marketId && market.assignedSmUserId === smId ? { ...market, assignedSmUserId: previous } : market));
+      const error = reason instanceof Error ? reason : new Error("SM-Zuordnung konnte nicht gespeichert werden.");
+      setMutationError(error.message);
+    }
+  }, [markets]);
+
+  const handleMarketSave = useCallback(async (marketId: string, fields: EditableMarketFields) => {
+    setMutationError(null);
+    try {
+      const updated = await updateSmMarket(marketId, {
+        internalMarketId: fields.internalId,
+        name: fields.name,
+        dbName: fields.dbName,
+        chain: fields.chain,
+        address: fields.address,
+        postalCode: fields.postalCode,
+        city: fields.city,
+        region: fields.region,
+        adminInfoNote: fields.infoNote,
+        isActive: fields.isActive,
+      });
+      setMarkets((current) => current.map((market) => market.id === marketId ? updated : market));
+    } catch (reason) {
+      const error = reason instanceof Error ? reason : new Error("SM-Markt konnte nicht gespeichert werden.");
+      setMutationError(error.message);
+      throw error;
+    }
   }, []);
 
-  const handleMarketSave = useCallback((marketId: string, fields: EditableMarketFields) => {
-    setMarkets((current) => current.map((market) => market.id === marketId ? { ...market, ...fields } : market));
+  const handleCreateMarket = useCallback(async (input: NewSmMarketInput) => {
+    const { assignedSmUserId, ...fields } = input;
+    setMutationError(null);
+    try {
+      const market = await createSmMarket({
+        internalMarketId: fields.internalId,
+        name: fields.name,
+        dbName: fields.dbName,
+        chain: fields.chain,
+        address: fields.address,
+        postalCode: fields.postalCode,
+        city: fields.city,
+        region: fields.region,
+        adminInfoNote: fields.infoNote,
+        assignedSmUserId,
+        isActive: fields.isActive,
+      });
+      setMarkets((current) => [market, ...current]);
+      setFilters(EMPTY_FILTERS);
+      setSearch("");
+      setShowCreate(false);
+      setSelectedId(market.id);
+    } catch (reason) {
+      const error = reason instanceof Error ? reason : new Error("SM-Markt konnte nicht angelegt werden.");
+      setMutationError(error.message);
+      throw error;
+    }
   }, []);
 
-  const handleCreateMarket = useCallback((input: NewSmMarketInput) => {
-    const { assignedSmId, ...fields } = input;
-    const id = `sm-market-${Date.now()}`;
-    const market: SmMarketPreview = { id, ...fields, infoFlag: fields.infoNote.trim().length > 0 };
-    setMarkets((current) => [market, ...current]);
-    setAssignments((current) => ({ ...current, [id]: assignedSmId }));
+  const handleImport = useCallback(async (input: ImportSmMarketsInput): Promise<{ markets: SmMarketRecord[]; summary: SmMarketImportSummary }> => {
+    setMutationError(null);
+    const result = await importSmMarkets(input);
+    setMarkets(result.markets);
+    setSelectedId(null);
     setFilters(EMPTY_FILTERS);
     setSearch("");
-    setShowCreate(false);
-    setSelectedId(id);
+    window.dispatchEvent(new CustomEvent("maerkte:imported", { detail: { count: result.summary.created + result.summary.updated } }));
+    return result;
+  }, []);
+
+  const handleDeleteMarket = useCallback(async (marketId: string) => {
+    setMutationError(null);
+    try {
+      await softDeleteSmMarket(marketId);
+      setMarkets((current) => current.filter((market) => market.id !== marketId));
+      setSelectedId((current) => current === marketId ? null : current);
+    } catch (reason) {
+      const error = reason instanceof Error ? reason : new Error("SM-Markt konnte nicht gelöscht werden.");
+      setMutationError(error.message);
+      throw error;
+    }
   }, []);
 
   const setFilter = useCallback(<K extends keyof MarketFilters>(key: K, value: MarketFilters[K]) => {
@@ -1053,11 +1199,61 @@ export default function SmMaerktePage() {
         .sm-market-create-button.is-primary { padding:0 18px; background:linear-gradient(to bottom,${COKE_RED},#b91c1c); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 0 0 1px #a91b1b,0 1px 8px rgba(180,20,20,.18); }
         .sm-market-create-button:hover { opacity:.88; }
         .sm-drawer-divider { height: 1px; background: rgba(0,0,0,.06); }
+        .sm-planning-surface { min-width:0; overflow:hidden; border:1px solid rgba(15,23,42,.075); border-radius:14px; background:linear-gradient(180deg,#fff 0%,#fdfdfd 100%); box-shadow:0 1px 2px rgba(15,23,42,.025),0 8px 26px rgba(15,23,42,.035); }
+        .sm-planning-header { min-height:55px; padding:0 15px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid rgba(15,23,42,.055); }
+        .sm-planning-heading { min-width:0; display:flex; align-items:center; gap:9px; }
+        .sm-planning-heading-icon { width:30px; height:30px; flex:0 0 30px; display:inline-flex; align-items:center; justify-content:center; border-radius:9px; background:linear-gradient(145deg,rgba(239,68,68,.12),rgba(220,38,38,.055)); color:${COKE_RED}; box-shadow:inset 0 0 0 1px rgba(220,38,38,.055); }
+        .sm-planning-heading > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
+        .sm-planning-heading strong { color:#17191d; font-size:11.5px; font-weight:800; letter-spacing:-.015em; }
+        .sm-planning-heading span:not(.sm-planning-heading-icon) { color:rgba(15,23,42,.36); font-size:8.5px; font-weight:550; }
+        .sm-planning-status { flex-shrink:0; padding:4px 7px; display:inline-flex; align-items:center; gap:5px; border-radius:999px; background:rgba(22,163,74,.065); color:#15803d; font-size:8px; font-weight:750; }
+        .sm-planning-status i { width:5px; height:5px; border-radius:50%; background:#22a75a; box-shadow:0 0 0 3px rgba(34,167,90,.08); }
+        .sm-planning-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); background:linear-gradient(180deg,rgba(248,250,252,.72),rgba(248,250,252,.34)); border-bottom:1px solid rgba(15,23,42,.055); }
+        .sm-planning-metric { min-width:0; min-height:72px; padding:0 15px; display:flex; align-items:center; gap:10px; }
+        .sm-planning-metric + .sm-planning-metric { border-left:1px solid rgba(15,23,42,.06); }
+        .sm-planning-metric-icon { width:29px; height:29px; flex:0 0 29px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; background:#fff; color:${COKE_RED}; box-shadow:inset 0 0 0 1px rgba(15,23,42,.055),0 1px 3px rgba(15,23,42,.04); }
+        .sm-planning-metric > div { min-width:0; }
+        .sm-planning-metric div > span { display:block; margin-bottom:4px; overflow:hidden; color:rgba(15,23,42,.36); font-size:7.8px; font-weight:800; letter-spacing:.065em; text-overflow:ellipsis; text-transform:uppercase; white-space:nowrap; }
+        .sm-planning-metric strong { display:block; color:#15171b; font-size:17px; font-weight:850; letter-spacing:-.035em; line-height:1; font-variant-numeric:tabular-nums; }
+        .sm-planning-metric strong small { color:rgba(15,23,42,.32); font-size:8.5px; font-weight:650; letter-spacing:0; }
+        .sm-planning-section { padding:15px; border-bottom:1px solid rgba(15,23,42,.055); }
+        .sm-planning-section-heading { margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        .sm-planning-section-heading > span { color:rgba(15,23,42,.42); font-size:8px; font-weight:850; letter-spacing:.095em; text-transform:uppercase; }
+        .sm-planning-section-heading > small { color:rgba(15,23,42,.3); font-size:8px; font-weight:650; }
+        .sm-weekday-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; }
+        .sm-weekday { position:relative; min-width:0; height:63px; box-sizing:border-box; padding:9px 5px 8px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; overflow:hidden; border:1px solid rgba(15,23,42,.07); border-radius:9px; background:linear-gradient(180deg,#fff,#f8f8f9); color:rgba(15,23,42,.28); box-shadow:inset 0 1px .6px rgba(255,255,255,.9); font-variant-numeric:tabular-nums; }
+        .sm-weekday > span { font-size:8px; font-weight:850; letter-spacing:.06em; text-transform:uppercase; }
+        .sm-weekday > strong { font-size:10px; font-weight:800; white-space:nowrap; }
+        .sm-weekday > i { position:absolute; right:8px; bottom:5px; left:8px; height:2px; border-radius:999px; background:rgba(15,23,42,.06); }
+        .sm-weekday.is-active { border-color:#b91c1c; background:linear-gradient(180deg,#e33a3a,#c91f28); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.3),inset 0 -1px 0 rgba(255,255,255,.12),0 2px 6px rgba(185,28,28,.14); }
+        .sm-weekday.is-active > i { background:rgba(255,255,255,.48); }
+        .sm-planning-section.is-people { padding-bottom:8px; }
+        .sm-planning-people { display:flex; flex-direction:column; }
+        .sm-planning-person { min-width:0; min-height:48px; display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:10px; }
+        .sm-planning-person + .sm-planning-person { border-top:1px solid rgba(15,23,42,.05); }
+        .sm-planning-avatar { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border-radius:9px; font-size:8.5px; font-weight:850; letter-spacing:-.02em; }
+        .sm-planning-avatar.is-sm { background:linear-gradient(145deg,rgba(16,185,129,.14),rgba(5,150,105,.07)); color:#047857; box-shadow:inset 0 0 0 1px rgba(5,150,105,.06); }
+        .sm-planning-avatar.is-gl { background:linear-gradient(145deg,rgba(59,130,246,.13),rgba(37,99,235,.06)); color:#1d4ed8; box-shadow:inset 0 0 0 1px rgba(37,99,235,.055); }
+        .sm-planning-person > div { min-width:0; display:flex; flex-direction:column; gap:3px; }
+        .sm-planning-person div > span { color:rgba(15,23,42,.34); font-size:8px; font-weight:600; }
+        .sm-planning-person strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#17191d; font-size:10.5px; font-weight:760; }
+        .sm-planning-person > small { padding:3px 6px; border-radius:5px; background:rgba(15,23,42,.035); color:rgba(15,23,42,.34); font-size:7.5px; font-weight:800; }
+        .sm-source-info { margin:12px; min-height:42px; box-sizing:border-box; padding:8px 10px; display:flex; align-items:center; gap:9px; border:1px solid rgba(15,23,42,.055); border-radius:9px; background:rgba(248,250,252,.58); color:rgba(15,23,42,.4); }
+        .sm-source-info > span { width:21px; height:21px; flex:0 0 21px; display:inline-flex; align-items:center; justify-content:center; border-radius:7px; background:#fff; color:rgba(15,23,42,.38); box-shadow:inset 0 0 0 1px rgba(15,23,42,.06); font-family:Georgia,serif; font-size:11px; font-weight:700; }
+        .sm-source-info > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
+        .sm-source-info small { color:rgba(15,23,42,.3); font-size:7.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+        .sm-source-info strong { overflow:hidden; color:rgba(15,23,42,.62); font-size:9.5px; font-weight:650; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+        .sm-source-info.has-value { border-color:rgba(217,119,6,.12); background:linear-gradient(180deg,rgba(255,251,235,.72),rgba(255,247,237,.52)); }
+        .sm-source-info.has-value > span { color:#b45309; box-shadow:inset 0 0 0 1px rgba(217,119,6,.11); }
+        .sm-source-info.has-value strong { color:#8b5a12; }
         .sm-skeleton { display: block; border-radius: 7px; background: linear-gradient(90deg, rgba(0,0,0,.035) 25%, rgba(0,0,0,.075) 37%, rgba(0,0,0,.035) 63%); background-size: 400% 100%; animation: smSkeleton 1.25s ease-in-out infinite; }
         @keyframes smSkeleton { from { background-position: 100% 0; } to { background-position: 0 0; } }
         @keyframes smDrawerIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
         @media (max-width:640px) { .sm-market-create-grid,.sm-market-create-grid.is-bottom { grid-template-columns:1fr; } }
       `}</style>
+
+      {loadError ? <div role="alert" style={{ marginBottom: 10, padding: "9px 11px", border: "1px solid rgba(220,38,38,.16)", borderRadius: 9, background: "rgba(220,38,38,.055)", color: COKE_RED, fontSize: 10.5, fontWeight: 700 }}>{loadError}</div> : null}
+      {mutationError ? <div role="alert" style={{ marginBottom: 10, padding: "9px 11px", border: "1px solid rgba(220,38,38,.16)", borderRadius: 9, background: "rgba(220,38,38,.055)", color: COKE_RED, fontSize: 10.5, fontWeight: 700 }}>{mutationError}</div> : null}
 
       {loading ? <PageSkeleton /> : (
         <div style={{ overflow: "hidden", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, background: "rgba(0,0,0,0.025)" }}>
@@ -1106,14 +1302,22 @@ export default function SmMaerktePage() {
               ))}
             </div>
 
-            <VirtualMarketList
-              markets={filteredMarkets}
-              users={users}
-              assignments={assignments}
-              selectedId={selectedId}
-              onSelect={(marketId) => setSelectedId((current) => current === marketId ? null : marketId)}
-              onAssign={handleAssignment}
-            />
+            {markets.length === 0 ? (
+              <div style={{ minHeight: 280, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: "rgba(15,23,42,.4)", textAlign: "center" }}>
+                <span style={{ width: 42, height: 42, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, background: "rgba(220,38,38,.06)", color: COKE_RED }}><Store size={18} strokeWidth={1.7} /></span>
+                <strong style={{ color: "#17191d", fontSize: 12 }}>Noch keine SM-Märkte importiert</strong>
+                <span style={{ fontSize: 9.5 }}>Importiere die Marktdatei und ordne die SM-Spalten zu.</span>
+                <button type="button" onClick={() => setShowImport(true)} style={{ marginTop: 3, height: 30, padding: "0 13px", border: 0, borderRadius: 8, background: `linear-gradient(${COKE_RED},#b91c1c)`, color: "#fff", fontFamily: "inherit", fontSize: 10, fontWeight: 800, cursor: "pointer" }}>Importieren</button>
+              </div>
+            ) : (
+              <VirtualMarketList
+                markets={filteredMarkets}
+                users={users}
+                selectedId={selectedId}
+                onSelect={(marketId) => setSelectedId((current) => current === marketId ? null : marketId)}
+                onAssign={handleAssignment}
+              />
+            )}
           </div>
         </div>
       )}
@@ -1123,13 +1327,15 @@ export default function SmMaerktePage() {
           key={selectedMarket.id}
           market={selectedMarket}
           users={users}
-          assignedSmId={assignments[selectedMarket.id] ?? null}
-          onAssign={(smId) => handleAssignment(selectedMarket.id, smId)}
+          assignedSmId={selectedMarket.assignedSmUserId}
+          onAssign={(smId) => void handleAssignment(selectedMarket.id, smId)}
           onSave={(fields) => handleMarketSave(selectedMarket.id, fields)}
+          onDelete={() => handleDeleteMarket(selectedMarket.id)}
           onClose={() => setSelectedId(null)}
         />
       ) : null}
       {showCreate ? <SmMarketCreateModal users={users} existingInternalIds={existingInternalIds} onCreate={handleCreateMarket} onClose={() => setShowCreate(false)} /> : null}
+      {showImport ? <SmMarketImportModal onImport={handleImport} onClose={() => setShowImport(false)} /> : null}
     </div>
   );
 }

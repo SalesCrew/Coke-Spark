@@ -632,9 +632,9 @@ Suggested tables:
 
 Each answer option needs at least a stable code, displayed label, earned/max points, metric role and any applicability/branching effect. Question-level configuration needs a type, required rule, possible points, metric role, aggregation configuration and display order.
 
-#### 7.5.1 Admin questionnaire UI checkpoint (2026-08-10)
+#### 7.5.1 Admin questionnaire authoring checkpoint (2026-08-19)
 
-The independent SM questionnaire workspace now exists as a UI-only implementation at `/admin/sm/fragebogen`.
+The independent SM questionnaire workspace at `/admin/sm/fragebogen` is connected to the production SM questionnaire domain through authenticated admin endpoints.
 
 - Its visual hierarchy was derived from the source code of the existing Standard-Fragebogen page and then checked in the running Coke Spark UI. Screenshots are only a secondary visual reference.
 - The SM implementation is a new component tree. It does not import or reuse the GM questionnaire page, GM module/questionnaire contexts, GM editors or GM domain data.
@@ -643,9 +643,9 @@ The independent SM questionnaire workspace now exists as a UI-only implementatio
 - The independent SM module editor now mirrors the normal Standardbesuch editor UI and supports the full plain question toolbox: `Single Choice`, `Ja / Nein`, `Ja / Nein Multi`, `Multiple Choice`, `Likert Skala`, `Offener Text`, `Offene Zahl`, `Slider`, `Foto Upload` and `Matrix`. It includes the matching answer/configuration surfaces, required-question toggle, question import, reorder, expansion and type switching.
 - The independent SM questionnaire editor mirrors the Standardbesuch module-library workflow: searchable library, selected-state feedback, right-click detail preview, expandable and reorderable module rows, name, description and `Nur einmal ausfüllbar`.
 - GM-only configuration is intentionally absent: no Spezialfragen, Handelsketten filters, bonus/prämien/IPP rules, campaign rules or GM photo-tag behavior.
-- The temporary preview data reflects the inspected Coke questionnaire: 6 modules, 19 questions and one questionnaire (`Coke Regalservice 2026`).
-- Create, edit, duplicate, delete, search, filter and assignment interactions currently operate only in component-local state and reset after refresh. The export action is an explicit preview notice rather than a fake file download.
-- No SM questionnaire database tables, API calls, Supabase mutations or production persistence are connected in this checkpoint.
+- No preview modules, questions or questionnaires are seeded. The empty state reflects the database and authors create the first real content themselves.
+- Create, edit, duplicate and soft-delete persist through `/admin/sm-questionnaires`; search and filtering remain local presentation behavior. The export action remains an explicit preview notice until the SM export contract is implemented.
+- Later module edits are differential: unchanged questions keep their exact published question version, while only added or actually changed questions receive a new question version. Removed questions are soft-deleted. An unchanged save performs no authoring write.
 
 #### 7.5.1 SM Zeiterfassung UI checkpoint (2026-08-11)
 
@@ -681,6 +681,19 @@ The independent SM questionnaire workspace now exists as a UI-only implementatio
 - A separate deletion request applies only to the concrete questionnaire submission. It must never delete or alter the planned Einsatz, assignment series, market link, Soll/Ist time, fixed allowance or payroll snapshot.
 - This checkpoint remains component-local preview state because the SM assignment/questionnaire backend tables do not yet exist. Persistent implementation should use a dedicated `sm_answer_change_requests` table and `sm_questionnaire_submission_delete_requests`, each linked to immutable SM submission/question/answer IDs with original/requested snapshots, status, reviewer, review timestamp, admin note and soft-delete/audit fields.
 - Admin approval must create a new active answer/submission version or a traceable correction event. Historical raw submissions and request snapshots must remain reproducible; the GM request tables and routes are not reused.
+
+#### 7.5.5 SM questionnaire persistence foundation (2026-08-19)
+
+- The independent production schema is defined in `backend/drizzle/0089_sm_questionnaire_domain.sql` and mirrored by the Drizzle application schema.
+- It contains 21 tables, all prefixed `sm_`, covering stable question/module/questionnaire identities, immutable content versions, answer options, conditional logic, ordered composition, submission snapshots, every current SM editor answer shape, answer events and both correction-request flows.
+- SM uses one versioned question → module → questionnaire model. The GM table families for Standard, Flex, Billa, Kühler, MHD and Durcharbeit are not copied because those are GM deployment/campaign variants; the SM Coke areas are reusable modules.
+- Published content is database-guarded against mutation. Publication order is question version, module version and finally questionnaire version. Later editing requires a new version.
+- Runtime answers preserve the explicit states `unanswered`, `answered`, `not_applicable` and `invalidated`, plus points and metric-outcome snapshots.
+- Execution-quality scoring and operational OOS detection/remediation are separate metric roles. OOS categories and partial-remediation meaning remain configurable data.
+- Every table has forced RLS and no direct `anon`/`authenticated` privileges. Access is backend-only through `service_role`; no direct browser database access is introduced.
+- No questionnaire seed content or temporary UI data is inserted by this schema migration. The current UI remains component-local until dedicated APIs are connected.
+- `sm_questionnaire_submissions.assignment_id` is reserved for the future `sm_assignments` table and intentionally does not point at any GM planning table. The FK is added with the SM planning persistence migration.
+- The detailed table catalog and lifecycle contract live in `docs/sm-questionnaire-data-model.md`.
 
 ### 7.6 Submission and time
 

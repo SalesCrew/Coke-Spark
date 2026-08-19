@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Eye, GripVertical, Plus, Search, X } from "lucide-react";
-import type { SmModule, SmQuestion, SmQuestionnaire, SmQuestionType } from "@/components/admin/sm/SmFragebogenWorkspace";
+import type { SmModule, SmQuestion, SmQuestionnaire, SmQuestionType } from "@/types/smQuestionnaire";
 
 const RED = "#DC2626";
 
@@ -226,7 +226,7 @@ export function SmFragebogenEditor({
   existing: SmQuestionnaire | null;
   modules: SmModule[];
   onClose: () => void;
-  onSave: (row: SmQuestionnaire) => void;
+  onSave: (row: SmQuestionnaire) => Promise<void> | void;
 }) {
   const [name, setName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
@@ -237,6 +237,8 @@ export function SmFragebogenEditor({
   const [previewModule, setPreviewModule] = useState<SmModule | null>(null);
   const [contextMenu, setContextMenu] = useState<{ module: SmModule; x: number; y: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const dragFrom = useRef<number | null>(null);
 
   const filteredModules = useMemo(() => {
@@ -294,16 +296,27 @@ export function SmFragebogenEditor({
     setDropTarget(null);
   }, [dropTarget]);
 
-  const save = () => onSave({
-    id: existing?.id ?? createId("sm-questionnaire"),
-    name: name || "Unbenannter Fragebogen",
-    description,
-    moduleIds: selectedModules.map((module) => module.id),
-    status: existing?.status ?? "active",
-    version: existing?.version ?? 1,
-    createdAt: existing?.createdAt ?? new Date().toISOString(),
-    nurEinmalAusfuellbar: nurEinmal,
-  });
+  const save = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onSave({
+        id: existing?.id ?? createId("sm-questionnaire"),
+        name: name || "Unbenannter Fragebogen",
+        description,
+        moduleIds: selectedModules.map((module) => module.id),
+        status: existing?.status ?? "active",
+        version: existing?.version ?? 1,
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        nurEinmalAusfuellbar: nurEinmal,
+      });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Fragebogen konnte nicht gespeichert werden.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 12000, background: "#fff", display: "flex", flexDirection: "column" }}>
@@ -311,8 +324,10 @@ export function SmFragebogenEditor({
         <button type="button" aria-label="Fragebogen-Editor schließen" onClick={onClose} style={{ padding: 4, border: 0, background: "transparent", color: "rgba(0,0,0,.4)", display: "flex", cursor: "pointer", transition: "color .15s ease" }} onMouseEnter={(event) => { event.currentTarget.style.color = RED; }} onMouseLeave={(event) => { event.currentTarget.style.color = "rgba(0,0,0,.4)"; }}><X size={18} strokeWidth={1.8} /></button>
         <div style={{ width: 1, height: 20, background: "rgba(0,0,0,.07)" }} />
         <span style={{ flex: 1, color: "#1A1A1A", fontSize: 14, fontWeight: 600, letterSpacing: "-.01em" }}>{existing ? "Fragebogen bearbeiten" : "Neuer Fragebogen"}</span>
-        <button type="button" onClick={save} style={{ padding: "7px 18px", border: 0, borderRadius: 6, background: "linear-gradient(to bottom,#DC2626,#B91C1C)", boxShadow: "inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px rgba(255,255,255,.15),0 0 0 1px #A91B1B,0 1px 6px rgba(220,38,38,.18)", color: "#fff", fontFamily: "inherit", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Speichern</button>
+        <button type="button" disabled={isSaving || selectedModules.length === 0} onClick={() => { void save(); }} style={{ padding: "7px 18px", border: 0, borderRadius: 6, background: "linear-gradient(to bottom,#DC2626,#B91C1C)", boxShadow: "inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px rgba(255,255,255,.15),0 0 0 1px #A91B1B,0 1px 6px rgba(220,38,38,.18)", color: "#fff", opacity: isSaving || selectedModules.length === 0 ? .55 : 1, fontFamily: "inherit", fontSize: 11, fontWeight: 600, cursor: isSaving || selectedModules.length === 0 ? "not-allowed" : "pointer" }}>{isSaving ? "Speichern..." : "Speichern"}</button>
       </header>
+
+      {saveError ? <div role="alert" style={{ padding: "8px 20px", borderBottom: "1px solid rgba(220,38,38,.12)", background: "rgba(220,38,38,.04)", color: "#B91C1C", fontSize: 11, fontWeight: 500 }}>{saveError}</div> : null}
 
       <div style={{ minHeight: 0, flex: 1, display: "flex" }}>
         <aside style={{ width: 240, padding: "20px 14px", borderRight: "1px solid rgba(0,0,0,.06)", background: "rgba(0,0,0,.02)", display: "flex", flexDirection: "column", gap: 12, flexShrink: 0, overflowY: "auto" }}>

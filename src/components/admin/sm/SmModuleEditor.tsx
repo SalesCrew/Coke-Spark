@@ -35,7 +35,7 @@ import type {
   SmOosRole,
   SmQuestion,
   SmQuestionType,
-} from "@/components/admin/sm/SmFragebogenWorkspace";
+} from "@/types/smQuestionnaire";
 
 const QUESTION_TYPES: Array<{
   key: SmQuestionType;

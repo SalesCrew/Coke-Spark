@@ -2,6 +2,13 @@
 
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { SMRecord } from "@/types/shelfmerchandiser";
+import type {
+  CreateSmMarketInput,
+  ImportSmMarketsInput,
+  SmMarketImportSummary,
+  SmMarketRecord,
+  UpdateSmMarketInput,
+} from "@/types/smMarkets";
 import type { KuehlerUnitRecord, MarketRecord } from "@/types/markets";
 import type { Fragebogen, Module, Question, SingleChoiceAvailabilityType } from "@/types/fragebogen";
 import type {
@@ -16,6 +23,7 @@ import type { ColumnMapping, ImportDatasetType, ImportSummary, KuehlerUpdateIden
 import type { IppQuestionAuditRow } from "@/types/ipp";
 import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod, RedMonthYear } from "@/types/red-month";
+import type { SmModule, SmQuestionnaire } from "@/types/smQuestionnaire";
 import { emitClientTelemetry } from "@/lib/clientTelemetry";
 import {
   LEGACY_AUTH_STORAGE_KEY,
@@ -1906,6 +1914,46 @@ export async function fetchSmUsers(): Promise<SMRecord[]> {
   });
 
   return smUsersDirectoryInFlight;
+}
+
+export async function fetchSmMarkets(): Promise<SmMarketRecord[]> {
+  const data = (await authedFetch("/admin/sm-markets", { cache: "no-store" }, 60_000)) as {
+    markets?: SmMarketRecord[];
+  };
+  return data.markets ?? [];
+}
+
+export async function importSmMarkets(input: ImportSmMarketsInput): Promise<{
+  markets: SmMarketRecord[];
+  summary: SmMarketImportSummary;
+}> {
+  const data = (await authedFetch("/admin/sm-markets/import", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }, 300_000)) as { markets?: SmMarketRecord[]; summary: SmMarketImportSummary };
+  return { markets: data.markets ?? [], summary: data.summary };
+}
+
+export async function createSmMarket(input: CreateSmMarketInput): Promise<SmMarketRecord> {
+  const data = (await authedFetch("/admin/sm-markets", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as { market: SmMarketRecord };
+  return data.market;
+}
+
+export async function updateSmMarket(id: string, input: UpdateSmMarketInput): Promise<SmMarketRecord> {
+  const data = (await authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { market: SmMarketRecord };
+  return data.market;
+}
+
+export async function softDeleteSmMarket(id: string): Promise<void> {
+  await authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}/delete`, {
+    method: "PATCH",
+  });
 }
 
 export async function fetchAdminUsers(role: AdminAccountRole = "admin"): Promise<AdminUserRecord[]> {
@@ -5807,4 +5855,44 @@ export async function cancelDaySession(): Promise<{ session: DaySession }> {
     method: "PATCH",
     body: JSON.stringify({}),
   })) as { session: DaySession };
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function fetchSmQuestionnaireWorkspace(): Promise<{
+  modules: SmModule[];
+  questionnaires: SmQuestionnaire[];
+}> {
+  return (await authedFetch("/admin/sm-questionnaires/workspace", { cache: "no-store" })) as {
+    modules: SmModule[];
+    questionnaires: SmQuestionnaire[];
+  };
+}
+
+export async function saveSmQuestionnaireModule(module: SmModule): Promise<SmModule> {
+  const persisted = UUID_PATTERN.test(module.id);
+  const response = await authedFetch(persisted ? `/admin/sm-questionnaires/modules/${module.id}` : "/admin/sm-questionnaires/modules", {
+    method: persisted ? "PATCH" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(module),
+  }) as { module: SmModule };
+  return response.module;
+}
+
+export async function deleteSmQuestionnaireModule(id: string): Promise<void> {
+  await authedFetch(`/admin/sm-questionnaires/modules/${id}/delete`, { method: "PATCH" });
+}
+
+export async function saveSmQuestionnaire(questionnaire: SmQuestionnaire): Promise<SmQuestionnaire> {
+  const persisted = UUID_PATTERN.test(questionnaire.id);
+  const response = await authedFetch(persisted ? `/admin/sm-questionnaires/questionnaires/${questionnaire.id}` : "/admin/sm-questionnaires/questionnaires", {
+    method: persisted ? "PATCH" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(questionnaire),
+  }) as { questionnaire: SmQuestionnaire };
+  return response.questionnaire;
+}
+
+export async function deleteSmQuestionnaire(id: string): Promise<void> {
+  await authedFetch(`/admin/sm-questionnaires/questionnaires/${id}/delete`, { method: "PATCH" });
 }

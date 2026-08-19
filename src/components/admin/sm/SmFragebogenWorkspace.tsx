@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlignLeft,
@@ -27,86 +27,14 @@ import {
 } from "lucide-react";
 import { SmFragebogenEditor } from "@/components/admin/sm/SmFragebogenEditor";
 import { SmModuleEditor } from "@/components/admin/sm/SmModuleEditor";
-
-export type SmQuestionType =
-  | "single"
-  | "yesno"
-  | "yesnomulti"
-  | "multiple"
-  | "likert"
-  | "text"
-  | "numeric"
-  | "slider"
-  | "photo"
-  | "matrix";
-
-export type SmConditionalRule = {
-  id: string;
-  triggerQuestionId: string;
-  operator: string;
-  triggerValue: string;
-  triggerValueMax: string;
-  action: "hide" | "show";
-  targetQuestionIds: string[];
-};
-
-export type SmOosRole = "detection" | "remediation";
-
-export type SmOosCategory =
-  | "action_placements"
-  | "softdrinks_energy"
-  | "water_near_water"
-  | "juice_iced_tea";
-
-export type SmOosAnswerOutcome =
-  | "oos_present"
-  | "oos_absent"
-  | "resolved"
-  | "partially_resolved"
-  | "not_resolved"
-  | "not_applicable";
-
-export type SmOosConfig = {
-  enabled?: boolean;
-  role?: SmOosRole;
-  category?: SmOosCategory;
-  detectionQuestionId?: string;
-  answerOutcomes?: Record<string, SmOosAnswerOutcome>;
-  partialCountsAsResolved?: boolean;
-  /** Legacy preview fields retained while the SM backend is still being built. */
-  behobenAnswer?: string;
-  nichtBehobenAnswer?: string;
-};
-
-export type SmQuestion = {
-  id: string;
-  text: string;
-  type: SmQuestionType;
-  required: boolean;
-  options: string[];
-  config: Record<string, unknown>;
-  rules: SmConditionalRule[];
-  oos?: SmOosConfig;
-};
-
-export type SmModule = {
-  id: string;
-  name: string;
-  description: string;
-  questions: SmQuestion[];
-  createdAt: string;
-};
-
-export type SmQuestionnaire = {
-  id: string;
-  name: string;
-  description: string;
-  moduleIds: string[];
-  status: "active" | "inactive";
-  version: number;
-  createdAt: string;
-  nurEinmalAusfuellbar?: boolean;
-};
+import {
+  deleteSmQuestionnaire,
+  deleteSmQuestionnaireModule,
+  fetchSmQuestionnaireWorkspace,
+  saveSmQuestionnaire as persistSmQuestionnaire,
+  saveSmQuestionnaireModule,
+} from "@/lib/api/backend";
+import type { SmModule, SmQuestion, SmQuestionnaire, SmQuestionType } from "@/types/smQuestionnaire";
 
 type WorkspaceTab = "fragen" | "module" | "fragebogen";
 
@@ -136,125 +64,6 @@ const TYPE_STYLE: Record<SmQuestionType, { label: string; bg: string; text: stri
   photo: { label: "Foto Upload", bg: "rgba(14,165,233,0.07)", text: "#0284C7" },
   matrix: { label: "Matrix", bg: "rgba(194,65,12,0.07)", text: "#C2410C" },
 };
-
-function defaultQuestionConfig(type: SmQuestionType, options: string[]): Record<string, unknown> {
-  switch (type) {
-    case "single":
-    case "multiple":
-      return { options };
-    case "yesnomulti":
-      return { answers: options.length > 0 ? options : ["Ja", "Nein"] };
-    case "likert":
-      return { min: 1, max: 5, minLabel: "", maxLabel: "" };
-    case "numeric":
-      return { min: "", max: "", decimals: false };
-    case "slider":
-      return { min: 0, max: 100, step: 1, unit: "" };
-    case "photo":
-      return { instruction: "" };
-    case "matrix":
-      return { rows: [""], columns: ["", ""] };
-    default:
-      return {};
-  }
-}
-
-const question = (
-  id: string,
-  text: string,
-  type: SmQuestionType = "yesno",
-  options: string[] = type === "yesno" ? ["Ja", "Nein"] : [],
-): SmQuestion => ({
-  id,
-  text,
-  type,
-  required: true,
-  options,
-  config: defaultQuestionConfig(type, options),
-  rules: [],
-});
-
-const TEMP_MODULES: SmModule[] = [
-  {
-    id: "sm-module-cooler",
-    name: "Getränkekühler",
-    description: "Bestand und durchgeführte Arbeiten an Getränkekühlern.",
-    createdAt: "2026-08-10T08:00:00.000Z",
-    questions: [
-      question("sm-q-01", "Sind im Markt Kühler für Getränke vorhanden?"),
-      question("sm-q-02", "Die Nachschlichtung der Getränkekühler wurde durchgeführt."),
-      question("sm-q-03", "Eine MHD Kontrolle bei den Getränkekühlern wurde durchgeführt."),
-      question("sm-q-04", "Eine Preiskontrolle bei den Getränkekühlern wurde durchgeführt."),
-    ],
-  },
-  {
-    id: "sm-module-action",
-    name: "Aktionsplatzierungen",
-    description: "Umsetzung, OOS-Situation und Nachschlichtung bei Aktionsplatzierungen.",
-    createdAt: "2026-08-10T08:05:00.000Z",
-    questions: [
-      question("sm-q-05", "Sind im Markt Aktionsplatzierungen von Coca-Cola Produkten vorhanden?"),
-      question("sm-q-06", "Die Nachschlichtung der Aktionsplatzierungen wurde durchgeführt.", "single", ["Ja", "nicht erforderlich – alle Produkte ausreichend vorhanden", "nur teilweise möglich – zu wenig Ware vorhanden", "nicht möglich – zu wenig Ware vorhanden", "Nein"]),
-      question("sm-q-07", "Gab es bei den Aktionsplatzierungen ausverkaufte Produkte? OOS"),
-      question("sm-q-08", "Die OOS bei den Aktionsplatzierungen wurden behoben; Produkte wurden nachgeschlichtet.", "single", ["Ja", "teilweise möglich – zu wenig Ware vorhanden", "nicht möglich – zu wenig Ware vorhanden", "Nein"]),
-    ],
-  },
-  {
-    id: "sm-module-softdrinks",
-    name: "Regalplatzierungen Limonaden & Energy Drinks",
-    description: "Regalservice, OOS und Behebung für Limonaden und Energy Drinks.",
-    createdAt: "2026-08-10T08:10:00.000Z",
-    questions: [
-      question("sm-q-09", "Nachschlichtung, MHD- und Preiskontrolle wurden durchgeführt.", "single", ["Ja", "nicht erforderlich – alle Produkte ausreichend vorhanden", "nur teilweise möglich – zu wenig Ware vorhanden", "nicht möglich – zu wenig Ware vorhanden", "Nein"]),
-      question("sm-q-10", "Gab es eine OOS-Situation?"),
-      question("sm-q-11", "Die OOS-Situation wurde durch Nachschlichtung behoben.", "single", ["Ja", "teilweise möglich – zu wenig Ware vorhanden", "nicht möglich – zu wenig Ware vorhanden", "Nein"]),
-    ],
-  },
-  {
-    id: "sm-module-water",
-    name: "Regalplatzierungen Wasser & Near Water",
-    description: "Regalservice, OOS und Behebung für Wasser und Near Water.",
-    createdAt: "2026-08-10T08:15:00.000Z",
-    questions: [
-      question("sm-q-12", "Nachschlichtung, MHD- und Preiskontrolle wurden durchgeführt.", "single", ["Ja", "nicht erforderlich – alle Produkte ausreichend vorhanden", "nur teilweise möglich – zu wenig Ware vorhanden", "nicht möglich – zu wenig Ware vorhanden", "Nein"]),
-      question("sm-q-13", "Gab es eine OOS-Situation?"),
-      question("sm-q-14", "Die OOS-Situation wurde durch Nachschlichtung behoben.", "single", ["Ja", "teilweise möglich – zu wenig Ware vorhanden", "nicht möglich – zu wenig Ware vorhanden", "Nein"]),
-    ],
-  },
-  {
-    id: "sm-module-juice",
-    name: "Regalplatzierungen Säfte & Eistee",
-    description: "Regalservice, OOS und Behebung für Säfte und Eistee.",
-    createdAt: "2026-08-10T08:20:00.000Z",
-    questions: [
-      question("sm-q-15", "Nachschlichtung, MHD- und Preiskontrolle wurden durchgeführt.", "single", ["Ja", "nicht erforderlich – alle Produkte ausreichend vorhanden", "nur teilweise möglich – zu wenig Ware vorhanden", "nicht möglich – zu wenig Ware vorhanden", "Nein"]),
-      question("sm-q-16", "Gab es eine OOS-Situation?"),
-      question("sm-q-17", "Die OOS-Situation wurde durch Nachschlichtung behoben.", "single", ["Ja", "teilweise möglich – zu wenig Ware vorhanden", "nicht möglich – zu wenig Ware vorhanden", "Nein"]),
-    ],
-  },
-  {
-    id: "sm-module-info",
-    name: "Information",
-    description: "Abschlussinformation an den Markt und freie Hinweise.",
-    createdAt: "2026-08-10T08:25:00.000Z",
-    questions: [
-      question("sm-q-18", "Wenn OOS vorhanden war: Wurde das Marktpersonal informiert oder eine Bestellung ausgelöst?", "single", ["Ja", "Nein", "nicht erforderlich: es gab keine ausverkauften Produkte"]),
-      question("sm-q-19", "Bitte informiere über OOS, große Mengen Ablaufware, Wünsche, Beschwerden oder sonstige wichtige Informationen.", "text", []),
-    ],
-  },
-];
-
-const TEMP_QUESTIONNAIRES: SmQuestionnaire[] = [
-  {
-    id: "sm-questionnaire-coke-2026",
-    name: "Coke Regalservice 2026",
-    description: "Shelf-Merchandising-Fragebogen für geplante Coke Einsätze.",
-    moduleIds: TEMP_MODULES.map((moduleRow) => moduleRow.id),
-    status: "active",
-    version: 1,
-    createdAt: "2026-08-10T08:30:00.000Z",
-  },
-];
 
 function createId(prefix: string): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return `${prefix}-${crypto.randomUUID()}`;
@@ -465,12 +274,39 @@ export function SmFragebogenWorkspace() {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<SmQuestionType | null>(null);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
-  const [modules, setModules] = useState<SmModule[]>(TEMP_MODULES);
-  const [questionnaires, setQuestionnaires] = useState<SmQuestionnaire[]>(TEMP_QUESTIONNAIRES);
+  const [modules, setModules] = useState<SmModule[]>([]);
+  const [questionnaires, setQuestionnaires] = useState<SmQuestionnaire[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingModule, setEditingModule] = useState<SmModule | null | undefined>(undefined);
   const [editingQuestionnaire, setEditingQuestionnaire] = useState<SmQuestionnaire | null | undefined>(undefined);
   const [notice, setNotice] = useState<string | null>(null);
   const typeMenuRef = useRef<HTMLDivElement>(null);
+  const loadRequestRef = useRef(0);
+
+  const loadWorkspace = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const workspace = await fetchSmQuestionnaireWorkspace();
+      if (requestId !== loadRequestRef.current) return;
+      setModules(workspace.modules);
+      setQuestionnaires(workspace.questionnaires);
+    } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
+      setLoadError(error instanceof Error ? error.message : "SM-Fragebogen konnten nicht geladen werden.");
+    } finally {
+      if (requestId === loadRequestRef.current) setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadWorkspace();
+    return () => {
+      loadRequestRef.current += 1;
+    };
+  }, [loadWorkspace]);
 
   useEffect(() => {
     const openModule = () => setEditingModule(null);
@@ -504,13 +340,66 @@ export function SmFragebogenWorkspace() {
   const filteredQuestions = allQuestions.filter(({ row, moduleName }) => (!filterType || row.type === filterType) && (!normalizedSearch || `${row.text} ${moduleName}`.toLocaleLowerCase("de-AT").includes(normalizedSearch)));
   const filteredQuestionnaires = questionnaires.filter((row) => !normalizedSearch || `${row.name} ${row.description}`.toLocaleLowerCase("de-AT").includes(normalizedSearch));
 
-  const saveModule = (row: SmModule) => {
-    setModules((current) => current.some((item) => item.id === row.id) ? current.map((item) => item.id === row.id ? row : item) : [...current, row]);
+  const saveModule = async (row: SmModule) => {
+    const saved = await saveSmQuestionnaireModule(row);
+    setModules((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved]);
     setEditingModule(undefined);
   };
-  const saveQuestionnaire = (row: SmQuestionnaire) => {
-    setQuestionnaires((current) => current.some((item) => item.id === row.id) ? current.map((item) => item.id === row.id ? row : item) : [...current, row]);
+  const saveQuestionnaire = async (row: SmQuestionnaire) => {
+    const saved = await persistSmQuestionnaire(row);
+    setQuestionnaires((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved]);
     setEditingQuestionnaire(undefined);
+  };
+
+  const duplicateModule = async (row: SmModule) => {
+    try {
+      const saved = await saveSmQuestionnaireModule({
+        ...structuredClone(row),
+        id: createId("sm-module"),
+        name: `Kopie von ${row.name}`,
+        createdAt: new Date().toISOString(),
+        questions: row.questions.map((item) => ({ ...structuredClone(item), id: createId("sm-question") })),
+      });
+      setModules((current) => [...current, saved]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Modul konnte nicht dupliziert werden.");
+    }
+  };
+
+  const removeModule = async (row: SmModule) => {
+    if (!window.confirm(`Modul „${row.name}“ wirklich löschen?`)) return;
+    try {
+      await deleteSmQuestionnaireModule(row.id);
+      setModules((current) => current.filter((item) => item.id !== row.id));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Modul konnte nicht gelöscht werden.");
+    }
+  };
+
+  const duplicateQuestionnaire = async (row: SmQuestionnaire) => {
+    try {
+      const saved = await persistSmQuestionnaire({
+        ...row,
+        id: createId("sm-questionnaire"),
+        name: `Kopie von ${row.name}`,
+        status: "inactive",
+        version: 1,
+        createdAt: new Date().toISOString(),
+      });
+      setQuestionnaires((current) => [...current, saved]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Fragebogen konnte nicht dupliziert werden.");
+    }
+  };
+
+  const removeQuestionnaire = async (row: SmQuestionnaire) => {
+    if (!window.confirm(`Fragebogen „${row.name}“ wirklich löschen?`)) return;
+    try {
+      await deleteSmQuestionnaire(row.id);
+      setQuestionnaires((current) => current.filter((item) => item.id !== row.id));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Fragebogen konnte nicht gelöscht werden.");
+    }
   };
 
   const tabCount = (tab: WorkspaceTab) => tab === "fragen" ? allQuestions.length : tab === "module" ? modules.length : questionnaires.length;
@@ -544,15 +433,19 @@ export function SmFragebogenWorkspace() {
       </div>
 
       <div className="sm-tab-content">
-        {activeTab === "module" ? (
+        {isLoading ? (
+          <div className="sm-empty-card"><Clock3 size={22} /><strong>SM-Fragebogen werden geladen</strong></div>
+        ) : loadError ? (
+          <div className="sm-empty-card"><HelpCircle size={22} /><strong>Laden fehlgeschlagen</strong><span>{loadError}</span><button type="button" className="sm-dark-button" onClick={() => { void loadWorkspace(); }}>Erneut versuchen</button></div>
+        ) : activeTab === "module" ? (
           filteredModules.length > 0 ? <div className="sm-card-stack">{filteredModules.map((row) => (
             <SmModuleCard
               key={row.id}
               row={row}
               questionnaireCount={questionnaires.filter((item) => item.moduleIds.includes(row.id)).length}
               onEdit={() => setEditingModule(row)}
-              onDuplicate={() => setModules((current) => [...current, { ...structuredClone(row), id: createId("sm-module"), name: `Kopie von ${row.name}`, createdAt: new Date().toISOString(), questions: row.questions.map((item) => ({ ...item, id: createId("sm-question") })) }])}
-              onDelete={() => setModules((current) => current.filter((item) => item.id !== row.id))}
+              onDuplicate={() => { void duplicateModule(row); }}
+              onDelete={() => { void removeModule(row); }}
             />
           ))}</div> : <div className="sm-empty-card"><Layers3 size={22} /><strong>Keine Module vorhanden</strong><span>Erstelle ein Modul um Fragen thematisch zu gruppieren.</span></div>
         ) : null}
@@ -567,8 +460,8 @@ export function SmFragebogenWorkspace() {
             row={row}
             modules={modules}
             onEdit={() => setEditingQuestionnaire(row)}
-            onDuplicate={() => setQuestionnaires((current) => [...current, { ...row, id: createId("sm-questionnaire"), name: `Kopie von ${row.name}`, status: "inactive", version: 1, createdAt: new Date().toISOString() }])}
-            onDelete={() => setQuestionnaires((current) => current.filter((item) => item.id !== row.id))}
+            onDuplicate={() => { void duplicateQuestionnaire(row); }}
+            onDelete={() => { void removeQuestionnaire(row); }}
           />)}</div> : <div className="sm-empty-card"><ClipboardList size={22} /><strong>Keine Fragebogen vorhanden</strong><span>Erstelle einen Fragebogen um SM-Module zusammenzufassen.</span></div>
         ) : null}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 const DAY_LABELS = ["SO", "MO", "DI", "MI", "DO", "FR", "SA"];
 const VISIBLE = 5;
@@ -9,38 +9,34 @@ const TOTAL = VISIBLE + BUFFER * 2;
 const CENTER = Math.floor(TOTAL / 2);
 const SLOT_WIDTH = 62;
 
-interface MarketEntry {
+export interface CalendarVisitPreview {
+  id: string;
   name: string;
-  time: string;
-}
-
-const MOCK_MARKETS: Record<string, MarketEntry[]> = {
-  "1": [{ name: "SPAR Zentrum", time: "09:30" }],
-  "2": [
-    { name: "BILLA Hauptstr.", time: "08:00" },
-    { name: "ADEG Plus", time: "14:00" },
-  ],
-  "3": [
-    { name: "MPREIS", time: "10:00" },
-    { name: "HOFER Süd", time: "13:00" },
-    { name: "REWE Nord", time: "16:00" },
-  ],
-  "4": [{ name: "LIDL West", time: "11:00" }],
-  "5": [
-    { name: "PENNY Ost", time: "09:00" },
-    { name: "SPAR Express", time: "15:30" },
-  ],
-};
-
-function getSeededMarkets(date: Date): MarketEntry[] {
-  const seed = date.getDate() % 5;
-  return MOCK_MARKETS[String(seed + 1)] || [];
+  detail: string;
 }
 
 function getDateOffset(center: Date, offset: number): Date {
   const d = new Date(center);
   d.setDate(d.getDate() + offset);
   return d;
+}
+
+function parseIsoDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day, 12);
+}
+
+function toIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDayMonth(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}.${month}.`;
 }
 
 function isPast(date: Date): boolean {
@@ -52,11 +48,13 @@ function isPast(date: Date): boolean {
 }
 
 interface WeekStripProps {
-  onDateChange?: (date: Date, markets: MarketEntry[]) => void;
+  selectedDate: string;
+  visitsByDate: Record<string, CalendarVisitPreview[]>;
+  onDateChange: (date: string) => void;
 }
 
-export function WeekStrip({ onDateChange }: WeekStripProps) {
-  const [centerDate, setCenterDate] = useState(() => new Date());
+export function WeekStrip({ selectedDate, visitsByDate, onDateChange }: WeekStripProps) {
+  const [centerDate, setCenterDate] = useState(() => parseIsoDate(selectedDate));
   const [slideOffset, setSlideOffset] = useState(0);
   const [animating, setAnimating] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -64,16 +62,19 @@ export function WeekStrip({ onDateChange }: WeekStripProps) {
   const days = useMemo(() => {
     return Array.from({ length: TOTAL }, (_, i) => {
       const date = getDateOffset(centerDate, i - CENTER);
-      const markets = getSeededMarkets(date);
+      const isoDate = toIsoDate(date);
+      const visits = visitsByDate[isoDate] ?? [];
       return {
         date,
+        isoDate,
         label: DAY_LABELS[date.getDay()],
-        count: markets.length,
-        markets,
+        dateLabel: formatDayMonth(date),
+        count: visits.length,
+        visits,
         isPast: isPast(date),
       };
     });
-  }, [centerDate]);
+  }, [centerDate, visitsByDate]);
 
   const handleSelect = useCallback(
     (i: number) => {
@@ -94,13 +95,11 @@ export function WeekStrip({ onDateChange }: WeekStripProps) {
     setSlideOffset(0);
     setAnimating(false);
     setCenterDate(newCenter);
-
-    const markets = getSeededMarkets(newCenter);
-    onDateChange?.(newCenter, markets);
+    onDateChange(toIsoDate(newCenter));
   }, [slideOffset, centerDate, onDateChange]);
 
   const centerDay = days[CENTER];
-  const firstMarket = centerDay.markets[0];
+  const firstVisit = centerDay.visits[0];
   const visibleStart = BUFFER;
   const trackOffset = -BUFFER * SLOT_WIDTH;
 
@@ -141,7 +140,7 @@ export function WeekStrip({ onDateChange }: WeekStripProps) {
 
             return (
               <div
-                key={`${day.date.toISOString()}`}
+                key={day.isoDate}
                 className="flex flex-col items-center cursor-pointer shrink-0"
                 style={{
                   width: SLOT_WIDTH,
@@ -150,13 +149,23 @@ export function WeekStrip({ onDateChange }: WeekStripProps) {
                 onClick={() => handleSelect(i)}
               >
                 <span
-                  className="text-[10px] font-semibold uppercase tracking-[0.02em] mb-1.5"
+                  className="text-[10px] font-semibold uppercase tracking-[0.02em]"
                   style={{
                     color: isHighlighted ? "#DC2626" : "rgba(0,0,0,0.25)",
                     transition: "color 350ms",
                   }}
                 >
                   {day.label}
+                </span>
+
+                <span
+                  className="mb-1.5 mt-0.5 text-[8px] font-medium tabular-nums"
+                  style={{
+                    color: isHighlighted ? "rgba(220,38,38,0.55)" : "rgba(0,0,0,0.22)",
+                    transition: "color 350ms",
+                  }}
+                >
+                  {day.dateLabel}
                 </span>
 
                 <div
@@ -198,12 +207,12 @@ export function WeekStrip({ onDateChange }: WeekStripProps) {
       </div>
 
       <div className="flex justify-center mt-1.5" style={{ minHeight: 16 }}>
-        {!animating && firstMarket && (
+        {!animating && firstVisit && (
           <span
             className="text-[9px] font-medium whitespace-nowrap"
             style={{ color: "rgba(0,0,0,0.35)" }}
           >
-            {firstMarket.name} · {firstMarket.time}
+            {firstVisit.name} · {firstVisit.detail}
           </span>
         )}
       </div>

@@ -11,30 +11,14 @@ import {
   Send,
   X,
 } from "lucide-react";
+import { fetchAdminSmMessages, sendAdminSmMessage } from "@/lib/api/backend";
+import type {
+  SmAdminMessage as MessageCampaign,
+  SmAdminMessageRecipient as MessageRecipient,
+  SmMessageDirectoryRecipient as Recipient,
+} from "@/types/smMessages";
 
 const RED = "#DC2626";
-
-type Recipient = {
-  id: string;
-  name: string;
-  initials: string;
-  region: string;
-};
-
-type MessageRecipient = {
-  recipientId: string;
-  deliveredAt: string;
-  readAt: string | null;
-};
-
-type MessageCampaign = {
-  id: string;
-  subject: string;
-  sentAt: string;
-  sender: string;
-  body: string;
-  recipients: MessageRecipient[];
-};
 
 type RecipientFilter = "all" | "read" | "unread";
 type MessageFilter = "all" | "complete" | "open";
@@ -51,71 +35,28 @@ const MESSAGE_SORT_OPTIONS: readonly { value: MessageSort; label: string }[] = [
   { value: "oldest", label: "Älteste zuerst" },
 ];
 
-const RECIPIENTS: Recipient[] = [
-  { id: "adriana", name: "Adriana Maier", initials: "AM", region: "Ost" },
-  { id: "selina", name: "Selina Huber", initials: "SH", region: "Nord" },
-  { id: "melanie", name: "Melanie Gruber", initials: "MG", region: "Süd" },
-  { id: "lara", name: "Lara König", initials: "LK", region: "West" },
-  { id: "tobias", name: "Tobias Steiner", initials: "TS", region: "Ost" },
-  { id: "michael", name: "Michael Koller", initials: "MK", region: "Nord" },
-  { id: "nina", name: "Nina Bauer", initials: "NB", region: "Süd" },
-  { id: "julia", name: "Julia Pichler", initials: "JP", region: "West" },
-  { id: "sophie", name: "Sophie Leitner", initials: "SL", region: "Ost" },
-  { id: "daniel", name: "Daniel Huber", initials: "DH", region: "Nord" },
-  { id: "miriam", name: "Miriam Hofer", initials: "MH", region: "Süd" },
-  { id: "elena", name: "Elena Wagner", initials: "EW", region: "West" },
-];
-
-const READ_TIMES = ["09:28", "09:31", "09:47", "10:02", "10:18", "10:23", "10:41", "11:04", "11:18", "11:32", "11:51", "12:06"];
-
-function buildRecipients(readCount: number, unreadFirstId?: string): MessageRecipient[] {
-  const ordered = unreadFirstId
-    ? [...RECIPIENTS.filter((recipient) => recipient.id !== unreadFirstId), RECIPIENTS.find((recipient) => recipient.id === unreadFirstId)!]
-    : RECIPIENTS;
-  const readIds = new Set(ordered.slice(0, readCount).map((recipient) => recipient.id));
-  return RECIPIENTS.map((recipient, index) => ({
-    recipientId: recipient.id,
-    deliveredAt: "13.08.2026, 09:16",
-    readAt: readIds.has(recipient.id) ? `13.08.2026, ${READ_TIMES[index]}` : null,
-  }));
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase("de-AT") ?? "").join("") || "SM";
 }
 
-const INITIAL_MESSAGES: MessageCampaign[] = [
-  {
-    id: "message-regalplan-33",
-    subject: "Neue Regalplan-Vorgabe KW 33",
-    sentAt: "13.08.2026, 09:15",
-    sender: "Denise Lehner",
-    body: "Liebe SMs,\n\nbitte beachtet die aktualisierte Regalplan-Vorgabe für KW 33. Die Anpassungen betreffen die Platzierung unserer Sommeraktionen sowie die Zweitplatzierungen im Getränkeregal.\n\nDie neue Vorgabe ist ab sofort umzusetzen.\n\nDanke für eure Unterstützung!\n\nBeste Grüße\nDenise",
-    recipients: buildRecipients(8),
-  },
-  {
-    id: "message-foto-august",
-    subject: "Foto-Dokumentation August",
-    sentAt: "13.08.2026, 08:30",
-    sender: "Denise Lehner",
-    body: "Bitte ladet die Dokumentationsfotos im August vollständig und direkt beim jeweiligen Einsatz hoch.",
-    recipients: buildRecipients(5, "adriana"),
-  },
-  {
-    id: "message-sommeraktion",
-    subject: "Sommeraktion – Platzierung & Zweitplatzierungen",
-    sentAt: "11.08.2026, 14:22",
-    sender: "Doris SC Coke",
-    body: "Für die laufende Sommeraktion bitte alle Haupt- und Zweitplatzierungen nach Vorgabe kontrollieren.",
-    recipients: buildRecipients(10),
-  },
-  {
-    id: "message-schulung",
-    subject: "Schulung: OOS Optimierung im Regal",
-    sentAt: "08.08.2026, 10:05",
-    sender: "Denise Lehner",
-    body: "Die neue Kurzschulung zur OOS-Behebung ist ab sofort verfügbar. Bitte vor dem nächsten Einsatz ansehen.",
-    recipients: buildRecipients(11),
-  },
-];
+function formatDateTime(value: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("de-AT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
-const recipientById = new Map(RECIPIENTS.map((recipient) => [recipient.id, recipient]));
+function visibilityLabel(days: number | null): string {
+  if (days === null) return "Dauerhaft sichtbar (Bestand)";
+  if (days === 0) return "Einmal lesbar";
+  return `${days} ${days === 1 ? "Tag" : "Tage"} nach Gelesen sichtbar`;
+}
 
 function readCount(message: MessageCampaign): number {
   return message.recipients.reduce((sum, recipient) => sum + (recipient.readAt ? 1 : 0), 0);
@@ -159,7 +100,7 @@ const MessageListRow = memo(function MessageListRow({
   return (
     <button type="button" onClick={onSelect} className={`sm-message-list-row${active ? " is-active" : ""}`}>
       <span className="sm-message-list-subject">{message.subject}</span>
-      <span className="sm-message-list-meta">{message.sentAt} <i /> {message.recipients.length} Empfänger</span>
+      <span className="sm-message-list-meta">{formatDateTime(message.sentAt)} <i /> {message.recipients.length} Empfänger</span>
       <span className="sm-message-list-ratio">{read}/{message.recipients.length} gelesen</span>
       <span className="sm-message-progress"><span style={{ width: `${readPercent(message)}%` }} /></span>
     </button>
@@ -357,11 +298,9 @@ function RecipientTable({
   const rows = useMemo(() => {
     const query = normalize(deferredSearch);
     return message.recipients.filter((state) => {
-      const recipient = recipientById.get(state.recipientId);
-      if (!recipient) return false;
       if (filter === "read" && !state.readAt) return false;
       if (filter === "unread" && state.readAt) return false;
-      if (query && !normalize(`${recipient.name} ${recipient.region}`).includes(query)) return false;
+      if (query && !normalize(`${state.name} ${state.email}`).includes(query)) return false;
       return true;
     });
   }, [deferredSearch, filter, message.recipients]);
@@ -382,11 +321,10 @@ function RecipientTable({
       </div>
 
       <div className="sm-message-table-header">
-        <span>Shelf Merchandiser</span><span>Region</span><span>Zustellung</span><span>Lesestatus</span><span>Gelesen am</span><span />
+        <span>Shelf Merchandiser</span><span>E-Mail</span><span>Zustellung</span><span>Lesestatus</span><span>Gelesen am</span><span />
       </div>
       <div className="sm-message-table-body">
         {rows.map((state) => {
-          const recipient = recipientById.get(state.recipientId)!;
           const selected = state.recipientId === selectedRecipientId;
           return (
             <div
@@ -404,13 +342,13 @@ function RecipientTable({
                 }
               }}
             >
-              <div className="sm-message-person"><span>{recipient.initials}</span><strong>{recipient.name}</strong></div>
-              <span>{recipient.region}</span>
+              <div className="sm-message-person"><span>{initials(state.name)}</span><strong>{state.name}</strong></div>
+              <span>{state.email}</span>
               <span className="sm-message-delivered"><Check size={10} strokeWidth={2.2} /> Zugestellt</span>
               <span><StatusBadge read={Boolean(state.readAt)} /></span>
-              <span className="sm-message-date">{state.readAt ?? "—"}</span>
+              <span className="sm-message-date">{formatDateTime(state.readAt)}</span>
               <RecipientActionMenu
-                recipient={recipient}
+                recipient={{ id: state.recipientId, name: state.name, email: state.email }}
                 onCompose={() => onComposeRecipient(state.recipientId)}
               />
             </div>
@@ -422,16 +360,16 @@ function RecipientTable({
   );
 }
 
-function ReadSummary({ message, selectedRecipientId }: { message: MessageCampaign; selectedRecipientId: string | null }) {
+function ReadSummary({ message, messages, selectedRecipientId, onResend }: { message: MessageCampaign; messages: MessageCampaign[]; selectedRecipientId: string | null; onResend: () => void }) {
   const read = readCount(message);
   const total = message.recipients.length;
   const percent = readPercent(message);
   const focusRecipientId = selectedRecipientId && readState(message, selectedRecipientId)
     ? selectedRecipientId
     : message.recipients[0]?.recipientId;
-  const focusRecipient = focusRecipientId ? recipientById.get(focusRecipientId) : null;
+  const focusRecipient = focusRecipientId ? readState(message, focusRecipientId) : null;
   const parallelMessages = focusRecipientId
-    ? INITIAL_MESSAGES.filter((candidate) => candidate.id !== message.id && readState(candidate, focusRecipientId)).slice(0, 1)
+    ? messages.filter((candidate) => candidate.id !== message.id && readState(candidate, focusRecipientId)).slice(0, 1)
     : [];
 
   return (
@@ -442,14 +380,15 @@ function ReadSummary({ message, selectedRecipientId }: { message: MessageCampaig
           <div className="sm-message-ring" style={{ "--read-progress": `${percent * 3.6}deg` } as React.CSSProperties}>
             <div><strong>{read} von {total}</strong><span>gelesen</span></div>
           </div>
-          <div className="sm-message-summary-values">
+        <div className="sm-message-summary-values">
             <span><i className="green" /><strong>{total}</strong> Empfänger</span>
             <span><i /><strong>{total}</strong> zugestellt</span>
             <span><i className="amber" /><strong>{total - read}</strong> ungelesen</span>
           </div>
         </div>
+        <div className="sm-message-visibility-summary">{visibilityLabel(message.visibleAfterReadDays)}</div>
         <div className="sm-message-summary-actions">
-          <button type="button"><RotateCcw size={11} /> Erneut senden</button>
+          <button type="button" onClick={onResend}><RotateCcw size={11} /> Erneut senden</button>
           <button type="button" aria-label="Weitere Aktionen"><MoreHorizontal size={13} /></button>
         </div>
       </section>
@@ -463,7 +402,7 @@ function ReadSummary({ message, selectedRecipientId }: { message: MessageCampaig
           return (
             <div key={candidate.id} className="sm-message-parallel-item">
               <div className="sm-message-parallel-title"><strong>{candidate.subject}</strong><StatusBadge read={Boolean(state?.readAt)} /></div>
-              <span>Gesendet: {candidate.sentAt}</span>
+              <span>Gesendet: {formatDateTime(candidate.sentAt)}</span>
               <span>Lesestatus: {read}/{candidate.recipients.length} gelesen</span>
               <div className="sm-message-progress"><span style={{ width: `${readPercent(candidate)}%` }} /></div>
             </div>
@@ -475,20 +414,31 @@ function ReadSummary({ message, selectedRecipientId }: { message: MessageCampaig
 }
 
 function Composer({
+  recipients,
   onSend,
 }: {
-  onSend: (subject: string, body: string, recipientIds: string[]) => void;
+  recipients: Recipient[];
+  onSend: (subject: string, body: string, recipientIds: string[], idempotencyKey: string, visibleAfterReadDays: number) => Promise<void>;
 }) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [recipientIds, setRecipientIds] = useState<string[]>(["adriana", "selina", "melanie", "lara", "tobias", "michael", "nina"]);
+  const [recipientIds, setRecipientIds] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [mode, setMode] = useState<"all" | "region" | "individual">("individual");
+  const [mode, setMode] = useState<"all" | "individual">("individual");
+  const [keepVisibleAfterRead, setKeepVisibleAfterRead] = useState(true);
+  const [visibleAfterReadDays, setVisibleAfterReadDays] = useState(7);
+  const [sending, setSending] = useState(false);
   const subjectRef = useRef<HTMLInputElement | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const recipientById = useMemo(() => new Map(recipients.map((recipient) => [recipient.id, recipient])), [recipients]);
 
   const displayedIds = recipientIds.slice(0, 2);
   const remaining = recipientIds.length - displayedIds.length;
-  const canSend = subject.trim().length > 0 && body.trim().length > 0 && recipientIds.length > 0;
+  const canSend = !sending && subject.trim().length > 0 && body.trim().length > 0 && recipientIds.length > 0;
+
+  useEffect(() => {
+    idempotencyKeyRef.current = null;
+  }, [body, keepVisibleAfterRead, recipientIds, subject, visibleAfterReadDays]);
 
   useEffect(() => {
     const focusComposer = (event: Event) => {
@@ -502,17 +452,38 @@ function Composer({
     };
     window.addEventListener("sm-nachrichten:openComposer", focusComposer);
     return () => window.removeEventListener("sm-nachrichten:openComposer", focusComposer);
-  }, []);
+  }, [recipientById]);
 
   const toggleRecipient = (recipientId: string) => {
     setMode("individual");
     setRecipientIds((current) => current.includes(recipientId) ? current.filter((id) => id !== recipientId) : [...current, recipientId]);
   };
 
-  const changeMode = (nextMode: "all" | "region" | "individual") => {
+  const changeMode = (nextMode: "all" | "individual") => {
     setMode(nextMode);
-    if (nextMode === "all") setRecipientIds(RECIPIENTS.map((recipient) => recipient.id));
-    if (nextMode === "region") setRecipientIds(RECIPIENTS.filter((recipient) => recipient.region === "Ost").map((recipient) => recipient.id));
+    if (nextMode === "all") setRecipientIds(recipients.map((recipient) => recipient.id));
+  };
+
+  const submit = async () => {
+    if (!canSend) return;
+    setSending(true);
+    try {
+      const idempotencyKey = idempotencyKeyRef.current ?? crypto.randomUUID();
+      idempotencyKeyRef.current = idempotencyKey;
+      await onSend(subject, body, recipientIds, idempotencyKey, keepVisibleAfterRead ? visibleAfterReadDays : 0);
+      idempotencyKeyRef.current = null;
+      setSubject("");
+      setBody("");
+      setRecipientIds([]);
+      setMode("individual");
+      setKeepVisibleAfterRead(true);
+      setVisibleAfterReadDays(7);
+      setPickerOpen(false);
+    } catch {
+      // The parent owns the visible error. Keep the draft and idempotency key for a safe retry.
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -536,9 +507,9 @@ function Composer({
               </button>
               {pickerOpen ? (
                 <div className="sm-message-picker-menu">
-                  {RECIPIENTS.map((recipient) => {
+                  {recipients.map((recipient) => {
                     const selected = recipientIds.includes(recipient.id);
-                    return <button type="button" key={recipient.id} onClick={() => toggleRecipient(recipient.id)}><span><strong>{recipient.name}</strong><small>{recipient.region}</small></span><i className={selected ? "selected" : ""}>{selected ? <Check size={10} /> : null}</i></button>;
+                    return <button type="button" key={recipient.id} onClick={() => toggleRecipient(recipient.id)}><span><strong>{recipient.name}</strong><small>{recipient.email}</small></span><i className={selected ? "selected" : ""}>{selected ? <Check size={10} /> : null}</i></button>;
                   })}
                 </div>
               ) : null}
@@ -547,24 +518,73 @@ function Composer({
           <div className="sm-message-mode-row">
             {([[
               "all", "Alle SM",
-            ], ["region", "Region Ost"], ["individual", "Einzelne auswählen"]] as const).map(([value, label]) => (
+            ], ["individual", "Einzelne auswählen"]] as const).map(([value, label]) => (
               <button type="button" key={value} onClick={() => changeMode(value)} className={mode === value ? "is-active" : ""}><i>{mode === value ? <span /> : null}</i>{label}</button>
             ))}
           </div>
-          <button type="button" className="sm-message-send-button" disabled={!canSend} onClick={() => { onSend(subject, body, recipientIds); setSubject(""); setBody(""); setPickerOpen(false); }}><Send size={12} /> Nachricht senden</button>
+          <div className="sm-message-retention">
+            <div className="sm-message-retention-head">
+              <span><strong>Nach dem Lesen</strong><small>{keepVisibleAfterRead ? visibilityLabel(visibleAfterReadDays) : "Nach Gelesen ausblenden"}</small></span>
+              <button type="button" role="switch" aria-checked={keepVisibleAfterRead} className={keepVisibleAfterRead ? "is-on" : ""} onClick={() => setKeepVisibleAfterRead((current) => !current)}><i /></button>
+            </div>
+            {keepVisibleAfterRead ? (
+              <div className="sm-message-retention-days">
+                {[1, 2, 3, 7, 14, 30].map((days) => <button type="button" key={days} className={visibleAfterReadDays === days ? "is-active" : ""} onClick={() => setVisibleAfterReadDays(days)}>{days} T</button>)}
+                <label><input type="number" min={1} max={3650} value={visibleAfterReadDays} onChange={(event) => setVisibleAfterReadDays(Math.max(1, Math.min(3650, Number(event.target.value) || 1)))} /><span>Tage</span></label>
+              </div>
+            ) : null}
+          </div>
+          <button type="button" className="sm-message-send-button" disabled={!canSend} onClick={() => void submit()}><Send size={12} /> {sending ? "Wird gesendet…" : "Nachricht senden"}</button>
       </div>
     </section>
   );
 }
 
 export function SmNachrichtenWorkspace() {
-  const [messages, setMessages] = useState<MessageCampaign[]>(INITIAL_MESSAGES);
-  const [selectedMessageId, setSelectedMessageId] = useState(INITIAL_MESSAGES[0].id);
-  const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(INITIAL_MESSAGES[0].recipients[0]?.recipientId ?? null);
+  const [messages, setMessages] = useState<MessageCampaign[]>([]);
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
   const [messageSearch, setMessageSearch] = useState("");
   const [messageFilter, setMessageFilter] = useState<MessageFilter>("all");
   const [messageSort, setMessageSort] = useState<MessageSort>("newest");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(messageSearch);
+
+  const loadMessages = async (preferredMessageId?: string) => {
+    const payload = await fetchAdminSmMessages();
+    setMessages(payload.messages);
+    setRecipients(payload.recipients);
+    const nextSelected = payload.messages.find((message) => message.id === preferredMessageId)
+      ?? payload.messages.find((message) => message.id === selectedMessageId)
+      ?? payload.messages[0]
+      ?? null;
+    setSelectedMessageId(nextSelected?.id ?? null);
+    setSelectedRecipientId((current) => current && nextSelected?.recipients.some((recipient) => recipient.recipientId === current)
+      ? current
+      : nextSelected?.recipients[0]?.recipientId ?? null);
+  };
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetchAdminSmMessages()
+      .then((payload) => {
+        if (!active) return;
+        setMessages(payload.messages);
+        setRecipients(payload.recipients);
+        setSelectedMessageId(payload.messages[0]?.id ?? null);
+        setSelectedRecipientId(payload.messages[0]?.recipients[0]?.recipientId ?? null);
+        setError(null);
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(loadError instanceof Error ? loadError.message : "Nachrichten konnten nicht geladen werden.");
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   const filteredMessages = useMemo(() => {
     const query = normalize(deferredSearch);
@@ -578,9 +598,8 @@ export function SmNachrichtenWorkspace() {
     return messageSort === "oldest" ? filtered.reverse() : filtered;
   }, [deferredSearch, messageFilter, messageSort, messages]);
 
-  const selectedMessage = messages.find((message) => message.id === selectedMessageId) ?? messages[0];
-  const selectedRecipient = selectedRecipientId ? recipientById.get(selectedRecipientId) ?? null : null;
-  const selectedRecipientState = selectedRecipientId ? readState(selectedMessage, selectedRecipientId) : null;
+  const selectedMessage = messages.find((message) => message.id === selectedMessageId) ?? messages[0] ?? null;
+  const selectedRecipientState = selectedMessage && selectedRecipientId ? readState(selectedMessage, selectedRecipientId) : null;
 
   const selectMessage = (message: MessageCampaign) => {
     setSelectedMessageId(message.id);
@@ -592,18 +611,41 @@ export function SmNachrichtenWorkspace() {
     window.dispatchEvent(new CustomEvent("sm-nachrichten:openComposer", { detail: { recipientId } }));
   };
 
-  const handleSend = (subject: string, body: string, recipientIds: string[]) => {
-    const next: MessageCampaign = {
-      id: `message-${Date.now()}`,
-      subject: subject.trim(),
-      body: body.trim(),
-      sender: "Dev Account",
-      sentAt: "11.08.2026, 14:30",
-      recipients: recipientIds.map((recipientId) => ({ recipientId, deliveredAt: "11.08.2026, 14:30", readAt: null })),
-    };
-    setMessages((current) => [next, ...current]);
-    setSelectedMessageId(next.id);
-    setSelectedRecipientId(next.recipients[0]?.recipientId ?? null);
+  const handleSend = async (subject: string, body: string, recipientIds: string[], idempotencyKey: string, visibleAfterReadDays: number) => {
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await sendAdminSmMessage({
+        subject: subject.trim(),
+        body: body.trim(),
+        recipientIds,
+        idempotencyKey,
+        visibleAfterReadDays,
+      });
+      try {
+        await loadMessages(result.messageId);
+        setNotice(result.replayed ? "Die Nachricht war bereits gespeichert." : "Nachricht wurde zugestellt.");
+      } catch (refreshError) {
+        setError(refreshError instanceof Error ? `Nachricht wurde zugestellt, aber die Ansicht konnte nicht aktualisiert werden: ${refreshError.message}` : "Nachricht wurde zugestellt, aber die Ansicht konnte nicht aktualisiert werden.");
+      }
+    } catch (sendError) {
+      const message = sendError instanceof Error ? sendError.message : "Nachricht konnte nicht gesendet werden.";
+      setError(message);
+      throw sendError;
+    }
+  };
+
+  const resendSelectedMessage = async () => {
+    if (!selectedMessage) return;
+    const recipientIds = selectedMessage.recipients.map((recipient) => recipient.recipientId);
+    if (recipientIds.length === 0) return;
+    await handleSend(
+      selectedMessage.subject,
+      selectedMessage.body,
+      recipientIds,
+      crypto.randomUUID(),
+      selectedMessage.visibleAfterReadDays ?? 7,
+    );
   };
 
   return (
@@ -665,6 +707,7 @@ export function SmNachrichtenWorkspace() {
         .sm-message-table-header span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:rgba(0,0,0,.29); font-size:7.5px; font-weight:750; letter-spacing:.07em; text-transform:uppercase; }
         .sm-message-table-body { min-height:0; overflow-y:auto; scrollbar-width:none; }
         .sm-message-table-row { position:relative; min-height:44px; padding:0 18px; border-bottom:1px solid rgba(0,0,0,.045); outline:0; color:rgba(0,0,0,.52); font-size:9px; cursor:pointer; transition:background .1s ease; }
+        .sm-message-table-row > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .sm-message-table-row:hover { background:rgba(0,0,0,.022); }.sm-message-table-row:focus-visible { box-shadow:inset 0 0 0 2px rgba(220,38,38,.18); }.sm-message-table-row.is-selected { background:rgba(220,38,38,.04); }.sm-message-table-row.is-selected::before { content:""; position:absolute; inset:0 auto 0 0; width:2px; background:${RED}; }
         .sm-message-person { min-width:0; display:flex; align-items:center; gap:8px; }
         .sm-message-person > span { width:23px; height:23px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; border-radius:50%; background:rgba(0,0,0,.045); color:rgba(0,0,0,.55); font-size:8px; font-weight:750; }
@@ -687,6 +730,7 @@ export function SmNachrichtenWorkspace() {
         .sm-message-summary-values i { width:5px; height:5px; border-radius:50%; background:rgba(0,0,0,.2); }
         .sm-message-summary-values i.green { background:#20b15a; }.sm-message-summary-values i.amber { background:#d97706; }
         .sm-message-summary-values strong { color:#272b31; font-size:12px; font-weight:750; }
+        .sm-message-visibility-summary { margin-top:13px; padding:7px 9px; border:1px solid rgba(0,0,0,.055); border-radius:7px; background:rgba(0,0,0,.018); color:rgba(0,0,0,.48); font-size:8.5px; font-weight:600; text-align:center; }
         .sm-message-summary-actions { margin-top:17px; display:grid; grid-template-columns:1fr 31px; gap:7px; }
         .sm-message-summary-actions button { height:30px; display:flex; align-items:center; justify-content:center; gap:6px; border:0; border-radius:7px; background:linear-gradient(to bottom,#fff,#f5f5f5); color:rgba(0,0,0,.62); box-shadow:inset 0 1px .6px rgba(255,255,255,.9),inset 0 -1px 0 rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.1),0 1px 4px rgba(0,0,0,.07); font-family:inherit; font-size:9px; font-weight:600; cursor:pointer; transition:opacity .15s ease; }
         .sm-message-summary-actions button:hover { opacity:.82; }
@@ -720,6 +764,11 @@ export function SmNachrichtenWorkspace() {
         .sm-message-mode-row { margin-top:12px; flex:none; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
         .sm-message-mode-row button { padding:0; display:flex; align-items:center; gap:5px; border:0; background:transparent; color:rgba(0,0,0,.48); font-family:inherit; font-size:8px; font-weight:550; cursor:pointer; }
         .sm-message-mode-row button > i { width:13px; height:13px; display:flex; align-items:center; justify-content:center; border:1px solid rgba(0,0,0,.15); border-radius:50%; }.sm-message-mode-row button.is-active > i { border-color:rgba(220,38,38,.34); }.sm-message-mode-row button > i span { width:6px; height:6px; border-radius:50%; background:${RED}; }
+        .sm-message-retention { margin-top:10px; padding:8px 9px; flex:none; border:1px solid rgba(0,0,0,.065); border-radius:8px; background:rgba(0,0,0,.014); }
+        .sm-message-retention-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+        .sm-message-retention-head > span { min-width:0; display:flex; flex-direction:column; gap:2px; }.sm-message-retention-head strong { color:#34383d; font-size:8.5px; font-weight:700; }.sm-message-retention-head small { color:rgba(0,0,0,.38); font-size:7.5px; }
+        .sm-message-retention-head > button { position:relative; width:29px; height:17px; padding:0; flex:none; border:0; border-radius:99px; background:rgba(0,0,0,.12); cursor:pointer; transition:background .16s ease; }.sm-message-retention-head > button.is-on { background:${RED}; }.sm-message-retention-head > button i { position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.18); transition:left .16s ease; }.sm-message-retention-head > button.is-on i { left:14px; }
+        .sm-message-retention-days { margin-top:7px; display:flex; align-items:center; gap:4px; }.sm-message-retention-days > button { height:22px; min-width:25px; padding:0 5px; border:1px solid rgba(0,0,0,.07); border-radius:6px; background:#fff; color:rgba(0,0,0,.45); font-family:inherit; font-size:7.5px; font-weight:650; cursor:pointer; }.sm-message-retention-days > button.is-active { border-color:rgba(220,38,38,.18); background:rgba(220,38,38,.055); color:${RED}; }.sm-message-retention-days label { min-width:0; height:22px; margin:0 0 0 auto!important; display:flex!important; align-items:center; border:1px solid rgba(0,0,0,.07); border-radius:6px; background:#fff; overflow:hidden; }.sm-message-retention-days label input { width:35px!important; height:20px!important; padding:0 4px!important; border:0!important; border-radius:0!important; text-align:right; font-size:7.5px!important; box-shadow:none!important; }.sm-message-retention-days label span { margin:0!important; padding-right:5px; color:rgba(0,0,0,.35)!important; font-size:7px!important; }
         .sm-message-send-button { width:100%; height:34px; margin-top:10px; flex:none; display:flex; align-items:center; justify-content:center; gap:6px; border:0; border-radius:7px; background:linear-gradient(to bottom,#DC2626,#b91c1c); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,.14); font-family:inherit; font-size:9.5px; font-weight:650; cursor:pointer; transition:opacity .15s ease; }
         .sm-message-send-button:not(:disabled):hover { opacity:.9; }
         .sm-message-send-button:disabled { opacity:.45; cursor:not-allowed; }
@@ -765,6 +814,9 @@ export function SmNachrichtenWorkspace() {
         @keyframes smMessageIn { from { opacity:0; transform:translateY(7px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
 
+      {error ? <div role="alert" style={{ margin: "0 12px 8px 7px", padding: "8px 11px", border: "1px solid rgba(220,38,38,.16)", borderRadius: 8, background: "rgba(254,242,242,.96)", color: "#B91C1C", fontSize: 10, fontWeight: 600 }}>{error}</div> : null}
+      {notice ? <div role="status" style={{ margin: "0 12px 8px 7px", padding: "8px 11px", border: "1px solid rgba(22,163,74,.16)", borderRadius: 8, background: "rgba(240,253,244,.96)", color: "#15803D", fontSize: 10, fontWeight: 600 }}>{notice}</div> : null}
+
       <div className="sm-message-shell">
         <aside className="sm-message-list-panel">
           <div className="sm-message-panel-heading"><SectionLabel>Nachrichten</SectionLabel></div>
@@ -776,38 +828,43 @@ export function SmNachrichtenWorkspace() {
             </div>
           </div>
           <div className="sm-message-list-scroll">
-            {filteredMessages.map((message) => <MessageListRow key={message.id} message={message} active={message.id === selectedMessage.id} onSelect={() => selectMessage(message)} />)}
-            {filteredMessages.length === 0 ? <div className="sm-message-empty">Keine Nachrichten gefunden.</div> : null}
+            {filteredMessages.map((message) => <MessageListRow key={message.id} message={message} active={message.id === selectedMessage?.id} onSelect={() => selectMessage(message)} />)}
+            {loading ? <div className="sm-message-empty">Nachrichten werden geladen…</div> : null}
+            {!loading && filteredMessages.length === 0 ? <div className="sm-message-empty">Noch keine Nachrichten gesendet.</div> : null}
           </div>
         </aside>
 
         <section className="sm-message-detail-panel">
-          <div className="sm-message-detail-header">
-            <div><h2>{selectedRecipient ? `${selectedMessage.subject} — ${selectedRecipient.name}` : selectedMessage.subject}</h2><div className="sm-message-detail-meta"><span className="sm-message-sent-badge">Gesendet</span><span>{selectedMessage.sentAt}</span><span>·</span><span>Von {selectedMessage.sender}</span></div></div>
-            <button type="button" className="sm-message-icon-button" aria-label="Nachrichtenaktionen"><MoreHorizontal size={13} /></button>
-          </div>
-          <div className="sm-message-content">
-            {selectedRecipient ? (
-              <div className="sm-message-content-recipient">
-                <div className="sm-message-content-person"><span>{selectedRecipient.initials}</span><div><strong>{selectedRecipient.name}</strong><small>{selectedRecipient.region}</small></div></div>
-                <div className="sm-message-content-state"><StatusBadge read={Boolean(selectedRecipientState?.readAt)} /><small>{selectedRecipientState?.readAt ?? "Noch nicht gelesen"}</small></div>
+          {selectedMessage ? (
+            <>
+              <div className="sm-message-detail-header">
+                <div><h2>{selectedRecipientState ? `${selectedMessage.subject} — ${selectedRecipientState.name}` : selectedMessage.subject}</h2><div className="sm-message-detail-meta"><span className="sm-message-sent-badge">Gesendet</span><span>{formatDateTime(selectedMessage.sentAt)}</span><span>·</span><span>Von {selectedMessage.sender}</span></div></div>
+                <button type="button" className="sm-message-icon-button" aria-label="Nachrichtenaktionen"><MoreHorizontal size={13} /></button>
               </div>
-            ) : null}
-            <div className="sm-message-content-body">{selectedMessage.body}</div>
-          </div>
-          <div className="sm-message-panel-heading"><SectionLabel>Empfänger & Lesestatus</SectionLabel></div>
-          <RecipientTable
-            key={selectedMessage.id}
-            message={selectedMessage}
-            selectedRecipientId={selectedRecipientId}
-            onSelectRecipient={setSelectedRecipientId}
-            onComposeRecipient={composeForRecipient}
-          />
+              <div className="sm-message-content">
+                {selectedRecipientState ? (
+                  <div className="sm-message-content-recipient">
+                    <div className="sm-message-content-person"><span>{initials(selectedRecipientState.name)}</span><div><strong>{selectedRecipientState.name}</strong><small>{selectedRecipientState.email}</small></div></div>
+                    <div className="sm-message-content-state"><StatusBadge read={Boolean(selectedRecipientState.readAt)} /><small>{selectedRecipientState.readAt ? formatDateTime(selectedRecipientState.readAt) : "Noch nicht gelesen"}</small></div>
+                  </div>
+                ) : null}
+                <div className="sm-message-content-body">{selectedMessage.body}</div>
+              </div>
+              <div className="sm-message-panel-heading"><SectionLabel>Empfänger & Lesestatus</SectionLabel></div>
+              <RecipientTable
+                key={selectedMessage.id}
+                message={selectedMessage}
+                selectedRecipientId={selectedRecipientId}
+                onSelectRecipient={setSelectedRecipientId}
+                onComposeRecipient={composeForRecipient}
+              />
+            </>
+          ) : <div className="sm-message-empty" style={{ margin: "auto" }}>Sende die erste Nachricht an deine SMs.</div>}
         </section>
 
         <aside className="sm-message-side-panel">
-          <ReadSummary message={selectedMessage} selectedRecipientId={selectedRecipientId} />
-          <Composer onSend={handleSend} />
+          {selectedMessage ? <ReadSummary message={selectedMessage} messages={messages} selectedRecipientId={selectedRecipientId} onResend={() => { void resendSelectedMessage(); }} /> : null}
+          <Composer recipients={recipients} onSend={handleSend} />
         </aside>
       </div>
     </div>

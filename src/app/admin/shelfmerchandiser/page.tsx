@@ -4,62 +4,43 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X, Copy, Check, UserCheck, Mail, Car, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
 import type { SMRecord } from "@/types/shelfmerchandiser";
-import type { MarketVisitLog } from "@/types/markets";
-import { createSmUser, fetchSmUsers, readAuthSession, updateSmUser } from "@/lib/api/backend";
+import type { SmPlanningAssignment } from "@/types/smPlanning";
+import { createSmUser, fetchSmPlanningAssignments, fetchSmUsers, readAuthSession, updateSmUser } from "@/lib/api/backend";
 import { exportShelfMerchandiserExcel } from "@/lib/exports/masterDataExports";
 
 // ── Constants ─────────────────────────────────────────────────
 const R  = "#DC2626";
 const RD = "#b91c1c";
-const LS_VISITS_PREFIX = "admin_market_visits_v2:";
-const LS_VISITS_LEGACY = "admin_market_visits_v1";
 
-function getVisitsStorageKey(): string {
-  const userId = readAuthSession()?.user.id ?? "anonymous";
-  return `${LS_VISITS_PREFIX}${userId}`;
+function fmtDate(value: string) {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  return date.toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-// ── Temp GM visits (supplement Märkte seed data) ──────────────
-const SEED_GM_VISITS: MarketVisitLog[] = [
-  // Thomas Huber
-  { id: "gmv-th-1", marketId: "mk1", marketName: "Billa Favoriten", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Thomas Huber", visitedAt: "2026-04-02T09:15:00Z", durationMin: 28, redMonatLabel: "RED 28" },
-  { id: "gmv-th-2", marketId: "mk1", marketName: "Billa Favoriten", sectionType: "flex", fragebogenName: "Flex Frühjahr 2026", gmName: "Thomas Huber", visitedAt: "2026-04-02T09:15:00Z", durationMin: 18, redMonatLabel: "RED 28" },
-  { id: "gmv-th-3", marketId: "mk4", marketName: "Spar Meidling", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Thomas Huber", visitedAt: "2026-03-18T10:30:00Z", durationMin: 32, redMonatLabel: "RED 27" },
-  { id: "gmv-th-4", marketId: "mk7", marketName: "Penny Mariahilf", sectionType: "mhd", fragebogenName: "MHD Check März", gmName: "Thomas Huber", visitedAt: "2026-03-05T08:45:00Z", durationMin: 22, redMonatLabel: "RED 27" },
-  // Anna Gruber
-  { id: "gmv-ag-1", marketId: "mk2", marketName: "Spar Graz Hauptplatz", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Anna Gruber", visitedAt: "2026-04-03T11:00:00Z", durationMin: 30, redMonatLabel: "RED 28" },
-  { id: "gmv-ag-2", marketId: "mk5", marketName: "Hofer Graz West", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q1", gmName: "Anna Gruber", visitedAt: "2026-04-03T11:00:00Z", durationMin: 25, redMonatLabel: "RED 28" },
-  { id: "gmv-ag-3", marketId: "mk2", marketName: "Spar Graz Hauptplatz", sectionType: "flex", fragebogenName: "Flex Frühjahr 2026", gmName: "Anna Gruber", visitedAt: "2026-03-20T09:00:00Z", durationMin: 20, redMonatLabel: "RED 27" },
-  { id: "gmv-ag-4", marketId: "mk8", marketName: "Billa Graz Münzgrabenstr.", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Anna Gruber", visitedAt: "2026-02-14T14:00:00Z", durationMin: 35, redMonatLabel: "RED 26" },
-  // Markus Steiner
-  { id: "gmv-ms-1", marketId: "mk3", marketName: "Merkur Linz Center", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Markus Steiner", visitedAt: "2026-04-04T08:00:00Z", durationMin: 40, redMonatLabel: "RED 28" },
-  { id: "gmv-ms-2", marketId: "mk3", marketName: "Merkur Linz Center", sectionType: "billa", fragebogenName: "Billa Check Q1", gmName: "Markus Steiner", visitedAt: "2026-04-04T08:00:00Z", durationMin: 15, redMonatLabel: "RED 28" },
-  { id: "gmv-ms-3", marketId: "mk9", marketName: "Spar Linz Landstr.", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Markus Steiner", visitedAt: "2026-03-22T10:15:00Z", durationMin: 28, redMonatLabel: "RED 27" },
-  { id: "gmv-ms-4", marketId: "mk11", marketName: "Penny Linz Nord", sectionType: "mhd", fragebogenName: "MHD Check März", gmName: "Markus Steiner", visitedAt: "2026-03-10T09:30:00Z", durationMin: 19, redMonatLabel: "RED 27" },
-  { id: "gmv-ms-5", marketId: "mk3", marketName: "Merkur Linz Center", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q1", gmName: "Markus Steiner", visitedAt: "2026-02-20T11:00:00Z", durationMin: 24, redMonatLabel: "RED 26" },
-  // Lisa Wagner
-  { id: "gmv-lw-1", marketId: "mk6", marketName: "Spar Salzburg Getreideg.", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Lisa Wagner", visitedAt: "2026-04-05T09:45:00Z", durationMin: 33, redMonatLabel: "RED 28" },
-  { id: "gmv-lw-2", marketId: "mk6", marketName: "Spar Salzburg Getreideg.", sectionType: "flex", fragebogenName: "Flex Frühjahr 2026", gmName: "Lisa Wagner", visitedAt: "2026-04-05T09:45:00Z", durationMin: 17, redMonatLabel: "RED 28" },
-  { id: "gmv-lw-3", marketId: "mk14", marketName: "Billa Salzburg Rainerstr.", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Lisa Wagner", visitedAt: "2026-03-24T08:30:00Z", durationMin: 29, redMonatLabel: "RED 27" },
-  { id: "gmv-lw-4", marketId: "mk6", marketName: "Spar Salzburg Getreideg.", sectionType: "kuehler", fragebogenName: "Kühler Inventur Q1", gmName: "Lisa Wagner", visitedAt: "2026-02-10T13:00:00Z", durationMin: 21, redMonatLabel: "RED 26" },
-  // Michael Berger
-  { id: "gmv-mb-1", marketId: "mk10", marketName: "Hofer Klagenfurt West", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Michael Berger", visitedAt: "2026-04-06T10:00:00Z", durationMin: 27, redMonatLabel: "RED 28" },
-  { id: "gmv-mb-2", marketId: "mk16", marketName: "Spar Klagenfurt Villacher", sectionType: "standard", fragebogenName: "Standard Fragebogen Q1", gmName: "Michael Berger", visitedAt: "2026-03-19T09:15:00Z", durationMin: 31, redMonatLabel: "RED 27" },
-  { id: "gmv-mb-3", marketId: "mk16", marketName: "Spar Klagenfurt Villacher", sectionType: "mhd", fragebogenName: "MHD Check März", gmName: "Michael Berger", visitedAt: "2026-03-19T09:15:00Z", durationMin: 16, redMonatLabel: "RED 27" },
-  { id: "gmv-mb-4", marketId: "mk10", marketName: "Hofer Klagenfurt West", sectionType: "flex", fragebogenName: "Flex Frühjahr 2026", gmName: "Michael Berger", visitedAt: "2026-02-25T14:30:00Z", durationMin: 22, redMonatLabel: "RED 26" },
-];
+function historyRanges(): Array<{ from: string; to: string }> {
+  const today = new Date();
+  const first = new Date(today);
+  first.setFullYear(first.getFullYear() - 2);
+  const last = new Date(today);
+  last.setDate(last.getDate() + 92);
+  const ranges: Array<{ from: string; to: string }> = [];
+  const cursor = new Date(first);
+  const ymd = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  while (cursor <= last) {
+    const end = new Date(cursor);
+    end.setDate(end.getDate() + 92);
+    if (end > last) end.setTime(last.getTime());
+    ranges.push({ from: ymd(cursor), to: ymd(end) });
+    cursor.setDate(cursor.getDate() + 93);
+  }
+  return ranges;
+}
 
-// ── Visit helpers (shared with Märkte page) ───────────────────
-function fmtDate(iso: string) { const d = new Date(iso); return d.toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }); }
-function fmtTime(iso: string) { const d = new Date(iso); return d.toLocaleTimeString("de-AT", { hour: "2-digit", minute: "2-digit" }); }
-
-const SECTION_META: Record<string, { label: string; color: string; bg: string }> = {
-  standard: { label: "Standard", color: "#DC2626", bg: "rgba(220,38,38,0.07)" },
-  flex:     { label: "Flex",     color: "#65a30d", bg: "rgba(132,204,22,0.07)" },
-  kuehler:  { label: "Kühler",   color: "#D97706", bg: "rgba(245,158,11,0.07)" },
-  mhd:      { label: "MHD",      color: "#7C3AED", bg: "rgba(124,58,237,0.07)" },
-  billa:    { label: "Billa",    color: "#0891B2", bg: "rgba(8,145,178,0.07)"  },
-};
+async function fetchSmAssignmentHistory(): Promise<SmPlanningAssignment[]> {
+  const chunks = await Promise.all(historyRanges().map((range) => fetchSmPlanningAssignments(range.from, range.to)));
+  const byId = new Map(chunks.flat().map((assignment) => [assignment.id, assignment]));
+  return Array.from(byId.values()).sort((a, b) => b.effective.workDate.localeCompare(a.effective.workDate));
+}
 
 function initials(gm: SMRecord) { return `${gm.firstName[0] ?? ""}${gm.lastName[0] ?? ""}`.toUpperCase(); }
 function avatarColor(gm: SMRecord) {
@@ -178,17 +159,29 @@ function SMCard({
   );
 }
 
-// ── Visit card (mirrors Märkte VisitCard) ─────────────────────
-function GmVisitCard({ logs }: { logs: MarketVisitLog[] }) {
+const ASSIGNMENT_STATUS: Record<SmPlanningAssignment["status"], { label: string; color: string; bg: string; border: string }> = {
+  planned: { label: "Geplant", color: "#475569", bg: "rgba(71,85,105,.07)", border: "rgba(71,85,105,.14)" },
+  confirmed: { label: "Bestätigt", color: "#15803d", bg: "rgba(22,163,74,.08)", border: "rgba(22,163,74,.16)" },
+  open: { label: "Offen", color: "#b45309", bg: "rgba(217,119,6,.08)", border: "rgba(217,119,6,.16)" },
+  in_progress: { label: "In Arbeit", color: "#2563eb", bg: "rgba(37,99,235,.08)", border: "rgba(37,99,235,.16)" },
+  completed: { label: "Abgeschlossen", color: "#15803d", bg: "rgba(22,163,74,.08)", border: "rgba(22,163,74,.16)" },
+  cancelled: { label: "Ausfall", color: R, bg: "rgba(220,38,38,.07)", border: "rgba(220,38,38,.16)" },
+  missed: { label: "Versäumt", color: "#7c3aed", bg: "rgba(124,58,237,.08)", border: "rgba(124,58,237,.16)" },
+};
+
+function formatMinutes(value: number | null): string {
+  if (value === null) return "—";
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  if (!hours) return `${minutes} Min`;
+  return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
+}
+
+// ── Real SM assignment / visit card ──────────────────────────
+function SmAssignmentCard({ assignment }: { assignment: SmPlanningAssignment }) {
   const [expanded, setExpanded] = useState(false);
-  const sorted = [...logs].sort((a, b) => new Date(a.visitedAt).getTime() - new Date(b.visitedAt).getTime());
-  const primary = sorted[0];
-  const isFlexVisit = sorted.some(l => l.sectionType === "flex");
-  const visitType  = isFlexVisit ? "Flexbesuch" : "Standardbesuch";
-  const vtColor    = isFlexVisit
-    ? { color: "#65a30d", bg: "rgba(132,204,22,0.09)", border: "rgba(132,204,22,0.22)" }
-    : { color: R,        bg: "rgba(220,38,38,0.07)",  border: "rgba(220,38,38,0.18)" };
-  const totalDuration = sorted.reduce((n, l) => n + l.durationMin, 0);
+  const status = ASSIGNMENT_STATUS[assignment.status];
+  const duration = assignment.actualMinutes ?? assignment.effective.plannedMinutes;
 
   return (
     <div
@@ -198,42 +191,40 @@ function GmVisitCard({ logs }: { logs: MarketVisitLog[] }) {
       onMouseLeave={e => { if (!expanded) (e.currentTarget as HTMLElement).style.boxShadow = "0 1px 5px rgba(0,0,0,0.04)"; }}
     >
       <div style={{ padding: "11px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 9px", borderRadius: 7, background: vtColor.bg, color: vtColor.color, border: `1px solid ${vtColor.border}`, letterSpacing: "0.02em", flexShrink: 0, whiteSpace: "nowrap" as const }}>
-          {visitType}
+        <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 9px", borderRadius: 7, background: status.bg, color: status.color, border: `1px solid ${status.border}`, letterSpacing: "0.02em", flexShrink: 0, whiteSpace: "nowrap" as const }}>
+          {status.label}
         </span>
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-          {sorted.map((l, i) => {
-            const sm = SECTION_META[l.sectionType] ?? SECTION_META.standard;
-            return <span key={l.id} title={sm.label} style={{ width: 9, height: 9, borderRadius: "50%", background: sm.color, border: "1.5px solid #fff", display: "inline-block", marginLeft: i === 0 ? 0 : -4, flexShrink: 0 }} />;
-          })}
-        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: "#1a1a1a", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
-            {primary.marketName ?? "Markt"}
+            {assignment.effective.marketName}
           </div>
+          <div style={{ marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(0,0,0,.34)", fontSize: 8 }}>{assignment.effective.address}</div>
         </div>
         <div style={{ textAlign: "right" as const, flexShrink: 0 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: "#1a1a1a", whiteSpace: "nowrap" as const }}>
-            {fmtDate(primary.visitedAt)} · {fmtTime(primary.visitedAt)} · {totalDuration} Min
+            {fmtDate(assignment.effective.workDate)} · {formatMinutes(duration)}
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 2 }}>
-            {primary.redMonatLabel && <span style={{ fontSize: 8, color: "rgba(0,0,0,0.26)", fontWeight: 500 }}>{primary.redMonatLabel}</span>}
+            <span style={{ fontSize: 8, color: "rgba(0,0,0,0.26)", fontWeight: 500 }}>{assignment.sourceType === "series" ? "Serie" : "Einmalig"}</span>
             <ChevronDown size={11} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }} />
           </div>
         </div>
       </div>
       <div style={{ maxHeight: expanded ? "400px" : "0", overflow: "hidden", transition: "max-height 0.3s cubic-bezier(0.4,0,0.2,1)" }}>
-        <div style={{ opacity: expanded ? 1 : 0, transform: expanded ? "translateY(0)" : "translateY(-5px)", transition: "opacity 0.2s ease 0.06s, transform 0.2s ease 0.06s", borderTop: "1px solid rgba(0,0,0,0.05)", padding: "9px 12px", display: "flex", flexDirection: "column", gap: 5 }}>
-          {sorted.map(l => {
-            const sm = SECTION_META[l.sectionType] ?? SECTION_META.standard;
-            return (
-              <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 11px", borderRadius: 8, background: "rgba(0,0,0,0.025)" }}>
-                <span style={{ fontSize: 8.5, fontWeight: 700, padding: "2px 9px", borderRadius: 6, background: sm.bg, color: sm.color, border: `1px solid ${sm.color}28`, letterSpacing: "0.03em", flexShrink: 0, whiteSpace: "nowrap" as const }}>{sm.label}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", flex: 1, minWidth: 0, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{l.fragebogenName}</span>
-                <span style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", whiteSpace: "nowrap" as const, flexShrink: 0 }}>{fmtTime(l.visitedAt)} · {l.durationMin} Min</span>
-              </div>
-            );
-          })}
+        <div style={{ opacity: expanded ? 1 : 0, transform: expanded ? "translateY(0)" : "translateY(-5px)", transition: "opacity 0.2s ease 0.06s, transform 0.2s ease 0.06s", borderTop: "1px solid rgba(0,0,0,0.05)", padding: "9px 12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          {[
+            ["Fragebogen", assignment.visit?.questionnaireName ?? "Noch nicht gestartet"],
+            ["Sollzeit", formatMinutes(assignment.effective.plannedMinutes)],
+            ["Istzeit", formatMinutes(assignment.actualMinutes)],
+            ["Fahrtzeit", formatMinutes(assignment.visit?.travelMinutes ?? null)],
+            ["Modus", assignment.visit?.visitTimeMode === "timer" ? "Timer" : assignment.visit?.visitTimeMode === "manual" ? "Manuell" : "—"],
+            ["Marktnummer", assignment.effective.marketInternalId],
+          ].map(([label, value]) => (
+            <div key={label} style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(0,0,0,0.025)" }}>
+              <span style={{ display: "block", color: "rgba(0,0,0,.3)", fontSize: 7.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" }}>{label}</span>
+              <strong style={{ display: "block", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#374151", fontSize: 9.5, fontWeight: 650 }}>{value}</strong>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -256,7 +247,7 @@ function DrawerField({ label, value, onChange }: { label: string; value: string;
   );
 }
 
-function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose: () => void; onSave: (updated: SMRecord) => Promise<void> | void; visits: MarketVisitLog[] }) {
+function SMDetailDrawer({ gm, onClose, onSave, assignments }: { gm: SMRecord; onClose: () => void; onSave: (updated: SMRecord) => Promise<void> | void; assignments: SmPlanningAssignment[] }) {
   const [tab, setTab] = useState<"profil" | "besuche">("profil");
   const [draft, setDraft] = useState<SMRecord>({ ...gm });
   const [dirty, setDirty] = useState(false);
@@ -317,19 +308,10 @@ function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose
 
   const av = avatarColor(draft);
 
-  // Group visits by session (same day + same GM)
-  const gmVisits = visits
-    .filter(v => v.gmName === `${gm.firstName} ${gm.lastName}`)
-    .sort((a, b) => new Date(b.visitedAt).getTime() - new Date(a.visitedAt).getTime());
-
-  const sessionMap = new Map<string, MarketVisitLog[]>();
-  gmVisits.forEach(v => {
-    const key = `${new Date(v.visitedAt).toDateString()}__${v.marketId}__${v.gmName}`;
-    if (!sessionMap.has(key)) sessionMap.set(key, []);
-    sessionMap.get(key)!.push(v);
-  });
-  const sessions = Array.from(sessionMap.values());
-  const visitCount = sessions.length || draft.visitCount || 0;
+  const smAssignments = assignments
+    .filter((assignment) => assignment.effective.smUserId === gm.id)
+    .sort((a, b) => b.effective.workDate.localeCompare(a.effective.workDate));
+  const visitCount = smAssignments.filter((assignment) => assignment.status === "completed").length;
 
   return createPortal(
     <>
@@ -383,8 +365,8 @@ function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose
           {(["profil", "besuche"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 16px", fontSize: 11, fontWeight: tab === t ? 700 : 500, color: tab === t ? R : "rgba(0,0,0,0.45)", border: "none", background: "none", cursor: "pointer", borderBottom: tab === t ? `2px solid ${R}` : "2px solid transparent", transition: "all 0.12s", fontFamily: "inherit", letterSpacing: "-0.01em", display: "flex", alignItems: "center", gap: 5 }}>
               {t === "profil" ? "Profil" : "Marktbesuche"}
-              {t === "besuche" && sessions.length > 0 && (
-                <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 10, background: tab === "besuche" ? "rgba(220,38,38,0.1)" : "rgba(0,0,0,0.07)", color: tab === "besuche" ? R : "rgba(0,0,0,0.38)" }}>{sessions.length}</span>
+              {t === "besuche" && smAssignments.length > 0 && (
+                <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 10, background: tab === "besuche" ? "rgba(220,38,38,0.1)" : "rgba(0,0,0,0.07)", color: tab === "besuche" ? R : "rgba(0,0,0,0.38)" }}>{smAssignments.length}</span>
               )}
             </button>
           ))}
@@ -464,13 +446,13 @@ function SMDetailDrawer({ gm, onClose, onSave, visits }: { gm: SMRecord; onClose
 
           {/* Marktbesuche tab */}
           {tab === "besuche" && (
-            sessions.length === 0 ? (
+            smAssignments.length === 0 ? (
               <div style={{ padding: "40px 0", textAlign: "center" as const }}>
                 <div style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", lineHeight: 1.6 }}>Noch keine Marktbesuche für diesen SM.</div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {sessions.map((logs, i) => <GmVisitCard key={i} logs={logs} />)}
+                {smAssignments.map((assignment) => <SmAssignmentCard key={assignment.id} assignment={assignment} />)}
               </div>
             )
           )}
@@ -676,7 +658,7 @@ function CreateModal({
 // ── Page ─────────────────────────────────────────────────────
 export default function ShelfMerchandiserPage() {
   const [gms, setGms] = useState<SMRecord[]>([]);
-  const [visits, setVisits] = useState<MarketVisitLog[]>([]);
+  const [assignments, setAssignments] = useState<SmPlanningAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newId, setNewId] = useState<string | null>(null);
@@ -687,37 +669,40 @@ export default function ShelfMerchandiserPage() {
   const selectedGm = gms.find(g => g.id === selectedId) ?? null;
 
   useEffect(() => {
-    setLoading(true);
-    fetchSmUsers()
-      .then((rows) => {
+    let active = true;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const rows = await fetchSmUsers();
+        if (!active) return;
         setGms(rows);
         setBackendError(null);
-      })
-      .catch((err) => {
-        const msg = err instanceof Error ? err.message : "SM-Liste konnte nicht geladen werden.";
-        setBackendError(msg);
+        try {
+          const history = await fetchSmAssignmentHistory();
+          if (!active) return;
+          setAssignments(history);
+          setGms(rows.map((sm) => ({
+            ...sm,
+            visitCount: history.filter((assignment) => assignment.effective.smUserId === sm.id && assignment.status === "completed").length,
+          })));
+        } catch (historyError) {
+          if (!active) return;
+          setAssignments([]);
+          setBackendError(historyError instanceof Error
+            ? `SMs wurden geladen, aber die Einsatzhistorie nicht: ${historyError.message}`
+            : "SMs wurden geladen, aber die Einsatzhistorie konnte nicht geladen werden.");
+        }
+      } catch (userError) {
+        if (!active) return;
+        setBackendError(userError instanceof Error ? userError.message : "SM-Liste konnte nicht geladen werden.");
         setGms([]);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-
-    // Load visits from Märkte page storage, supplement with seed GM visits
-    try {
-      const scopedKey = getVisitsStorageKey();
-      const scoped = localStorage.getItem(scopedKey);
-      const legacy = scoped ? null : localStorage.getItem(LS_VISITS_LEGACY);
-      if (!scoped && legacy) {
-        localStorage.setItem(scopedKey, legacy);
-        localStorage.removeItem(LS_VISITS_LEGACY);
+        setAssignments([]);
+      } finally {
+        if (active) setLoading(false);
       }
-      const storedV = scoped ?? legacy;
-      const loaded: MarketVisitLog[] = storedV ? JSON.parse(storedV) : [];
-      // Merge in seed GM visits that aren't already present (by id)
-      const existingIds = new Set(loaded.map(v => v.id));
-      const merged = [...loaded, ...SEED_GM_VISITS.filter(v => !existingIds.has(v.id))];
-      setVisits(merged);
-    } catch { setVisits(SEED_GM_VISITS); }
+    };
+    void load();
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -744,7 +729,7 @@ export default function ShelfMerchandiserPage() {
   const handleSave = useCallback(async (updated: SMRecord) => {
     try {
       const saved = await updateSmUser(updated);
-      setGms((prev) => prev.map((g) => (g.id === saved.id ? { ...saved, password: g.password } : g)));
+      setGms((prev) => prev.map((g) => (g.id === saved.id ? { ...saved, password: g.password, visitCount: g.visitCount } : g)));
       setBackendError(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "SM konnte nicht gespeichert werden.";
@@ -760,7 +745,7 @@ export default function ShelfMerchandiserPage() {
     try {
       await exportShelfMerchandiserExcel({
         sms: gms,
-        visits,
+        assignments,
         exportedBy: readAuthSession()?.user.email ?? "",
       });
     } catch (err) {
@@ -768,7 +753,7 @@ export default function ShelfMerchandiserPage() {
     } finally {
       setIsExportingGms(false);
     }
-  }, [gms, isExportingGms, visits]);
+  }, [assignments, gms, isExportingGms]);
 
   useEffect(() => {
     const handler = () => { void handleExportGms(); };
@@ -830,7 +815,7 @@ export default function ShelfMerchandiserPage() {
       </div>
 
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
-      {selectedGm && <SMDetailDrawer gm={selectedGm} onClose={() => setSelectedId(null)} onSave={handleSave} visits={visits} />}
+      {selectedGm && <SMDetailDrawer gm={selectedGm} onClose={() => setSelectedId(null)} onSave={handleSave} assignments={assignments} />}
     </div>
   );
 }

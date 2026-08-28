@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { CalendarDays, Plus, Download, FileSpreadsheet } from "lucide-react";
+import { CalendarDays, Plus, Download, FileSpreadsheet, RefreshCw } from "lucide-react";
 import { AdminSidenav } from "@/components/ui/AdminSidenav";
 import { ModuleEditor } from "@/components/admin/ModuleEditor";
 import { FragebogenEditor } from "@/components/admin/FragebogenEditor";
@@ -849,7 +849,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
               {isSmDashboard ? (
                 <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", color: "rgba(0,0,0,0.38)", backgroundColor: "#ffffff", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 999, fontSize: 9, fontWeight: 600, lineHeight: 1, letterSpacing: "0.01em" }}>
                   <CalendarDays size={10} strokeWidth={1.8} />
-                  Mai 2026
+                  Live · aktueller Monat
                 </div>
               ) : isSmVerplanung ? (
                 <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", color: "rgba(0,0,0,0.38)", backgroundColor: "#ffffff", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 999, fontSize: 9, fontWeight: 600, lineHeight: 1, letterSpacing: "0.01em" }}>
@@ -1079,6 +1079,16 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                 </>
               ) : isSmMaerkte ? (
                 <>
+                  {canWriteCurrentPage ? <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("sm-maerkte:openSmSync"))}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.62)", background: "linear-gradient(to bottom, #ffffff, #f5f5f5)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.07)" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.82"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                  >
+                    <RefreshCw size={12} strokeWidth={2} />
+                    SMs synchronisieren
+                  </button> : null}
                   {canWriteCurrentPage ? <button
                     type="button"
                     onClick={() => window.dispatchEvent(new CustomEvent("sm-maerkte:openManualCreate"))}

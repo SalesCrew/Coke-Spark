@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { AlertTriangle, Check, FileSpreadsheet, Upload, X } from "lucide-react";
 import {
   buildPreviewGrid,
+  excelColToIndex,
   getColHeader,
   getColSample,
   indexToExcelCol,
@@ -28,6 +29,12 @@ type ImportFieldSpec = {
   required?: boolean;
   identity?: boolean;
   aliases: string[];
+};
+
+type IdentityRepairDraft = {
+  row: number;
+  flexNumber: string;
+  internalMarketId: string;
 };
 
 const FIELD_SPECS: ImportFieldSpec[] = [
@@ -106,6 +113,15 @@ function validateMapping(mapping: SmMarketColumnMapping) {
   };
 }
 
+function isMissingIdentityWarning(reason: string): boolean {
+  return reason.includes("Flexnummer oder Stammnummern fehlt");
+}
+
+function mappedCellValue(rows: string[][], rowNumber: number, column: string | undefined): string {
+  if (!column || !isValidColLetter(column)) return "";
+  return rows[rowNumber - 1]?.[excelColToIndex(column)]?.trim() ?? "";
+}
+
 function MappingField({ spec, value, rows, error, onChange }: {
   spec: ImportFieldSpec;
   value: string;
@@ -150,6 +166,9 @@ export function SmMarketImportModal({ onClose, onImport }: {
   const [dragging, setDragging] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [repairSubmitting, setRepairSubmitting] = useState(false);
+  const [repairDraft, setRepairDraft] = useState<IdentityRepairDraft | null>(null);
+  const [repairError, setRepairError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preview = useMemo(() => workbook ? buildPreviewGrid(workbook.rows) : null, [workbook]);
@@ -157,11 +176,11 @@ export function SmMarketImportModal({ onClose, onImport }: {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !submitting) onClose();
+      if (event.key === "Escape" && !submitting && !repairSubmitting) onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose, submitting]);
+  }, [onClose, repairSubmitting, submitting]);
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     const file = files?.[0];
@@ -201,18 +220,92 @@ export function SmMarketImportModal({ onClose, onImport }: {
     }
   }, [fileName, mapping, onImport, submitting, validation.canImport, workbook]);
 
+  const openIdentityRepair = useCallback((row: number) => {
+    if (!workbook?.rows[row - 1]) {
+      setRepairError("Die ursprüngliche Excel-Zeile ist nicht mehr verfügbar.");
+      return;
+    }
+    setRepairError(null);
+    setRepairDraft({
+      row,
+      flexNumber: mappedCellValue(workbook.rows, row, mapping.flexNumber),
+      internalMarketId: mappedCellValue(workbook.rows, row, mapping.internalMarketId),
+    });
+  }, [mapping.flexNumber, mapping.internalMarketId, workbook]);
+
+  const repairIdentity = useCallback(async () => {
+    if (!workbook || !repairDraft || repairSubmitting) return;
+    const flexMapped = isValidColLetter(mapping.flexNumber ?? "");
+    const internalIdMapped = isValidColLetter(mapping.internalMarketId ?? "");
+    const flexNumber = repairDraft.flexNumber.trim();
+    const internalMarketId = repairDraft.internalMarketId.trim();
+    if ((!flexMapped || !flexNumber) && (!internalIdMapped || !internalMarketId)) {
+      setRepairError("Bitte mindestens eine Flexnummer oder Stammnummer eingeben.");
+      return;
+    }
+
+    const originalRow = workbook.rows[repairDraft.row - 1];
+    if (!originalRow || !workbook.rows[0]) {
+      setRepairError("Die ursprüngliche Excel-Zeile ist nicht mehr verfügbar.");
+      return;
+    }
+    const correctedRow = [...originalRow];
+    if (flexMapped) correctedRow[excelColToIndex(mapping.flexNumber!)] = flexNumber;
+    if (internalIdMapped) correctedRow[excelColToIndex(mapping.internalMarketId!)] = internalMarketId;
+
+    setRepairSubmitting(true);
+    setRepairError(null);
+    try {
+      const result = await onImport({
+        fileName,
+        sheetName: workbook.sheetName,
+        rows: [workbook.rows[0], correctedRow],
+        mapping,
+      });
+      if (result.summary.skipped > 0) {
+        setRepairError(result.summary.skippedReasons[0]?.reason ?? "Die korrigierte Zeile konnte nicht verarbeitet werden.");
+        return;
+      }
+
+      setWorkbook((current) => current ? {
+        ...current,
+        rows: current.rows.map((row, index) => index === repairDraft.row - 1 ? correctedRow : row),
+      } : current);
+      setSummary((current) => current ? {
+        ...current,
+        created: current.created + result.summary.created,
+        updated: current.updated + result.summary.updated,
+        unchanged: current.unchanged + result.summary.unchanged,
+        skipped: Math.max(0, current.skipped - 1),
+        matchedBy: {
+          internalMarketId: current.matchedBy.internalMarketId + result.summary.matchedBy.internalMarketId,
+          flexNumber: current.matchedBy.flexNumber + result.summary.matchedBy.flexNumber,
+          namePostalAddress: current.matchedBy.namePostalAddress + result.summary.matchedBy.namePostalAddress,
+        },
+        skippedReasons: current.skippedReasons.filter((reason) => reason.row !== repairDraft.row),
+      } : current);
+      setRepairDraft(null);
+    } catch (reason) {
+      setRepairError(reason instanceof Error ? reason.message : "Die korrigierte Zeile konnte nicht verarbeitet werden.");
+    } finally {
+      setRepairSubmitting(false);
+    }
+  }, [fileName, mapping, onImport, repairDraft, repairSubmitting, workbook]);
+
   const restart = () => {
     setStep("upload");
     setWorkbook(null);
     setFileName("");
     setMapping({});
     setSummary(null);
+    setRepairDraft(null);
+    setRepairError(null);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return createPortal(
-    <div onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 10000, padding: 24, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.24)", backdropFilter: "blur(5px)" }}>
+    <div onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting && !repairSubmitting) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 10000, padding: 24, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.24)", backdropFilter: "blur(5px)" }}>
       <div role="dialog" aria-modal="true" aria-labelledby="sm-market-import-title" style={{ width: step === "mapping" ? 900 : 560, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 48px)", overflow: "hidden", display: "flex", flexDirection: "column", border: "1px solid rgba(15,23,42,.08)", borderRadius: 16, background: "#fff", boxShadow: "0 20px 65px rgba(15,23,42,.2)", transition: "width .18s ease" }}>
         <header style={{ padding: "16px 18px 13px", display: "flex", alignItems: "flex-start", gap: 11, borderBottom: "1px solid rgba(15,23,42,.06)" }}>
           <span style={{ width: 34, height: 34, flex: "0 0 34px", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: "rgba(220,38,38,.065)", color: RED }}><Upload size={15} strokeWidth={1.9} /></span>
@@ -224,7 +317,7 @@ export function SmMarketImportModal({ onClose, onImport }: {
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             {(["upload", "mapping", "summary"] as const).map((value, index) => <span key={value} style={{ width: value === step ? 18 : 6, height: 5, borderRadius: 99, background: value === step ? RED : index < (["upload", "mapping", "summary"] as const).indexOf(step) ? "rgba(22,163,74,.55)" : "rgba(15,23,42,.1)", transition: "all .16s" }} />)}
           </div>
-          <button type="button" onClick={onClose} disabled={submitting} aria-label="Fenster schließen" style={{ width: 28, height: 28, border: 0, borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.035)", color: "rgba(15,23,42,.42)", cursor: submitting ? "not-allowed" : "pointer" }}><X size={13} strokeWidth={2.1} /></button>
+          <button type="button" onClick={onClose} disabled={submitting || repairSubmitting} aria-label="Fenster schließen" style={{ width: 28, height: 28, border: 0, borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.035)", color: "rgba(15,23,42,.42)", cursor: submitting || repairSubmitting ? "not-allowed" : "pointer" }}><X size={13} strokeWidth={2.1} /></button>
         </header>
 
         {step === "upload" ? (
@@ -285,8 +378,27 @@ export function SmMarketImportModal({ onClose, onImport }: {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>{[
               ["Zeilen", summary.totalParsedRows], ["Neu", summary.created], ["Aktualisiert", summary.updated], ["Unverändert", summary.unchanged], ["Übersprungen", summary.skipped],
             ].map(([label, value]) => <div key={String(label)} style={{ padding: "11px 9px", border: "1px solid rgba(15,23,42,.065)", borderRadius: 9, background: "#fafafa" }}><span style={{ display: "block", color: "rgba(15,23,42,.35)", fontSize: 7.5, fontWeight: 850, letterSpacing: ".07em", textTransform: "uppercase" }}>{label}</span><strong style={{ display: "block", marginTop: 4, color: "#17191d", fontSize: 17, fontWeight: 850 }}>{value}</strong></div>)}</div>
-            {summary.skippedReasons.length > 0 ? <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid rgba(217,119,6,.13)", borderRadius: 9, background: "rgba(255,251,235,.55)" }}>{summary.skippedReasons.map((reason) => <div key={`${reason.row}-${reason.reason}`} style={{ padding: "8px 10px", display: "grid", gridTemplateColumns: "52px minmax(0,1fr)", gap: 8, borderBottom: "1px solid rgba(217,119,6,.08)", color: "#8b5a12", fontSize: 9.5 }}><strong>Zeile {reason.row}</strong><span>{reason.reason} · {reason.sample}</span></div>)}</div> : null}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}><button type="button" onClick={restart} style={{ height: 32, padding: "0 13px", border: "1px solid rgba(15,23,42,.09)", borderRadius: 8, background: "linear-gradient(#fff,#f5f5f5)", color: "rgba(15,23,42,.52)", fontFamily: "inherit", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>Weiteren Import starten</button><button type="button" onClick={onClose} style={{ height: 32, padding: "0 16px", border: 0, borderRadius: 8, background: `linear-gradient(${RED},#b91c1c)`, color: "#fff", fontFamily: "inherit", fontSize: 10.5, fontWeight: 800, cursor: "pointer" }}>Fertig</button></div>
+            {summary.skippedReasons.length > 0 ? <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid rgba(217,119,6,.13)", borderRadius: 9, background: "rgba(255,251,235,.55)" }}>{summary.skippedReasons.map((reason) => {
+              const repairOpen = repairDraft?.row === reason.row;
+              const repairable = isMissingIdentityWarning(reason.reason);
+              return <div key={`${reason.row}-${reason.reason}`} style={{ padding: "9px 10px", borderBottom: "1px solid rgba(217,119,6,.08)", color: "#8b5a12", fontSize: 9.5 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "52px minmax(0,1fr) auto", gap: 8, alignItems: "center" }}>
+                  <strong>Zeile {reason.row}</strong>
+                  <span>{reason.reason} · {reason.sample}</span>
+                  {repairable ? <button type="button" onClick={() => repairOpen ? setRepairDraft(null) : openIdentityRepair(reason.row)} disabled={repairSubmitting} style={{ height: 25, padding: "0 9px", border: "1px solid rgba(217,119,6,.18)", borderRadius: 6, background: "#fff", color: "#a16207", fontFamily: "inherit", fontSize: 9, fontWeight: 800, cursor: repairSubmitting ? "not-allowed" : "pointer" }}>{repairOpen ? "Schließen" : "Jetzt beheben"}</button> : null}
+                </div>
+                {repairOpen ? <div style={{ marginTop: 9, padding: 10, border: "1px solid rgba(217,119,6,.14)", borderRadius: 8, background: "rgba(255,255,255,.82)" }}>
+                  <div style={{ marginBottom: 8, color: "rgba(120,53,15,.66)", fontSize: 9 }}>Mindestens eine Nummer ergänzen. Nur diese Zeile wird anschließend erneut verarbeitet.</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
+                    {isValidColLetter(mapping.flexNumber ?? "") ? <label style={{ display: "flex", flexDirection: "column", gap: 4 }}><span style={{ fontSize: 8, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em" }}>Flexnummer</span><input autoFocus value={repairDraft.flexNumber} onChange={(event) => setRepairDraft((current) => current ? { ...current, flexNumber: event.target.value } : current)} placeholder="Flexnummer eingeben" style={{ height: 30, boxSizing: "border-box", padding: "0 8px", border: "1px solid rgba(217,119,6,.22)", borderRadius: 7, outline: 0, fontFamily: "inherit", fontSize: 10.5 }} /></label> : null}
+                    {isValidColLetter(mapping.internalMarketId ?? "") ? <label style={{ display: "flex", flexDirection: "column", gap: 4 }}><span style={{ fontSize: 8, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em" }}>Stammnummern</span><input autoFocus={!isValidColLetter(mapping.flexNumber ?? "")} value={repairDraft.internalMarketId} onChange={(event) => setRepairDraft((current) => current ? { ...current, internalMarketId: event.target.value } : current)} placeholder="Stammnummer eingeben" style={{ height: 30, boxSizing: "border-box", padding: "0 8px", border: "1px solid rgba(217,119,6,.22)", borderRadius: 7, outline: 0, fontFamily: "inherit", fontSize: 10.5 }} /></label> : null}
+                  </div>
+                  {repairError ? <div role="alert" style={{ marginTop: 8, color: RED, fontSize: 9, fontWeight: 700 }}>{repairError}</div> : null}
+                  <div style={{ marginTop: 9, display: "flex", justifyContent: "flex-end", gap: 7 }}><button type="button" onClick={() => { setRepairDraft(null); setRepairError(null); }} disabled={repairSubmitting} style={{ height: 27, padding: "0 9px", border: "1px solid rgba(15,23,42,.09)", borderRadius: 7, background: "#fff", color: "rgba(15,23,42,.5)", fontFamily: "inherit", fontSize: 9, fontWeight: 700, cursor: "pointer" }}>Abbrechen</button><button type="button" onClick={() => void repairIdentity()} disabled={repairSubmitting} style={{ height: 27, padding: "0 11px", border: 0, borderRadius: 7, background: `linear-gradient(${RED},#b91c1c)`, color: "#fff", fontFamily: "inherit", fontSize: 9, fontWeight: 800, cursor: repairSubmitting ? "not-allowed" : "pointer" }}>{repairSubmitting ? "Wird verarbeitet…" : "Zeile erneut verarbeiten"}</button></div>
+                </div> : null}
+              </div>;
+            })}</div> : null}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}><button type="button" onClick={restart} disabled={repairSubmitting} style={{ height: 32, padding: "0 13px", border: "1px solid rgba(15,23,42,.09)", borderRadius: 8, background: "linear-gradient(#fff,#f5f5f5)", color: "rgba(15,23,42,.52)", fontFamily: "inherit", fontSize: 10, fontWeight: 700, cursor: repairSubmitting ? "not-allowed" : "pointer" }}>Weiteren Import starten</button><button type="button" onClick={onClose} disabled={repairSubmitting} style={{ height: 32, padding: "0 16px", border: 0, borderRadius: 8, background: `linear-gradient(${RED},#b91c1c)`, color: "#fff", fontFamily: "inherit", fontSize: 10.5, fontWeight: 800, cursor: repairSubmitting ? "not-allowed" : "pointer" }}>Fertig</button></div>
           </div>
         ) : null}
         <style>{`@keyframes smImportSpin { to { transform: rotate(360deg); } }`}</style>

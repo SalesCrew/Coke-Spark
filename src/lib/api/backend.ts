@@ -5,8 +5,10 @@ import type { SMRecord } from "@/types/shelfmerchandiser";
 import type {
   CreateSmMarketInput,
   ImportSmMarketsInput,
+  ManualSmMarketUserMatchResult,
   SmMarketImportSummary,
   SmMarketRecord,
+  SmMarketUserSyncResult,
   UpdateSmMarketInput,
 } from "@/types/smMarkets";
 import type { KuehlerUnitRecord, MarketRecord } from "@/types/markets";
@@ -24,6 +26,25 @@ import type { IppQuestionAuditRow } from "@/types/ipp";
 import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod, RedMonthYear } from "@/types/red-month";
 import type { SmModule, SmQuestionnaire } from "@/types/smQuestionnaire";
+import type {
+  CreateSmPlanningAssignmentInput,
+  CreateSmPlanningSeriesInput,
+  SmGlobalQuestionnaireConfiguration,
+  SmPlanningAssignment,
+  SmPlanningMutationResult,
+  SmPlanningReassignmentScope,
+  SmTimeChangeRequest,
+  UpdateSmPlanningAssignmentInput,
+} from "@/types/smPlanning";
+import type { SmAdminMessagesPayload, SmInboxMessage } from "@/types/smMessages";
+import type { SmVisitAnswer, SmVisitPayload, SmVisitReceipt } from "@/types/smVisit";
+import type { SmDashboardPayload, SmDashboardQuery } from "@/types/smDashboard";
+import type {
+  SmActivityAnswerChangeRequest,
+  SmActivitySubmissionDeleteRequest,
+  SmAdminTimeChangeRequest,
+  SmCompletedActivitySummary,
+} from "@/types/smActivity";
 import { emitClientTelemetry } from "@/lib/clientTelemetry";
 import {
   LEGACY_AUTH_STORAGE_KEY,
@@ -360,15 +381,22 @@ function purgeAuthScopedClientState(options?: { emit?: boolean }): void {
       window.sessionStorage.removeItem(LEGACY_GM_KPI_SUMMARY_CACHE_KEY);
       removeStorageKeysWithPrefix(window.sessionStorage, GM_VISIT_PRELOAD_CACHE_PREFIX);
       removeStorageKeysWithPrefix(window.sessionStorage, GM_ACTIVE_VISIT_HANDOFF_CACHE_PREFIX);
+      removeStorageKeysWithPrefix(window.sessionStorage, SM_VISIT_PRELOAD_CACHE_PREFIX);
+      removeStorageKeysWithPrefix(window.localStorage, SM_VISIT_PRELOAD_CACHE_PREFIX);
+      removeStorageKeysWithPrefix(window.localStorage, SM_VISIT_PENDING_ANSWERS_PREFIX);
+      removeStorageKeysWithPrefix(window.localStorage, SM_PLANNING_ASSIGNMENTS_CACHE_PREFIX);
       window.localStorage.removeItem("admin_market_visits_v1");
       window.localStorage.removeItem("admin_photo_tag_pool_v1");
       removeStorageKeysWithPrefix(window.localStorage, "admin_photo_tag_pool_v2:");
       removeStorageKeysWithPrefix(window.localStorage, "gm_day_session_local_v1:");
+      removeStorageKeysWithPrefix(window.localStorage, "sm-visit-start:");
     } catch {
       // noop
     }
   }
   clearInMemoryGmVisitPreloadCache();
+  clearInMemorySmVisitPreloadCache();
+  clearInMemorySmVisitPendingAnswers();
   if (options?.emit !== false) {
     emitAuthSessionChanged("cache-purge");
   }
@@ -1890,12 +1918,12 @@ export async function fetchGmUsers(): Promise<GMRecord[]> {
   return gmUsersDirectoryInFlight;
 }
 
-export async function fetchSmUsers(): Promise<SMRecord[]> {
+export async function fetchSmUsers(options?: { force?: boolean }): Promise<SMRecord[]> {
   const now = Date.now();
-  if (smUsersDirectoryCache && smUsersDirectoryCache.expiresAt > now) {
+  if (!options?.force && smUsersDirectoryCache && smUsersDirectoryCache.expiresAt > now) {
     return smUsersDirectoryCache.data;
   }
-  if (smUsersDirectoryInFlight) {
+  if (!options?.force && smUsersDirectoryInFlight) {
     return smUsersDirectoryInFlight;
   }
 
@@ -1923,6 +1951,647 @@ export async function fetchSmMarkets(): Promise<SmMarketRecord[]> {
   return data.markets ?? [];
 }
 
+export async function fetchSmPlanningAssignments(from: string, to: string): Promise<SmPlanningAssignment[]> {
+  const data = (await authedFetch(
+    `/admin/sm-planning/assignments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { cache: "no-store" },
+    60_000,
+  )) as { assignments?: SmPlanningAssignment[] };
+  return data.assignments ?? [];
+}
+
+export async function fetchSmGlobalQuestionnaireConfiguration(): Promise<SmGlobalQuestionnaireConfiguration> {
+  return (await authedFetch("/admin/sm-planning/questionnaire-assignment", { cache: "no-store" })) as SmGlobalQuestionnaireConfiguration;
+}
+
+export async function updateSmGlobalQuestionnaireAssignment(questionnaireTemplateId: string): Promise<SmGlobalQuestionnaireConfiguration & { replayed: boolean }> {
+  return (await authedFetch("/admin/sm-planning/questionnaire-assignment", {
+    method: "PUT",
+    body: JSON.stringify({ questionnaireTemplateId }),
+  })) as SmGlobalQuestionnaireConfiguration & { replayed: boolean };
+}
+
+export async function fetchMySmPlanningAssignments(from: string, to: string): Promise<SmPlanningAssignment[]> {
+  const data = (await authedFetch(
+    `/sm/planning/assignments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { cache: "no-store" },
+    60_000,
+  )) as { assignments?: SmPlanningAssignment[] };
+  return data.assignments ?? [];
+}
+
+export async function requestMySmPlanningTimeChange(assignmentId: string, input: {
+  kind: "time_change" | "deletion";
+  requestedStartedAt: string | null;
+  requestedCompletedAt: string | null;
+  reason: string;
+  clientRequestToken: string;
+}): Promise<{ request: SmTimeChangeRequest; replayed: boolean }> {
+  return (await authedFetch(`/sm/planning/assignments/${encodeURIComponent(assignmentId)}/time-change-requests`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as { request: SmTimeChangeRequest; replayed: boolean };
+}
+
+export async function approveAdminSmPlanningTimeChangeRequest(requestId: string, adminNote?: string): Promise<{ request: SmTimeChangeRequest; replayed: boolean }> {
+  return (await authedFetch(`/admin/sm-planning/time-change-requests/${encodeURIComponent(requestId)}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ ...(adminNote?.trim() ? { adminNote: adminNote.trim() } : {}) }),
+  })) as { request: SmTimeChangeRequest; replayed: boolean };
+}
+
+export async function rejectAdminSmPlanningTimeChangeRequest(requestId: string, adminNote?: string): Promise<{ request: SmTimeChangeRequest; replayed: boolean }> {
+  return (await authedFetch(`/admin/sm-planning/time-change-requests/${encodeURIComponent(requestId)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ ...(adminNote?.trim() ? { adminNote: adminNote.trim() } : {}) }),
+  })) as { request: SmTimeChangeRequest; replayed: boolean };
+}
+
+export async function fetchSmVisit(assignmentId: string): Promise<SmVisitPayload> {
+  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}`, { cache: "no-store" })) as SmVisitPayload;
+}
+
+export async function fetchMySmCompletedActivities(limit = 80): Promise<SmCompletedActivitySummary[]> {
+  const response = (await authedFetch(`/sm/activity/completed?limit=${encodeURIComponent(String(limit))}`, { cache: "no-store" })) as { visits?: SmCompletedActivitySummary[] };
+  return response.visits ?? [];
+}
+
+export async function fetchMySmActivityRequests(): Promise<{ answerRequests: SmActivityAnswerChangeRequest[]; deleteRequests: SmActivitySubmissionDeleteRequest[] }> {
+  const response = (await authedFetch("/sm/activity/requests", { cache: "no-store" })) as { answerRequests?: SmActivityAnswerChangeRequest[]; deleteRequests?: SmActivitySubmissionDeleteRequest[] };
+  return { answerRequests: response.answerRequests ?? [], deleteRequests: response.deleteRequests ?? [] };
+}
+
+export async function requestMySmActivityAnswerChange(input: {
+  submissionId: string;
+  submissionQuestionId: string;
+  answer: SmVisitAnswer;
+  requestedAnswerSummary?: string;
+  reason: string;
+  clientRequestToken: string;
+}): Promise<{ request: { id: string; status: "pending" }; replayed: boolean }> {
+  return (await authedFetch(`/sm/activity/submissions/${encodeURIComponent(input.submissionId)}/questions/${encodeURIComponent(input.submissionQuestionId)}/change-requests`, {
+    method: "POST",
+    body: JSON.stringify({ answer: input.answer, requestedAnswerSummary: input.requestedAnswerSummary, reason: input.reason, clientRequestToken: input.clientRequestToken }),
+  })) as { request: { id: string; status: "pending" }; replayed: boolean };
+}
+
+export async function requestMySmActivitySubmissionDelete(input: { submissionId: string; reason: string; clientRequestToken: string }): Promise<{ request: { id: string; status: "pending" }; replayed: boolean }> {
+  return (await authedFetch(`/sm/activity/submissions/${encodeURIComponent(input.submissionId)}/delete-requests`, {
+    method: "POST",
+    body: JSON.stringify({ reason: input.reason, clientRequestToken: input.clientRequestToken }),
+  })) as { request: { id: string; status: "pending" }; replayed: boolean };
+}
+
+export async function fetchAdminSmActivityRequests(): Promise<{ answerRequests: SmActivityAnswerChangeRequest[]; deleteRequests: SmActivitySubmissionDeleteRequest[]; timeRequests: SmAdminTimeChangeRequest[] }> {
+  const response = (await authedFetch("/admin/sm-activity/requests", { cache: "no-store" })) as { answerRequests?: SmActivityAnswerChangeRequest[]; deleteRequests?: SmActivitySubmissionDeleteRequest[]; timeRequests?: SmAdminTimeChangeRequest[] };
+  return { answerRequests: response.answerRequests ?? [], deleteRequests: response.deleteRequests ?? [], timeRequests: response.timeRequests ?? [] };
+}
+
+export async function reviewAdminSmAnswerChangeRequest(requestId: string, decision: "approve" | "reject", adminNote?: string): Promise<{ request: { id: string; status: string }; replayed: boolean }> {
+  return (await authedFetch(`/admin/sm-activity/answer-change-requests/${encodeURIComponent(requestId)}/${decision}`, {
+    method: "POST",
+    body: JSON.stringify({ ...(adminNote?.trim() ? { adminNote: adminNote.trim() } : {}) }),
+  })) as { request: { id: string; status: string }; replayed: boolean };
+}
+
+export async function reviewAdminSmSubmissionDeleteRequest(requestId: string, decision: "approve" | "reject", adminNote?: string): Promise<{ request: { id: string; status: string }; replayed: boolean }> {
+  return (await authedFetch(`/admin/sm-activity/submission-delete-requests/${encodeURIComponent(requestId)}/${decision}`, {
+    method: "POST",
+    body: JSON.stringify({ ...(adminNote?.trim() ? { adminNote: adminNote.trim() } : {}) }),
+  })) as { request: { id: string; status: string }; replayed: boolean };
+}
+
+const SM_VISIT_PRELOAD_CACHE_PREFIX = "sm_visit_preload_v1:";
+const SM_VISIT_PENDING_ANSWERS_PREFIX = "sm_visit_pending_answers_v1:";
+const SM_PLANNING_ASSIGNMENTS_CACHE_PREFIX = "sm_planning_assignments_v1:";
+const SM_VISIT_PRELOAD_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SM_PLANNING_ASSIGNMENTS_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+type SmPlanningAssignmentsCacheEnvelope = {
+  ownerUserId: string;
+  from: string;
+  to: string;
+  createdAtMs: number;
+  assignments: SmPlanningAssignment[];
+};
+
+function getSmPlanningAssignmentsCacheKey(userId: string, from: string, to: string): string {
+  return `${SM_PLANNING_ASSIGNMENTS_CACHE_PREFIX}${userId}:${from}:${to}`;
+}
+
+export function setMySmPlanningAssignmentsCache(from: string, to: string, assignments: SmPlanningAssignment[]): void {
+  const ownerUserId = getActiveAuthUserId();
+  if (!ownerUserId || typeof window === "undefined") return;
+  const envelope: SmPlanningAssignmentsCacheEnvelope = { ownerUserId, from, to, createdAtMs: Date.now(), assignments };
+  try {
+    window.localStorage.setItem(getSmPlanningAssignmentsCacheKey(ownerUserId, from, to), JSON.stringify(envelope));
+  } catch {
+    // A cached questionnaire can still be resumed from its exact URL when schedule storage is unavailable.
+  }
+}
+
+export function readMySmPlanningAssignmentsCache(from: string, to: string): SmPlanningAssignment[] | null {
+  const ownerUserId = getActiveAuthUserId();
+  if (!ownerUserId || typeof window === "undefined") return null;
+  const key = getSmPlanningAssignmentsCacheKey(ownerUserId, from, to);
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SmPlanningAssignmentsCacheEnvelope>;
+    const createdAtMs = Number(parsed.createdAtMs ?? 0);
+    const valid = parsed.ownerUserId === ownerUserId
+      && parsed.from === from
+      && parsed.to === to
+      && Number.isFinite(createdAtMs)
+      && Date.now() - createdAtMs <= SM_PLANNING_ASSIGNMENTS_CACHE_TTL_MS
+      && Array.isArray(parsed.assignments)
+      && parsed.assignments.every((assignment) => Boolean(assignment?.id && assignment?.effective?.workDate));
+    if (!valid) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+    return parsed.assignments as SmPlanningAssignment[];
+  } catch {
+    try { window.localStorage.removeItem(key); } catch { /* noop */ }
+    return null;
+  }
+}
+
+export function clearMySmPlanningAssignmentsCache(): void {
+  const ownerUserId = getActiveAuthUserId();
+  if (!ownerUserId || typeof window === "undefined") return;
+  const ownerPrefix = `${SM_PLANNING_ASSIGNMENTS_CACHE_PREFIX}${ownerUserId}:`;
+  const keysToRemove: string[] = [];
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(ownerPrefix)) keysToRemove.push(key);
+    }
+    for (const key of keysToRemove) window.localStorage.removeItem(key);
+  } catch {
+    // A fresh server read still restores the authoritative assignment state.
+  }
+}
+
+type SmVisitPreloadCacheEnvelope = {
+  ownerUserId: string;
+  assignmentId: string;
+  createdAtMs: number;
+  payload: SmVisitPayload;
+};
+
+const smVisitPreloadMemoryCache: Record<string, SmVisitPreloadCacheEnvelope> = {};
+
+function clearInMemorySmVisitPreloadCache(): void {
+  for (const key of Object.keys(smVisitPreloadMemoryCache)) {
+    delete smVisitPreloadMemoryCache[key];
+  }
+}
+
+function getSmVisitPreloadMemoryKey(userId: string, assignmentId: string): string {
+  return `${userId}:${assignmentId}`;
+}
+
+function getSmVisitPreloadCacheKey(userId: string, assignmentId: string): string {
+  return `${SM_VISIT_PRELOAD_CACHE_PREFIX}${userId}:${assignmentId}`;
+}
+
+function isValidSmVisitPreloadPayload(payload: unknown, assignmentId: string): payload is SmVisitPayload {
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as Partial<SmVisitPayload>;
+  return candidate.assignment?.id === assignmentId
+    && Array.isArray(candidate.sections)
+    && Boolean(candidate.answers && typeof candidate.answers === "object")
+    && Boolean(candidate.answerVersions && typeof candidate.answerVersions === "object")
+    && Boolean(candidate.photoFiles && typeof candidate.photoFiles === "object");
+}
+
+export function setSmVisitPreloadCache(assignmentId: string, payload: SmVisitPayload): void {
+  const userId = getActiveAuthUserId();
+  if (!userId || !isValidSmVisitPreloadPayload(payload, assignmentId)) return;
+  const envelope: SmVisitPreloadCacheEnvelope = {
+    ownerUserId: userId,
+    assignmentId,
+    createdAtMs: Date.now(),
+    payload,
+  };
+  smVisitPreloadMemoryCache[getSmVisitPreloadMemoryKey(userId, assignmentId)] = envelope;
+  if (typeof window === "undefined") return;
+  const serialized = JSON.stringify(envelope);
+  try { window.sessionStorage.setItem(getSmVisitPreloadCacheKey(userId, assignmentId), serialized); } catch { /* noop */ }
+  try { window.localStorage.setItem(getSmVisitPreloadCacheKey(userId, assignmentId), serialized); } catch { /* noop */ }
+}
+
+export function readSmVisitPreloadCache(assignmentId: string): SmVisitPayload | null {
+  const userId = getActiveAuthUserId();
+  if (!userId) return null;
+  const memoryKey = getSmVisitPreloadMemoryKey(userId, assignmentId);
+  const inMemory = smVisitPreloadMemoryCache[memoryKey];
+  if (inMemory) {
+    if (
+      inMemory.ownerUserId === userId
+      && inMemory.assignmentId === assignmentId
+      && Date.now() - inMemory.createdAtMs <= SM_VISIT_PRELOAD_CACHE_TTL_MS
+      && isValidSmVisitPreloadPayload(inMemory.payload, assignmentId)
+    ) {
+      return inMemory.payload;
+    }
+    delete smVisitPreloadMemoryCache[memoryKey];
+  }
+  if (typeof window === "undefined") return null;
+  const storageKey = getSmVisitPreloadCacheKey(userId, assignmentId);
+  let raw: string | null = null;
+  try { raw = window.sessionStorage.getItem(storageKey); } catch { /* noop */ }
+  if (!raw) {
+    try { raw = window.localStorage.getItem(storageKey); } catch { /* noop */ }
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<SmVisitPreloadCacheEnvelope>;
+    const createdAtMs = Number(parsed.createdAtMs ?? 0);
+    if (
+      parsed.ownerUserId !== userId
+      || parsed.assignmentId !== assignmentId
+      || !Number.isFinite(createdAtMs)
+      || Date.now() - createdAtMs > SM_VISIT_PRELOAD_CACHE_TTL_MS
+      || !isValidSmVisitPreloadPayload(parsed.payload, assignmentId)
+    ) {
+      try { window.sessionStorage.removeItem(storageKey); } catch { /* noop */ }
+      try { window.localStorage.removeItem(storageKey); } catch { /* noop */ }
+      return null;
+    }
+    const envelope = parsed as SmVisitPreloadCacheEnvelope;
+    smVisitPreloadMemoryCache[memoryKey] = envelope;
+    return envelope.payload;
+  } catch {
+    try { window.sessionStorage.removeItem(storageKey); } catch { /* noop */ }
+    try { window.localStorage.removeItem(storageKey); } catch { /* noop */ }
+    return null;
+  }
+}
+
+export function clearSmVisitPreloadCache(assignmentId: string): void {
+  const userId = getActiveAuthUserId();
+  if (!userId) return;
+  delete smVisitPreloadMemoryCache[getSmVisitPreloadMemoryKey(userId, assignmentId)];
+  if (typeof window === "undefined") return;
+  try { window.sessionStorage.removeItem(getSmVisitPreloadCacheKey(userId, assignmentId)); } catch { /* noop */ }
+  try { window.localStorage.removeItem(getSmVisitPreloadCacheKey(userId, assignmentId)); } catch { /* noop */ }
+}
+
+export type SmVisitPendingAnswerMutation = {
+  assignmentId: string;
+  submissionQuestionId: string;
+  answer: SmVisitAnswer;
+  expectedAnswerVersion: number;
+  clientMutationToken: string;
+  queuedAtMs: number;
+};
+
+type SmVisitPendingAnswersEnvelope = {
+  ownerUserId: string;
+  assignmentId: string;
+  mutations: Record<string, SmVisitPendingAnswerMutation>;
+};
+
+const smVisitPendingAnswersMemoryCache: Record<string, SmVisitPendingAnswersEnvelope> = {};
+
+function clearInMemorySmVisitPendingAnswers(): void {
+  for (const key of Object.keys(smVisitPendingAnswersMemoryCache)) delete smVisitPendingAnswersMemoryCache[key];
+}
+
+function getSmVisitPendingAnswersKey(userId: string, assignmentId: string): string {
+  return `${SM_VISIT_PENDING_ANSWERS_PREFIX}${userId}:${assignmentId}`;
+}
+
+function readSmVisitPendingAnswersEnvelope(assignmentId: string): SmVisitPendingAnswersEnvelope | null {
+  const userId = getActiveAuthUserId();
+  if (!userId) return null;
+  const storageKey = getSmVisitPendingAnswersKey(userId, assignmentId);
+  const memory = smVisitPendingAnswersMemoryCache[storageKey];
+  if (memory?.ownerUserId === userId && memory.assignmentId === assignmentId) return memory;
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SmVisitPendingAnswersEnvelope>;
+    if (parsed.ownerUserId !== userId || parsed.assignmentId !== assignmentId || !parsed.mutations || typeof parsed.mutations !== "object") {
+      window.localStorage.removeItem(storageKey);
+      return null;
+    }
+    const envelope = parsed as SmVisitPendingAnswersEnvelope;
+    smVisitPendingAnswersMemoryCache[storageKey] = envelope;
+    return envelope;
+  } catch {
+    try { window.localStorage.removeItem(storageKey); } catch { /* noop */ }
+    return null;
+  }
+}
+
+function writeSmVisitPendingAnswersEnvelope(envelope: SmVisitPendingAnswersEnvelope): void {
+  const storageKey = getSmVisitPendingAnswersKey(envelope.ownerUserId, envelope.assignmentId);
+  if (Object.keys(envelope.mutations).length === 0) {
+    delete smVisitPendingAnswersMemoryCache[storageKey];
+    if (typeof window !== "undefined") {
+      try { window.localStorage.removeItem(storageKey); } catch { /* noop */ }
+    }
+    return;
+  }
+  smVisitPendingAnswersMemoryCache[storageKey] = envelope;
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(envelope));
+  } catch {
+    // The in-memory queue still protects the current open visit.
+  }
+}
+
+export function readSmVisitPendingAnswers(assignmentId: string): SmVisitPendingAnswerMutation[] {
+  return Object.values(readSmVisitPendingAnswersEnvelope(assignmentId)?.mutations ?? {})
+    .sort((left, right) => left.queuedAtMs - right.queuedAtMs);
+}
+
+export function queueSmVisitPendingAnswer(input: SmVisitPendingAnswerMutation): SmVisitPendingAnswerMutation {
+  const userId = getActiveAuthUserId();
+  if (!userId || typeof window === "undefined") return input;
+  const current = readSmVisitPendingAnswersEnvelope(input.assignmentId);
+  const existing = current?.mutations[input.submissionQuestionId];
+  const next: SmVisitPendingAnswerMutation = {
+    ...input,
+    expectedAnswerVersion: existing?.expectedAnswerVersion ?? input.expectedAnswerVersion,
+  };
+  writeSmVisitPendingAnswersEnvelope({
+    ownerUserId: userId,
+    assignmentId: input.assignmentId,
+    mutations: { ...(current?.mutations ?? {}), [input.submissionQuestionId]: next },
+  });
+  return next;
+}
+
+export function updateSmVisitPendingAnswerVersion(assignmentId: string, submissionQuestionId: string, expectedAnswerVersion: number): void {
+  const current = readSmVisitPendingAnswersEnvelope(assignmentId);
+  const mutation = current?.mutations[submissionQuestionId];
+  if (!current || !mutation) return;
+  writeSmVisitPendingAnswersEnvelope({
+    ...current,
+    mutations: { ...current.mutations, [submissionQuestionId]: { ...mutation, expectedAnswerVersion } },
+  });
+}
+
+export function removeSmVisitPendingAnswer(assignmentId: string, submissionQuestionId: string, clientMutationToken?: string): void {
+  const current = readSmVisitPendingAnswersEnvelope(assignmentId);
+  const mutation = current?.mutations[submissionQuestionId];
+  if (!current || !mutation || clientMutationToken && mutation.clientMutationToken !== clientMutationToken) return;
+  const mutations = { ...current.mutations };
+  delete mutations[submissionQuestionId];
+  writeSmVisitPendingAnswersEnvelope({ ...current, mutations });
+}
+
+export function clearSmVisitPendingAnswers(assignmentId: string): void {
+  const userId = getActiveAuthUserId();
+  if (!userId) return;
+  delete smVisitPendingAnswersMemoryCache[getSmVisitPendingAnswersKey(userId, assignmentId)];
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(getSmVisitPendingAnswersKey(userId, assignmentId));
+  } catch {
+    // noop
+  }
+}
+
+export function getSmVisitStartTokenStorageKey(assignmentId: string): string {
+  const userId = getActiveAuthUserId() ?? "anon";
+  return `sm-visit-start:${userId}:${assignmentId}`;
+}
+
+export async function startSmVisit(assignmentId: string, input: {
+  mode: "timer" | "manual";
+  travelMinutes?: number | null;
+  clientSubmissionToken: string;
+}): Promise<SmVisitPayload> {
+  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/start`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as SmVisitPayload;
+}
+
+export async function saveSmVisitAnswer(assignmentId: string, submissionQuestionId: string, answer: SmVisitAnswer, input: { expectedAnswerVersion: number; clientMutationToken: string }): Promise<{ saved: boolean; answerVersion: number }> {
+  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/answers/${encodeURIComponent(submissionQuestionId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ answer, ...input }),
+  })) as { saved: boolean; answerVersion: number };
+}
+
+export async function updateSmVisitTiming(assignmentId: string, input: { travelMinutes?: number | null; manualVisitMinutes?: number | null }): Promise<SmVisitPayload> {
+  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/timing`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as SmVisitPayload;
+}
+
+export async function submitSmVisit(assignmentId: string, input: { actualMinutes?: number; visitStartedAt?: string; visitCompletedAt?: string } = {}): Promise<SmVisitReceipt> {
+  const data = (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/submit`, {
+    method: "POST",
+    body: JSON.stringify({ clientMutationToken: crypto.randomUUID(), ...input }),
+  })) as { receipt: SmVisitReceipt };
+  return data.receipt;
+}
+
+export async function discardSmVisit(assignmentId: string): Promise<{ ok: true; assignmentId: string; status: "planned" | "confirmed" | "open" }> {
+  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmation: "SOFT_DELETE_SM_VISIT" }),
+  })) as { ok: true; assignmentId: string; status: "planned" | "confirmed" | "open" };
+}
+
+export async function initializeSmVisitPhoto(assignmentId: string, submissionQuestionId: string): Promise<{ answerId: string }> {
+  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/initialize`, {
+    method: "POST",
+    body: JSON.stringify({ submissionQuestionId }),
+  })) as { answerId: string };
+}
+
+export async function presignSmVisitPhoto(assignmentId: string, answerId: string, extension: string): Promise<{ upload: { bucket: string; path: string; signedUrl: string; token: string } }> {
+  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/presign`, {
+    method: "POST",
+    body: JSON.stringify({ answerId, extension }),
+  })) as { upload: { bucket: string; path: string; signedUrl: string; token: string } };
+}
+
+export async function commitSmVisitPhotos(assignmentId: string, input: {
+  answerId: string;
+  photos: Array<{ storageBucket: "sm-visit-photos"; storagePath: string; originalFileName?: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; byteSize: number }>;
+}): Promise<{ fileIds: string[] }> {
+  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/commit`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  }, 120_000)) as { fileIds: string[] };
+}
+
+export async function cleanupSmVisitPhotoUpload(assignmentId: string, input: { answerId: string; storageBucket: "sm-visit-photos"; storagePath: string }): Promise<void> {
+  await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/cleanup`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  }, 120_000);
+}
+
+export async function uploadSmVisitPhotos(assignmentId: string, submissionQuestionId: string, files: File[]): Promise<{ fileIds: string[] }> {
+  const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+  if (!files.length) return { fileIds: [] };
+  if (files.length > 20) throw new Error("Es können höchstens 20 Fotos pro Frage hochgeladen werden.");
+  for (const file of files) {
+    if (!allowedMimeTypes.has(file.type)) throw new Error(`„${file.name}“ hat kein unterstütztes Bildformat.`);
+    if (file.size > 15 * 1024 * 1024) throw new Error(`„${file.name}“ ist größer als 15 MB.`);
+  }
+  const { answerId } = await initializeSmVisitPhoto(assignmentId, submissionQuestionId);
+  let committedFileIds: string[] = [];
+  for (const file of files) {
+    const extension = (file.name.split(".").pop() ?? (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg")).toLowerCase();
+    const presigned = await presignSmVisitPhoto(assignmentId, answerId, extension);
+    const cleanupInput = { answerId, storageBucket: "sm-visit-photos" as const, storagePath: presigned.upload.path };
+    try {
+      const uploadResponse = await fetch(presigned.upload.signedUrl, {
+        method: "PUT",
+        headers: { "content-type": file.type },
+        body: file,
+      });
+      if (!uploadResponse.ok) throw new Error(`„${file.name}“ konnte nicht hochgeladen werden.`);
+      const committed = await commitSmVisitPhotos(assignmentId, {
+        answerId,
+        photos: [{
+          storageBucket: "sm-visit-photos",
+          storagePath: presigned.upload.path,
+          originalFileName: file.name,
+          mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
+          byteSize: file.size,
+        }],
+      });
+      committedFileIds.push(...committed.fileIds);
+    } catch (uploadError) {
+      try {
+        await cleanupSmVisitPhotoUpload(assignmentId, cleanupInput);
+      } catch {
+        // The server logs/storage audit can reconcile a rare failed best-effort cleanup.
+      }
+      throw uploadError;
+    }
+  }
+  return { fileIds: committedFileIds };
+}
+
+export async function deleteSmVisitPhoto(assignmentId: string, fileId: string): Promise<void> {
+  await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/${encodeURIComponent(fileId)}`, { method: "DELETE" });
+}
+
+export async function fetchAdminSmMessages(): Promise<SmAdminMessagesPayload> {
+  return (await authedFetch("/admin/sm-messages", { cache: "no-store" })) as SmAdminMessagesPayload;
+}
+
+export async function sendAdminSmMessage(input: {
+  subject: string;
+  body: string;
+  recipientIds: string[];
+  idempotencyKey: string;
+  visibleAfterReadDays: number;
+}): Promise<{ messageId: string; replayed: boolean }> {
+  return (await authedFetch("/admin/sm-messages", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as { messageId: string; replayed: boolean };
+}
+
+export async function fetchSmMessages(): Promise<SmInboxMessage[]> {
+  const data = (await authedFetch("/sm/messages", { cache: "no-store" })) as { messages?: SmInboxMessage[] };
+  return data.messages ?? [];
+}
+
+export async function markSmMessageRead(messageId: string): Promise<{ messageId: string; readAt: string; alreadyRead: boolean }> {
+  return (await authedFetch(`/sm/messages/${encodeURIComponent(messageId)}/read`, {
+    method: "POST",
+  })) as { messageId: string; readAt: string; alreadyRead: boolean };
+}
+
+export async function createSmPlanningAssignment(input: CreateSmPlanningAssignmentInput): Promise<{ assignmentId: string; replayed: boolean }> {
+  const payload: CreateSmPlanningAssignmentInput = {
+    smMarketId: input.smMarketId,
+    smUserId: input.smUserId,
+    workDate: input.workDate,
+    plannedMinutes: input.plannedMinutes,
+    idempotencyKey: input.idempotencyKey,
+    ...(input.flatRateCents !== undefined ? { flatRateCents: input.flatRateCents } : {}),
+  };
+  return (await authedFetch("/admin/sm-planning/assignments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })) as { assignmentId: string; replayed: boolean };
+}
+
+export async function createSmPlanningSeries(input: CreateSmPlanningSeriesInput): Promise<{ seriesId: string; count: number; replayed: boolean }> {
+  const payload: CreateSmPlanningSeriesInput = {
+    smMarketId: input.smMarketId,
+    smUserId: input.smUserId,
+    plannedMinutes: input.plannedMinutes,
+    frequency: input.frequency,
+    weekdays: input.weekdays,
+    validFrom: input.validFrom,
+    validTo: input.validTo,
+    idempotencyKey: input.idempotencyKey,
+    ...(input.flatRateCents !== undefined ? { flatRateCents: input.flatRateCents } : {}),
+  };
+  return (await authedFetch("/admin/sm-planning/series", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })) as { seriesId: string; count: number; replayed: boolean };
+}
+
+export async function updateSmPlanningAssignment(id: string, input: UpdateSmPlanningAssignmentInput): Promise<SmPlanningMutationResult> {
+  return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as SmPlanningMutationResult;
+}
+
+export async function rescheduleSmPlanningAssignment(id: string, input: { workDate: string; expectedUpdatedAt: string; reason?: string }): Promise<SmPlanningMutationResult> {
+  return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/reschedule`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as SmPlanningMutationResult;
+}
+
+export async function reassignSmPlanningAssignment(id: string, input: { smUserId: string; scope: SmPlanningReassignmentScope; expectedUpdatedAt: string; reason: string }): Promise<{ affectedCount: number; skippedCount: number; updatedAt: string }> {
+  return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/reassign`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as { affectedCount: number; skippedCount: number; updatedAt: string };
+}
+
+export async function previewSmPlanningReassignment(id: string, smUserId: string): Promise<{ effectiveFromDate: string; affectedCount: number; skippedCount: number }> {
+  return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/reassign-preview?smUserId=${encodeURIComponent(smUserId)}`, {
+    cache: "no-store",
+  })) as { effectiveFromDate: string; affectedCount: number; skippedCount: number };
+}
+
+export async function cancelSmPlanningAssignment(id: string, input: { expectedUpdatedAt: string; reason: string }): Promise<SmPlanningMutationResult> {
+  return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as SmPlanningMutationResult;
+}
+
+export async function restoreSmPlanningAssignment(id: string, input: { expectedUpdatedAt: string; reason: string }): Promise<SmPlanningMutationResult> {
+  return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/restore`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as SmPlanningMutationResult;
+}
+
+export async function submitSmPlanningActualTime(id: string, input: { actualMinutes: number; correctionReason?: string }): Promise<{ submissionId: string; revisionNumber: number; actualMinutes: number; replayed: boolean }> {
+  return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/time`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  })) as { submissionId: string; revisionNumber: number; actualMinutes: number; replayed: boolean };
+}
+
 export async function importSmMarkets(input: ImportSmMarketsInput): Promise<{
   markets: SmMarketRecord[];
   summary: SmMarketImportSummary;
@@ -1932,6 +2601,19 @@ export async function importSmMarkets(input: ImportSmMarketsInput): Promise<{
     body: JSON.stringify(input),
   }, 300_000)) as { markets?: SmMarketRecord[]; summary: SmMarketImportSummary };
   return { markets: data.markets ?? [], summary: data.summary };
+}
+
+export async function syncSmMarketUsers(): Promise<SmMarketUserSyncResult> {
+  return (await authedFetch("/admin/sm-markets/sync-sm-users", {
+    method: "POST",
+  }, 120_000)) as SmMarketUserSyncResult;
+}
+
+export async function manuallyMatchSmMarketUsers(input: { marketIds: string[]; smUserId: string }): Promise<ManualSmMarketUserMatchResult> {
+  return (await authedFetch("/admin/sm-markets/sync-sm-users/manual", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }, 120_000)) as ManualSmMarketUserMatchResult;
 }
 
 export async function createSmMarket(input: CreateSmMarketInput): Promise<SmMarketRecord> {
@@ -5859,14 +6541,35 @@ export async function cancelDaySession(): Promise<{ session: DaySession }> {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export async function fetchSmQuestionnaireWorkspace(): Promise<{
+type SmQuestionnaireWorkspace = {
   modules: SmModule[];
   questionnaires: SmQuestionnaire[];
-}> {
-  return (await authedFetch("/admin/sm-questionnaires/workspace", { cache: "no-store" })) as {
-    modules: SmModule[];
-    questionnaires: SmQuestionnaire[];
-  };
+};
+
+let smQuestionnaireWorkspaceInFlight: Promise<SmQuestionnaireWorkspace> | null = null;
+
+export async function fetchSmQuestionnaireWorkspace(): Promise<SmQuestionnaireWorkspace> {
+  if (smQuestionnaireWorkspaceInFlight) return smQuestionnaireWorkspaceInFlight;
+
+  smQuestionnaireWorkspaceInFlight = authedFetch(
+    "/admin/sm-questionnaires/workspace",
+    { cache: "no-store" },
+  ) as Promise<SmQuestionnaireWorkspace>;
+
+  try {
+    return await smQuestionnaireWorkspaceInFlight;
+  } finally {
+    smQuestionnaireWorkspaceInFlight = null;
+  }
+}
+
+export async function fetchSmDashboard(input: SmDashboardQuery): Promise<SmDashboardPayload> {
+  const params = new URLSearchParams({ from: input.from, to: input.to });
+  if (input.region) params.set("region", input.region);
+  if (input.chain) params.set("chain", input.chain);
+  if (input.smUserId) params.set("smUserId", input.smUserId);
+  if (input.marketId) params.set("marketId", input.marketId);
+  return (await authedFetch(`/admin/sm-dashboard?${params.toString()}`, { cache: "no-store" })) as SmDashboardPayload;
 }
 
 export async function saveSmQuestionnaireModule(module: SmModule): Promise<SmModule> {

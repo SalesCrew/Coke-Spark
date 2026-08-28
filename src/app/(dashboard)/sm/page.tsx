@@ -4,9 +4,8 @@ import { Activity, Clock, Home, LogOut, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { CollapsibleMenu, type MenuItem } from "@/components/ui/CollapsibleMenu";
 import { StatusCard } from "@/components/dashboard/StatusCard";
-import { AssignmentList } from "@/components/dashboard/AssignmentList";
-import { WeekStrip } from "@/components/dashboard/WeekStrip";
 import { NachrichtenCard } from "@/components/dashboard/NachrichtenCard";
+import { SmDashboardSchedule } from "@/components/dashboard/SmDashboardSchedule";
 import { logoutCurrentUser } from "@/lib/api/backend";
 
 const SM_MENU_ITEMS: MenuItem[] = [
@@ -23,12 +22,7 @@ export default function SMDashboard() {
     <main className="min-h-screen" style={{ backgroundColor: "#f5f5f7" }}>
       <div className="px-6 pt-6" style={{ maxWidth: 420, margin: "0 auto" }}>
         <StatusCard />
-        <div className="mt-5 px-1">
-          <AssignmentList />
-        </div>
-        <div className="mt-6 px-1">
-          <WeekStrip />
-        </div>
+        <SmDashboardSchedule />
         <div className="mt-4 px-1">
           <NachrichtenCard />
         </div>

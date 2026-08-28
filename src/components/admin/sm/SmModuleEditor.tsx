@@ -96,7 +96,7 @@ function defaultConfig(type: SmQuestionType): Record<string, unknown> {
     case "multiple":
       return { options: ["", ""] };
     case "yesnomulti":
-      return { answers: ["Ja", "Nein"] };
+      return { answers: ["Ja", "Nein"], branches: [] };
     case "likert":
       return { min: "", max: "", minLabel: "", maxLabel: "" };
     case "numeric":
@@ -882,6 +882,75 @@ function ChoiceConfig({
   );
 }
 
+type YesNoMultiBranch = { answer: string; options: string[] };
+
+function YesNoMultiConfig({ config, onChange }: ConfigProps) {
+  const answers = Array.isArray(config.answers) ? config.answers.map(String) : ["Ja", "Nein"];
+  const branches = Array.isArray(config.branches)
+    ? config.branches.filter((entry): entry is YesNoMultiBranch => Boolean(entry) && typeof entry === "object" && typeof (entry as YesNoMultiBranch).answer === "string" && Array.isArray((entry as YesNoMultiBranch).options))
+    : [];
+  const branchAnswers = new Set(branches.map((branch) => branch.answer));
+  const orderedBranches = answers.flatMap((answer) => {
+    const branch = branches.find((entry) => entry.answer === answer);
+    return branch ? [{ answer, branch }] : [];
+  });
+
+  const setAnswer = (index: number, value: string) => {
+    const previous = answers[index] ?? "";
+    const nextAnswers = answers.map((answer, answerIndex) => answerIndex === index ? value : answer);
+    const nextBranches = branches.map((branch) => branch.answer === previous ? { ...branch, answer: value } : branch);
+    onChange({ ...config, answers: nextAnswers, branches: nextBranches });
+  };
+
+  const toggleBranch = (answer: string) => {
+    if (!answer.trim()) return;
+    onChange({
+      ...config,
+      branches: branchAnswers.has(answer)
+        ? branches.filter((branch) => branch.answer !== answer)
+        : [...branches, { answer, options: ["", ""] }],
+    });
+  };
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <span style={fieldLabelStyle}>Antwortmöglichkeiten</span>
+      <div style={{ marginTop: 6 }}>
+        {answers.map((answer, index) => {
+          const active = Boolean(answer.trim()) && branchAnswers.has(answer);
+          const branchNumber = orderedBranches.findIndex((entry) => entry.answer === answer) + 1;
+          return (
+            <div key={index} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+              <button
+                type="button"
+                aria-pressed={active}
+                aria-label={active ? `Unterauswahl für Antwort ${index + 1} entfernen` : `Unterauswahl für Antwort ${index + 1} hinzufügen`}
+                title={active ? "Unterauswahl entfernen" : "Unterauswahl hinzufügen"}
+                disabled={!answer.trim()}
+                onClick={() => toggleBranch(answer)}
+                style={{ width: 20, height: 20, borderRadius: 6, border: "none", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: answer.trim() ? "pointer" : "default", color: "#fff", background: active ? "linear-gradient(180deg,#14b8a6,#0d9488)" : "rgba(0,0,0,.055)", opacity: answer.trim() ? 1 : .45 }}
+              >
+                {active ? <span style={{ fontSize: 8, fontWeight: 800 }}>{branchNumber}</span> : <Plus size={10} />}
+              </button>
+              <input type="text" value={answer} onChange={(event) => setAnswer(index, event.target.value)} placeholder={`Antwort ${index + 1}`} style={{ ...fieldInputStyle, flex: 1, marginTop: 0 }} />
+              {answers.length > 2 ? <button type="button" aria-label={`Antwort ${index + 1} entfernen`} onClick={() => onChange({ ...config, answers: answers.filter((_, answerIndex) => answerIndex !== index), branches: branches.filter((branch) => branch.answer !== answer) })} style={{ border: "none", background: "none", color: "rgba(0,0,0,.25)", cursor: "pointer", padding: 2 }}><X size={11} /></button> : null}
+            </div>
+          );
+        })}
+        <button type="button" onClick={() => onChange({ ...config, answers: [...answers, ""], branches })} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: "#0d9488", cursor: "pointer", padding: 0, fontFamily: "inherit", fontSize: 10, fontWeight: 600 }}><Plus size={10} />Antwort hinzufügen</button>
+        <p style={{ margin: "8px 0 0", fontSize: 9, lineHeight: 1.5, color: "rgba(0,0,0,.32)" }}>Mit <strong>+</strong> öffnet diese Antwort auf dem Telefon eine zusätzliche Mehrfachauswahl.</p>
+      </div>
+
+      {orderedBranches.map(({ answer, branch }, index) => (
+        <div key={`${answer}-${index}`} style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,.06)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ display: "inline-flex", width: 18, height: 18, alignItems: "center", justifyContent: "center", borderRadius: 5, background: "#0d9488", color: "#fff", fontSize: 8, fontWeight: 800 }}>{index + 1}</span><span style={fieldLabelStyle}>Optionen wenn „{answer}“</span></div>
+          <ChoiceConfig label="Unteroptionen" options={branch.options} onChange={(options) => onChange({ ...config, branches: branches.map((entry) => entry.answer === answer ? { ...entry, options } : entry) })} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const fieldLabelStyle: CSSProperties = {
   fontSize: 9,
   fontWeight: 600,
@@ -1049,7 +1118,7 @@ function TypeConfig({ question, onUpdate }: { question: SmQuestion; onUpdate: (q
     case "multiple":
       return <ChoiceConfig options={(question.config.options as string[]) ?? [""]} onChange={(options) => setConfig({ ...question.config, options })} />;
     case "yesnomulti":
-      return <ChoiceConfig label="Antwortmöglichkeiten" options={(question.config.answers as string[]) ?? ["Ja", "Nein"]} onChange={(answers) => setConfig({ ...question.config, answers })} />;
+      return <YesNoMultiConfig config={question.config} onChange={setConfig} />;
     case "likert":
       return <LikertConfig config={question.config} onChange={setConfig} />;
     case "numeric":

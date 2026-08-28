@@ -1,7 +1,7 @@
 # Shelf Merchandiser (SM) – Living Product & Architecture Spec
 
-> Status: living document / discovery phase  
-> Last updated: 2026-08-10  
+> Status: living document / active implementation
+> Last updated: 2026-08-24
 > Owner: Coke Spark SM implementation  
 > Rule: Read and update this file before every material SM implementation. Confirmed requirements must not be silently replaced by assumptions.
 
@@ -27,7 +27,7 @@ The intended result is a reliable operational flow that is simpler than the GM a
 ## 2. Terminology
 
 - **SM**: Shelf Merchandiser.
-- **SM Admin**: An existing Coke Spark admin while working in the SM workspace. This is not currently a separate database/auth role.
+- **SM Admin**: A Coke Spark administrator with the database/auth role `sm_admin`. The role has the same administrative authorization as `admin`, but opens the SM workspace by default.
 - **Einsatz**: One planned SM assignment for one SM, one market and one calendar day.
 - **Serie**: A recurring definition that produces multiple individual Einsätze.
 - **Stammmarkt**: A market normally assigned to an SM as their recurring/default responsibility.
@@ -81,16 +81,16 @@ The intended result is a reliable operational flow that is simpler than the GM a
 
 ### Existing state
 
-- Authentication already supports the roles `admin`, `gm`, `sm` and `kunde`.
+- Authentication supports the roles `admin`, `sm_admin`, `gm`, `sm` and `kunde`.
 - SM users can already be created and edited through `/admin/shelfmerchandiser`.
 - The backend already persists those accounts as users with role `sm` and creates their Supabase Auth access.
-- There is currently no separate `sm_admin` role.
+- The separate `sm_admin` role is applied in production and covered by backend authorization tests.
 
 ### Target decision
 
-Use the existing `admin` role for administrators who may switch between GM and SM. “SM Admin” describes the active workspace and responsibility, not a second login role.
+`admin` and `sm_admin` have the same backend permissions and can switch between the complete GM and SM workspaces. The difference is the default workspace: `admin` opens GM and `sm_admin` opens SM. The workspace selector never weakens authorization.
 
-If limited SM-only administrators are required later, implement this through explicit page/action permissions or an admin-domain membership table. Do not create a competing authentication role without a confirmed permission matrix.
+If limited SM-only administrators are required later, implement that through an explicit permission matrix or admin-domain membership table. Do not silently narrow the current `sm_admin` role, because it is intentionally a full administrator.
 
 ### Admin workspace state
 
@@ -161,12 +161,12 @@ Names and final order can change, but these responsibilities must remain distinc
 1. SM opens the phone-first dashboard.
 2. SM selects today’s planned Einsatz.
 3. SM sees market, address, Soll-Zeit and questionnaire status.
-4. SM completes the questionnaire.
-5. SM enters/submits Ist-Zeit.
-6. Submission validates assignment ownership, date, questionnaire completeness and allowed status transition.
-7. The Einsatz becomes submitted/completed and appears in SM Zeiterfassung.
-
-Whether the Ist-Zeit is entered manually, derived from a start/stop timer, or supports both is still open.
+4. If Fahrtzeiten are enabled for the SM account, the SM sees a GM-consistent start card, can optionally enter Fahrtzeit as `hh:mm`, and chooses either server timer or manual duration later.
+5. If Fahrtzeiten are disabled, the visit starts directly with a backend-owned timer and no Fahrtzeit field.
+6. SM completes the published questionnaire snapshot one phone card at a time.
+7. Timer visits derive Ist-Zeit from server timestamps; manual visits require an explicit `hh:mm` duration on review.
+8. Submission validates assignment ownership, questionnaire completeness and allowed status transition.
+9. The Einsatz becomes submitted/completed and appears in SM Zeiterfassung with a durable receipt.
 
 ### 6.5 Message distribution
 
@@ -260,7 +260,7 @@ Toolbar structure is copied from GM `Märkte`:
 - Search field on the far left with the same width, grey fill, search icon and placeholder `Markt suchen…`.
 - A flexible empty gap separates search from filters.
 - Compact filter buttons align on the right in a single row and use the current thin outline, white fill, tiny chevron and 6–7 px radius.
-- SM filters are `Region`, `Ort`, `PLZ`, `Handelskette`, `Stamm-SM`, `Stammmarkt`, `Status`, `Rhythmus` and `Nächster Einsatz`. Lower-priority filters may move into `Info` at narrower widths, following the current page behaviour.
+- The implemented master-data filters are `Region`, `Ort`, `PLZ`, `Handelskette`, `Stammmarkt von`, `Field Service GL` and `Status`. `Stammmarkt von` is populated from the imported `Shelf Merchandising MITARBEITER` column. `Field Service GL` is populated from `Field Service GEBIETSLEITER` and filters by its distinct imported names.
 - The dropdown window is the exact existing menu: narrow white floating panel, light border, restrained shadow, hidden/minimal scrollbar, 28–30 px option rows and no oversized menu items.
 - `Alle` is the first option. The selected/hovered option uses the same low-opacity red background and red text seen in the current filters.
 - Search/filter state must never change the table's core spacing.
@@ -288,10 +288,10 @@ SM columns, left to right:
 5. `REGION`.
 6. `PLZ`.
 7. `ORT`.
-8. `STAMM-SM` – currently assigned Shelf Merchandiser or `—`.
-9. `STAMMMARKT` – directly visible in every row. Use a compact value: `Ja` in green for an active Stammmarkt, `Nein`/`—` in neutral grey otherwise. This must be scannable without opening the drawer.
-10. `SOLL-ZEIT` – compact duration such as `90 Min`.
-11. `RHYTHMUS` – compact schedule such as `Mo + Fr` or `1× / Woche`.
+8. `STAMMMARKT VON` – the imported `Shelf Merchandising MITARBEITER` name or `—`. This imported source value is authoritative for the row label. The separate app-account relation may be auto-resolved by an exact unique name match but is not used as the visible source value.
+9. `STATUS` – active/inactive.
+
+`Field Service GEBIETSLEITER` is deliberately not a table column. It is additional cross-team context available in market details and through the `Field Service GL` filter only.
 
 The table must not grow visually heavier because of the new fields. At reduced widths, `INFO`, `SOLL-ZEIT` and `RHYTHMUS` collapse before the identity, address or `STAMMMARKT` information disappears.
 
@@ -315,7 +315,7 @@ Tabs:
 
 - `IDENTITÄT`: Name, Name lt. DB, interne ID and optional SM external ID.
 - `STANDORT`: Adresse, Postleitzahl, Ort and Region.
-- `ZUORDNUNG & KLASSIFIKATION`: Stamm-SM, Stammmarkt `Ja/Nein`, Status, Soll-Zeit, Rhythmus and optional verknüpfter GM-Markt.
+- `ZUORDNUNG & KLASSIFIKATION`: imported `Stammmarkt von` (`Shelf Merchandising MITARBEITER`), imported `Field Service Gebietsleiter`, the optional linked SM app account, market/chain and status.
 
 The `Stammmarkt` state is editable in the drawer with the same clean custom select/toggle treatment used by current market fields, but its value is also always visible in the table row.
 
@@ -327,6 +327,7 @@ All overlays reuse the screenshots' existing patterns:
 - SM field labels replace GM-only fields without changing the modal geometry. Required SM fields are identity, full address, region, active status, optional Stamm-SM, Stammmarkt state, Soll-Zeit and rhythm.
 - `Importieren` starts with the same compact dataset-selection window, exact header layout, progress dots, square close button and stacked bordered option rows with right arrows.
 - Mapping, preview and error UI continue to use existing Coke Spark import components.
+- A skipped row whose only problem is a missing `Flexnummer`/`Stammnummern` identity is repairable directly in the import summary. The admin enters at least one mapped identity value and retries only that original Excel row through the same idempotent import/upsert endpoint; already processed rows are not submitted again. On success, the skipped warning and counters update in place.
 
 #### 7.2.8 Interaction and responsive rules
 
@@ -582,24 +583,24 @@ Do not store a single market ID directly on the user: one SM can have multiple S
 
 ### 7.4 Planning and recurrence
 
-- `sm_assignment_series`
-  - series definition, recurrence rule, timezone and active validity
-  - default SM, market, Soll-Zeit, questionnaire/version and Pauschale
-  - soft-delete/audit fields
-- `sm_assignments`
-  - one row per concrete Einsatz/date
-  - optional `series_id`
-  - `sm_user_id`, `sm_market_id`, `work_date`
-  - `planned_minutes`
-  - `actual_minutes`
-  - fixed allowance snapshot in integer cents
-  - questionnaire/version reference or snapshot reference
-  - lifecycle status and submission timestamps
-  - soft-delete/audit fields
-- optional `sm_assignment_series_exceptions`
-  - explicit skipped or overridden occurrences when required
+The production planning contract is defined in detail in
+[`docs/sm-planning-data-model.md`](./sm-planning-data-model.md). Its central rules are:
 
-Materialized occurrences are preferred over calculating the complete calendar only at read time. They provide stable IDs, offline-friendly mobile behavior, simple filters and safe historical edits.
+- `sm_assignment_series` is a stable series identity; immutable `sm_assignment_series_versions` preserve every permanent definition change.
+- `sm_assignments` contains one materialized row per concrete Einsatz, including occurrences generated by a series.
+- Planning is linked to `sm_markets.id` and also snapshots the market `internal_market_id`/Stammnummer so later market-master edits cannot change historical planning identity.
+- Every occurrence stores immutable original date, SM, market and Soll-Zeit values.
+- Nullable `replacement_*` fields are the source of truth whenever populated. Effective values are resolved with `coalesce(replacement_*, original_*)`.
+- Cancelling one series occurrence changes only that materialized assignment; it never deletes or cancels the series.
+- Replacing the SM or date for one series occurrence changes only that occurrence.
+- A permanent SM change uses an explicit `Ab diesem Einsatz dauerhaft` UI path. It creates a new series version and applies the replacement only to eligible future, unstarted occurrences. Completed, cancelled and historical occurrences remain untouched.
+- `sm_assignment_events` is append-only and stores before/after snapshots for creation, replacement, rescheduling, cancellation, restoration and series-wide changes.
+- `sm_assignment_time_submissions` versions submitted Ist-Zeit independently from planning. A correction creates a new current version instead of overwriting history.
+- No normal planning action hard-deletes an Einsatz. Operational cancellation is a lifecycle state; technical removal is a protected soft delete.
+
+Materialized occurrences are required rather than calculating the calendar only at read time. They provide stable IDs, safe one-occurrence cancellation, deterministic mobile access and historically reproducible edits.
+
+Production persistence was applied on 2026-08-24 through migrations `20260824081232 sm_planning_domain`, `20260824081346 sm_planning_composite_fk_index` and `20260824082108 sm_planning_least_privilege`. Both application builds, the focused planning tests, metadata/security verification and rollback-only behavior checks passed. The production planning tables remain empty until real SM markets are imported and the first real Einsatz is created; no preview or smoke rows were retained.
 
 ### 7.5 Questionnaire domain
 
@@ -647,13 +648,15 @@ The independent SM questionnaire workspace at `/admin/sm/fragebogen` is connecte
 - Create, edit, duplicate and soft-delete persist through `/admin/sm-questionnaires`; search and filtering remain local presentation behavior. The export action remains an explicit preview notice until the SM export contract is implemented.
 - Later module edits are differential: unchanged questions keep their exact published question version, while only added or actually changed questions receive a new question version. Removed questions are soft-deleted. An unchanged save performs no authoring write.
 
-#### 7.5.1 SM Zeiterfassung UI checkpoint (2026-08-11)
+#### 7.5.1 SM Zeiterfassung implementation checkpoint (2026-08-24)
 
 - `/admin/sm/zeiterfassung` is an independent SM component tree and does not import the GM Zeiterfassung page or its GM day-session logic.
 - Its visual shell, day grouping, compact rows, expansion behavior, typography and `Tage` / `SM Ansicht` switch mirror the existing GM Zeiterfassung.
 - The SM domain does not display or model Tagesstart, Tagesende, Anfahrt, Heimfahrt, Pausen, Kilometer or GM Zusatzzeiten.
 - A day contains only the SM's planned Einsätze. Every Einsatz shows market identity, Soll-Zeit, Ist-Zeit, deviation, questionnaire state, Pauschale and operational status.
-- The current checkpoint is UI-only and uses component-local temporary Einsätze. No SM time, planning, payroll or questionnaire backend persistence is implied by this screen.
+- The page now loads real materialized `sm_assignments` from the bounded planning API; the former component-local temporary Einsätze have been removed.
+- The current Ist-Zeit comes from `sm_assignment_time_submissions`. First submission inserts revision 1; later corrections require a reason, supersede the prior version and preserve the full time history.
+- Questionnaire completion is derived from the current `sm_questionnaire_submissions` row linked through `assignment_id`.
 
 #### 7.5.2 SM Zeitkorrektur UI checkpoint (2026-08-13)
 
@@ -661,19 +664,30 @@ The independent SM questionnaire workspace at `/admin/sm/fragebogen` is connecte
 - The phone-first bottom sheet offers exactly two request types: a changed Ist-Zeit or deletion of the submitted Ist-Zeit. It never deletes the planned Einsatz, Soll-Zeit or planning record.
 - A time change requires a positive, genuinely changed duration in integer minutes. Both request types require a written reason.
 - Once submitted in the current UI checkpoint, the Einsatz shows `Anfrage offen`; opening it again presents the requested value and reason rather than allowing a second parallel request.
-- This remains component-local preview state until the dedicated SM assignment/time backend exists. The future persistent contract is `sm_time_change_requests`, linked to the immutable Einsatz and active time submission, with request kind, original/requested minute snapshots, reason, status, reviewer, reviewed timestamp, admin note and soft-delete/audit fields. One pending request per Einsatz must be enforced transactionally.
+- The admin-side actual-time persistence now exists through versioned `sm_assignment_time_submissions`. A separate SM-originated approval/request workflow remains future scope and, when implemented, will use `sm_time_change_requests` linked to the immutable Einsatz and active time submission.
 - Admin approval of a time change creates a new time-submission version or correction event; approval of a deletion soft-deletes only the active time submission. Neither operation may silently rewrite the Einsatz, questionnaire submission, Soll-Zeit, Pauschale or historical request snapshot.
 
-#### 7.5.3 SM Verplanung UI checkpoint (2026-08-11)
+#### 7.5.3 SM Verplanung implementation checkpoint (2026-08-24)
 
 - `/admin/sm/verplanung` is a new, isolated SM planning page inside the existing Coke Spark admin shell. It does not reuse GM planning logic or imply any GM campaign assignment behavior.
 - The page follows the approved Coke Spark planning draft: compact week/date context in the header, existing admin-sized export and planning actions, one dense weekly planning table, day groupings, SM/market/status/type filters and a right-side planning drawer.
 - The drawer supports the complete UI distinction between one-time Einsätze and recurring series, including weekday selection, validity range and Soll-Zeit. Editing a recurring occurrence explicitly affects only that occurrence, while a new series shows one unambiguous validity range instead of duplicate date controls.
-- Search, filters, week navigation, real Excel export and drawer interactions are functional in component-local state. All SM, market, duration, recurrence and filter selectors use the custom Coke Spark dropdown UI with portal overlays, keyboard support and searchable long lists where appropriate.
+- Search, filters, week navigation, real Excel export and drawer interactions operate on API-loaded assignments. All SM, market, duration, recurrence and filter selectors use the custom Coke Spark dropdown UI with portal overlays, keyboard support and searchable long lists where appropriate.
 - All planning dates use the custom Coke Spark month calendar rather than native browser date inputs. The calendar mirrors the established admin styling, renders through a viewport-aware portal above the drawer, supports month navigation, today/selected states and prevents an end date before the series start.
-- This checkpoint deliberately uses temporary planning rows. It does not write SM Einsätze, series, time data or payroll values to the database; production persistence and backend validation remain a separate implementation phase.
+- Temporary planning rows and hardcoded SM/market directories have been removed. The page persists one-time assignments, materialized weekly/biweekly series, occurrence edits, rescheduling, one-occurrence cancellation/restoration and one-occurrence or permanent-future SM reassignment through `/admin/sm-planning`.
+- Every edit displays the effective values as current truth while retaining and exposing the immutable original date, SM, market/Stammnummer and Soll-Zeit when a replacement exists.
+- The permanent reassignment path is explicit: `Nur dieser Einsatz` changes one occurrence; `Ab diesem Einsatz dauerhaft` first shows a validated impact preview with effective date and affected/skipped counts.
+- Planning create requests serialize only the backend contract fields; UI-only drawer discriminators never cross the API boundary. Single and series failures remain inside the drawer with an inline error instead of escaping into the Next.js runtime overlay.
 
-#### 7.5.4 SM Aktivitäten and questionnaire-correction UI checkpoint (2026-08-13)
+#### 7.5.4 SM phone-dashboard data checkpoint (2026-08-24)
+
+- `/sm` keeps the existing temporary hero/status card. Starting an Einsatz is intentionally not part of this checkpoint; the visible `Starten` control is disabled and has no mutation handler.
+- The dashboard calendar and selected-day Einsatz list load real materialized assignments through `GET /sm/planning/assignments` in bounded 93-day windows. Component-local visit/calendar seeds have been removed.
+- The backend accepts only `from` and `to`. It obtains the SM user ID exclusively from the verified access token and filters on the effective owner, `coalesce(replacement_sm_user_id, original_sm_user_id)`, so reassigned occurrences move to the correct SM dashboard without exposing another SM's data.
+- Calendar counts, market name, address, Soll-Zeit and status are derived from the same authenticated response. Rescheduled occurrences use the effective date and effective market/user values while their originals remain preserved by planning.
+- The dashboard message card remains end to end: inbox rows and read transitions are restricted to the authenticated SM recipient row, and `read_at` is created by the backend.
+
+#### 7.5.5 SM Aktivitäten and questionnaire-correction UI checkpoint (2026-08-13)
 
 - `/sm/aktivitaet` is the independent, phone-first SM counterpart to the GM activity page. It copies the proven visual hierarchy and request workflow, but does not import the GM page, GM components or GM visit/campaign data.
 - The overview contains only completed SM Einsatz questionnaire submissions and shows market, date, questionnaire, Soll/Ist time, question completeness and pending-request state. Search and an `all` / `with request` switch are available.
@@ -682,7 +696,7 @@ The independent SM questionnaire workspace at `/admin/sm/fragebogen` is connecte
 - This checkpoint remains component-local preview state because the SM assignment/questionnaire backend tables do not yet exist. Persistent implementation should use a dedicated `sm_answer_change_requests` table and `sm_questionnaire_submission_delete_requests`, each linked to immutable SM submission/question/answer IDs with original/requested snapshots, status, reviewer, review timestamp, admin note and soft-delete/audit fields.
 - Admin approval must create a new active answer/submission version or a traceable correction event. Historical raw submissions and request snapshots must remain reproducible; the GM request tables and routes are not reused.
 
-#### 7.5.5 SM questionnaire persistence foundation (2026-08-19)
+#### 7.5.6 SM questionnaire persistence foundation (2026-08-19)
 
 - The independent production schema is defined in `backend/drizzle/0089_sm_questionnaire_domain.sql` and mirrored by the Drizzle application schema.
 - It contains 21 tables, all prefixed `sm_`, covering stable question/module/questionnaire identities, immutable content versions, answer options, conditional logic, ordered composition, submission snapshots, every current SM editor answer shape, answer events and both correction-request flows.
@@ -695,15 +709,28 @@ The independent SM questionnaire workspace at `/admin/sm/fragebogen` is connecte
 - `sm_questionnaire_submissions.assignment_id` is reserved for the future `sm_assignments` table and intentionally does not point at any GM planning table. The FK is added with the SM planning persistence migration.
 - The detailed table catalog and lifecycle contract live in `docs/sm-questionnaire-data-model.md`.
 
+#### 7.5.7 One central SM questionnaire assignment (2026-08-27)
+
+- Shelf Merchandising uses one centrally selected logical questionnaire for all markets and every one-time or recurring Einsatz. There is no questionnaire picker inside an individual Einsatz drawer and no market cluster assignment.
+- The admin/SM-admin selects and later changes this questionnaire once above the SM Verplanung table. New planning is blocked until the central selection is valid.
+- `sm_questionnaire_global_assignments` stores append-only selection history. Exactly one non-deleted, non-superseded row may exist. Switching supersedes the current row and inserts a successor; it never bulk-updates assignments or submissions.
+- The row points to `sm_questionnaire_templates`, the stable logical identity. When a visit starts, the backend resolves the latest effective published version and snapshots that exact version, modules, questions, answer configuration and logic into the submission.
+- Therefore a newly published version of the selected questionnaire is automatically used by later starts. Changing the selected questionnaire affects all not-yet-started visits. Draft, in-progress and submitted visits retain their immutable snapshot and continue unchanged.
+- Existing per-assignment questionnaire IDs are treated as rollout-era legacy data. Once a global selection exists, it is authoritative for unstarted visits; the exact resolved version is written only when that visit starts.
+- The currently selected template cannot be made inactive or soft-deleted. The administrator must first choose another central questionnaire.
+- Migration `20260827135019 sm_global_questionnaire_assignment` was applied additively to production without choosing a default, backfilling assignments or changing the seven existing assignments and one existing submission.
+- Forced RLS, no browser-role grants, service-role least privilege, immutable assignment identity, one-current-row uniqueness, hard-delete rejection and a rollback-only behavior test are verified. The UI remains responsible for the first explicit selection.
+
 ### 7.6 Submission and time
 
-Suggested separation:
+Implemented separation:
 
-- `sm_assignment_submissions` for completion metadata and questionnaire submission linkage.
-- `sm_time_submissions` for Soll/Ist, submitter, corrections and approval state if approval is needed.
-- `sm_time_change_requests` only if SMs must request corrections after submission.
+- `sm_assignments` is the immutable planning/execution anchor.
+- `sm_questionnaire_submissions.assignment_id` links the existing versioned questionnaire runtime to the concrete Einsatz.
+- `sm_assignment_time_submissions` stores independently versioned Ist-Zeit. Exactly one active current revision is allowed per Einsatz.
+- `sm_time_change_requests` remains optional future scope only if SM-originated changes require an admin approval workflow.
 
-An assignment may have only one active final submission. Replacements/corrections must be versioned or soft-deleted with an audit record; never overwritten without trace.
+An assignment may have only one active final questionnaire submission and one current actual-time revision. Corrections create successors or audited state changes; they never overwrite the preserved original plan.
 
 ### 7.7 Pauschalen
 
@@ -713,11 +740,17 @@ Store money as integer cents and currency explicitly. Do not use floating-point 
 
 ### 7.8 Messages
 
-- `sm_messages`: authored message, subject/body, author, publish state and timestamps.
-- `sm_message_recipients`: one row per recipient with delivered/read timestamps.
-- optional filter/audience snapshot for audit purposes.
+Implemented on 2026-08-24:
 
-Messages should be soft-deletable for admin visibility rules while retaining the required audit trail and retention policy.
+- `sm_messages` stores the immutable subject, body, sender identity/name snapshot, server-owned send timestamp and retry-safe idempotency key.
+- `sm_message_recipients` stores exactly one immutable row per addressed SM with the SM user ID, name/e-mail snapshots and server-owned delivery timestamp.
+- `read_at` is nullable until the addressed SM explicitly marks the message as read. The backend creates the timestamp; the browser cannot provide it. A set timestamp cannot be changed or cleared.
+- The active recipient set is validated transactionally at send time. A later account rename/deactivation does not rewrite the historical recipient or sender snapshots.
+- Admin/SM-admin endpoints can list aggregate delivery/read state and the recipient audit rows. SM endpoints return only rows addressed to the authenticated SM.
+- Both tables use forced RLS, no `anon`/`authenticated` table privileges, backend-only least-privilege `service_role` access, soft-delete consistency guards and hard-delete rejection.
+- No audience/filter snapshot is persisted yet. The concrete immutable recipient rows are the authoritative evidence of who received a message.
+
+The detailed contract lives in `docs/sm-messages-data-model.md`.
 
 ## 8. Lifecycle and status rules
 
@@ -774,24 +807,25 @@ The separate admin SM dashboard should show:
 - `/admin/shelfmerchandiser` loads, creates and updates real SM accounts through the backend.
 - Generated account passwords are returned during creation.
 - A Shelf Merchandiser master-data Excel export exists.
+- The SM admin Nachrichten distributor loads active SM recipients, persists each sent message plus immutable recipient rows, and displays live delivery/read state.
+- The phone-first SM dashboard loads only that SM's messages and writes a one-time read timestamp through the backend.
+- The phone-first SM dashboard loads only the authenticated SM's effective planning assignments and renders real calendar counts and selected-day visits.
+- The dashboard opens the concrete Einsatz in `/sm/marktbesuch?assignmentId=<id>` and orders actionable visits before completed visits only on the SM side.
+- The Marktbesuch runtime persists server-owned start/time state, immutable questionnaire snapshots, per-question answer revisions, conditional applicability, private photos and an idempotent completion receipt.
 
 ### Existing UI scaffolds or placeholders
 
 - `/sm` dashboard exists and is phone-sized.
 - `StatusCard`, `AssignmentList`, `WeekStrip` and `NachrichtenCard` provide visual direction.
-- The recipient message card has unread/read visual states.
+- The recipient message card has unread/read visual states backed by persisted recipient rows.
 - The admin SM detail drawer contains profile and visit-looking tabs.
 
 ### Important limitations in the current code
 
-- Dashboard status, assignments, week markets and the message are static/mock defaults.
+- The dashboard status/hero card remains temporary by explicit product decision.
 - The admin SM visit display uses localStorage plus seed data, not authoritative backend SM visits.
-- No SM-specific market tables or endpoints currently exist.
-- Existing GM market/visit endpoints explicitly reject role `sm`.
-- No SM planning, recurrence, Stammmarkt, questionnaire execution, time submission or Pauschale backend exists yet.
-- No real admin message distributor, recipient persistence or read tracking exists yet.
-- Admin navigation is currently one combined list and has no GM/SM workspace switch.
-- There is no distinct `sm_admin` auth role.
+- Existing GM market/visit endpoints remain separate and explicitly reject role `sm`.
+- Approval requests, payroll export and broader reporting remain future slices.
 
 These placeholders must be replaced deliberately; they must not be treated as production data sources.
 
@@ -805,11 +839,13 @@ These placeholders must be replaced deliberately; they must not be treated as pr
 6. Build admin GM/SM workspace navigation.
 7. Build SM market and Stammmarkt administration.
 8. Build one-time and recurring planning.
-9. Build phone-first SM Einsatz/questionnaire flow.
+9. Build phone-first SM Einsatz/questionnaire flow. **Completed 2026-08-24.**
 10. Build SM Zeiterfassung and Pauschale reporting.
-11. Build message distributor and recipient read state.
+11. Build message distributor and recipient read state. **Completed 2026-08-24.**
 12. Replace dashboard mock data with authoritative endpoints.
 13. Add exports, audit views and end-to-end verification.
+
+Implementation checkpoint on 2026-08-24: steps 4, 5, 8, 9 and 11 are complete for the current scope. This includes the production planning schema/service, real admin planning UI, versioned Ist-Zeit persistence, backend-owned message/read state and the phone-first SM Marktbesuch runtime. Approval requests, payroll export and broader dashboard/reporting remain future slices.
 
 ## 12. Reliability requirements
 
@@ -836,7 +872,7 @@ These placeholders must be replaced deliberately; they must not be treated as pr
 
 ### Planning and time
 
-- Is Ist-Zeit manual, timer-based, or both?
+- What audited correction/request flow is allowed after a completed timer or manual submission?
 - May an SM submit on a later day?
 - What deviation from Soll-Zeit is allowed without admin approval?
 - Does an Einsatz require explicit admin approval?
@@ -851,7 +887,6 @@ These placeholders must be replaced deliberately; they must not be treated as pr
 
 ### Markets and Stammmärkte
 
-- Exact SM market import fields.
 - Exact shared internal-ID column and uniqueness rules.
 - Whether Stammmärkte have weekly patterns/default weekdays and default durations.
 
@@ -862,6 +897,24 @@ These placeholders must be replaced deliberately; they must not be treated as pr
 - Whether replies are allowed or messages are broadcast-only.
 
 ## 14. Decision log
+
+### 2026-08-24 – Imported SM/Field-Service ownership columns clarified
+
+- `Shelf Merchandising MITARBEITER` maps to `sm_markets.shelf_merchandiser_name` and is shown on the SM market list as `Stammmarkt von`.
+- `Field Service GEBIETSLEITER` maps to `sm_markets.field_service_manager_name`. It is informational cross-team context, remains hidden from SM market table rows, is visible in market details and provides a distinct-name filter.
+- The optional `assigned_sm_user_id` remains a separate app-account relation. Import may resolve it only when the imported Shelf Merchandising name uniquely matches an active SM account; the imported name remains the visible authoritative source value.
+- This clarification changes only the SM market administration. The GM admin market page and its existing Stammmarkt behavior are unchanged.
+
+### 2026-08-24 – SM market-account synchronization
+
+- The SM market-page header provides `SMs synchronisieren`. It scans only non-deleted SM markets and active, non-deleted users with role `sm`.
+- A market that already has `assigned_sm_user_id` is always skipped and is never overwritten by automatic or manual sync.
+- Name comparison is backend-owned, case-insensitive, accent-insensitive, punctuation/dash-insensitive and token-order-independent, so values such as `Mustermann Max` and `Max Mustermann` are equivalent. Small spelling variations are ranked fuzzily.
+- Automatic persistence requires a unique, clearly separated high-confidence candidate. Duplicate names and ambiguous/weak fuzzy results remain unmatched instead of risking a false assignment.
+- The result window groups successful rows compactly and renders every unmatched market with a searchable active-SM dropdown. Suggested candidates are ranked first, but the admin must explicitly confirm a manual match.
+- Manual matching is concurrency-guarded and updates only markets whose `assigned_sm_user_id` is still null. The imported `shelf_merchandiser_name` remains unchanged as the source value.
+- Once linked, UI display/filter values use the canonical first/last name from the SM user record. The raw imported name remains stored and is visible in market details when it differs from the canonical account name.
+- The existing `sm_markets.shelf_merchandiser_name` plus nullable `sm_markets.assigned_sm_user_id` already satisfy this contract; no schema migration is required.
 
 ### 2026-08-10 – Initial SM scope captured
 
@@ -1270,7 +1323,7 @@ The May SPOT chain ranking at depth +2 demonstrates the required score format: c
 - Require a review screen before final submission, including unresolved required answers and entered Ist-Zeit.
 - After submission, show a durable receipt/status. Corrections require an audited admin process or a request flow, not silent editing.
 - Preserve free text exactly and safely; do not convert it into a scored answer.
-- Photos are not part of the inspected SPOT questionnaire. If required later, they must be introduced as an explicit versioned question type rather than assumed from the GM flow.
+- Photos are an explicit versioned SM question type. They use a private bucket, signed assignment-scoped upload paths, server-side MIME/size/ownership validation and soft-deleted metadata.
 
 ## 24. Remaining business decisions after research
 
@@ -1279,8 +1332,252 @@ The May SPOT chain ranking at depth +2 demonstrates the required score format: c
 3. Whether `teilweise möglich` should continue counting as fully remediated for OOS reporting.
 4. Whether MHD `Nein` intentionally receives full points or is a SPOT configuration error.
 5. Exact trigger for the market-information follow-up when several categories can contain OOS.
-6. Whether SMs use a timer, manually enter Ist-Zeit or can use both.
-7. Allowed Soll/Ist deviation and any approval/correction workflow.
-8. Exact assignment-level Pauschale defaults and payroll/export format.
-9. Exact SM market import columns and verified shared internal market identifier.
-10. Whether the report/deck should retain chain-level market averages, add visit-weighted measures, or publish both.
+6. Allowed Soll/Ist deviation and any approval/correction workflow.
+7. Exact assignment-level Pauschale defaults and payroll/export format.
+8. Exact SM market import columns and verified shared internal market identifier.
+9. Whether the report/deck should retain chain-level market averages, add visit-weighted measures, or publish both.
+
+## 25. Implemented SM Marktbesuch runtime
+
+Status: implemented and completion-audited on 2026-08-24.
+
+### 25.1 Account capability and entry
+
+- SM account creation and editing persist `sm_travel_time_enabled`; non-SM roles cannot receive the flag through the admin-user API.
+- The authenticated SM dashboard opens the selected owned assignment at `/sm/marktbesuch?assignmentId=<uuid>`.
+- The backend derives the SM identity exclusively from the authenticated session and rejects foreign, inactive, deleted, cancelled, missed or completed assignments.
+- Dashboard ordering is intentionally SM-only: open and `in_progress` visits appear before completed visits. Admin Verplanung remains chronological.
+- Before a new submission is created, the visit resolves the one central SM questionnaire assignment. Once the draft exists, its exact published questionnaire graph is immutable and is not affected by a later central switch.
+
+### 25.2 Start and timing flow
+
+- Fahrtzeiten-enabled SMs see the GM-consistent start card with `Timer starten`, `Überspringen und später festhalten`, and optional `hh:mm` Fahrtzeit.
+- Fahrtzeiten-disabled SMs enter the questionnaire directly; a server-timed draft is created automatically and the UI exposes a clean retry state if that request fails.
+- Timer, manual visit duration and Fahrtzeit are three distinct values. Manual mode requires an explicit `hh:mm` visit duration before final submission; Fahrtzeit remains optional.
+- Start and final submission are transactionally protected with assignment locks and idempotency tokens. Repeating a successful request returns the existing draft or durable receipt instead of creating a duplicate.
+
+### 25.3 Questionnaire UI and behavior
+
+- The runtime supports `yesno`, `single`, `multiple`, `yesnomulti`, `likert`, `text`, `numeric`, `slider`, `photo` and `matrix`.
+- Question text and option labels wrap without clipping. Large choice sets and the quick navigator scroll internally with hidden scrollbars and retain at least 44 px touch targets.
+- The matrix is rendered as readable phone row cards rather than a wide desktop table. A required matrix is complete only when every configured row has one selected column.
+- Numeric and slider questions remain semantically unanswered until explicit interaction. Numeric bounds, integer mode and slider step are validated on both client interaction and server normalization.
+- `Ja / Nein Multi` supports branch-specific sub-options in the SM editor and runtime. The server rejects unknown top answers, unknown branch options and duplicate/tampered values, then stores them in published order.
+- Photo questions expose separate camera and gallery actions. Uploads use a private signed path, accept JPEG/PNG/WebP, enforce 15 MB per file and at most 20 committed files per question, and soft-delete removed metadata.
+- Conditional visibility is recomputed authoritatively after each save and at final submission. Hidden current answers are invalidated without overwriting unrelated questions or their history.
+- The fixed safe-area-aware navigation provides Back/Next plus a module-grouped quick-navigation bottom sheet. Review shows missing required questions, timing and Fahrtzeit before the final confirmation.
+
+### 25.4 Persistence contract
+
+- Published questionnaire sections, questions, options, config and logic are snapshotted once into the submission graph.
+- Saving one changed question creates only a new version of that answer and its normalized option/matrix rows. An identical normalized payload is a no-op.
+- Final submission revalidates every applicable required question, writes the actual visit duration, completes the assignment in the same transaction and returns a stable receipt ID.
+- Reloading an existing draft restores the persisted answers; reloading a submitted visit restores its timestamp and persisted actual duration.
+
+### 25.5 Production database evidence
+
+- Applied migrations: `20260824111548 sm_visit_runtime_timing` and `20260824112835 sm_visit_photo_bucket`.
+- `sm_questionnaire_submissions` contains nullable `visit_time_mode`, `travel_minutes` and `manual_visit_minutes` columns with checks for `timer | manual`, Fahrtzeit `0..1440`, and manual duration `1..1440` only in manual mode.
+- All eight runtime submission/answer tables have RLS enabled and forced. `anon` and `authenticated` have no table grants; access is through the authenticated backend service path.
+- Storage bucket `sm-visit-photos` is private, limited to 15 MB and restricted to `image/jpeg`, `image/png` and `image/webp`.
+- The Supabase security advisor reports the expected informational `rls_enabled_no_policy` entries for backend-only SM tables. Its only warning is the separate project-wide Auth setting for leaked-password protection, not a Marktbesuch schema issue.
+
+### 25.6 Verification evidence
+
+| Gate | Result |
+| --- | --- |
+| Frontend production build | Passed; `/sm/marktbesuch` is emitted. |
+| Backend TypeScript build | Passed with `tsc -p tsconfig.build.json`. |
+| Focused runtime tests | 7/7 passed: choice tampering, `Ja / Nein Multi`, numeric limits, matrix completeness/tampering, blank answers and conditional visibility. |
+| Local stack | Frontend `http://localhost:3000` and backend `/health` both returned HTTP 200. |
+| Browser widths | 320, 375, 390 and 430 px passed without horizontal overflow. |
+| Long choice sets | 30 single options, 20 multi options and 20 branch sub-options stayed readable and internally scrollable. |
+| Long text | 2,554 characters with 150 line breaks round-tripped in the production component without visual truncation. |
+| Matrix stress case | 12 rows × 8 columns rendered with 44 px minimum cells and no horizontal page overflow. |
+| Quick navigation | At 390 × 844 px the sheet stayed within the viewport, had a 44 px close target and no clipped question labels. |
+| Start screen | Timer target 48 px, manual/back targets 44 px, Fahrtzeit input 46 px; `01:25` parsed correctly. |
+| Photo controls | Camera uses rear-camera capture; gallery allows multiple JPEG/PNG/WebP files. |
+| Browser console | No runtime errors in the final development-fixture pass. |
+
+The complete backend repository test command also exposes four pre-existing failures outside this feature (one admin Zeiterfassung pause expectation and three RED-Monat date expectations). All Marktbesuch-focused tests pass; those unrelated baseline failures were not hidden or changed as part of this delivery.
+
+## 26. 2026-08-27 completion tranche: export, Nachrichten retention, Shelf Merchandiser
+
+### 26.1 SM Fragebogen Excel export
+
+- `/admin/sm/fragebogen` now performs a real asynchronous `.xlsx` export instead of opening the former preview notice.
+- The implementation deliberately reuses the GM workbook styling and interaction contract, but reads only the loaded SM authoring workspace and does not call any GM API or table.
+- The workbook contains `Meta`, `Fragen`, `Module`, `Fragebogen`, `Fragebogen Module`, `Logikregeln`, `OOS Zuordnung` and `Summen`.
+- All ten SM question types, Pflichtstatus, full type configuration, module/questionnaire order, version, conditional rules and OOS semantics remain auditable.
+- Empty workspace, all ten types, SM-specific relation content and XLSX serialization/reopen passed focused tests. The detailed contract lives in `docs/sm-questionnaire-export-living.md`.
+
+### 26.2 Nachrichten after-read visibility
+
+- Every new message chooses one immutable delivery rule: `0` means one-time, positive `N` means visible for exactly `N × 24 h` after the recipient's database timestamp.
+- The admin composer exposes the toggle, common presets and a bounded custom day value. The recipient table and message history remain available to admins after inbox expiry.
+- The authenticated SM inbox query is authoritative: unread is always visible; one-time read messages are excluded; positive-duration messages are excluded after expiry.
+- The existing production message is preserved through a `NULL` compatibility rule and was not rewritten.
+- Migration `sm_message_read_visibility` was applied after a read-only production preflight. Counts remained one message/one recipient, the check is validated, the immutability trigger includes the new field, forced RLS and service-role grants are unchanged.
+- Focused retention tests passed 4/4. Full details live in `docs/sm-messages-data-model.md`.
+
+### 26.3 Shelf Merchandiser page and Excel account contract
+
+- The Shelf Merchandiser page no longer reads seeded GM-style visits or browser `localStorage` history.
+- It loads real SM assignments from the authenticated SM planning API in bounded 93-day chunks, deduplicates by assignment ID and renders assignment status, market, date, Soll/Ist/Fahrtzeit, questionnaire and series/one-time origin.
+- Per-account completed-visit counts and the detail drawer are derived by the immutable SM user ID, never by a display-name join.
+- The Excel export now contains the agreed SM account fields (`SM ID`, `Name`, `E-Mail`, `Fahrtzeiten`, creation metadata) plus real `SM Summen` and `Einsätze` sheets.
+- Production schema verification confirms the complete agreed account contract already exists: non-null first name, last name, email, active state, creation time and `sm_travel_time_enabled`. Address remains intentionally excluded from SM account create/edit/export. No new account column or migration was needed.
+- Current production evidence: one active SM account, zero NULL Fahrtzeit flags, seven active assignments from 24–26 August 2026, one completed assignment and zero orphaned SM links.
+
+### 26.4 Verification gates and known unrelated baseline
+
+| Gate | Result |
+| --- | --- |
+| Frontend production build | Passed; all 45 routes generated. |
+| Backend TypeScript build | Passed. |
+| SM questionnaire workbook tests | 3/3 passed. |
+| SM message retention tests | 4/4 passed. |
+| Production message migration | Applied; row counts and historical behavior preserved. |
+| RLS/grants/constraint/trigger postflight | Passed. |
+| Full backend repository suite | 74/78 passed; failures are three pre-existing RED-Monat date expectations and the pre-existing admin-Zeiterfassung default-pause expectation, not files changed in this tranche. |
+
+No GM database table or GM production row was changed in this tranche.
+
+## 27. Live SM dashboard and OOS reporting
+
+Status: implementation contract locked on 2026-08-28. This section replaces the former May-2026 constants in the SM dashboard. It applies only to the Shelf Merchandising questionnaire, market, assignment and user tables; no GM visit or answer source participates.
+
+### 27.1 Authoritative reporting scope
+
+- The dashboard reads only current, non-deleted `sm_questionnaire_submissions` with status `submitted`, a non-null `reporting_available_at`, and a submission timestamp inside the selected Vienna-local inclusive date range.
+- Draft, cancelled, invalidated, superseded and approved-for-deletion submissions are excluded. A pending or rejected deletion request does not change reporting; the already implemented approved deletion flow removes the submission from the eligible state.
+- Only current, non-deleted answers with state `answered` are authoritative. An approved answer-change request creates a new current answer version, so the next dashboard read uses the corrected result. Pending, rejected and cancelled correction requests never affect the dashboard.
+- OOS meaning comes exclusively from the immutable submission snapshots: `metric_role_snapshot`, `oos_category_snapshot`, `metric_config_snapshot` and the selected option's `metric_outcome_code_snapshot`. The reporting code must never infer OOS from the visible labels `Ja`, `Nein`, `behoben` or similar text.
+- Period boundaries use `Europe/Vienna`: `from` begins at local 00:00 and `to` ends immediately before the following local day. This keeps daylight-saving boundaries correct.
+- Region, chain, market and Shelf-Merchandiser filters use immutable IDs for selection and the SM market/user domain for display. They narrow every card and breakdown consistently.
+
+### 27.2 Canonical OOS case model
+
+One OOS case is one submitted, applicable detection question in one visit whose current selected option is classified as `oos_present`. Repeated visits can therefore create repeated cases; several detection categories in the same visit can also create separate cases.
+
+Classified detection checks are current applicable detection answers with either `oos_present` or `oos_absent`. `not_applicable`, unanswered and unclassified answers are excluded from the detection denominator and surfaced as documentation gaps where relevant.
+
+The remediation question is linked to its detection question by the authored stable detection-question ID stored in `metric_config_snapshot.detectionQuestionId`. A found case is resolved when its linked, current remediation outcome is:
+
+- `resolved`; or
+- `partially_resolved` and that remediation snapshot has `partialCountsAsResolved` set to `true`.
+
+`not_resolved`, a non-counting partial result, an unanswered linked remediation, or a missing linked remediation never counts as fixed. This is deliberately conservative: the dashboard reports proof of remediation, not an optimistic assumption.
+
+### 27.3 Core metric cards
+
+1. **Abgeschlossene Besuche**
+   - `completed_visits = count(distinct eligible submission_id)`.
+   - The detail line shows distinct submitted markets in the same filtered scope.
+   - This card is context only and never acts as an OOS denominator.
+2. **OOS gefunden**
+   - `oos_found_cases = count(distinct submitted detection case where outcome = oos_present)`.
+   - The detail line shows `oos_found_cases / classified_detection_checks` and the visit-weighted detection rate.
+   - The headline stays a case count because this is the first user-defined core number.
+3. **OOS behoben**
+   - `fixed_rate = resolved_found_cases / oos_found_cases`.
+   - The detail line shows the exact numerator and denominator, for example `8 von 10 Fällen`.
+   - When `oos_found_cases = 0`, the UI displays `—` and `Nicht erforderlich`, never `0 %` or `100 %`.
+4. **Märkte mit OOS**
+   - `observed_markets = count(distinct market_id with at least one classified detection check)`.
+   - `markets_with_oos = count(distinct market_id with at least one oos_present case)`.
+   - `affected_market_rate = markets_with_oos / observed_markets`.
+   - The detail line always shows `x von y geprüften Märkten`. Imported but unvisited/unclassified markets are not put into this denominator.
+5. **Dokumentationsstatus**
+   - `documented_remediations = found cases with a linked classified remediation outcome`.
+   - `open_remediation_documentation = oos_found_cases - documented_remediations`.
+   - This makes skipped optional remediation answers visible without mislabelling them as fixed.
+
+### 27.4 Category component
+
+The category table contains the four authored SM OOS categories in a stable business order, even when one category has no data:
+
+1. Aktionsplatzierungen;
+2. Limonaden & Energy;
+3. Wasser & Near Water;
+4. Säfte & Eistee.
+
+For every category it shows found cases, detection rate (`found / classified checks`), fixed cases and fixed rate (`fixed / found`), plus affected/observed markets. Empty denominators display `—`. The row figures must reconcile exactly to the same filtered flat case set as the headline cards.
+
+### 27.5 Chain and region components
+
+- Each chain and region row is aggregated from the same eligible submissions and current OOS answer rows as the core cards.
+- Rows show completed visits, observed markets, found OOS cases, fixed rate and affected-market rate.
+- A group with visits but no classified OOS checks remains visible with `—` OOS rates. A group with no eligible submitted visit in the current filtered scope is omitted.
+- Search is a presentation filter for the displayed group rows only. Region, chain, market, SM and period controls are data filters and therefore trigger a new authoritative backend read.
+
+### 27.6 Data freshness and answer-to-dashboard propagation
+
+- Final questionnaire submission and its assignment completion already commit in one transaction. Once that transaction returns, the dashboard endpoint can see the new submitted answer versions immediately.
+- The frontend requests the endpoint with `cache: no-store`, shows a last-calculated timestamp, and offers an explicit refresh action. Navigating back to or reloading the SM dashboard also re-reads the endpoint.
+- Approved answer corrections replace the current answer version transactionally; the next read recalculates the affected case, category, chain, region and core cards. No materialized dashboard cache or delayed job is required for the current data volume.
+- Because metrics are calculated from immutable published semantics plus current answer versions, later questionnaire wording or option-label edits cannot rewrite historical OOS meaning.
+
+### 27.7 API, safety and performance contract
+
+- The endpoint is an authenticated admin/SM-admin read endpoint under `/admin/sm-dashboard`; it performs no writes.
+- Its base query starts from a bounded submitted-submission period and then joins submission questions, current answers and the selected option snapshot. Existing market/user/status indexes remain usable by the optional filters; a dedicated period index is added only when production query plans and row volume justify it. Filters are parameterized; raw label interpolation is forbidden.
+- Only SM tables are selected. The endpoint and tests must contain no GM table import or GM route dependency.
+- The response returns one reconciled payload: scope totals, core metrics, category rows, chain rows, region rows and filter options. The Excel export uses that payload rather than a separate calculation.
+- Focused tests cover: no OOS, present/absent detection, resolved/not-resolved/partial remediation, partial counting configuration, unanswered remediation, distinct market denominators, repeated visits, dimension grouping and current-answer correction replacement.
+
+### 27.8 UI behavior
+
+- The former static May-2026 dashboard is removed. Loading, empty and error states use the existing clean admin card language and never fall back to historical constants.
+- The first visual row prioritizes the three user-defined OOS numbers. Context and documentation cards are quieter so the operational signal remains obvious.
+- Red represents found OOS, green represents proven remediation, and neutral gray represents scope/coverage. Percentages always render with one decimal and every percentage has a visible numerator/denominator nearby.
+- The dashboard remains desktop-admin oriented and responsive within the existing admin shell. It does not alter any SM phone-side screen.
+
+### 27.9 Implementation and verification evidence
+
+- The read-only backend endpoint, shared metric aggregator, frontend types/API client and live admin workspace are implemented. The endpoint recalculates directly from current answer versions on every request; there is no stale materialized reporting copy.
+- Seven focused metric tests pass. They cover empty scope, found/fixed/affected-market denominators, missing remediation, both partial-remediation configurations, repeated visits with distinct-market counting, category/chain/region reconciliation and replacement by the current corrected answer.
+- Backend TypeScript and the frontend production build pass. The frontend build emits all 45 application routes, including `/admin/sm/dashboard`.
+- A read-only production-schema request for 1–28 August 2026 returned two completed SM submissions across two markets. Both current submissions use questionnaires without OOS-classified questions, so `classifiedChecks = 0`, `foundCases = 0` and all three percentage denominators correctly render as unavailable instead of fabricated zeroes.
+- Browser verification loaded the live workspace without runtime or console errors. Applying the Billa chain filter changed the completed-visit scope from two to one and updated the reconciled breakdown from the same payload.
+- The verification made no production database write and changed no GM route, table or row. Real non-zero OOS figures appear automatically after an OOS-enabled published questionnaire is selected centrally and a new SM visit is submitted; changing that central production selection was intentionally not used as a test shortcut.
+
+### 27.10 Production-backed SM-only end-to-end verification — 2026-08-28
+
+This verification supersedes the read-only limitation in the initial evidence above. The user explicitly authorized realistic writes in the SM domain only. No GM page was opened, no GM endpoint was called, and no GM table or row was read or changed during the data-path test.
+
+The central SM questionnaire was temporarily exercised with the published `TEST · OOS & Behebung` snapshot. Two isolated assignments for the existing SM test account were completed through the real phone UI:
+
+1. Billa, 1220 Wien: OOS present, fully resolved, with a real private signed-storage photo commit.
+2. Billa Plus, 9400 Wolfsberg: OOS absent. Its conditional remediation, explanation and photo questions were correctly removed, leaving one applicable required question.
+
+After the two submissions, the central SM assignment was restored to its exact pre-test value, `TEST · Abschluss & Dokumentation`. The completed visits retain their immutable OOS snapshots, so their dashboard evidence remains valid without changing future unstarted visits.
+
+The finished-only boundary was verified as a state transition, not inferred from code:
+
+- after OOS answers and their current answer versions had already been saved, but while the first visit was still a draft/in progress, the admin dashboard remained at the pre-test baseline of two completed visits and zero classified OOS checks;
+- after the first final submission transaction completed, it changed to three completed visits, one classified check, one found OOS and one fixed OOS;
+- while the second answered visit remained on its final review screen, the dashboard stayed at three completed visits and one classified check;
+- only after the second final submission did it change to four completed visits and two classified checks.
+
+The resulting mixed denominator set reconciled exactly:
+
+| Metric | Verified result |
+| --- | --- |
+| OOS found | `1 / 2 = 50.0%` |
+| OOS fixed | `1 / 1 = 100.0%` |
+| Markets with OOS | `1 / 2 = 50.0%` |
+| Completed visits | `4` across `3` distinct markets |
+| Open remediation documentation | `0` |
+
+Browser filter verification covered region, chain, SM user, market, combined region/chain, comparison-row search and reset. Representative reconciliations were:
+
+- `Region Süd`: one submitted visit, `0 / 1` OOS checks, fixed rate unavailable, affected markets `0 / 1`;
+- `Region Ost`: three submitted visits, `1 / 1` OOS checks, fixed `1 / 1`, affected markets `1 / 1`;
+- `Billa Plus`: two submitted visits, `0 / 1` OOS checks and affected markets `0 / 1`;
+- `Billa Plus · 9400 Wolfsberg`: one submitted visit, `0 / 1` OOS checks;
+- the real SM account was redirected from `/admin/sm/dashboard` back to `/sm`.
+
+The SM dashboard schedule cache is invalidated when a visit is submitted or discarded and again immediately before leaving its receipt. This prevents a completed assignment from briefly repainting as `Starten` from the long-lived offline schedule snapshot; the background server read remains authoritative.
+
+The reporting eligibility predicate remains intentionally strict and centralized in the SM-only dashboard route: `status = 'submitted'`, `is_current = true`, `is_deleted = false`, and `reporting_available_at is not null`. Planned, started, paused, draft, cancelled, superseded and soft-deleted questionnaires cannot enter any card, category row, chain row, region row or export payload.

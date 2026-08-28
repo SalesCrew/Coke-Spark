@@ -16,19 +16,29 @@ import {
   X,
 } from "lucide-react";
 import {
+  approveAdminSmPlanningTimeChangeRequest,
   approveAdminAnswerChangeRequest,
   approveAdminTimeEntryChangeRequest,
   approveAdminVisitSessionDeleteRequest,
   fetchAdminAnswerChangeRequests,
+  fetchAdminSmActivityRequests,
   fetchAdminTimeEntryChangeRequests,
   fetchAdminVisitSessionDeleteRequests,
   rejectAdminAnswerChangeRequest,
+  rejectAdminSmPlanningTimeChangeRequest,
   rejectAdminTimeEntryChangeRequest,
   rejectAdminVisitSessionDeleteRequest,
+  reviewAdminSmAnswerChangeRequest,
+  reviewAdminSmSubmissionDeleteRequest,
   type AdminAnswerChangeRequest,
   type AdminVisitSessionDeleteRequest,
   type TimeEntryChangeRequest,
 } from "@/lib/api/backend";
+import type {
+  SmActivityAnswerChangeRequest,
+  SmActivitySubmissionDeleteRequest,
+  SmAdminTimeChangeRequest,
+} from "@/types/smActivity";
 
 type RequestAction = "approve" | "reject";
 
@@ -64,6 +74,22 @@ function formatKmRange(start: number | null, end: number | null): string {
 }
 
 function formatTimeRequestValue(request: TimeEntryChangeRequest, requested: boolean): string {
+  const smRequest = request as TimeEntryChangeRequest & {
+    smRequestKind?: "time_change" | "deletion";
+    smOriginalMinutes?: number;
+    smRequestedMinutes?: number | null;
+  };
+  if (smRequest.smRequestKind) {
+    if (requested && smRequest.smRequestKind === "deletion") return "Erfassung entfernen";
+    const start = requested ? request.requestedStartAt : request.originalStartAt;
+    const end = requested ? request.requestedEndAt : request.originalEndAt;
+    if (start && end) return formatTimeRange(start, end);
+    const minutes = requested ? smRequest.smRequestedMinutes : smRequest.smOriginalMinutes;
+    if (minutes == null) return "Erfassung entfernen";
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return hours ? `${hours} h${rest ? ` ${rest} min` : ""}` : `${rest} min`;
+  }
   if (request.sourceKind !== "day_km") {
     if (request.requestedActivityType && !requested) return "Nicht erfasst";
     return requested
@@ -191,18 +217,156 @@ function settledActionError(
   return failed.reason instanceof Error ? failed.reason.message : fallback;
 }
 
+function smOriginalAnswerLabel(request: SmActivityAnswerChangeRequest): string {
+  const value = request.originalAnswerSnapshot.value;
+  if (!value || typeof value !== "object") return "Keine Antwort";
+  const answer = value as Record<string, unknown>;
+  const optionLabel = (code: unknown) => {
+    const normalized = String(code ?? "").trim();
+    return request.questionOptions.find((option) => option.code === normalized)?.label ?? normalized;
+  };
+
+  if (answer.kind === "choice") return optionLabel(answer.optionCode) || "Keine Antwort";
+  if (answer.kind === "multi") {
+    return Array.isArray(answer.optionCodes)
+      ? answer.optionCodes.map(optionLabel).filter(Boolean).join(", ") || "Keine Antwort"
+      : "Keine Antwort";
+  }
+  if (answer.kind === "yesnomulti") {
+    const subOptions = Array.isArray(answer.subOptions) ? answer.subOptions.map(String).filter(Boolean) : [];
+    return [optionLabel(answer.optionCode), ...subOptions].filter(Boolean).join(": ") || "Keine Antwort";
+  }
+  if (answer.kind === "text") return String(answer.value || "Kein Text");
+  if (answer.kind === "number") return String(answer.value ?? "Keine Antwort");
+  if (answer.kind === "photo") {
+    const count = Array.isArray(answer.fileIds) ? answer.fileIds.length : 0;
+    return `${count} Foto${count === 1 ? "" : "s"}`;
+  }
+  if (answer.kind === "matrix") {
+    const count = Array.isArray(answer.cells)
+      ? answer.cells.filter((cell) => Boolean((cell as Record<string, unknown>)?.selected)).length
+      : 0;
+    return `${count} Matrixwerte`;
+  }
+  return "Keine Antwort";
+}
+
+function adaptSmAnswerRequest(request: SmActivityAnswerChangeRequest): AdminAnswerChangeRequest {
+  return {
+    id: request.id,
+    status: request.status,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    reviewedByUserId: null,
+    reviewedAt: request.reviewedAt,
+    adminNote: request.adminNote,
+    visitSessionId: request.submissionId,
+    visitSessionQuestionId: request.submissionQuestionId,
+    visitAnswerId: request.originalAnswerId,
+    questionType: request.questionType,
+    questionText: request.questionText,
+    currentAnswerSnapshot: { valueText: smOriginalAnswerLabel(request) },
+    requestedAnswerPayload: request.requestedAnswerPayload as unknown as Record<string, unknown>,
+    requestedAnswerSummary: request.requestedAnswerSummary,
+    requestNote: request.requestReason,
+    autoApplicable: request.autoApplicable,
+    autoApplicabilityError: request.autoApplicabilityError,
+    gm: { ...request.sm, region: null },
+    market: { ...request.market, region: null },
+    session: {
+      id: request.submissionId,
+      startedAt: null,
+      submittedAt: request.submission.submittedAt,
+    },
+    section: {
+      section: "standard",
+      campaignId: request.submission.assignmentId ?? request.submissionId,
+      campaignName: request.submission.moduleName || request.submission.questionnaireName,
+      fragebogenName: `${request.submission.questionnaireName} · Version ${request.submission.questionnaireVersion}`,
+    },
+  };
+}
+
+function adaptSmDeleteRequest(request: SmActivitySubmissionDeleteRequest): AdminVisitSessionDeleteRequest {
+  return {
+    id: request.id,
+    status: request.status,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    reviewedByUserId: null,
+    reviewedAt: request.reviewedAt,
+    adminNote: request.adminNote,
+    visitSessionId: request.submissionId,
+    requestNote: request.requestReason,
+    campaignSummary: `${request.questionnaireName} · Version ${request.questionnaireVersion}`,
+    sectionSummary: "SM",
+    gm: { ...request.sm, region: null },
+    market: {
+      ...request.market,
+      address: "",
+      postalCode: "",
+      city: "",
+      region: null,
+    },
+    session: {
+      id: request.submissionId,
+      startedAt: null,
+      submittedAt: request.submittedAt,
+    },
+  };
+}
+
+function adaptSmTimeRequest(request: SmAdminTimeChangeRequest): TimeEntryChangeRequest {
+  return {
+    id: request.id,
+    daySessionId: request.assignmentId,
+    gmUserId: request.sm.id,
+    sourceKind: "marktbesuch",
+    sourceId: request.assignmentId,
+    workDate: request.workDate,
+    timezone: "Europe/Vienna",
+    title: request.market.name,
+    subtitle: request.kind === "deletion" ? "Ist-Zeit löschen" : "Start und Ende korrigieren",
+    requestedActivityType: null,
+    originalStartAt: request.originalStartedAt ?? "",
+    originalEndAt: request.originalCompletedAt ?? "",
+    requestedStartAt: request.requestedStartedAt ?? "",
+    requestedEndAt: request.requestedCompletedAt ?? "",
+    originalStartKm: null,
+    originalEndKm: null,
+    requestedStartKm: null,
+    requestedEndKm: null,
+    requestNote: request.requestReason,
+    status: request.status,
+    reviewedByUserId: null,
+    reviewedAt: request.reviewedAt,
+    appliedAt: null,
+    adminNote: request.adminNote,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    gm: { ...request.sm, region: null },
+    smRequestKind: request.kind,
+    smOriginalMinutes: request.originalMinutes,
+    smRequestedMinutes: request.requestedMinutes,
+  } as TimeEntryChangeRequest & {
+    smRequestKind: "time_change" | "deletion";
+    smOriginalMinutes: number;
+    smRequestedMinutes: number | null;
+  };
+}
+
 type AnswerChangeRequestFlapProps = {
   workspace?: "gm" | "sm";
 };
 
-export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequestFlapProps) {
+function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequestFlapProps) {
   const isSmWorkspace = workspace === "sm";
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [requests, setRequests] = useState<AdminAnswerChangeRequest[]>([]);
   const [timeRequests, setTimeRequests] = useState<TimeEntryChangeRequest[]>([]);
   const [deleteRequests, setDeleteRequests] = useState<AdminVisitSessionDeleteRequest[]>([]);
-  const [loading, setLoading] = useState(!isSmWorkspace);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [selectedGmId, setSelectedGmId] = useState<string | null>(null);
@@ -211,18 +375,16 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
   const [expandedDoneOpen, setExpandedDoneOpen] = useState(false);
 
   const loadRequests = useCallback(async (options?: { preserveError?: boolean }) => {
-    if (isSmWorkspace) {
-      setRequests([]);
-      setTimeRequests([]);
-      setDeleteRequests([]);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     if (!options?.preserveError) setError(null);
     try {
+      if (isSmWorkspace) {
+        const result = await fetchAdminSmActivityRequests();
+        setRequests(sortRequests(result.answerRequests.map(adaptSmAnswerRequest)));
+        setTimeRequests(sortTimeRequests(result.timeRequests.map(adaptSmTimeRequest)));
+        setDeleteRequests(sortDeleteRequests(result.deleteRequests.map(adaptSmDeleteRequest)));
+        return;
+      }
       const [nextAnswerRequests, nextTimeRequests, nextDeleteRequests] = await Promise.all([
         fetchAdminAnswerChangeRequests(),
         fetchAdminTimeEntryChangeRequests(),
@@ -331,7 +493,7 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
       const id = gm?.id ?? "unknown";
       const entry = byGm.get(id) ?? {
         id,
-        name: gm?.name ?? "Gebietsmanager",
+        name: gm?.name ?? (isSmWorkspace ? "Shelf Merchandiser" : "Gebietsmanager"),
         email: gm?.email ?? "",
         region: gm?.region ?? null,
         requests: [],
@@ -359,7 +521,7 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
       if (dateDiff !== 0) return dateDiff;
       return a.name.localeCompare(b.name);
     });
-  }, [completedRequests, completedTimeRequests, completedDeleteRequests]);
+  }, [completedRequests, completedTimeRequests, completedDeleteRequests, isSmWorkspace]);
 
   const allPeople = useMemo(() => {
     const byGm = new Map<string, {
@@ -467,9 +629,11 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
     try {
       const results = await Promise.allSettled(
         uniqueIds.map((id) =>
-          action === "approve"
-            ? approveAdminAnswerChangeRequest(id)
-            : rejectAdminAnswerChangeRequest(id),
+          isSmWorkspace
+            ? reviewAdminSmAnswerChangeRequest(id, action)
+            : action === "approve"
+              ? approveAdminAnswerChangeRequest(id)
+              : rejectAdminAnswerChangeRequest(id),
         ),
       );
       const actionError = settledActionError(results, "Ein Teil der Anfragen konnte nicht verarbeitet werden.");
@@ -494,9 +658,13 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
     try {
       const results = await Promise.allSettled(
         uniqueIds.map((id) =>
-          action === "approve"
-            ? approveAdminTimeEntryChangeRequest(id)
-            : rejectAdminTimeEntryChangeRequest(id),
+          isSmWorkspace
+            ? action === "approve"
+              ? approveAdminSmPlanningTimeChangeRequest(id)
+              : rejectAdminSmPlanningTimeChangeRequest(id)
+            : action === "approve"
+              ? approveAdminTimeEntryChangeRequest(id)
+              : rejectAdminTimeEntryChangeRequest(id),
         ),
       );
       const actionError = settledActionError(results, "Ein Teil der Zeitanfragen konnte nicht verarbeitet werden.");
@@ -515,9 +683,11 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
     try {
       const results = await Promise.allSettled(
         uniqueIds.map((id) =>
-          action === "approve"
-            ? approveAdminVisitSessionDeleteRequest(id)
-            : rejectAdminVisitSessionDeleteRequest(id),
+          isSmWorkspace
+            ? reviewAdminSmSubmissionDeleteRequest(id, action)
+            : action === "approve"
+              ? approveAdminVisitSessionDeleteRequest(id)
+              : rejectAdminVisitSessionDeleteRequest(id),
         ),
       );
       const actionError = settledActionError(results, "Ein Teil der Löschanfragen konnte nicht verarbeitet werden.");
@@ -565,7 +735,7 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
           <div className="answer-card-top">
             <div className="answer-avatar">{initials(request.gm?.name ?? "GM")}</div>
             <div className="answer-card-title">
-              <strong>{request.gm?.name ?? "Gebietsmanager"}</strong>
+              <strong>{request.gm?.name ?? (isSmWorkspace ? "Shelf Merchandiser" : "Gebietsmanager")}</strong>
               <span>{request.workDate} · {timeKindLabel(request)}</span>
             </div>
             <span className={`answer-status is-${request.status}`}>{request.status}</span>
@@ -687,24 +857,24 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
         className="answer-flap-tab"
         type="button"
         onClick={() => setOpen((value) => !value)}
-        aria-label={open ? "?nderungsanfragen schließen" : "?nderungsanfragen ?ffnen"}
+        aria-label={open ? "Änderungsanfragen schließen" : "Änderungsanfragen öffnen"}
       >
         {!open ? <span className={`answer-flap-tab-dot ${totalPendingCount > 0 ? "is-hot" : ""}`} /> : null}
         <span className="answer-flap-tab-label">{open ? "Schließen" : "Anfragen"}</span>
         {!open ? <span className="answer-flap-tab-count">{totalPendingCount}</span> : null}
       </button>
-        <section className="answer-flap-panel" aria-label="?nderungsanfragen">
+        <section className="answer-flap-panel" aria-label="Änderungsanfragen">
           <header className="answer-flap-header">
             <div className="answer-flap-title">
-              <div className="answer-flap-eyebrow">{isSmWorkspace ? "SM Prüfung" : "Pruefung"}</div>
-              <h2>{isSmWorkspace ? "SM Anfragen" : "Antwortprüfung"}</h2>
-              <p>{isSmWorkspace ? "Korrekturen aus SM-Einsätzen und Zeiterfassung." : "Korrekturen aus Fragebögen und Zeiterfassung."}</p>
+              <div className="answer-flap-eyebrow">Prüfung</div>
+              <h2>Antwortprüfung</h2>
+              <p>Korrekturen aus Fragebögen und Zeiterfassung.</p>
             </div>
             <div className="answer-flap-header-actions">
               <button type="button" className="answer-icon-button" onClick={() => void loadRequests()} aria-label="Aktualisieren" disabled={loading}>
                 {loading ? <Loader2 size={14} className="answer-spin" /> : <RefreshCcw size={14} />}
               </button>
-              <button type="button" className="answer-icon-button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Kleiner anzeigen" : "Gr??er anzeigen"}>
+              <button type="button" className="answer-icon-button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Kleiner anzeigen" : "Größer anzeigen"}>
                 {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               </button>
               <button type="button" className="answer-icon-button" onClick={() => setOpen(false)} aria-label="Schließen">
@@ -727,7 +897,7 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
                 <div className="answer-empty">
                   <Inbox size={20} />
                   <strong>Keine offenen Anfragen</strong>
-                  <span>{isSmWorkspace ? "Neue SM-Anfragen erscheinen getrennt in dieser Liste." : "Neue Korrekturen erscheinen automatisch in dieser Liste."}</span>
+                  <span>Neue Korrekturen erscheinen automatisch in dieser Liste.</span>
                 </div>
               ) : (
                 <>
@@ -785,7 +955,7 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
                       <div className="answer-card-top">
                         <div className="answer-avatar">{initials(request.gm?.name ?? "GM")}</div>
                         <div className="answer-card-title">
-                          <strong>{request.gm?.name ?? "Gebietsmanager"}</strong>
+                          <strong>{request.gm?.name ?? (isSmWorkspace ? "Shelf Merchandiser" : "Gebietsmanager")}</strong>
                           <span>{request.workDate} · {timeKindLabel(request)}</span>
                         </div>
                         <span className={`answer-status is-${request.status}`}>{request.status}</span>
@@ -904,7 +1074,7 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
                   <>
                     <div className="answer-person-header">
                       <div className="answer-person-header-main">
-                        <div className="answer-pane-title">Pruefung pro GM</div>
+                        <div className="answer-pane-title">Prüfung pro {isSmWorkspace ? "SM" : "GM"}</div>
                         <h3>{selectedPerson.name}</h3>
                         <p>
                           {selectedPersonPendingCount} offene Anfrage{selectedPersonPendingCount === 1 ? "" : "n"}
@@ -2113,4 +2283,8 @@ export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeReques
       `}</style>
     </div>
   );
+}
+
+export function AnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequestFlapProps) {
+  return <SharedAnswerChangeRequestFlap workspace={workspace} />;
 }

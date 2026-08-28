@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { SmMarketImportModal } from "@/components/admin/sm/SmMarketImportModal";
+import { SmMarketUserSyncModal } from "@/components/admin/sm/SmMarketUserSyncModal";
 import { createSmMarket, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket } from "@/lib/api/backend";
 import type { ImportSmMarketsInput, SmMarketImportSummary, SmMarketRecord } from "@/types/smMarkets";
 import type { SMRecord } from "@/types/shelfmerchandiser";
@@ -54,7 +55,8 @@ type MarketFilters = {
   city: string | null;
   postalCode: string | null;
   chain: string | null;
-  smId: string | null;
+  shelfMerchandiserName: string | null;
+  fieldServiceManagerName: string | null;
   status: "Aktiv" | "Inaktiv" | null;
 };
 
@@ -69,7 +71,8 @@ const EMPTY_FILTERS: MarketFilters = {
   city: null,
   postalCode: null,
   chain: null,
-  smId: null,
+  shelfMerchandiserName: null,
+  fieldServiceManagerName: null,
   status: null,
 };
 
@@ -100,6 +103,10 @@ function marketInternalId(market: SmMarketPreview): string {
 
 function marketChain(market: SmMarketPreview): string {
   return market.chain?.trim() || market.dbName.trim() || market.name.split(" ")[0]?.trim() || "Markt";
+}
+
+function marketOwnerDisplayName(market: SmMarketPreview, assignedSm: SMRecord | undefined): string {
+  return assignedSm ? formatSmName(assignedSm) : market.shelfMerchandiserName?.trim() || "—";
 }
 
 function formatPlanningHours(value: number | undefined): string {
@@ -154,6 +161,8 @@ function buildSearchText(market: SmMarketPreview, assignedSm: SMRecord | undefin
       market.city,
       market.region,
       market.infoNote,
+      market.shelfMerchandiserName ?? "",
+      market.fieldServiceManagerName ?? "",
       assignedSm ? formatSmName(assignedSm) : "",
       assignedSm?.email ?? "",
     ].join(" "),
@@ -467,17 +476,13 @@ function FilterButton({
 const MarketRow = memo(function MarketRow({
   market,
   active,
-  assignedSmId,
-  users,
+  ownerName,
   onSelect,
-  onAssign,
 }: {
   market: SmMarketPreview;
   active: boolean;
-  assignedSmId: string | null;
-  users: SMRecord[];
+  ownerName: string;
   onSelect: (marketId: string) => void;
-  onAssign: (marketId: string, smId: string | null) => void;
 }) {
   const chain = marketChain(market);
   const colors = chainColors(chain);
@@ -515,7 +520,7 @@ const MarketRow = memo(function MarketRow({
       <div className="sm-table-value">{market.region}</div>
       <div className="sm-table-value sm-tabular">{market.postalCode}</div>
       <div className="sm-table-value">{market.city}</div>
-      <SmAssignmentSelect value={assignedSmId} users={users} compact onChange={(smId) => onAssign(market.id, smId)} />
+      <div className="sm-table-value" title={ownerName === "—" ? undefined : ownerName}>{ownerName}</div>
       <span style={{ justifySelf: "end", padding: "3px 7px", borderRadius: 999, background: market.isActive ? "rgba(22,163,74,0.07)" : "rgba(220,38,38,.075)", color: market.isActive ? "#15803d" : COKE_RED, fontSize: 9, fontWeight: 700 }}>
         {market.isActive ? "Aktiv" : "Inaktiv"}
       </span>
@@ -525,16 +530,14 @@ const MarketRow = memo(function MarketRow({
 
 function VirtualMarketList({
   markets,
-  users,
+  userById,
   selectedId,
   onSelect,
-  onAssign,
 }: {
   markets: SmMarketPreview[];
-  users: SMRecord[];
+  userById: Map<string, SMRecord>;
   selectedId: string | null;
   onSelect: (marketId: string) => void;
-  onAssign: (marketId: string, smId: string | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -582,10 +585,8 @@ function VirtualMarketList({
             key={market.id}
             market={market}
             active={market.id === selectedId}
-            assignedSmId={market.assignedSmUserId}
-            users={users}
+            ownerName={marketOwnerDisplayName(market, market.assignedSmUserId ? userById.get(market.assignedSmUserId) : undefined)}
             onSelect={onSelect}
-            onAssign={onAssign}
           />
         ))}
       </div>
@@ -646,6 +647,9 @@ function MarketDetailDrawer({
   const [actionError, setActionError] = useState<string | null>(null);
   const chain = marketChain(market);
   const colors = chainColors(chain);
+  const linkedSmUser = assignedSmId ? users.find((user) => user.id === assignedSmId) : undefined;
+  const ownerDisplayName = marketOwnerDisplayName(market, linkedSmUser);
+  const importedSmName = market.shelfMerchandiserName?.trim() ?? "";
   const weekdayHours = market.weekdayHours ?? {};
   const derivedServiceDays = WEEKDAYS.filter(({ key }) => weekdayHours[key] !== undefined).length;
   const derivedWeeklyHours = WEEKDAYS.reduce((sum, { key }) => sum + (weekdayHours[key] ?? 0), 0);
@@ -734,8 +738,11 @@ function MarketDetailDrawer({
             </InfoSection>
             <div className="sm-drawer-divider" />
             <InfoSection label="Zuordnung & Klassifikation">
+              <InfoRow label="Stammmarkt von" value={ownerDisplayName} />
+              {linkedSmUser && importedSmName && normalize(importedSmName) !== normalize(ownerDisplayName) ? <InfoRow label="Importierter SM-Name" value={importedSmName} /> : null}
+              <InfoRow label="Field Service Gebietsleiter" value={market.fieldServiceManagerName} />
               <div style={{ display: "grid", gridTemplateColumns: "112px minmax(0,1fr)", gap: 10, alignItems: "center" }}>
-                <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Stammmarkt von</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Verknüpfter SM-Account</span>
                 <SmAssignmentSelect value={assignedSmId} users={users} onChange={onAssign} />
               </div>
               {editing ? <EditInfoRow label="Markt"><input className="sm-market-edit-field" value={draft.chain} onChange={(event) => updateDraft("chain", event.target.value)} /></EditInfoRow> : <InfoRow label="Markt" value={marketChain(market)} />}
@@ -783,8 +790,8 @@ function MarketDetailDrawer({
               <div className="sm-planning-section-heading"><span>Zuständigkeit</span><small>Aus Marktdatei</small></div>
               <div className="sm-planning-people">
                 <div className="sm-planning-person">
-                  <span className="sm-planning-avatar is-sm">{planningInitials(market.shelfMerchandiserName)}</span>
-                  <div><span>Shelf Merchandising Mitarbeiter</span><strong>{market.shelfMerchandiserName || "—"}</strong></div>
+                  <span className="sm-planning-avatar is-sm">{planningInitials(ownerDisplayName)}</span>
+                  <div><span>Shelf Merchandising Mitarbeiter</span><strong>{ownerDisplayName}</strong></div>
                   <small>SM</small>
                 </div>
                 <div className="sm-planning-person">
@@ -929,7 +936,7 @@ function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: 
             <div className="sm-market-create-section-title">Zuordnung &amp; interner Hinweis</div>
             <div className="sm-market-create-grid is-bottom">
               <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                <label className="sm-market-create-label"><span>Stammmarkt von</span><SmAssignmentSelect value={assignedSmId} users={users} onChange={setAssignedSmId} /></label>
+                <label className="sm-market-create-label"><span>Verknüpfter SM-Account</span><SmAssignmentSelect value={assignedSmId} users={users} onChange={setAssignedSmId} /></label>
                 <label className="sm-market-create-label"><span>Status</span><button type="button" onClick={() => setIsActive((current) => !current)} className={`sm-market-create-status${isActive ? " is-active" : " is-inactive"}`}>{isActive ? "Aktiv" : "Inaktiv"}</button></label>
               </div>
               <label className="sm-market-create-label">
@@ -986,6 +993,7 @@ export default function SmMaerktePage() {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showSmSync, setShowSmSync] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -1008,6 +1016,15 @@ export default function SmMaerktePage() {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const openSync = () => {
+      setSelectedId(null);
+      setShowSmSync(true);
+    };
+    window.addEventListener("sm-maerkte:openSmSync", openSync);
+    return () => window.removeEventListener("sm-maerkte:openSmSync", openSync);
   }, []);
 
   useEffect(() => {
@@ -1035,7 +1052,12 @@ export default function SmMaerktePage() {
     city: uniqueSorted(markets.map((market) => market.city)),
     postalCode: uniqueSorted(markets.map((market) => market.postalCode)),
     chain: uniqueSorted(markets.map((market) => marketChain(market))),
-  }), [markets]);
+    shelfMerchandiserName: uniqueSorted(markets.map((market) => {
+      const value = marketOwnerDisplayName(market, market.assignedSmUserId ? userById.get(market.assignedSmUserId) : undefined);
+      return value === "—" ? "" : value;
+    })),
+    fieldServiceManagerName: uniqueSorted(markets.map((market) => market.fieldServiceManagerName ?? "")),
+  }), [markets, userById]);
 
   const filteredMarkets = useMemo(() => {
     const query = normalize(deferredSearch);
@@ -1047,7 +1069,8 @@ export default function SmMaerktePage() {
       if (filters.city && market.city !== filters.city) return false;
       if (filters.postalCode && market.postalCode !== filters.postalCode) return false;
       if (filters.chain && marketChain(market) !== filters.chain) return false;
-      if (filters.smId && assignedSmId !== filters.smId) return false;
+      if (filters.shelfMerchandiserName && marketOwnerDisplayName(market, assignedSm) !== filters.shelfMerchandiserName) return false;
+      if (filters.fieldServiceManagerName && market.fieldServiceManagerName?.trim() !== filters.fieldServiceManagerName) return false;
       if (filters.status === "Aktiv" && !market.isActive) return false;
       if (filters.status === "Inaktiv" && market.isActive) return false;
       return true;
@@ -1152,7 +1175,6 @@ export default function SmMaerktePage() {
     setFilters((current) => ({ ...current, [key]: value }));
   }, []);
 
-  const smOptions = useMemo<SelectOption[]>(() => users.map((user) => ({ value: user.id, label: formatSmName(user), subLabel: user.email })), [users]);
   const plainOptions = useCallback((values: string[]): SelectOption[] => values.map((value) => ({ value, label: value })), []);
 
   return (
@@ -1264,7 +1286,7 @@ export default function SmMaerktePage() {
               <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.34)" }}>Shelf Merchandising</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "rgba(0,0,0,0.34)" }}><UsersRound size={10} strokeWidth={1.8} /> {assignedCount} Stammmärkte</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "rgba(0,0,0,0.34)" }}><UsersRound size={10} strokeWidth={1.8} /> {assignedCount} SM-verknüpft</span>
               <span style={{ fontSize: 9, color: "rgba(0,0,0,0.34)" }}>{markets.length.toLocaleString("de-AT")} Märkte</span>
             </div>
           </div>
@@ -1283,7 +1305,8 @@ export default function SmMaerktePage() {
                   <FilterButton label="Ort" value={filters.city} options={plainOptions(options.city)} onChange={(value) => setFilter("city", value)} />
                   <FilterButton label="PLZ" value={filters.postalCode} options={plainOptions(options.postalCode)} onChange={(value) => setFilter("postalCode", value)} />
                   <FilterButton label="Handelskette" value={filters.chain} options={plainOptions(options.chain)} onChange={(value) => setFilter("chain", value)} />
-                  <FilterButton label="Stamm-SM" value={filters.smId} options={smOptions} onChange={(value) => setFilter("smId", value)} />
+                  <FilterButton label="Stammmarkt von" value={filters.shelfMerchandiserName} options={plainOptions(options.shelfMerchandiserName)} onChange={(value) => setFilter("shelfMerchandiserName", value)} />
+                  <FilterButton label="Field Service GL" value={filters.fieldServiceManagerName} options={plainOptions(options.fieldServiceManagerName)} onChange={(value) => setFilter("fieldServiceManagerName", value)} />
                   <FilterButton label="Status" value={filters.status} options={[{ value: "Aktiv", label: "Aktiv" }, { value: "Inaktiv", label: "Inaktiv" }]} onChange={(value) => setFilter("status", value as MarketFilters["status"])} />
                 </div>
               </div>
@@ -1312,10 +1335,9 @@ export default function SmMaerktePage() {
             ) : (
               <VirtualMarketList
                 markets={filteredMarkets}
-                users={users}
+                userById={userById}
                 selectedId={selectedId}
                 onSelect={(marketId) => setSelectedId((current) => current === marketId ? null : marketId)}
-                onAssign={handleAssignment}
               />
             )}
           </div>
@@ -1336,6 +1358,7 @@ export default function SmMaerktePage() {
       ) : null}
       {showCreate ? <SmMarketCreateModal users={users} existingInternalIds={existingInternalIds} onCreate={handleCreateMarket} onClose={() => setShowCreate(false)} /> : null}
       {showImport ? <SmMarketImportModal onImport={handleImport} onClose={() => setShowImport(false)} /> : null}
+      {showSmSync ? <SmMarketUserSyncModal initialUsers={users} onMarketsChange={setMarkets} onUsersChange={(freshUsers) => setUsers([...freshUsers].sort((left, right) => formatSmName(left).localeCompare(formatSmName(right), "de-AT", { sensitivity: "base" })))} onClose={() => setShowSmSync(false)} /> : null}
     </div>
   );
 }

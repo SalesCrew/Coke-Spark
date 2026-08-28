@@ -31,9 +31,11 @@ import {
   deleteSmQuestionnaire,
   deleteSmQuestionnaireModule,
   fetchSmQuestionnaireWorkspace,
+  readAuthSession,
   saveSmQuestionnaire as persistSmQuestionnaire,
   saveSmQuestionnaireModule,
 } from "@/lib/api/backend";
+import { exportSmQuestionnaireExcel } from "@/lib/exports/smQuestionnaireExport";
 import type { SmModule, SmQuestion, SmQuestionnaire, SmQuestionType } from "@/types/smQuestionnaire";
 
 type WorkspaceTab = "fragen" | "module" | "fragebogen";
@@ -281,6 +283,7 @@ export function SmFragebogenWorkspace() {
   const [editingModule, setEditingModule] = useState<SmModule | null | undefined>(undefined);
   const [editingQuestionnaire, setEditingQuestionnaire] = useState<SmQuestionnaire | null | undefined>(undefined);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const typeMenuRef = useRef<HTMLDivElement>(null);
   const loadRequestRef = useRef(0);
 
@@ -308,22 +311,38 @@ export function SmFragebogenWorkspace() {
     };
   }, [loadWorkspace]);
 
+  const exportWorkspace = useCallback(async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setNotice("SM-Fragebogenexport wird erstellt …");
+    try {
+      await exportSmQuestionnaireExcel({
+        modules,
+        questionnaires,
+        exportedBy: readAuthSession()?.user.email ?? "",
+      });
+      setNotice("SM-Fragebogenexport wurde erstellt.");
+    } catch (error) {
+      setNotice(error instanceof Error ? `Export fehlgeschlagen: ${error.message}` : "Export konnte nicht erstellt werden.");
+    } finally {
+      setIsExporting(false);
+      window.setTimeout(() => setNotice(null), 3500);
+    }
+  }, [isExporting, modules, questionnaires]);
+
   useEffect(() => {
     const openModule = () => setEditingModule(null);
     const openQuestionnaire = () => setEditingQuestionnaire(null);
-    const exportPreview = () => {
-      setNotice("UI-Vorschau: Der SM-Export wird mit dem eigenen SM-Backend angebunden.");
-      window.setTimeout(() => setNotice(null), 3500);
-    };
+    const exportWorkspaceEvent = () => { void exportWorkspace(); };
     window.addEventListener("sm-fragebogen:openModuleCreate", openModule);
     window.addEventListener("sm-fragebogen:openQuestionnaireCreate", openQuestionnaire);
-    window.addEventListener("admin:sm-fragebogen:export", exportPreview);
+    window.addEventListener("admin:sm-fragebogen:export", exportWorkspaceEvent);
     return () => {
       window.removeEventListener("sm-fragebogen:openModuleCreate", openModule);
       window.removeEventListener("sm-fragebogen:openQuestionnaireCreate", openQuestionnaire);
-      window.removeEventListener("admin:sm-fragebogen:export", exportPreview);
+      window.removeEventListener("admin:sm-fragebogen:export", exportWorkspaceEvent);
     };
-  }, []);
+  }, [exportWorkspace]);
 
   useEffect(() => {
     if (!typeMenuOpen) return;

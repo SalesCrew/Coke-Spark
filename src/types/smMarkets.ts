@@ -93,3 +93,47 @@ export type CreateSmMarketInput = {
 };
 
 export type UpdateSmMarketInput = Partial<CreateSmMarketInput>;
+
+export type SmMarketUserSyncMatch = {
+  marketId: string;
+  marketName: string;
+  marketAddress: string;
+  importedName: string;
+  smUserId: string;
+  smName: string;
+  score: number;
+  method: "exact" | "fuzzy" | "manual";
+};
+
+export type SmMarketUserSyncUnmatched = {
+  marketId: string;
+  marketName: string;
+  marketAddress: string;
+  importedName: string;
+  suggestions: Array<{
+    smUserId: string;
+    smName: string;
+    email: string;
+    score: number;
+  }>;
+};
+
+export type SmMarketUserSyncResult = {
+  markets: SmMarketRecord[];
+  summary: {
+    scanned: number;
+    matched: number;
+    unmatched: number;
+    skippedAlreadyMatched: number;
+    withoutImportedName: number;
+    activeSmUsers: number;
+  };
+  matched: SmMarketUserSyncMatch[];
+  unmatched: SmMarketUserSyncUnmatched[];
+};
+
+export type ManualSmMarketUserMatchResult = {
+  markets: SmMarketRecord[];
+  matched: SmMarketUserSyncMatch[];
+  skippedAlreadyMatched: number;
+};

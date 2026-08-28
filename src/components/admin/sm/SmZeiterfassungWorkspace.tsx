@@ -1,10 +1,13 @@
 "use client";
 
-import { memo, useMemo, useState } from "react";
-import { CheckCircle2, ChevronDown, CircleAlert, Clock, Search, Store } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { Check, CheckCircle2, ChevronDown, CircleAlert, Clock, LoaderCircle, Pencil, Search, Store, X, XCircle } from "lucide-react";
+
+import { approveAdminSmPlanningTimeChangeRequest, fetchSmPlanningAssignments, rejectAdminSmPlanningTimeChangeRequest, submitSmPlanningActualTime } from "@/lib/api/backend";
+import type { SmPlanningAssignment, SmTimeChangeRequest } from "@/types/smPlanning";
 
 const RED = "#DC2626";
-const ROW_GRID = "minmax(280px, 1.6fr) repeat(3, minmax(110px, .7fr)) minmax(130px, .9fr) 28px";
+const ROW_GRID = "minmax(260px, 1.5fr) repeat(4, minmax(90px, .62fr)) minmax(125px, .82fr) 28px";
 const ROW_GAP = 14;
 
 type SmAssignmentStatus = "completed" | "open" | "missed";
@@ -20,6 +23,13 @@ type SmTimeAssignment = {
   internalMarketId: string;
   plannedMinutes: number;
   actualMinutes: number | null;
+  travelMinutes: number;
+  totalMinutes: number | null;
+  visitStartedAt: string | null;
+  visitCompletedAt: string | null;
+  submittedAt: string | null;
+  timeRevisionNumber: number | null;
+  pendingTimeChangeRequest: SmTimeChangeRequest | null;
   questionnaireComplete: boolean;
   flatRateCents: number;
   status: SmAssignmentStatus;
@@ -33,17 +43,37 @@ type SmDay = {
   assignments: SmTimeAssignment[];
 };
 
-const TEMP_ASSIGNMENTS: SmTimeAssignment[] = [
-  { id: "sm-time-001", date: "2026-08-11", smId: "sm-adriana", smName: "Adriana Maier", region: "Ost", marketName: "Billa Plus Donauzentrum", marketAddress: "Wagramer Straße 94 · 1220 Wien", internalMarketId: "120014184", plannedMinutes: 90, actualMinutes: 88, questionnaireComplete: true, flatRateCents: 2850, status: "completed" },
-  { id: "sm-time-002", date: "2026-08-11", smId: "sm-adriana", smName: "Adriana Maier", region: "Ost", marketName: "Billa Praterstern", marketAddress: "Praterstern 1 · 1020 Wien", internalMarketId: "120006312", plannedMinutes: 60, actualMinutes: null, questionnaireComplete: false, flatRateCents: 2100, status: "open" },
-  { id: "sm-time-003", date: "2026-08-11", smId: "sm-selina", smName: "Selina Huber", region: "Nord", marketName: "Eurospar Linz", marketAddress: "Landstraße 17–25 · 4020 Linz", internalMarketId: "120009774", plannedMinutes: 120, actualMinutes: 126, questionnaireComplete: true, flatRateCents: 3600, status: "completed" },
-  { id: "sm-time-004", date: "2026-08-11", smId: "sm-melanie", smName: "Melanie Gruber", region: "Süd", marketName: "Billa Plus Graz", marketAddress: "Wiener Straße 351 · 8051 Graz", internalMarketId: "120018602", plannedMinutes: 90, actualMinutes: null, questionnaireComplete: false, flatRateCents: 2850, status: "open" },
-  { id: "sm-time-005", date: "2026-08-10", smId: "sm-adriana", smName: "Adriana Maier", region: "Ost", marketName: "Billa Simmering", marketAddress: "Simmeringer Hauptstraße 96A · 1110 Wien", internalMarketId: "120011640", plannedMinutes: 75, actualMinutes: 77, questionnaireComplete: true, flatRateCents: 2450, status: "completed" },
-  { id: "sm-time-006", date: "2026-08-10", smId: "sm-selina", smName: "Selina Huber", region: "Nord", marketName: "Interspar Pasching", marketAddress: "Plus-Kauf-Straße 7 · 4061 Pasching", internalMarketId: "120020815", plannedMinutes: 105, actualMinutes: 98, questionnaireComplete: true, flatRateCents: 3200, status: "completed" },
-  { id: "sm-time-007", date: "2026-08-10", smId: "sm-melanie", smName: "Melanie Gruber", region: "Süd", marketName: "Spar Grazbachgasse", marketAddress: "Grazbachgasse 50 · 8010 Graz", internalMarketId: "120005182", plannedMinutes: 60, actualMinutes: null, questionnaireComplete: false, flatRateCents: 2100, status: "missed" },
-  { id: "sm-time-008", date: "2026-08-07", smId: "sm-adriana", smName: "Adriana Maier", region: "Ost", marketName: "Billa Plus Millennium City", marketAddress: "Handelskai 94–96 · 1200 Wien", internalMarketId: "120012032", plannedMinutes: 90, actualMinutes: 90, questionnaireComplete: true, flatRateCents: 2850, status: "completed" },
-  { id: "sm-time-009", date: "2026-08-07", smId: "sm-selina", smName: "Selina Huber", region: "Nord", marketName: "Billa Wels", marketAddress: "Salzburger Straße 223 · 4600 Wels", internalMarketId: "120016331", plannedMinutes: 75, actualMinutes: 74, questionnaireComplete: true, flatRateCents: 2450, status: "completed" },
-];
+function toDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function mapPlanningAssignment(row: SmPlanningAssignment): SmTimeAssignment {
+  return {
+    id: row.id,
+    date: row.effective.workDate,
+    smId: row.effective.smUserId,
+    smName: row.effective.smName,
+    region: row.effective.region,
+    marketName: row.effective.marketName,
+    marketAddress: row.effective.address,
+    internalMarketId: row.effective.marketInternalId,
+    plannedMinutes: row.effective.plannedMinutes,
+    actualMinutes: row.actualMinutes,
+    travelMinutes: row.visit?.travelMinutes ?? 0,
+    totalMinutes: row.actualMinutes === null ? null : row.actualMinutes + (row.visit?.travelMinutes ?? 0),
+    visitStartedAt: row.visit?.visitStartedAt ?? null,
+    visitCompletedAt: row.visit?.visitCompletedAt ?? null,
+    submittedAt: row.visit?.submittedAt ?? null,
+    timeRevisionNumber: row.timeEntry?.revisionNumber ?? null,
+    pendingTimeChangeRequest: row.pendingTimeChangeRequest,
+    questionnaireComplete: row.questionnaireComplete,
+    flatRateCents: row.flatRateCents ?? 0,
+    status: row.status === "completed" ? "completed" : row.status === "missed" ? "missed" : "open",
+  };
+}
 
 function formatDuration(minutes: number | null): string {
   if (minutes === null) return "—";
@@ -76,24 +106,14 @@ function avatarColors(name: string): { background: string; color: string } {
   return palettes[hash % palettes.length];
 }
 
-function assignmentDeviation(row: SmTimeAssignment): number | null {
-  return row.actualMinutes === null ? null : row.actualMinutes - row.plannedMinutes;
-}
-
 function totalMinutes(rows: SmTimeAssignment[], field: "plannedMinutes" | "actualMinutes"): number {
   return rows.reduce((sum, row) => sum + (row[field] ?? 0), 0);
 }
 
-function deviationLabel(minutes: number | null): string {
-  if (minutes === null) return "—";
-  if (minutes === 0) return "±0 Min";
-  return `${minutes > 0 ? "+" : "−"}${Math.abs(minutes)} Min`;
-}
-
-function deviationColor(minutes: number | null): string {
-  if (minutes === null) return "rgba(0,0,0,0.2)";
-  if (Math.abs(minutes) <= 5) return "#16a34a";
-  return minutes > 0 ? "#D97706" : RED;
+function formatTimestampRange(startedAt: string | null, completedAt: string | null, fallbackMinutes: number | null): string {
+  if (!startedAt || !completedAt) return formatDuration(fallbackMinutes);
+  const format = new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return `${format.format(new Date(startedAt))} – ${format.format(new Date(completedAt))}`;
 }
 
 function statusMeta(status: SmAssignmentStatus): { label: string; color: string; background: string } {
@@ -111,39 +131,109 @@ const MetricCell = memo(function MetricCell({ label, value, color = "#374151" }:
   );
 });
 
-const AssignmentRow = memo(function AssignmentRow({ assignment }: { assignment: SmTimeAssignment }) {
-  const deviation = assignmentDeviation(assignment);
+const AssignmentRow = memo(function AssignmentRow({ assignment, onSave, onReviewRequest }: { assignment: SmTimeAssignment; onSave: (assignment: SmTimeAssignment, actualMinutes: number, correctionReason?: string) => Promise<void>; onReviewRequest: (assignment: SmTimeAssignment, decision: "approve" | "reject") => Promise<void> }) {
   const meta = statusMeta(assignment.status);
   const dateLabel = formatDateLabel(assignment.date).date;
+  const [editing, setEditing] = useState(false);
+  const [actualValue, setActualValue] = useState(assignment.actualMinutes === null ? "" : String(assignment.actualMinutes));
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState<"approve" | "reject" | null>(null);
+  const parsedActual = Number(actualValue);
+  const correctionRequired = assignment.actualMinutes !== null && parsedActual !== assignment.actualMinutes;
+  const invalid = !Number.isInteger(parsedActual) || parsedActual < 1 || parsedActual > 1440 || (correctionRequired && correctionReason.trim().length < 3);
+
+  const closeEditor = () => {
+    setEditing(false);
+    setActualValue(assignment.actualMinutes === null ? "" : String(assignment.actualMinutes));
+    setCorrectionReason("");
+    setError(null);
+  };
+
+  const save = async () => {
+    if (invalid || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(assignment, parsedActual, correctionRequired ? correctionReason.trim() : undefined);
+      setEditing(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Die Ist-Zeit konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const reviewRequest = async (decision: "approve" | "reject") => {
+    if (reviewing) return;
+    setReviewing(decision);
+    setError(null);
+    try {
+      await onReviewRequest(assignment, decision);
+    } catch (reviewError) {
+      setError(reviewError instanceof Error ? reviewError.message : "Die Korrekturanfrage konnte nicht bearbeitet werden.");
+    } finally {
+      setReviewing(null);
+    }
+  };
   return (
-    <div className="sm-time-action" style={{ minHeight: 54, padding: "8px 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: ROW_GAP, alignItems: "center", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
-      <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ width: 26, height: 26, borderRadius: 7, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "rgba(220,38,38,0.055)", color: RED }}><Store size={12} strokeWidth={1.8} /></span>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1a1a1a", fontSize: 11, fontWeight: 650 }}>{assignment.marketName}</div>
-          <div style={{ marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(0,0,0,0.35)", fontSize: 9 }}>{dateLabel} · {assignment.marketAddress} · {assignment.internalMarketId}</div>
+    <div style={{ borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+      <div className="sm-time-action" style={{ minHeight: 54, padding: "8px 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: ROW_GAP, alignItems: "center" }}>
+        <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ width: 26, height: 26, borderRadius: 7, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "rgba(220,38,38,0.055)", color: RED }}><Store size={12} strokeWidth={1.8} /></span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1a1a1a", fontSize: 11, fontWeight: 650 }}>{assignment.marketName}</div>
+            <div style={{ marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(0,0,0,0.35)", fontSize: 9 }}>{dateLabel} · {assignment.marketAddress} · Stammnr. {assignment.internalMarketId}</div>
+          </div>
         </div>
+        <MetricCell label="Soll-Zeit" value={formatDuration(assignment.plannedMinutes)} />
+        <MetricCell label="Besuchszeit" value={formatDuration(assignment.actualMinutes)} color={assignment.actualMinutes === null ? "rgba(0,0,0,0.2)" : "#374151"} />
+        <MetricCell label="Fahrtzeit" value={assignment.travelMinutes ? formatDuration(assignment.travelMinutes) : "—"} color={assignment.travelMinutes ? "#2563eb" : "rgba(0,0,0,0.2)"} />
+        <MetricCell label="Gesamt" value={formatDuration(assignment.totalMinutes)} color={assignment.totalMinutes === null ? "rgba(0,0,0,0.2)" : "#374151"} />
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", justifySelf: "end", alignItems: "flex-end", gap: 4, textAlign: "right" }}>
+          <span style={{ padding: "2px 7px", borderRadius: 999, background: meta.background, color: meta.color, fontSize: 8, fontWeight: 750 }}>{meta.label}</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: assignment.questionnaireComplete ? "#15803d" : "rgba(0,0,0,0.34)", fontSize: 8.5, fontWeight: 600 }}>
+            {assignment.questionnaireComplete ? <CheckCircle2 size={9} strokeWidth={2.2} /> : <CircleAlert size={9} strokeWidth={2} />}
+            Fragebogen {assignment.questionnaireComplete ? "fertig" : "offen"}
+          </span>
+        </div>
+        <button type="button" aria-label="Ist-Zeit bearbeiten" onClick={() => setEditing((current) => !current)} className="sm-time-edit-button"><Pencil size={11}/></button>
       </div>
-      <MetricCell label="Soll-Zeit" value={formatDuration(assignment.plannedMinutes)} />
-      <MetricCell label="Ist-Zeit" value={formatDuration(assignment.actualMinutes)} color={assignment.actualMinutes === null ? "rgba(0,0,0,0.2)" : "#374151"} />
-      <MetricCell label="Abweichung" value={deviationLabel(deviation)} color={deviationColor(deviation)} />
-      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gridColumn: "5 / 7", justifySelf: "end", alignItems: "flex-end", gap: 4, textAlign: "right" }}>
-        <span style={{ padding: "2px 7px", borderRadius: 999, background: meta.background, color: meta.color, fontSize: 8, fontWeight: 750 }}>{meta.label}</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: assignment.questionnaireComplete ? "#15803d" : "rgba(0,0,0,0.34)", fontSize: 8.5, fontWeight: 600 }}>
-          {assignment.questionnaireComplete ? <CheckCircle2 size={9} strokeWidth={2.2} /> : <CircleAlert size={9} strokeWidth={2} />}
-          Fragebogen {assignment.questionnaireComplete ? "fertig" : "offen"}
-        </span>
-      </div>
+      {editing ? <div style={{ padding: "10px 18px 12px 54px", display: "flex", alignItems: "flex-end", gap: 10, borderTop: "1px solid rgba(0,0,0,.04)", background: "rgba(0,0,0,.015)" }}>
+        <label style={{ width: 118 }}><span className="sm-time-edit-label">Ist-Zeit in Minuten</span><input type="number" min={1} max={1440} step={1} value={actualValue} onChange={(event) => setActualValue(event.target.value)} className="sm-time-edit-input" placeholder="z. B. 90"/></label>
+        {correctionRequired ? (
+          <label style={{ minWidth: 180, flex: 1 }}>
+            <span className="sm-time-edit-label">Korrekturgrund *</span>
+            <input value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} className="sm-time-edit-input" placeholder="Warum wird die Ist-Zeit korrigiert?"/>
+          </label>
+        ) : (
+          <div style={{ flex: 1 }}/>
+        )}
+        <button type="button" aria-label="Abbrechen" disabled={saving} onClick={closeEditor} className="sm-time-edit-button"><X size={11}/></button>
+        <button type="button" aria-label="Ist-Zeit speichern" disabled={invalid || saving} onClick={() => { void save(); }} className="sm-time-save-button">{saving ? <LoaderCircle className="sm-time-spinner" size={11}/> : <Check size={11}/>}Speichern</button>
+        {error ? <span role="alert" style={{ position: "absolute", marginTop: 38, color: RED, fontSize: 8.5 }}>{error}</span> : null}
+      </div> : null}
+      {assignment.pendingTimeChangeRequest ? <div className="sm-time-request-review">
+        <div className="sm-time-request-copy">
+          <span>Korrekturanfrage</span>
+          <strong>{assignment.pendingTimeChangeRequest.kind === "deletion" ? "Ist-Zeit löschen" : `${formatTimestampRange(assignment.pendingTimeChangeRequest.originalStartedAt, assignment.pendingTimeChangeRequest.originalCompletedAt, assignment.pendingTimeChangeRequest.originalMinutes)} → ${formatTimestampRange(assignment.pendingTimeChangeRequest.requestedStartedAt, assignment.pendingTimeChangeRequest.requestedCompletedAt, assignment.pendingTimeChangeRequest.requestedMinutes)}`}</strong>
+          <small>{assignment.pendingTimeChangeRequest.reason}</small>
+        </div>
+        <button type="button" className="reject" disabled={Boolean(reviewing)} onClick={() => { void reviewRequest("reject"); }}>{reviewing === "reject" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <XCircle size={11} />}Ablehnen</button>
+        <button type="button" className="approve" disabled={Boolean(reviewing)} onClick={() => { void reviewRequest("approve"); }}>{reviewing === "approve" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <CheckCircle2 size={11} />}Freigeben</button>
+        {error ? <span className="sm-time-request-error" role="alert">{error}</span> : null}
+      </div> : null}
     </div>
   );
 });
 
-const SmDayRow = memo(function SmDayRow({ day }: { day: SmDay }) {
+const SmDayRow = memo(function SmDayRow({ day, onSave, onReviewRequest }: { day: SmDay; onSave: (assignment: SmTimeAssignment, actualMinutes: number, correctionReason?: string) => Promise<void>; onReviewRequest: (assignment: SmTimeAssignment, decision: "approve" | "reject") => Promise<void> }) {
   const [expanded, setExpanded] = useState(false);
   const planned = totalMinutes(day.assignments, "plannedMinutes");
   const actual = totalMinutes(day.assignments, "actualMinutes");
+  const travel = day.assignments.reduce((sum, row) => sum + row.travelMinutes, 0);
+  const total = actual + travel;
   const hasOpen = day.assignments.some((row) => row.actualMinutes === null);
-  const deviation = hasOpen ? null : actual - planned;
   const completedCount = day.assignments.filter((row) => row.status === "completed").length;
   const allCompleted = completedCount === day.assignments.length;
   const avatar = avatarColors(day.smName);
@@ -159,8 +249,9 @@ const SmDayRow = memo(function SmDayRow({ day }: { day: SmDay }) {
           </span>
         </div>
         <MetricCell label="Soll-Zeit" value={formatDuration(planned)} />
-        <MetricCell label="Ist-Zeit" value={hasOpen && actual === 0 ? "—" : formatDuration(actual)} />
-        <MetricCell label="Abweichung" value={deviationLabel(deviation)} color={deviationColor(deviation)} />
+        <MetricCell label="Besuchszeit" value={hasOpen && actual === 0 ? "—" : formatDuration(actual)} />
+        <MetricCell label="Fahrtzeit" value={travel ? formatDuration(travel) : "—"} color={travel ? "#2563eb" : "rgba(0,0,0,.2)"} />
+        <MetricCell label="Gesamt" value={hasOpen && total === 0 ? "—" : formatDuration(total)} />
         <div style={{ minWidth: 0, textAlign: "right" }}>
           <div style={{ marginBottom: 2, color: "rgba(0,0,0,0.28)", fontSize: 8, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Einsätze erledigt</div>
           <div style={{ color: allCompleted ? "#16a34a" : RED, fontSize: 13, fontWeight: 800, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{completedCount}/{day.assignments.length}</div>
@@ -168,16 +259,16 @@ const SmDayRow = memo(function SmDayRow({ day }: { day: SmDay }) {
         <span style={{ display: "flex", justifyContent: "center" }}><ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0)", transition: "transform .26s cubic-bezier(.4,0,.2,1)" }} /></span>
       </button>
       <div style={{ maxHeight: expanded ? 700 : 0, overflow: "hidden", transition: "max-height .34s cubic-bezier(.4,0,.2,1)" }}>
-        {day.assignments.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} />)}
+        {day.assignments.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} onSave={onSave} onReviewRequest={onReviewRequest} />)}
       </div>
     </div>
   );
 });
 
-const DateGroup = memo(function DateGroup({ date, days }: { date: string; days: SmDay[] }) {
+const DateGroup = memo(function DateGroup({ date, days, onSave, onReviewRequest }: { date: string; days: SmDay[]; onSave: (assignment: SmTimeAssignment, actualMinutes: number, correctionReason?: string) => Promise<void>; onReviewRequest: (assignment: SmTimeAssignment, decision: "approve" | "reject") => Promise<void> }) {
   const label = formatDateLabel(date);
   const assignmentCount = days.reduce((sum, day) => sum + day.assignments.length, 0);
-  const today = date === "2026-08-11";
+  const today = date === toDateInputValue(new Date());
   return (
     <section className="sm-time-day-group">
       <div style={{ padding: "12px 18px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -190,7 +281,7 @@ const DateGroup = memo(function DateGroup({ date, days }: { date: string; days: 
       </div>
       <div style={{ margin: "0 10px 16px", overflow: "hidden", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 12, background: "rgba(0,0,0,0.022)" }}>
         <div style={{ margin: 8, overflow: "hidden", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 9, background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-          {days.map((day) => <SmDayRow key={`${day.date}-${day.smId}`} day={day} />)}
+          {days.map((day) => <SmDayRow key={`${day.date}-${day.smId}`} day={day} onSave={onSave} onReviewRequest={onReviewRequest} />)}
         </div>
       </div>
     </section>
@@ -211,12 +302,69 @@ function buildDays(rows: SmTimeAssignment[]): SmDay[] {
 export function SmZeiterfassungWorkspace() {
   const [view, setView] = useState<"days" | "sm">("days");
   const [search, setSearch] = useState("");
+  const [assignments, setAssignments] = useState<SmTimeAssignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const dateRange = useMemo(() => {
+    const to = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - 92);
+    return { from: toDateInputValue(from), to: toDateInputValue(to) };
+  }, []);
+
+  const loadAssignments = useCallback(async () => {
+    const rows = await fetchSmPlanningAssignments(dateRange.from, dateRange.to);
+    setAssignments(rows.filter((row) => row.status !== "cancelled").map(mapPlanningAssignment));
+    setLoadError(null);
+  }, [dateRange.from, dateRange.to]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetchSmPlanningAssignments(dateRange.from, dateRange.to)
+      .then((rows) => {
+        if (!active) return;
+        setAssignments(rows.filter((row) => row.status !== "cancelled").map(mapPlanningAssignment));
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        if (active) setLoadError(error instanceof Error ? error.message : "Die Zeiterfassung konnte nicht geladen werden.");
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [dateRange.from, dateRange.to]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  const saveActualTime = useCallback(async (assignment: SmTimeAssignment, actualMinutes: number, correctionReason?: string) => {
+    await submitSmPlanningActualTime(assignment.id, {
+      actualMinutes,
+      ...(correctionReason ? { correctionReason } : {}),
+    });
+    await loadAssignments();
+    setNotice(assignment.actualMinutes === null ? "Ist-Zeit wurde gespeichert" : "Ist-Zeit wurde versioniert korrigiert");
+  }, [loadAssignments]);
+
+  const reviewTimeRequest = useCallback(async (assignment: SmTimeAssignment, decision: "approve" | "reject") => {
+    const request = assignment.pendingTimeChangeRequest;
+    if (!request) return;
+    if (decision === "approve") await approveAdminSmPlanningTimeChangeRequest(request.id);
+    else await rejectAdminSmPlanningTimeChangeRequest(request.id);
+    await loadAssignments();
+    setNotice(decision === "approve" ? "Korrekturanfrage wurde freigegeben" : "Korrekturanfrage wurde abgelehnt");
+  }, [loadAssignments]);
+
   const normalizedSearch = search.trim().toLocaleLowerCase("de-AT");
 
   const filteredAssignments = useMemo(() => {
-    if (!normalizedSearch) return TEMP_ASSIGNMENTS;
-    return TEMP_ASSIGNMENTS.filter((row) => [row.smName, row.marketName, row.marketAddress, row.internalMarketId].some((value) => value.toLocaleLowerCase("de-AT").includes(normalizedSearch)));
-  }, [normalizedSearch]);
+    if (!normalizedSearch) return assignments;
+    return assignments.filter((row) => [row.smName, row.marketName, row.marketAddress, row.internalMarketId].some((value) => value.toLocaleLowerCase("de-AT").includes(normalizedSearch)));
+  }, [assignments, normalizedSearch]);
   const allDays = useMemo(() => buildDays(filteredAssignments), [filteredAssignments]);
   const dateGroups = useMemo(() => {
     const groups = new Map<string, SmDay[]>();
@@ -251,7 +399,14 @@ export function SmZeiterfassungWorkspace() {
         .sm-time-row-button,.sm-time-action { transition:background-color .1s ease; }
         .sm-time-row-button:hover,.sm-time-action:hover { background:rgba(0,0,0,.018) !important; }
         .sm-time-row-button:focus-visible { outline:2px solid rgba(220,38,38,.24); outline-offset:-2px; }
+        .sm-time-edit-button{width:27px;height:27px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(0,0,0,.08);border-radius:7px;background:#fff;color:rgba(0,0,0,.42);cursor:pointer}.sm-time-edit-button:hover{color:${RED};border-color:rgba(220,38,38,.18)}
+        .sm-time-edit-label{display:block;margin-bottom:4px;color:rgba(0,0,0,.35);font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}.sm-time-edit-input{width:100%;height:29px;padding:0 8px;border:1px solid rgba(0,0,0,.10);border-radius:6px;outline:0;background:#fff;color:#1a1a1a;font-family:inherit;font-size:10px}.sm-time-edit-input:focus{border-color:rgba(220,38,38,.25);box-shadow:0 0 0 2px rgba(220,38,38,.04)}
+        .sm-time-save-button{height:29px;padding:0 10px;display:inline-flex;align-items:center;gap:5px;border:0;border-radius:6px;background:${RED};color:#fff;font-family:inherit;font-size:9.5px;font-weight:650;cursor:pointer}.sm-time-save-button:disabled{cursor:not-allowed;opacity:.42}.sm-time-spinner{animation:smTimeSpin .8s linear infinite}@keyframes smTimeSpin{to{transform:rotate(360deg)}}
+        .sm-time-request-review{position:relative;padding:9px 18px 10px 54px;display:grid;grid-template-columns:minmax(220px,1fr) auto auto;align-items:center;gap:7px;border-top:1px solid rgba(245,158,11,.10);background:rgba(245,158,11,.035)}.sm-time-request-copy{min-width:0}.sm-time-request-copy>span{display:block;margin-bottom:2px;color:#b45309;font-size:7.5px;font-weight:750;letter-spacing:.07em;text-transform:uppercase}.sm-time-request-copy>strong{display:block;color:#1f2937;font-size:10px;font-weight:720}.sm-time-request-copy>small{display:block;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(0,0,0,.42);font-size:8.5px}.sm-time-request-review button{height:27px;padding:0 9px;display:inline-flex;align-items:center;gap:4px;border-radius:7px;font-family:inherit;font-size:8.5px;font-weight:700;cursor:pointer}.sm-time-request-review button:disabled{opacity:.45;cursor:not-allowed}.sm-time-request-review .reject{border:1px solid rgba(220,38,38,.12);background:#fff;color:${RED}}.sm-time-request-review .approve{border:1px solid rgba(22,163,74,.12);background:#16a34a;color:#fff}.sm-time-request-error{position:absolute;left:54px;right:18px;bottom:-13px;color:${RED};font-size:8px}
       `}</style>
+
+      {notice ? <div role="status" style={{ position: "fixed", top: 92, left: "50%", zIndex: 13000, transform: "translateX(-50%)", padding: "7px 13px", border: "1px solid rgba(22,163,74,.16)", borderRadius: 999, background: "rgba(247,255,249,.98)", color: "#15803D", boxShadow: "0 5px 18px rgba(0,0,0,.08)", fontSize: 10, fontWeight: 650 }}>{notice}</div> : null}
+      {loadError ? <div role="alert" style={{ marginBottom: 10, padding: "9px 12px", border: "1px solid rgba(220,38,38,.16)", borderRadius: 9, background: "rgba(220,38,38,.045)", color: RED, fontSize: 10, fontWeight: 600 }}>{loadError}</div> : null}
 
       <div className="sm-time-main" style={{ overflow: "hidden", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, background: "rgba(0,0,0,0.025)" }}>
         <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -269,21 +424,23 @@ export function SmZeiterfassungWorkspace() {
             </label>
           </div>
           <div key={view} className="sm-time-body">
-            {assignmentCount === 0 ? (
+            {loading ? (
+              <div style={{ minHeight: 260, display: "grid", placeItems: "center", color: "rgba(0,0,0,.38)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 10, fontWeight: 600 }}><LoaderCircle className="sm-time-spinner" size={18}/>Zeiterfassung wird geladen…</span></div>
+            ) : assignmentCount === 0 ? (
               <div style={{ padding: "64px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
                 <span style={{ width: 52, height: 52, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(220,38,38,0.07)", color: RED }}><Clock size={22} strokeWidth={1.5} /></span>
                 <div><div style={{ marginBottom: 6, color: "#1a1a1a", fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em" }}>Keine Einsätze gefunden.</div><div style={{ color: "rgba(0,0,0,0.4)", fontSize: 11 }}>Versuche einen anderen Suchbegriff.</div></div>
               </div>
             ) : view === "days" ? (
-              <div style={{ paddingTop: 4 }}>{dateGroups.map((group) => <DateGroup key={group.date} date={group.date} days={group.days} />)}</div>
+              <div style={{ paddingTop: 4 }}>{dateGroups.map((group) => <DateGroup key={group.date} date={group.date} days={group.days} onSave={saveActualTime} onReviewRequest={reviewTimeRequest} />)}</div>
             ) : (
               <div>
                 <div style={{ padding: "6px 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: ROW_GAP, alignItems: "center", borderBottom: "1px solid rgba(0,0,0,0.05)", background: "rgba(0,0,0,0.018)" }}>
-                  <span />{["Soll-Zeit", "Ist-Zeit", "Abweichung", "Einsätze erledigt"].map((label, index) => <span key={label} style={{ color: "rgba(0,0,0,0.28)", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.07em", textAlign: index === 3 ? "right" : "left", textTransform: "uppercase", whiteSpace: "nowrap" }}>{label}</span>)}<span />
+                  <span />{["Soll-Zeit", "Besuchszeit", "Fahrtzeit", "Gesamt", "Einsätze erledigt"].map((label, index) => <span key={label} style={{ color: "rgba(0,0,0,0.28)", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.07em", textAlign: index === 4 ? "right" : "left", textTransform: "uppercase", whiteSpace: "nowrap" }}>{label}</span>)}<span />
                 </div>
                 {smGroups.map((group) => {
                   const first = group.rows[0];
-                  return <SmDayRow key={group.smId} day={{ date: first.date, smId: group.smId, smName: first.smName, region: first.region, assignments: group.rows }} />;
+                  return <SmDayRow key={group.smId} day={{ date: first.date, smId: group.smId, smName: first.smName, region: first.region, assignments: group.rows }} onSave={saveActualTime} onReviewRequest={reviewTimeRequest} />;
                 })}
               </div>
             )}

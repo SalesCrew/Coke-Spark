@@ -82,16 +82,17 @@ export function AdminAccessProvider({
   }, [session, sessionPermissionSignature]);
 
   const isSmAdmin = session?.user.role === "sm_admin";
-  const isAdmin = session?.user.role === "admin" || isSmAdmin;
+  const isAdmin = session?.user.role === "admin";
   const isKunde = session?.user.role === "kunde";
 
   const can = useCallback(
     (pageKey: AdminPageKey, action: "read" | "write" | "update") => {
       if (isAdmin) return true;
+      if (isSmAdmin) return pageKey === "shelfmerchandiser";
       if (!isKunde) return false;
       return (livePermissions[pageKey] ?? []).includes(action);
     },
-    [isAdmin, isKunde, livePermissions],
+    [isAdmin, isKunde, isSmAdmin, livePermissions],
   );
 
   const value = useMemo<AdminAccessContextValue>(() => {

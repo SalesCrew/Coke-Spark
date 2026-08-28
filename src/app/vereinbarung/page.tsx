@@ -12,12 +12,12 @@ import {
 } from "@/lib/api/backend";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
 
-function readSafeNextPath(): string {
-  if (typeof window === "undefined") return "/gm";
+function readSafeNextPath(fallback: "/gm" | "/sm"): string {
+  if (typeof window === "undefined") return fallback;
   const params = new URLSearchParams(window.location.search);
   const candidate = params.get("next") || "";
   if (candidate.startsWith("/gm") || candidate.startsWith("/sm")) return candidate;
-  return "/gm";
+  return fallback;
 }
 
 export default function EmployeeAgreementPage() {
@@ -32,11 +32,13 @@ export default function EmployeeAgreementPage() {
   const [autoContinueWhenAccepted, setAutoContinueWhenAccepted] = useState(false);
 
   useEffect(() => {
+    if (status !== "authorized") return;
+    const fallback = session?.user.role === "sm" ? "/sm" : "/gm";
     if (typeof window !== "undefined") {
       setAutoContinueWhenAccepted(new URLSearchParams(window.location.search).has("next"));
     }
-    setNextPath(readSafeNextPath());
-  }, []);
+    setNextPath(readSafeNextPath(fallback));
+  }, [session?.user.role, status]);
 
   useEffect(() => {
     if (status !== "authorized") return;
@@ -268,7 +270,7 @@ export default function EmployeeAgreementPage() {
                 </label>
 
                 <div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <Link href="/datenschutz/gm" style={{ fontSize: 12, fontWeight: 760, color: "rgba(17,24,39,0.52)", textDecoration: "none" }}>
+                  <Link href={session?.user.role === "sm" ? "/datenschutz/sm" : "/datenschutz/gm"} style={{ fontSize: 12, fontWeight: 760, color: "rgba(17,24,39,0.52)", textDecoration: "none" }}>
                     Datenschutzinformation öffnen
                   </Link>
                   <button

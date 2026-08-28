@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Activity,
   CalendarCheck2,
@@ -9,6 +10,7 @@ import {
   Clock,
   Eye,
   EyeOff,
+  FileCheck2,
   Home,
   KeyRound,
   Loader2,
@@ -17,6 +19,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  ShieldCheck,
   Store,
   User,
 } from "lucide-react";
@@ -305,6 +308,22 @@ export default function SmProfilePage() {
           </div>
         </section>
 
+        <section className="sm-profile-card sm-profile-legal-card">
+          <div className="sm-profile-section-heading">
+            <div>
+              <span className="sm-profile-section-icon"><ShieldCheck size={14} strokeWidth={1.8} /></span>
+              <div>
+                <h2>Datenschutz & Vereinbarung</h2>
+                <p>Informationen zu deinen Daten und zur App-Nutzung.</p>
+              </div>
+            </div>
+          </div>
+          <div className="sm-profile-legal-links">
+            <Link href="/datenschutz/sm"><ShieldCheck size={13} /> Datenschutz</Link>
+            <Link href="/vereinbarung"><FileCheck2 size={13} /> Vereinbarung</Link>
+          </div>
+        </section>
+
         <PasswordCard />
       </div>
 
@@ -405,6 +424,13 @@ export default function SmProfilePage() {
         .sm-profile-section-heading h2 { margin: 0; font-size: 13px; line-height: 1.2; letter-spacing: -.02em; font-weight: 760; }
         .sm-profile-section-heading p { margin: 2px 0 0; color: #a0a5ae; font-size: 8.5px; line-height: 1.35; }
         .sm-profile-data-list { border-top: 1px solid #f1f2f4; }
+        .sm-profile-legal-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .sm-profile-legal-links a {
+          height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          border: 1px solid #e7e8eb; border-radius: 11px; color: #4b5563; background: #fafafa;
+          text-decoration: none; font-size: 9.5px; font-weight: 720;
+        }
+        .sm-profile-legal-links a:first-child { color: #b91c1c; background: #fff8f8; border-color: rgba(220, 38, 38, .13); }
         .sm-profile-data-row { display: flex; align-items: center; gap: 9px; padding: 10px 0; border-bottom: 1px solid #f1f2f4; }
         .sm-profile-data-row:last-child { border-bottom: 0; padding-bottom: 1px; }
         .sm-profile-data-icon {

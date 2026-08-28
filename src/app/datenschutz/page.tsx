@@ -9,9 +9,15 @@ export const metadata: Metadata = {
 const cards = [
   {
     href: "/datenschutz/gm",
-    label: "GM / SM",
-    title: "Field-Force Datenschutz",
-    text: "Für Gebietsmanager, Shelf Merchandiser und externe Field-Force-Mitarbeitende.",
+    label: "GM",
+    title: "Gebietsmanager Datenschutz",
+    text: "Für Gebietsmanager und die GM-Arbeitsausführung.",
+  },
+  {
+    href: "/datenschutz/sm",
+    label: "SM",
+    title: "Shelf Merchandising Datenschutz",
+    text: "Für Shelf Merchandiser, SM-Einsätze, Fragebögen, Fotos und Offline-Nutzung.",
   },
   {
     href: "/datenschutz/admin",

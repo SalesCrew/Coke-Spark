@@ -57,6 +57,10 @@ import {
   type AuthSessionPayload,
   type KundePagePermissions,
 } from "@/lib/auth/sessionRegistry";
+import {
+  isSmOfflineCacheTimestampFresh,
+  sanitizeSmVisitPayloadForPersistentCache,
+} from "@/lib/sm/privacyCache";
 
 export type LoginRole = "gm" | "sm" | "admin" | "sm_admin" | "kunde";
 export type { AuthSessionPayload };
@@ -2064,8 +2068,6 @@ export async function reviewAdminSmSubmissionDeleteRequest(requestId: string, de
 const SM_VISIT_PRELOAD_CACHE_PREFIX = "sm_visit_preload_v1:";
 const SM_VISIT_PENDING_ANSWERS_PREFIX = "sm_visit_pending_answers_v1:";
 const SM_PLANNING_ASSIGNMENTS_CACHE_PREFIX = "sm_planning_assignments_v1:";
-const SM_VISIT_PRELOAD_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SM_PLANNING_ASSIGNMENTS_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 type SmPlanningAssignmentsCacheEnvelope = {
   ownerUserId: string;
@@ -2102,8 +2104,7 @@ export function readMySmPlanningAssignmentsCache(from: string, to: string): SmPl
     const valid = parsed.ownerUserId === ownerUserId
       && parsed.from === from
       && parsed.to === to
-      && Number.isFinite(createdAtMs)
-      && Date.now() - createdAtMs <= SM_PLANNING_ASSIGNMENTS_CACHE_TTL_MS
+      && isSmOfflineCacheTimestampFresh(createdAtMs)
       && Array.isArray(parsed.assignments)
       && parsed.assignments.every((assignment) => Boolean(assignment?.id && assignment?.effective?.workDate));
     if (!valid) {
@@ -2177,7 +2178,11 @@ export function setSmVisitPreloadCache(assignmentId: string, payload: SmVisitPay
   };
   smVisitPreloadMemoryCache[getSmVisitPreloadMemoryKey(userId, assignmentId)] = envelope;
   if (typeof window === "undefined") return;
-  const serialized = JSON.stringify(envelope);
+  const persistentEnvelope: SmVisitPreloadCacheEnvelope = {
+    ...envelope,
+    payload: sanitizeSmVisitPayloadForPersistentCache(payload),
+  };
+  const serialized = JSON.stringify(persistentEnvelope);
   try { window.sessionStorage.setItem(getSmVisitPreloadCacheKey(userId, assignmentId), serialized); } catch { /* noop */ }
   try { window.localStorage.setItem(getSmVisitPreloadCacheKey(userId, assignmentId), serialized); } catch { /* noop */ }
 }
@@ -2191,7 +2196,7 @@ export function readSmVisitPreloadCache(assignmentId: string): SmVisitPayload | 
     if (
       inMemory.ownerUserId === userId
       && inMemory.assignmentId === assignmentId
-      && Date.now() - inMemory.createdAtMs <= SM_VISIT_PRELOAD_CACHE_TTL_MS
+      && isSmOfflineCacheTimestampFresh(inMemory.createdAtMs)
       && isValidSmVisitPreloadPayload(inMemory.payload, assignmentId)
     ) {
       return inMemory.payload;
@@ -2212,8 +2217,7 @@ export function readSmVisitPreloadCache(assignmentId: string): SmVisitPayload | 
     if (
       parsed.ownerUserId !== userId
       || parsed.assignmentId !== assignmentId
-      || !Number.isFinite(createdAtMs)
-      || Date.now() - createdAtMs > SM_VISIT_PRELOAD_CACHE_TTL_MS
+      || !isSmOfflineCacheTimestampFresh(createdAtMs)
       || !isValidSmVisitPreloadPayload(parsed.payload, assignmentId)
     ) {
       try { window.sessionStorage.removeItem(storageKey); } catch { /* noop */ }
@@ -2251,6 +2255,7 @@ export type SmVisitPendingAnswerMutation = {
 type SmVisitPendingAnswersEnvelope = {
   ownerUserId: string;
   assignmentId: string;
+  updatedAtMs: number;
   mutations: Record<string, SmVisitPendingAnswerMutation>;
 };
 
@@ -2269,17 +2274,33 @@ function readSmVisitPendingAnswersEnvelope(assignmentId: string): SmVisitPending
   if (!userId) return null;
   const storageKey = getSmVisitPendingAnswersKey(userId, assignmentId);
   const memory = smVisitPendingAnswersMemoryCache[storageKey];
-  if (memory?.ownerUserId === userId && memory.assignmentId === assignmentId) return memory;
+  if (
+    memory?.ownerUserId === userId
+    && memory.assignmentId === assignmentId
+    && isSmOfflineCacheTimestampFresh(memory.updatedAtMs)
+  ) return memory;
+  if (memory) delete smVisitPendingAnswersMemoryCache[storageKey];
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<SmVisitPendingAnswersEnvelope>;
-    if (parsed.ownerUserId !== userId || parsed.assignmentId !== assignmentId || !parsed.mutations || typeof parsed.mutations !== "object") {
+    const fallbackUpdatedAtMs = Object.values(parsed.mutations ?? {}).reduce(
+      (latest, mutation) => Math.max(latest, Number((mutation as Partial<SmVisitPendingAnswerMutation>)?.queuedAtMs ?? 0)),
+      0,
+    );
+    const updatedAtMs = Number(parsed.updatedAtMs ?? fallbackUpdatedAtMs);
+    if (
+      parsed.ownerUserId !== userId
+      || parsed.assignmentId !== assignmentId
+      || !parsed.mutations
+      || typeof parsed.mutations !== "object"
+      || !isSmOfflineCacheTimestampFresh(updatedAtMs)
+    ) {
       window.localStorage.removeItem(storageKey);
       return null;
     }
-    const envelope = parsed as SmVisitPendingAnswersEnvelope;
+    const envelope = { ...parsed, updatedAtMs } as SmVisitPendingAnswersEnvelope;
     smVisitPendingAnswersMemoryCache[storageKey] = envelope;
     return envelope;
   } catch {
@@ -2323,6 +2344,7 @@ export function queueSmVisitPendingAnswer(input: SmVisitPendingAnswerMutation): 
   writeSmVisitPendingAnswersEnvelope({
     ownerUserId: userId,
     assignmentId: input.assignmentId,
+    updatedAtMs: Date.now(),
     mutations: { ...(current?.mutations ?? {}), [input.submissionQuestionId]: next },
   });
   return next;
@@ -2334,6 +2356,7 @@ export function updateSmVisitPendingAnswerVersion(assignmentId: string, submissi
   if (!current || !mutation) return;
   writeSmVisitPendingAnswersEnvelope({
     ...current,
+    updatedAtMs: Date.now(),
     mutations: { ...current.mutations, [submissionQuestionId]: { ...mutation, expectedAnswerVersion } },
   });
 }
@@ -2344,7 +2367,7 @@ export function removeSmVisitPendingAnswer(assignmentId: string, submissionQuest
   if (!current || !mutation || clientMutationToken && mutation.clientMutationToken !== clientMutationToken) return;
   const mutations = { ...current.mutations };
   delete mutations[submissionQuestionId];
-  writeSmVisitPendingAnswersEnvelope({ ...current, mutations });
+  writeSmVisitPendingAnswersEnvelope({ ...current, updatedAtMs: Date.now(), mutations });
 }
 
 export function clearSmVisitPendingAnswers(assignmentId: string): void {

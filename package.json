@@ -12,7 +12,8 @@
     "test:sm-fragebogen": "node --test tests/sm-fragebogen-skeleton.test.mjs",
     "test:sm-onboarding": "node --test tests/sm-onboarding-input.test.mjs",
     "test:sm-safety": "node --test tests/sm-safety-ui.test.mjs",
-    "test:sm-holidays": "node --test tests/sm-holidays-ui.test.mjs"
+    "test:sm-holidays": "node --test tests/sm-holidays-ui.test.mjs",
+    "test:sm-planning-week": "node --test tests/sm-planning-week-picker.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

@@ -41,6 +41,8 @@ import type { SMRecord } from "@/types/shelfmerchandiser";
 import { austrianHoliday, austrianHolidays } from "@/lib/sm/austrianHolidays";
 import { SmHolidayCalendarCard } from "./SmHolidayCalendarCard";
 import { SmHolidayNote } from "@/components/sm/SmHolidayNote";
+import { SmPlanningWeekPicker } from "./SmPlanningWeekPicker";
+import { calendarWeek, calendarWeekOffset } from "@/lib/sm/calendarWeeks";
 
 const RED = "#DC2626";
 const ROW_GRID = "132px minmax(150px, .8fr) minmax(110px, .65fr) minmax(230px, 1.35fr) 80px 118px 84px";
@@ -465,13 +467,7 @@ export function SmVerplanungWorkspace() {
   const weekEnd = useMemo(() => { const value = new Date(weekStart); value.setDate(value.getDate() + 6); return value; }, [weekStart]);
   const weekStartKey = toDateInputValue(weekStart);
   const weekEndKey = toDateInputValue(weekEnd);
-  const weekNumber = useMemo(() => {
-    const value = new Date(Date.UTC(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate()));
-    const day = value.getUTCDay() || 7;
-    value.setUTCDate(value.getUTCDate() + 4 - day);
-    const yearStart = new Date(Date.UTC(value.getUTCFullYear(), 0, 1));
-    return Math.ceil((((value.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  }, [weekStart]);
+  const weekNumber = calendarWeek(weekStartKey).number;
 
   const reloadAssignments = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -790,7 +786,7 @@ export function SmVerplanungWorkspace() {
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Markt oder SM suchen…" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: "transparent", color: "#1a1a1a", fontFamily: "inherit", fontSize: 10.5 }}/>
               </label>
               <button type="button" aria-label="Vorherige Woche" onClick={() => setWeekOffset((current) => current - 1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronLeft size={12}/></button>
-              <button type="button" onClick={() => setWeekOffset(0)} className="sm-plan-secondary-button" style={{ height: 30, padding: "0 12px", whiteSpace: "nowrap" }}>KW {weekNumber} · {new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit" }).format(weekStart)} – {new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit" }).format(weekEnd)}</button>
+              <SmPlanningWeekPicker value={weekStartKey} onChange={(monday) => setWeekOffset(calendarWeekOffset(toDateInputValue(baseStart), monday))} />
               <button type="button" aria-label="Nächste Woche" onClick={() => setWeekOffset((current) => current + 1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronRight size={12}/></button>
               <div style={{ flex: 1 }}/>
               <SmPlanDropdown compact ariaLabel="Region filtern" value={region} onChange={setRegion} placeholder="Region" options={regionFilterOptions} />

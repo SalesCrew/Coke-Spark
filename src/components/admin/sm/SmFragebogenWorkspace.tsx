@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { SmFragebogenEditor } from "@/components/admin/sm/SmFragebogenEditor";
+import { SmFragebogenSkeleton } from "./SmFragebogenSkeleton";
 import { SmModuleEditor } from "@/components/admin/sm/SmModuleEditor";
 import {
   deleteSmQuestionnaire,
@@ -423,6 +424,8 @@ export function SmFragebogenWorkspace() {
 
   const tabCount = (tab: WorkspaceTab) => tab === "fragen" ? allQuestions.length : tab === "module" ? modules.length : questionnaires.length;
 
+  if (isLoading) return <SmFragebogenSkeleton />;
+
   return (
     <div className="sm-fb-page">
       {notice ? <div className="sm-preview-notice">{notice}</div> : null}
@@ -452,9 +455,7 @@ export function SmFragebogenWorkspace() {
       </div>
 
       <div className="sm-tab-content">
-        {isLoading ? (
-          <div className="sm-empty-card"><Clock3 size={22} /><strong>SM-Fragebogen werden geladen</strong></div>
-        ) : loadError ? (
+        {loadError ? (
           <div className="sm-empty-card"><HelpCircle size={22} /><strong>Laden fehlgeschlagen</strong><span>{loadError}</span><button type="button" className="sm-dark-button" onClick={() => { void loadWorkspace(); }}>Erneut versuchen</button></div>
         ) : activeTab === "module" ? (
           filteredModules.length > 0 ? <div className="sm-card-stack">{filteredModules.map((row) => (
@@ -469,11 +470,11 @@ export function SmFragebogenWorkspace() {
           ))}</div> : <div className="sm-empty-card"><Layers3 size={22} /><strong>Keine Module vorhanden</strong><span>Erstelle ein Modul um Fragen thematisch zu gruppieren.</span></div>
         ) : null}
 
-        {activeTab === "fragen" ? (
+        {!loadError && activeTab === "fragen" ? (
           filteredQuestions.length > 0 ? <div className="sm-question-list">{filteredQuestions.map(({ row, moduleName }) => <SmQuestionRow key={row.id} row={row} moduleName={moduleName} />)}</div> : <div className="sm-empty-card"><HelpCircle size={22} /><strong>Keine Fragen vorhanden</strong><span>Fragen werden angezeigt, sobald sie in einem SM-Modul liegen.</span></div>
         ) : null}
 
-        {activeTab === "fragebogen" ? (
+        {!loadError && activeTab === "fragebogen" ? (
           filteredQuestionnaires.length > 0 ? <div>{filteredQuestionnaires.map((row) => <SmQuestionnaireCard
             key={row.id}
             row={row}

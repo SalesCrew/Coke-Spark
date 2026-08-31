@@ -1,4 +1,5 @@
-@import "tailwindcss";
+/* Only watch app sources: dev logs and backend output must not trigger rebuilds. */
+@import "tailwindcss" source("../");
 
 html,
 body {

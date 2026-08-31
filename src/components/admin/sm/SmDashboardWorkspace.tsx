@@ -13,6 +13,7 @@ import {
 
 import { BackendApiError, fetchSmDashboard } from "@/lib/api/backend";
 import { AdminDatePicker, AdminDropdown, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
+import { SmDashboardSkeleton } from "./SmDashboardSkeleton";
 import type {
   SmDashboardDimensionRow,
   SmDashboardFilterOption,
@@ -310,7 +311,11 @@ export function SmDashboardWorkspace() {
         .sm-live-card{min-width:0;overflow:hidden;border:1px solid rgba(15,23,42,.06);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}.sm-live-card-head{min-height:59px;padding:13px 15px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(15,23,42,.05)}.sm-live-card-head h2{margin:0;color:#172033;font-size:14px;font-weight:750;letter-spacing:-.012em}.sm-live-card-head p{margin:4px 0 0;color:#8a93a2;font-size:9.5px;font-weight:570}
         .sm-live-category{padding:0 15px 11px}.sm-live-category-head,.sm-live-category-row{display:grid;grid-template-columns:minmax(170px,1.15fr) 88px minmax(120px,1fr) 88px minmax(120px,1fr) 125px;align-items:center;column-gap:14px}.sm-live-category-head{height:34px;color:#98a2b3;font-size:8.5px;font-weight:780;letter-spacing:.06em;text-transform:uppercase}.sm-live-category-row{min-height:50px;border-top:1px solid rgba(15,23,42,.045);font-size:10.5px}.sm-live-category-row>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#344054;font-weight:690}.sm-live-category-row>span:not(.sm-live-rate){color:#596273;font-weight:650}.sm-live-market-ratio{font-size:10px!important}.sm-live-market-ratio b{color:${RED};font-weight:780}.sm-live-rate{display:grid;grid-template-columns:52px minmax(54px,1fr);align-items:center;gap:8px;color:#4b5565;font-size:9.5px;font-weight:690}.sm-live-rate>i{height:4px;overflow:hidden;border-radius:99px;background:#eef0f3}.sm-live-rate>i>b{display:block;height:100%;border-radius:inherit}.sm-live-rate.is-red>i>b{background:${RED}}.sm-live-rate.is-green>i>b{background:${GREEN}}
         .sm-live-bottom{display:grid;grid-template-columns:1.25fr .75fr;gap:11px}.sm-live-dimension{padding:0 15px 10px}.sm-live-dimension-head,.sm-live-dimension-row{display:grid;grid-template-columns:minmax(130px,1.05fr) 60px 55px minmax(118px,.9fr) minmax(135px,1fr);align-items:center;column-gap:12px}.sm-live-dimension-head{height:34px;color:#98a2b3;font-size:8.5px;font-weight:780;letter-spacing:.055em;text-transform:uppercase}.sm-live-dimension-row{min-height:45px;border-top:1px solid rgba(15,23,42,.045);color:#596273;font-size:10px;font-weight:630}.sm-live-dimension-row>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#344054;font-weight:700}.sm-live-case-count{color:${RED}!important;font-weight:780!important}.sm-live-empty-row{padding:34px 10px;border-top:1px solid rgba(15,23,42,.045);color:#98a2b3;text-align:center;font-size:10px;font-weight:620}
-        .sm-live-loading{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.sm-live-skeleton{height:151px;border-radius:12px;background:linear-gradient(90deg,#fff,#f4f5f7,#fff);background-size:220% 100%;animation:sm-live-shimmer 1.25s infinite}@keyframes sm-live-shimmer{to{background-position:-220% 0}}
+        .sm-live-loading{min-width:0}.sm-live-loading-layout{display:flex;flex-direction:column;gap:11px}
+        .sm-live-loading-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+        .sm-live-skeleton{display:block;max-width:100%;flex-shrink:0;border-radius:4px;background:linear-gradient(100deg,#e9ecf1 15%,#f3f5f8 45%,#e9ecf1 75%);background-size:220% 100%;animation:sm-live-shimmer 1.8s ease-in-out infinite}
+        .sm-live-loading .sm-live-metric p,.sm-live-loading .sm-live-metric small{display:flex;align-items:center}.sm-live-loading .sm-live-progress .sm-live-skeleton,.sm-live-loading .sm-live-rate>i .sm-live-skeleton{border-radius:inherit}
+        @keyframes sm-live-shimmer{from{background-position:220% 0}to{background-position:-220% 0}}@media(prefers-reduced-motion:reduce){.sm-live-skeleton{animation:none}}
         @media(max-width:1450px){.sm-live-toolbar{grid-template-columns:repeat(4,minmax(145px,1fr))}.sm-live-bottom{grid-template-columns:1fr}.sm-live-page{min-width:920px}}@media(max-width:1180px){.sm-live-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media print{nav,header,.sm-live-toolbar,.sm-live-refresh{display:none!important}.sm-live-page{min-width:0}.sm-live-shell{border:0;background:#fff}.sm-live-content{padding:0}.sm-live-bottom{grid-template-columns:1fr}.sm-live-card,.sm-live-metric{break-inside:avoid}}
       `}</style>
@@ -340,7 +345,7 @@ export function SmDashboardWorkspace() {
           {error ? <div className="sm-live-error"><AlertCircle size={15} /><span>{error}</span><button type="button" onClick={() => setRefreshKey((value) => value + 1)}>Erneut laden</button></div> : null}
 
           {loading && !payload ? (
-            <div className="sm-live-loading" aria-label="Dashboard wird geladen">{Array.from({ length: 5 }, (_, index) => <span className="sm-live-skeleton" key={index} />)}</div>
+            <SmDashboardSkeleton />
           ) : summary ? (
             <>
               <div className="sm-live-metrics">

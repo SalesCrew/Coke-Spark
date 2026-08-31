@@ -3,7 +3,7 @@
 import { Activity, Clock, Home, LogOut, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { CollapsibleMenu, type MenuItem } from "@/components/ui/CollapsibleMenu";
-import { StatusCard } from "@/components/dashboard/StatusCard";
+import { SmDashboardHero } from "@/components/dashboard/SmDashboardHero";
 import { NachrichtenCard } from "@/components/dashboard/NachrichtenCard";
 import { SmDashboardSchedule } from "@/components/dashboard/SmDashboardSchedule";
 import { logoutCurrentUser } from "@/lib/api/backend";
@@ -21,7 +21,7 @@ export default function SMDashboard() {
   return (
     <main className="min-h-screen" style={{ backgroundColor: "#f5f5f7" }}>
       <div className="px-6 pt-6" style={{ maxWidth: 420, margin: "0 auto" }}>
-        <StatusCard />
+        <SmDashboardHero />
         <SmDashboardSchedule />
         <div className="mt-4 px-1">
           <NachrichtenCard />

@@ -11,6 +11,7 @@ import {
   type EmployeeAgreementPayload,
 } from "@/lib/api/backend";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
+import { SmEmployeeAgreement } from "@/components/sm/SmEmployeeAgreement";
 
 function readSafeNextPath(fallback: "/gm" | "/sm"): string {
   if (typeof window === "undefined") return fallback;
@@ -30,6 +31,7 @@ export default function EmployeeAgreementPage() {
   const [error, setError] = useState<string | null>(null);
   const [nextPath, setNextPath] = useState("/gm");
   const [autoContinueWhenAccepted, setAutoContinueWhenAccepted] = useState(false);
+  const [smRetryKey, setSmRetryKey] = useState(0);
 
   useEffect(() => {
     if (status !== "authorized") return;
@@ -66,7 +68,7 @@ export default function EmployeeAgreementPage() {
     return () => {
       cancelled = true;
     };
-  }, [autoContinueWhenAccepted, nextPath, router, status]);
+  }, [autoContinueWhenAccepted, nextPath, router, status, smRetryKey]);
 
   const fullName = useMemo(() => {
     const first = session?.user.firstName?.trim() ?? "";
@@ -98,6 +100,10 @@ export default function EmployeeAgreementPage() {
   };
 
   const isBusy = status !== "authorized" || loading;
+
+  if (session?.user.role === "sm") {
+    return <SmEmployeeAgreement payload={payload} fullName={fullName} loading={isBusy} submitting={submitting} checked={checked} error={error} onChecked={setChecked} onAccept={() => void handleAccept()} onLogout={handleLogout} onRetry={() => setSmRetryKey((value) => value + 1)} />;
+  }
 
   return (
     <main
@@ -270,7 +276,7 @@ export default function EmployeeAgreementPage() {
                 </label>
 
                 <div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <Link href={session?.user.role === "sm" ? "/datenschutz/sm" : "/datenschutz/gm"} style={{ fontSize: 12, fontWeight: 760, color: "rgba(17,24,39,0.52)", textDecoration: "none" }}>
+                  <Link href="/datenschutz/gm" style={{ fontSize: 12, fontWeight: 760, color: "rgba(17,24,39,0.52)", textDecoration: "none" }}>
                     Datenschutzinformation öffnen
                   </Link>
                   <button

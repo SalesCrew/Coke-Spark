@@ -28,6 +28,7 @@ import { useRouter } from "next/navigation";
 
 import Aurora from "@/components/ui/Aurora";
 import { announcePausedVisit } from "@/components/sm/SmPausedVisitNotice";
+import { SmTravelTimeInput } from "@/components/sm/SmTravelTimeInput";
 import {
   BackendApiError,
   clearMySmPlanningAssignmentsCache,
@@ -1014,7 +1015,7 @@ function StartScreen({ payload, travelInput, onTravelInput, busy, error, onBack,
         <span className="text-[8px] font-extrabold uppercase tracking-[.08em] text-black/70">Fahrtzeit <span className="font-semibold normal-case tracking-normal text-black/45">(optional)</span></span>
         <span className="mt-1.5 flex h-10 items-center gap-2.5 rounded-[9px] border border-black/[0.08] bg-black/[0.018] px-3 transition focus-within:border-red-300 focus-within:bg-white">
           <Car size={14} strokeWidth={1.9} className="shrink-0 text-red-500" />
-          <input value={travelInput} onChange={(event) => onTravelInput(event.target.value)} inputMode="numeric" placeholder="hh:mm" aria-label="Fahrtzeit in Stunden und Minuten" className="h-full min-w-0 flex-1 bg-transparent text-center text-[13px] font-semibold tabular-nums outline-none placeholder:text-black/20" />
+          <SmTravelTimeInput value={travelInput} onValueChange={onTravelInput} className="h-full min-w-0 flex-1 bg-transparent text-center text-[16px] font-semibold tabular-nums outline-none placeholder:text-black/20" />
         </span>
       </label> : null}
       {payload.questionnaireAvailability.count === 0 ? <p className="mt-3 rounded-[9px] bg-amber-50 px-3 py-2 text-[9px] leading-relaxed text-amber-800">Für diesen Einsatz ist aktuell noch kein veröffentlichter SM-Fragebogen verfügbar.</p> : null}
@@ -1530,7 +1531,7 @@ function ReviewScreen({ payload, flat, manualInput, onManualInput, error, busy, 
         {payload.profile.travelTimeEnabled ? <label className="mt-3 flex items-center gap-2.5">
           <span className="w-12 shrink-0 text-[10px] font-semibold text-red-600">Dauer</span>
           <span className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[8px] bg-black/[0.03] px-3 focus-within:bg-white/80">
-            <input value={travelValue} onChange={(event) => setTravelValue(formatTimeInput(event.target.value))} inputMode="numeric" pattern="[0-9:]*" maxLength={5} placeholder="HH:MM" aria-label="Fahrtzeit" className="h-full min-w-0 flex-1 bg-transparent text-[13px] font-bold tabular-nums outline-none placeholder:text-black/20" />
+            <SmTravelTimeInput value={travelValue} onValueChange={setTravelValue} label="Fahrtzeit" className="h-full min-w-0 flex-1 bg-transparent text-[16px] font-bold tabular-nums outline-none placeholder:text-black/20" />
             <Clock3 size={12} strokeWidth={1.8} className="shrink-0 text-black/25" />
           </span>
         </label> : <p className="mt-3 rounded-[8px] bg-black/[0.025] px-3 py-2.5 text-[9px] font-medium text-black/30">Für diesen Zugang ist keine Fahrtzeiterfassung aktiviert.</p>}

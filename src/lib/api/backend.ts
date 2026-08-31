@@ -38,7 +38,7 @@ import type {
 } from "@/types/smPlanning";
 import type { SmAdminMessagesPayload, SmInboxMessage } from "@/types/smMessages";
 import type { SmVisitAnswer, SmVisitPayload, SmVisitReceipt } from "@/types/smVisit";
-import type { SmDashboardPayload, SmDashboardQuery } from "@/types/smDashboard";
+import type { SmDashboardPayload, SmDashboardQuery, SmHomeDashboardPayload } from "@/types/smDashboard";
 import type {
   SmActivityAnswerChangeRequest,
   SmActivitySubmissionDeleteRequest,
@@ -1984,6 +1984,12 @@ export async function fetchMySmPlanningAssignments(from: string, to: string): Pr
   return data.assignments ?? [];
 }
 
+export const SM_HOME_DASHBOARD_CHANGED_EVENT = "sm-home-dashboard-changed";
+
+export async function fetchMySmHomeDashboard(): Promise<SmHomeDashboardPayload> {
+  return (await authedFetch("/sm/dashboard", { cache: "no-store" }, 15_000)) as SmHomeDashboardPayload;
+}
+
 export async function requestMySmPlanningTimeChange(assignmentId: string, input: {
   kind: "time_change" | "deletion";
   requestedStartedAt: string | null;
@@ -2417,6 +2423,7 @@ export async function submitSmVisit(assignmentId: string, input: { actualMinutes
     method: "POST",
     body: JSON.stringify({ clientMutationToken: crypto.randomUUID(), ...input }),
   })) as { receipt: SmVisitReceipt };
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(SM_HOME_DASHBOARD_CHANGED_EVENT));
   return data.receipt;
 }
 

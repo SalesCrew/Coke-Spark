@@ -67,3 +67,20 @@ export type SmDashboardQuery = {
   smUserId?: string;
   marketId?: string;
 };
+
+export type SmHomeDashboardPayload = {
+  userId: string;
+  name: string;
+  assignmentsToday: number;
+  date: string;
+  timezone: "Europe/Vienna";
+  generatedAt: string;
+  visits: {
+    completed: number;
+    classified: number;
+    withoutOos: number;
+    fixedOos: number;
+    openOos: number;
+    unclassified: number;
+  };
+};

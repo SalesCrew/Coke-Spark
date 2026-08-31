@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import Aurora from "@/components/ui/Aurora";
 import { announcePausedVisit } from "@/components/sm/SmPausedVisitNotice";
 import { SmTravelTimeInput } from "@/components/sm/SmTravelTimeInput";
+import { SmVisitTimeConflict, type SmVisitTimeConflictDetails } from "@/components/sm/SmVisitTimeConflict";
 import {
   BackendApiError,
   clearMySmPlanningAssignmentsCache,
@@ -284,6 +285,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
   const [payload, setPayload] = useState<SmVisitPayload | null>(initialPayload);
   const [loading, setLoading] = useState(initialPayload === null);
   const [error, setError] = useState<string | null>(null);
+  const [timeConflict, setTimeConflict] = useState<SmVisitTimeConflictDetails | null>(null);
   const [starting, setStarting] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [draft, setDraft] = useState<SmVisitAnswer | null>(null);
@@ -295,7 +297,6 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
   const [receipt, setReceipt] = useState<SmVisitReceipt | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [travelInput, setTravelInput] = useState("");
-  const [manualInput, setManualInput] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
@@ -809,9 +810,8 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
 
   const finalize = async (reviewTiming: { visitStartedAt?: string; visitCompletedAt?: string; travelMinutes?: number | null } = {}) => {
     if (!payload?.submission) return;
-    const manualMinutes = parseDurationInput(manualInput || durationInputValue(payload.submission.manualVisitMinutes));
-    if (payload.submission.visitTimeMode === "manual" && !manualMinutes) {
-      setError("Bitte trage die tatsächliche Besuchszeit als hh:mm ein.");
+    if (!reviewTiming.visitStartedAt || !reviewTiming.visitCompletedAt) {
+      setError("Bitte trage Start und Ende deines Marktbesuchs ein.");
       return;
     }
     if (!(await flushCurrentAnswer())) {
@@ -824,17 +824,16 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     }
     setSubmitting(true);
     setError(null);
+    setTimeConflict(null);
     try {
       await saveQueue.current;
       const timingUpdate: { manualVisitMinutes?: number; travelMinutes?: number | null } = {};
-      if (payload.submission.visitTimeMode === "manual" && manualMinutes !== payload.submission.manualVisitMinutes) timingUpdate.manualVisitMinutes = manualMinutes!;
       if (reviewTiming.travelMinutes !== undefined && reviewTiming.travelMinutes !== payload.submission.travelMinutes) timingUpdate.travelMinutes = reviewTiming.travelMinutes;
       if (Object.keys(timingUpdate).length > 0) {
         const next = await updateSmVisitTiming(assignmentId, timingUpdate);
         applyPayload(next, { fromServer: true });
       }
       const nextReceipt = await submitSmVisit(assignmentId, {
-        ...(manualMinutes ? { actualMinutes: manualMinutes } : {}),
         ...(reviewTiming.visitStartedAt ? { visitStartedAt: reviewTiming.visitStartedAt } : {}),
         ...(reviewTiming.visitCompletedAt ? { visitCompletedAt: reviewTiming.visitCompletedAt } : {}),
       });
@@ -846,6 +845,10 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       setMissingRequiredIds(new Set());
       setReviewing(false);
     } catch (submitError) {
+      if (submitError instanceof BackendApiError && submitError.code === "sm_visit_time_overlap") {
+        const data = submitError.data as { details?: SmVisitTimeConflictDetails } | null;
+        if (data?.details?.conflicts?.length) setTimeConflict(data.details);
+      }
       if (submitError instanceof BackendApiError && submitError.code === "sm_visit_required_answers_missing") {
         const data = submitError.data as { details?: { questionIds?: unknown } } | null;
         const questionIds = Array.isArray(data?.details?.questionIds)
@@ -882,7 +885,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     />
   );
   if (!payload.submission) return <StartScreen payload={payload} travelInput={travelInput} onTravelInput={setTravelInput} busy={starting} error={error} onBack={() => router.push("/sm")} onStartTimer={() => void start("timer")} onManual={() => void start("manual")} />;
-  if (reviewing) return <ReviewScreen payload={payload} flat={flat} manualInput={manualInput} onManualInput={setManualInput} error={error} busy={submitting} onBack={() => setReviewing(false)} onSubmit={(timing) => void finalize(timing)} />;
+  if (reviewing) return <ReviewScreen payload={payload} flat={flat} error={error} timeConflict={timeConflict} busy={submitting} onBack={() => setReviewing(false)} onSubmit={(timing) => void finalize(timing)} />;
   if (!active) return <FullPageError message="Der veröffentlichte Fragebogen enthält keine sichtbaren Fragen." onBack={() => router.push("/sm")} onRetry={() => void reload(true)} />;
 
   return (
@@ -1462,24 +1465,22 @@ function VisitDatePicker({ value, onChange }: { value: string; onChange: (next: 
   </div>;
 }
 
-function ReviewScreen({ payload, flat, manualInput, onManualInput, error, busy, onBack, onSubmit }: { payload: SmVisitPayload; flat: Array<{ section: SmVisitSection; question: SmVisitQuestion }>; manualInput: string; onManualInput: (value: string) => void; error: string | null; busy: boolean; onBack: () => void; onSubmit: (timing: { visitStartedAt?: string; visitCompletedAt?: string; travelMinutes?: number | null }) => void }) {
+function ReviewScreen({ payload, flat, error, timeConflict, busy, onBack, onSubmit }: { payload: SmVisitPayload; flat: Array<{ section: SmVisitSection; question: SmVisitQuestion }>; error: string | null; timeConflict?: SmVisitTimeConflictDetails | null; busy: boolean; onBack: () => void; onSubmit: (timing: { visitStartedAt?: string; visitCompletedAt?: string; travelMinutes?: number | null }) => void }) {
   const missing = flat.filter((entry) => entry.question.required && !isCompleteAnswer(entry.question, payload.answers[entry.question.id]));
   const submission = payload.submission!;
-  const hasTimestampPair = submission.visitTimeMode === "timer" && Boolean(submission.visitStartedAt);
-  const [startValue, setStartValue] = useState(() => hasTimestampPair ? localDateTimeInputValue(submission.visitStartedAt) : "");
-  const [endValue, setEndValue] = useState(() => hasTimestampPair ? localDateTimeInputValue(new Date().toISOString()) : "");
+  const isTimer = submission.visitTimeMode === "timer";
+  const [startValue, setStartValue] = useState(() => isTimer ? localDateTimeInputValue(submission.visitStartedAt) : "");
+  const [endValue, setEndValue] = useState(() => isTimer ? localDateTimeInputValue(new Date().toISOString()) : "");
   const [travelValue, setTravelValue] = useState(() => durationInputValue(submission.travelMinutes));
   const [clockTarget, setClockTarget] = useState<"start" | "end" | null>(null);
-  const startIso = hasTimestampPair ? localDateTimeInputIso(startValue) : null;
-  const endIso = hasTimestampPair ? localDateTimeInputIso(endValue) : null;
+  const startIso = localDateTimeInputIso(startValue);
+  const endIso = localDateTimeInputIso(endValue);
   const timestampMinutes = startIso && endIso ? Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60_000) : null;
-  const timestampError = hasTimestampPair && (!startIso || !endIso || !timestampMinutes || timestampMinutes < 1 || timestampMinutes > 1440)
+  const timestampError = (!startIso || !endIso || !timestampMinutes || timestampMinutes < 1 || timestampMinutes > 1440)
     ? "Die Endzeit muss nach der Startzeit liegen und höchstens 24 Stunden später sein."
     : null;
-  const manualValue = manualInput || durationInputValue(submission.manualVisitMinutes);
-  const manualMinutes = parseDurationInput(manualValue);
-  const timingInvalid = hasTimestampPair ? Boolean(timestampError) : !manualMinutes;
-  const duration = hasTimestampPair ? timestampMinutes : manualMinutes;
+  const timingInvalid = Boolean(timestampError);
+  const duration = timestampMinutes;
   const travelMinutes = travelValue.trim() ? parseDurationInput(travelValue) : null;
   const travelError = payload.profile.travelTimeEnabled && travelValue.trim() && travelMinutes === null ? "Bitte gib die Fahrtzeit als HH:MM ein." : null;
 
@@ -1500,24 +1501,18 @@ function ReviewScreen({ payload, flat, manualInput, onManualInput, error, busy, 
             <p className={`mt-1 text-[21px] font-extrabold leading-none tabular-nums tracking-[-.02em] ${duration ? "text-red-600" : "text-black/20"}`}>{duration ? formatMinutes(duration) : "—"}</p>
           </div>
           <div className="text-right">
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-[8px] font-bold ${hasTimestampPair ? "bg-red-50 text-red-600" : "bg-black/[0.04] text-black/35"}`}>{hasTimestampPair ? "Timer" : "Manuell"}</span>
+            <span className={`inline-flex rounded-full px-2.5 py-1 text-[8px] font-bold ${isTimer ? "bg-red-50 text-red-600" : "bg-black/[0.04] text-black/35"}`}>{isTimer ? "Timer" : "Manuell"}</span>
           </div>
         </div>
         <div className="my-3 h-px bg-black/[0.055]" />
 
-        {hasTimestampPair ? <div className="space-y-2">
+        <div className="space-y-2">
           <ReviewTimestampField label="Start" tone="green" value={startValue} onChange={setStartValue} onOpenClock={() => setClockTarget("start")} />
           <ReviewTimestampField label="Ende" tone="red" value={endValue} onChange={setEndValue} onOpenClock={() => setClockTarget("end")} />
-        </div> : <label className="flex items-center gap-2.5">
-          <span className="w-12 shrink-0 text-[10px] font-semibold text-red-600">Dauer</span>
-          <span className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-[8px] border border-black/[0.06] bg-black/[0.025] px-3 focus-within:border-red-200 focus-within:bg-white/80">
-            <input value={manualValue} onChange={(event) => onManualInput(event.target.value)} inputMode="numeric" pattern="[0-9:]*" maxLength={5} placeholder="HH:MM" aria-label="Tatsächliche Besuchszeit" className="h-full min-w-0 flex-1 bg-transparent text-[13px] font-bold tabular-nums outline-none placeholder:text-black/20" />
-            <Clock3 size={12} strokeWidth={1.8} className="shrink-0 text-black/25" />
-          </span>
-        </label>}
+        </div>
 
         {timestampError ? <p role="alert" className="mt-3 rounded-[8px] border border-red-100 bg-red-50/75 px-3 py-2 text-[9px] font-semibold leading-relaxed text-red-700">{timestampError}</p> : null}
-        {!hasTimestampPair ? <p className="mt-2 text-[8px] leading-relaxed text-black/30">Bei manueller Erfassung werden keine Start- oder Endzeitstempel gespeichert.</p> : null}
+        {!isTimer ? <p className="mt-2 text-[11px] leading-relaxed text-black/50">Trage den tatsächlichen Beginn und das Ende ein. Die Besuchszeit wird daraus berechnet.</p> : null}
       </section>
 
       <section className="mt-3 rounded-[14px] border border-white/90 bg-white/75 p-4 shadow-[0_2px_16px_rgba(0,0,0,.05),0_1px_4px_rgba(0,0,0,.03)] backdrop-blur-2xl">
@@ -1538,7 +1533,7 @@ function ReviewScreen({ payload, flat, manualInput, onManualInput, error, busy, 
         {travelError ? <p role="alert" className="mt-2 text-[9px] font-semibold text-red-600">{travelError}</p> : null}
       </section>
 
-      {error ? <p role="alert" className="mt-3 rounded-[10px] border border-red-100 bg-red-50/85 px-3 py-3 text-[10px] font-semibold leading-relaxed text-red-700">{error}</p> : null}
+      {timeConflict ? <SmVisitTimeConflict details={timeConflict} /> : error ? <p role="alert" className="mt-3 rounded-[10px] border border-red-100 bg-red-50/85 px-3 py-3 text-[12px] font-semibold leading-relaxed text-red-700">{error}</p> : null}
     </div>
     {clockTarget ? <ClockPicker
       onSelect={(hour, minute) => {
@@ -1551,7 +1546,7 @@ function ReviewScreen({ payload, flat, manualInput, onManualInput, error, busy, 
       initialHour={Number((clockTarget === "start" ? startValue : endValue).split("T")[1]?.split(":")[0] || 8)}
       initialMinute={Number((clockTarget === "start" ? startValue : endValue).split("T")[1]?.split(":")[1] || 0)}
     /> : null}
-    <button type="button" disabled={busy || missing.length > 0 || timingInvalid || Boolean(travelError)} onClick={() => onSubmit({ ...(hasTimestampPair && startIso && endIso ? { visitStartedAt: startIso, visitCompletedAt: endIso } : {}), ...(payload.profile.travelTimeEnabled ? { travelMinutes } : {}) })} className="fixed bottom-[max(14px,env(safe-area-inset-bottom))] left-1/2 z-20 flex h-9 w-[calc(100%_-_32px)] max-w-[428px] -translate-x-1/2 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-[11px] font-bold text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_0_0_1px_#a91b1b,0_1px_6px_rgba(180,20,20,.18)] disabled:bg-none disabled:bg-black/[0.08] disabled:text-black/25 disabled:shadow-none">{busy ? <LoaderCircle size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}Marktbesuch abschließen</button>
+    <button type="button" disabled={busy || missing.length > 0 || timingInvalid || Boolean(travelError)} onClick={() => onSubmit({ ...(startIso && endIso ? { visitStartedAt: startIso, visitCompletedAt: endIso } : {}), ...(payload.profile.travelTimeEnabled ? { travelMinutes } : {}) })} className="fixed bottom-[max(14px,env(safe-area-inset-bottom))] left-1/2 z-20 flex h-9 w-[calc(100%_-_32px)] max-w-[428px] -translate-x-1/2 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-[11px] font-bold text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_0_0_1px_#a91b1b,0_1px_6px_rgba(180,20,20,.18)] disabled:bg-none disabled:bg-black/[0.08] disabled:text-black/25 disabled:shadow-none">{busy ? <LoaderCircle size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}Marktbesuch abschließen</button>
   </main>;
 }
 
@@ -1700,7 +1695,6 @@ export function SmVisitTemporaryQuestionnaire({ assignmentId, marketName, market
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [previewCreatedAt] = useState(() => new Date().toISOString());
   const [travelInput, setTravelInput] = useState("");
-  const [manualInput, setManualInput] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
   const [exitStage, setExitStage] = useState<VisitExitStage>("choice");
@@ -1827,7 +1821,7 @@ export function SmVisitTemporaryQuestionnaire({ assignmentId, marketName, market
   };
 
   if (!startMode) return <StartScreen payload={payload} travelInput={travelInput} onTravelInput={(value) => { setTravelInput(value); setStartError(null); }} busy={false} error={startError} onBack={() => router.push("/sm")} onStartTimer={() => beginPreview("timer")} onManual={() => beginPreview("manual")} />;
-  if (reviewing) return <ReviewScreen payload={payload} flat={flat} manualInput={manualInput} onManualInput={setManualInput} error={null} busy={false} onBack={() => setReviewing(false)} onSubmit={() => router.replace("/sm")} />;
+  if (reviewing) return <ReviewScreen payload={payload} flat={flat} error={null} busy={false} onBack={() => setReviewing(false)} onSubmit={() => router.replace("/sm")} />;
 
   return <main className="relative h-[100dvh] overflow-hidden bg-[#f5f5f7] text-gray-900">
     <ActiveQuestionnaireAurora />

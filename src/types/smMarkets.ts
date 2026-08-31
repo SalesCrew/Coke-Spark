@@ -94,6 +94,16 @@ export type CreateSmMarketInput = {
 
 export type UpdateSmMarketInput = Partial<CreateSmMarketInput>;
 
+export type SmDeactivationOccurrence = { id: string; workDate: string; smUserId: string; smName: string; plannedMinutes: number; status: string };
+export type SmMarketDeactivationPreview = {
+  market: { id: string; name: string; address: string; postalCode: string; city: string; internalId: string | null; isActive: boolean };
+  effectiveFrom: string; previewToken: string; affectedCount: number; endingSeriesCount: number;
+  groups: Array<{ id: string; seriesId: string | null; frequency: "weekly" | "biweekly" | null; weekdays: number[]; occurrences: SmDeactivationOccurrence[] }>;
+  protectedAssignments: SmDeactivationOccurrence[];
+};
+export type SmDeactivationResolution = { assignmentId: string; action: "cancel" } | { assignmentId: string; action: "replace"; replacementMarketId: string };
+export type SmMarketDeactivationResult = { market: SmMarketRecord; cancelled: number; replaced: number; protectedCount: number };
+
 export type SmMarketUserSyncMatch = {
   marketId: string;
   marketName: string;

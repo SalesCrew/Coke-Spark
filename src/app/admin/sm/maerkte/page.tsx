@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { SmMarketImportModal } from "@/components/admin/sm/SmMarketImportModal";
 import { SmMarketUserSyncModal } from "@/components/admin/sm/SmMarketUserSyncModal";
+import { SmMarketDeactivationModal } from "@/components/admin/sm/SmMarketDeactivationModal";
 import { createSmMarket, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket } from "@/lib/api/backend";
 import type { ImportSmMarketsInput, SmMarketImportSummary, SmMarketRecord } from "@/types/smMarkets";
 import type { SMRecord } from "@/types/shelfmerchandiser";
@@ -627,6 +628,7 @@ function MarketDetailDrawer({
   assignedSmId,
   onAssign,
   onSave,
+  onDeactivated,
   onDelete,
   onClose,
 }: {
@@ -635,6 +637,7 @@ function MarketDetailDrawer({
   assignedSmId: string | null;
   onAssign: (smId: string | null) => void;
   onSave: (fields: EditableMarketFields) => Promise<void>;
+  onDeactivated: (market: SmMarketRecord) => void;
   onDelete: () => Promise<void>;
   onClose: () => void;
 }) {
@@ -645,6 +648,7 @@ function MarketDetailDrawer({
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showDeactivation, setShowDeactivation] = useState(false);
   const chain = marketChain(market);
   const colors = chainColors(chain);
   const linkedSmUser = assignedSmId ? users.find((user) => user.id === assignedSmId) : undefined;
@@ -746,7 +750,7 @@ function MarketDetailDrawer({
                 <SmAssignmentSelect value={assignedSmId} users={users} onChange={onAssign} />
               </div>
               {editing ? <EditInfoRow label="Markt"><input className="sm-market-edit-field" value={draft.chain} onChange={(event) => updateDraft("chain", event.target.value)} /></EditInfoRow> : <InfoRow label="Markt" value={marketChain(market)} />}
-              {editing ? <EditInfoRow label="Status"><MarketFieldSelect value={draft.isActive ? "active" : "inactive"} options={[{ value: "active", label: "Aktiv" }, { value: "inactive", label: "Inaktiv" }]} onChange={(value) => updateDraft("isActive", value === "active")} /></EditInfoRow> : <InfoRow label="Status" value={<span style={{ color: market.isActive ? "#15803d" : COKE_RED, fontWeight: 700 }}>{market.isActive ? "Aktiv" : "Inaktiv"}</span>} />}
+              {editing ? <EditInfoRow label="Status"><MarketFieldSelect value={draft.isActive ? "active" : "inactive"} options={[{ value: "active", label: "Aktiv" }, { value: "inactive", label: "Inaktiv" }]} onChange={(value) => { if (value === "inactive" && market.isActive) setShowDeactivation(true); else updateDraft("isActive", value === "active"); }} /></EditInfoRow> : <InfoRow label="Status" value={<span style={{ color: market.isActive ? "#15803d" : COKE_RED, fontWeight: 700 }}>{market.isActive ? "Aktiv" : "Inaktiv"}</span>} />}
             </InfoSection>
           </div>
         ) : (
@@ -816,6 +820,7 @@ function MarketDetailDrawer({
           <button type="button" disabled={saving} onClick={() => void save()} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2}/> {saving ? "Speichert…" : "Speichern"}</button>
         </div> : actionError ? <button type="button" onClick={() => setActionError(null)} className="sm-market-edit-button is-secondary">Schließen</button> : null}
       </div> : null}
+      {showDeactivation ? <SmMarketDeactivationModal marketId={market.id} onClose={() => setShowDeactivation(false)} onConfirmed={(result) => { updateDraft("isActive", false); onDeactivated(result.market); setShowDeactivation(false); }} /> : null}
     </aside>,
     document.body,
   );
@@ -1352,6 +1357,7 @@ export default function SmMaerktePage() {
           assignedSmId={selectedMarket.assignedSmUserId}
           onAssign={(smId) => void handleAssignment(selectedMarket.id, smId)}
           onSave={(fields) => handleMarketSave(selectedMarket.id, fields)}
+          onDeactivated={(updated) => setMarkets((current) => current.map((market) => market.id === updated.id ? updated : market))}
           onDelete={() => handleDeleteMarket(selectedMarket.id)}
           onClose={() => setSelectedId(null)}
         />

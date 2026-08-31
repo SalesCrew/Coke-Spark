@@ -2654,6 +2654,16 @@ export async function createSmMarket(input: CreateSmMarketInput): Promise<SmMark
   return data.market;
 }
 
+export async function fetchSmMarketDeactivationPreview(id: string): Promise<import("@/types/smMarkets").SmMarketDeactivationPreview> {
+  return authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}/deactivation-preview`, { method: "GET" }) as Promise<import("@/types/smMarkets").SmMarketDeactivationPreview>;
+}
+
+export async function deactivateSmMarket(id: string, input: { previewToken: string; resolutions: import("@/types/smMarkets").SmDeactivationResolution[] }): Promise<import("@/types/smMarkets").SmMarketDeactivationResult> {
+  const result = await authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}/deactivate`, { method: "POST", body: JSON.stringify(input) }) as import("@/types/smMarkets").SmMarketDeactivationResult;
+  clearMySmPlanningAssignmentsCache();
+  return result;
+}
+
 export async function updateSmMarket(id: string, input: UpdateSmMarketInput): Promise<SmMarketRecord> {
   const data = (await authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}`, {
     method: "PATCH",

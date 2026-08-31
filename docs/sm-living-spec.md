@@ -1,7 +1,7 @@
 # Shelf Merchandiser (SM) – Living Product & Architecture Spec
 
 > Status: living document / active implementation
-> Last updated: 2026-08-24
+> Last updated: 2026-08-31
 > Owner: Coke Spark SM implementation  
 > Rule: Read and update this file before every material SM implementation. Confirmed requirements must not be silently replaced by assumptions.
 
@@ -1509,7 +1509,7 @@ For every category it shows found cases, detection rate (`found / classified che
 - Each chain and region row is aggregated from the same eligible submissions and current OOS answer rows as the core cards.
 - Rows show completed visits, observed markets, found OOS cases, fixed rate and affected-market rate.
 - A group with visits but no classified OOS checks remains visible with `—` OOS rates. A group with no eligible submitted visit in the current filtered scope is omitted.
-- Search is a presentation filter for the displayed group rows only. Region, chain, market, SM and period controls are data filters and therefore trigger a new authoritative backend read.
+- Region, chain, market, SM and period controls are data filters and therefore trigger a new authoritative backend read. The extra comparison-row search was removed on 2026-08-31; tables show the complete backend-filtered result without a hidden second filtering layer.
 
 ### 27.6 Data freshness and answer-to-dashboard propagation
 
@@ -1581,3 +1581,31 @@ Browser filter verification covered region, chain, SM user, market, combined reg
 The SM dashboard schedule cache is invalidated when a visit is submitted or discarded and again immediately before leaving its receipt. This prevents a completed assignment from briefly repainting as `Starten` from the long-lived offline schedule snapshot; the background server read remains authoritative.
 
 The reporting eligibility predicate remains intentionally strict and centralized in the SM-only dashboard route: `status = 'submitted'`, `is_current = true`, `is_deleted = false`, and `reporting_available_at is not null`. Planned, started, paused, draft, cancelled, superseded and soft-deleted questionnaires cannot enter any card, category row, chain row, region row or export payload.
+
+## 28. Restore admin workspace access and unify filters — 2026-08-31
+
+### Confirmed request and cause
+
+The user requires SM administrators to access the GM sidebar workspace again, admin-styled dashboard filters including their popup panels, and removal of the redundant comparison search. The privacy audit had incorrectly narrowed `sm_admin` despite sections 3.4 and 4 explicitly defining it as a full administrator. Both the frontend permission check and the backend endpoint/user-directory checks had to be restored; enabling the sidebar alone would still leave API requests forbidden.
+
+### Implementation
+
+- `AdminAccessContext` treats `admin` and `sm_admin` as full admins for page read/write/update checks. SM-admin home remains `/admin/sm/dashboard`; workspace-specific navigation and Anfragen data sources are unchanged.
+- Backend `isRoleAllowedForEndpoint` allows `sm_admin` wherever an endpoint allows `admin`. It does not grant normal `sm` users admin/GM access, and it does not infer access to worker-only routes. User-management scope and GM market-filter guards use the same full-admin definition. Customer permission checks are unchanged.
+- The exact existing SM-planning dropdown/calendar implementation and styles are extracted to `AdminFilterControls.tsx`, reused by planning (including its drawer) and the dashboard. No GM dropdown or GM business component was redesigned.
+- Region, chain, SM and market use custom dropdown triggers/panels. Long option lists have search inside their dropdown; this is distinct from the removed standalone search above the comparison tables. Option values and authoritative backend queries are unchanged.
+- Von/Bis use the shared custom Monday-first calendar. `maxDate` complements the existing `minDate` guard: Von cannot exceed Bis, and Bis cannot precede Von. Disallowed dates and the Heute shortcut are disabled. Escape/outside-click close popovers, and selection returns focus to the trigger.
+- Menus/calendars render through a body portal and position relative to the viewport, avoiding clipped borders inside the dashboard shell or planning drawer. Existing admin typography, spacing, red selected states, rounded edges and shadows are retained.
+- Removed the comparison search input, state, CSS and client-side row filtering. Both comparison tables now render the complete result for the toolbar's filters. Reset restores the current Vienna month and all dimensions.
+- Corrected the technical privacy audit and public SM access description to match the confirmed admin role model. No database/schema/RLS change, migration, account-role update or business-record mutation is part of this fix.
+
+### Verification
+
+- Backend production TypeScript build passed.
+- 22 focused backend tests passed: full-admin role inheritance, normal SM/GM employee denial, customer scope, SM OOS denominators and planning invariants.
+- Frontend TypeScript check over `src/**/*.ts(x)` and `next-env.d.ts` passed with zero diagnostics. The unscoped root command also includes the nested backend's older test files and fails on their existing type errors; those unrelated files were not changed, and this is not a claim that the unscoped production build passed.
+- Real Chrome SM-admin session: GM workspace opened and showed GM Dashboard and the complete GM menu; switching back restored the SM workspace. Authenticated backend reads returned successfully. No GM edit or submit action was exercised.
+- Dashboard: Billa Plus filter reduced completed visits from four to two; keyboard region selection worked; market dropdown search narrowed to Wolfsberg; standalone comparison search count was zero; reset restored all chains.
+- Calendar: with Bis 31.08.2026, 01.09.2026 was disabled for Von. After choosing Von 26.08.2026, 25.08.2026 was disabled for Bis. Escape closed the calendar.
+- Planning page and drawer rendered the shared filter/date triggers. The additional drawer interaction check was interrupted by repeated page-state resets, so it is not counted as a completed dropdown/calendar interaction test; those same controls were exercised successfully on the dashboard. The temporary test tab was closed without saving. No browser console errors were observed in the verification tab.
+- Changes are local only. Deployment requires a separate user request; backend and frontend must be deployed together for production access to match.

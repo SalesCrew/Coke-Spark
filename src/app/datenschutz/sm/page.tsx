@@ -36,7 +36,7 @@ const sections: PrivacyNoticeSection[] = [
     title: "4. Zugriff und Empfänger",
     body: [
       "Shelf Merchandiser sehen über die SM-Oberfläche nur ihre eigenen Zuordnungen, Einsätze, Antworten, Zeiten, Nachrichten und Anfragen.",
-      "Berechtigte interne Admins und SM-Admins erhalten Zugriff nur soweit dies für Planung, Support, Prüfung, Korrektur, Reporting oder Abrechnung erforderlich ist. SM-Admins erhalten über die SM-Verwaltung keinen Zugriff auf den GM-Arbeitsbereich.",
+      "Berechtigte interne Admins und SM-Admins erhalten Zugriff für Planung, Support, Prüfung, Korrektur, Reporting oder Abrechnung. Beide administrativen Rollen können zwischen der GM- und SM-Verwaltung wechseln; die Arbeitsbereiche und ihre operativen Daten bleiben getrennt. Shelf Merchandiser erhalten dadurch keine administrativen Rechte.",
       "Die operative SM-API gewährt Coca-Cola Kunden-Zugängen keinen direkten Zugriff. Eine externe Weitergabe oder ein Export erfordert einen gesondert kontrollierten, zweckgebundenen Prozess.",
       "Technische Dienstleister dürfen Daten nur im erforderlichen Umfang für Datenbank, Authentifizierung, privaten Dateispeicher, Hosting, Deployment, Logging und Sicherheit verarbeiten.",
     ],

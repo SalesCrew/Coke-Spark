@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
@@ -40,6 +41,7 @@ import {
   type AdminPhotoCampaignType,
 } from "@/lib/api/backend";
 import { exportFotoarchivImagesZip } from "@/lib/exports/analysisExports";
+import { resolvePhotoExportTimeframe, selectPhotoExportRangeDay, type PhotoExportDateRange, type PhotoExportTimeframe, type PhotoExportTimeframeMode } from "@/lib/exports/photoExportTimeframe";
 import { useAdminAccess } from "@/context/AdminAccessContext";
 import type { Campaign } from "@/types/campaign";
 import type { RedMonthPeriod } from "@/types/red-month";
@@ -62,13 +64,9 @@ const TYPE_META: Record<AdminPhotoCampaignType, { label: string; color: string; 
 type ViewMode = "grid" | "list";
 type Filters = AdminPhotoArchiveFilters & { redMonthId?: string };
 type PhotoSignedUrlState = Pick<AdminPhotoSignedUrl, "signedUrl" | "expiresAt">;
-type ExportTimeframeMode = "all" | "date" | "week" | "redMonth";
-type ExportSelection = {
+type ExportTimeframeMode = PhotoExportTimeframeMode;
+type ExportSelection = PhotoExportTimeframe & {
   campaignId?: string;
-  timeframeMode: ExportTimeframeMode;
-  date?: string;
-  week?: string;
-  redMonthId?: string;
   chains: string[];
   tagKeys: string[];
 };
@@ -365,10 +363,14 @@ function DateRangeCalendar({
   dateFrom,
   dateTo,
   onChange,
+  singleDay = false,
+  footer,
 }: {
   dateFrom?: string;
   dateTo?: string;
   onChange: (next: { dateFrom?: string; dateTo?: string }) => void;
+  singleDay?: boolean;
+  footer?: React.ReactNode;
 }) {
   const [month, setMonth] = useState(() => (dateFrom ? new Date(`${dateFrom}T12:00:00`) : new Date()));
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -377,15 +379,15 @@ function DateRangeCalendar({
   const cells = Array.from({ length: startOffset + daysInMonth }, (_, index) => index < startOffset ? null : index - startOffset + 1);
 
   return (
-    <div style={{ width: 288, padding: 10, borderRadius: 14, background: "#fff", border: SOFT_BORDER, boxShadow: "0 18px 40px rgba(15,23,42,0.14)" }}>
+    <div style={{ width: 288, maxWidth: "100%", padding: 10, borderRadius: 14, background: "#fff", border: SOFT_BORDER, boxShadow: "0 18px 40px rgba(15,23,42,0.14)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <button type="button" onClick={() => setMonth(addMonths(month, -1))} style={iconButtonStyle}>
+        <button type="button" aria-label="Vorheriger Monat" onClick={() => setMonth(addMonths(month, -1))} style={iconButtonStyle}>
           <ChevronLeft size={14} />
         </button>
         <div style={{ fontSize: 12, fontWeight: 800, color: "#111827" }}>
           {month.toLocaleDateString("de-AT", { month: "long", year: "numeric" })}
         </div>
-        <button type="button" onClick={() => setMonth(addMonths(month, 1))} style={iconButtonStyle}>
+        <button type="button" aria-label="Nächster Monat" onClick={() => setMonth(addMonths(month, 1))} style={iconButtonStyle}>
           <ChevronRight size={14} />
         </button>
       </div>
@@ -404,9 +406,11 @@ function DateRangeCalendar({
             <button
               key={value}
               type="button"
+              aria-label={new Date(`${value}T12:00:00`).toLocaleDateString("de-AT", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              aria-pressed={selected}
+              aria-current={value === ymd(new Date()) ? "date" : undefined}
               onClick={() => {
-                if (!dateFrom || (dateFrom && dateTo) || value < dateFrom) onChange({ dateFrom: value, dateTo: undefined });
-                else onChange({ dateFrom, dateTo: value });
+                onChange(singleDay ? { dateFrom: value, dateTo: value } : selectPhotoExportRangeDay({ dateFrom, dateTo }, value));
               }}
               style={{
                 height: 30,
@@ -424,8 +428,125 @@ function DateRangeCalendar({
           );
         })}
       </div>
+      {footer}
     </div>
   );
+}
+
+function PhotoExportDatePicker({
+  range,
+  singleDay,
+  disabled,
+  onChange,
+}: {
+  range: PhotoExportDateRange;
+  singleDay: boolean;
+  disabled: boolean;
+  onChange: (range: PhotoExportDateRange) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dialogId = React.useId();
+  const label = singleDay ? "Exportdatum auswählen" : "Exportzeitraum auswählen";
+  const displayDate = (value?: string) => value
+    ? new Date(`${value}T12:00:00`).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "Datum wählen";
+
+  const close = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open || disabled) return;
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.min(288, window.innerWidth - 16);
+      const height = panelRef.current?.offsetHeight ?? 334;
+      const below = window.innerHeight - rect.bottom;
+      const top = below < height + 8 && rect.top > below ? rect.top - height - 6 : rect.bottom + 6;
+      setPosition({
+        width,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+        top: Math.max(8, Math.min(top, window.innerHeight - height - 8)),
+      });
+    };
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!triggerRef.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false);
+    };
+    updatePosition();
+    document.addEventListener("pointerdown", dismiss);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [disabled, open]);
+
+  const panelVisible = open && !disabled && Boolean(position);
+  useEffect(() => {
+    if (panelVisible) panelRef.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"], button[aria-current="date"], button[aria-pressed]')?.focus();
+  }, [panelVisible]);
+
+  return <>
+    <button
+      ref={triggerRef}
+      type="button"
+      disabled={disabled}
+      aria-label={label}
+      aria-haspopup="dialog"
+      aria-expanded={panelVisible}
+      aria-controls={panelVisible ? dialogId : undefined}
+      onClick={() => setOpen((current) => !current)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open) {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+        }
+      }}
+      style={{ width: "100%", minHeight: 35, borderRadius: 9, border: SOFT_BORDER, background: "linear-gradient(to bottom, #fff, #fafafa)", boxShadow: BUTTON_SHADOW, padding: "8px 10px", color: range.dateFrom ? "#111827" : "rgba(15,23,42,0.42)", fontFamily: "inherit", fontSize: 10.5, fontWeight: 650, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.55 : 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, textAlign: "left" }}
+    >
+      <span style={{ minWidth: 0, lineHeight: 1.5 }}>{singleDay ? displayDate(range.dateFrom) : `${range.dateFrom ? displayDate(range.dateFrom) : "Startdatum"} – ${range.dateTo ? displayDate(range.dateTo) : "Enddatum"}`}</span>
+      <Calendar size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: open ? R : "rgba(15,23,42,0.4)" }} />
+    </button>
+    {panelVisible && position && createPortal(
+      <div
+        ref={panelRef}
+        id={dialogId}
+        role="dialog"
+        aria-label={label}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+          }
+        }}
+        style={{ position: "fixed", ...position, zIndex: 2300, maxHeight: "calc(100vh - 16px)", overflowY: "auto", borderRadius: 14, boxShadow: "0 18px 40px rgba(15,23,42,0.14)", fontFamily: ADMIN_FONT_STACK }}
+      >
+        <DateRangeCalendar
+          dateFrom={range.dateFrom}
+          dateTo={range.dateTo}
+          singleDay={singleDay}
+          onChange={(next) => {
+            onChange(next);
+            if (singleDay || next.dateTo) close();
+          }}
+          footer={<div style={{ marginTop: 10, paddingTop: 8, borderTop: SOFT_BORDER, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span role="status" style={{ color: "rgba(15,23,42,0.46)", fontSize: 9, lineHeight: 1.4 }}>{singleDay ? "Einzelnen Tag wählen" : range.dateFrom && !range.dateTo ? "Jetzt das Enddatum wählen" : "Start- und Enddatum wählen"}</span>
+            <button type="button" onClick={() => onChange({ dateFrom: undefined, dateTo: undefined })} style={{ border: 0, background: "transparent", padding: "3px 0", color: R, fontSize: 9, fontWeight: 650, fontFamily: "inherit", cursor: "pointer" }}>Zurücksetzen</button>
+          </div>}
+        />
+      </div>, document.body,
+    )}
+  </>;
 }
 
 const iconButtonStyle: React.CSSProperties = {
@@ -886,7 +1007,7 @@ function FotoExportModal({
   if (!open) return null;
 
   const selectMode = (mode: ExportTimeframeMode) => {
-    if (mode === "date") {
+    if (mode === "date" || mode === "range") {
       setSelection((current) => ({ ...current, timeframeMode: mode, week: undefined, redMonthId: undefined }));
       return;
     }
@@ -902,14 +1023,13 @@ function FotoExportModal({
     setSelection((current) => ({ ...current, timeframeMode: mode, date: undefined, week: undefined, redMonthId: undefined }));
   };
 
-  const selectionComplete = selection.timeframeMode === "all"
-    || (selection.timeframeMode === "date" && Boolean(selection.date))
-    || (selection.timeframeMode === "week" && Boolean(selection.week))
-    || (selection.timeframeMode === "redMonth" && Boolean(selection.redMonthId));
+  const timeframeFilters = resolvePhotoExportTimeframe(selection, redMonths);
+  const selectionComplete = timeframeFilters !== null;
   const selectedCampaign = campaignOptions.find((campaign) => campaign.id === selection.campaignId);
-  const selectedRedMonth = redMonths.find((period) => period.id === selection.redMonthId);
   const timeframeSummary = selection.timeframeMode === "date"
     ? selection.date ? fmtDate(selection.date) : "Datum wählen"
+    : selection.timeframeMode === "range"
+      ? selection.dateFrom && selection.dateTo ? `${fmtDate(selection.dateFrom)} – ${fmtDate(selection.dateTo)}` : "Start- und Enddatum wählen"
     : selection.timeframeMode === "week"
       ? weekOptions.find((option) => option.value === selection.week)?.label ?? "Kalenderwoche wählen"
       : selection.timeframeMode === "redMonth"
@@ -927,18 +1047,9 @@ function FotoExportModal({
       : `${selection.chains.length} Handelsketten`;
 
   const submit = () => {
-    if (!selectionComplete || exporting) return;
-    const exportFilters: AdminPhotoArchiveFilters = {};
+    if (!timeframeFilters || exporting) return;
+    const exportFilters: AdminPhotoArchiveFilters = { ...timeframeFilters };
     if (selection.campaignId) exportFilters.campaignId = selection.campaignId;
-    if (selection.timeframeMode === "date" && selection.date) {
-      exportFilters.dateFrom = selection.date;
-      exportFilters.dateTo = selection.date;
-    }
-    if (selection.timeframeMode === "week" && selection.week) exportFilters.week = selection.week;
-    if (selection.timeframeMode === "redMonth" && selectedRedMonth) {
-      exportFilters.dateFrom = selectedRedMonth.start;
-      exportFilters.dateTo = selectedRedMonth.end;
-    }
     if (selection.chains.length > 0) exportFilters.chains = selection.chains;
     const tagIds = selection.tagKeys.filter((key) => key.startsWith("id:")).map((key) => key.slice(3));
     const tagLabels = selection.tagKeys
@@ -975,12 +1086,13 @@ function FotoExportModal({
           <section style={{ minWidth: 0 }}>
             <div style={{ marginBottom: 9 }}>
               <div style={{ fontSize: 10.5, fontWeight: 800, color: "#111827" }}>Zeitraum</div>
-              <div style={{ marginTop: 3, fontSize: 9.5, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.44)" }}>Nach einem einzelnen Datum, einer Kalenderwoche oder dem RED-Month-Kalender filtern.</div>
+              <div style={{ marginTop: 3, fontSize: 9.5, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.44)" }}>Einzelnen Tag, freien Zeitraum, Kalenderwoche oder RED Month auswählen.</div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", borderBottom: "1px solid rgba(15,23,42,0.09)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", borderBottom: "1px solid rgba(15,23,42,0.09)" }}>
               {([
                 ["all", "Alle"],
                 ["date", "Datum"],
+                ["range", "Zeitraum"],
                 ["week", "Woche"],
                 ["redMonth", "RED Month"],
               ] as Array<[ExportTimeframeMode, string]>).map(([mode, label]) => {
@@ -990,24 +1102,28 @@ function FotoExportModal({
             </div>
 
             <div style={{ marginTop: 12 }}>
-              {selection.timeframeMode === "date" && (
-                <label className="fotoExportDatePicker" style={{ minHeight: 76, borderRadius: 12, border: "1px solid rgba(15,23,42,0.09)", background: "linear-gradient(to bottom, #fff, rgba(248,250,252,0.72))", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: 12 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                    <span style={{ width: 32, height: 32, flexShrink: 0, borderRadius: 9, display: "grid", placeItems: "center", color: R, background: "rgba(220,38,38,0.07)", border: "1px solid rgba(220,38,38,0.10)" }}><Calendar size={15} strokeWidth={1.9} /></span>
-                    <span style={{ minWidth: 0 }}>
-                      <span style={{ display: "block", fontSize: 10.5, fontWeight: 750, color: "rgba(15,23,42,0.68)" }}>Exportdatum</span>
-                      <span style={{ display: "block", marginTop: 2, fontSize: 9, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Nur Fotos dieses Tages werden exportiert.</span>
-                    </span>
-                  </span>
-                  <input
-                    className="fotoExportDateInput"
-                    type="date"
-                    aria-label="Exportdatum auswählen"
-                    value={selection.date ?? ""}
-                    onChange={(event) => setSelection((current) => ({ ...current, date: event.target.value || undefined }))}
-                    style={{ width: 142, height: 34, flexShrink: 0, borderRadius: 9, border: SOFT_BORDER, background: "#fff", boxShadow: BUTTON_SHADOW, padding: "0 9px", color: selection.date ? "#111827" : "rgba(15,23,42,0.42)", fontFamily: "inherit", fontSize: 10.5, fontWeight: 750, outline: "none", cursor: "pointer" }}
+              {(selection.timeframeMode === "date" || selection.timeframeMode === "range") && (
+                <div style={{ borderRadius: 12, border: "1px solid rgba(15,23,42,0.09)", background: "linear-gradient(to bottom, #fff, rgba(248,250,252,0.72))", padding: 12 }}>
+                  <div style={{ marginBottom: 9, fontSize: 10.5, fontWeight: 650, color: "rgba(15,23,42,0.68)" }}>
+                    {selection.timeframeMode === "date" ? "Exportdatum" : "Exportzeitraum"}
+                  </div>
+                  <PhotoExportDatePicker
+                    key={selection.timeframeMode}
+                    singleDay={selection.timeframeMode === "date"}
+                    disabled={exporting}
+                    range={selection.timeframeMode === "date"
+                      ? { dateFrom: selection.date, dateTo: selection.date }
+                      : { dateFrom: selection.dateFrom, dateTo: selection.dateTo }}
+                    onChange={(range) => setSelection((current) => current.timeframeMode === "date"
+                      ? { ...current, date: range.dateFrom }
+                      : { ...current, ...range })}
                   />
-                </label>
+                  <div role="status" style={{ marginTop: 8, fontSize: 9, lineHeight: 1.4, fontWeight: 500, color: "rgba(15,23,42,0.44)" }}>
+                    {selection.timeframeMode === "date" ? "Nur Fotos dieses Tages werden exportiert."
+                      : selection.dateFrom && !selection.dateTo ? "Noch das Enddatum auswählen."
+                      : "Start- und Enddatum auswählen. Beide Tage sind enthalten."}
+                  </div>
+                </div>
               )}
               {selection.timeframeMode === "week" && <ExportDropdown label="Kalenderwoche" value={selection.week} placeholder="Woche wählen" options={weekOptions} searchable onChange={(week) => setSelection((current) => ({ ...current, week }))} />}
               {selection.timeframeMode === "redMonth" && <ExportDropdown label="RED Month" value={selection.redMonthId} placeholder="RED Month wählen" options={redMonthOptions} searchable onChange={(redMonthId) => setSelection((current) => ({ ...current, redMonthId }))} />}
@@ -1806,10 +1922,6 @@ export default function FotoarchivPage() {
           .fotoExportSummaryItem:nth-child(odd) { padding-left: 0 !important; border-left: 0 !important; }
           .fotoExportSummaryItem:nth-child(even) { padding-right: 0 !important; }
           .fotoExportSummaryItem:nth-child(n+3) { border-top: 1px solid rgba(15,23,42,0.07); }
-        }
-        @media (max-width: 520px) {
-          .fotoExportDatePicker { align-items: stretch !important; flex-direction: column; }
-          .fotoExportDateInput { width: 100% !important; }
         }
       `}</style>
 

@@ -82,17 +82,17 @@ export function AdminAccessProvider({
   }, [session, sessionPermissionSignature]);
 
   const isSmAdmin = session?.user.role === "sm_admin";
-  const isAdmin = session?.user.role === "admin";
+  // SM admins are full administrators; their default workspace is SM, not their permission boundary.
+  const isAdmin = session?.user.role === "admin" || isSmAdmin;
   const isKunde = session?.user.role === "kunde";
 
   const can = useCallback(
     (pageKey: AdminPageKey, action: "read" | "write" | "update") => {
       if (isAdmin) return true;
-      if (isSmAdmin) return pageKey === "shelfmerchandiser";
       if (!isKunde) return false;
       return (livePermissions[pageKey] ?? []).includes(action);
     },
-    [isAdmin, isKunde, isSmAdmin, livePermissions],
+    [isAdmin, isKunde, livePermissions],
   );
 
   const value = useMemo<AdminAccessContextValue>(() => {

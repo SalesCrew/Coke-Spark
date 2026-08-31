@@ -35,6 +35,7 @@ import { DashboardGateOverlay } from "./DashboardLockOverlay";
 
 interface KuehlerMarket {
   marketId?: string;
+  visitNumber?: number;
   campaignId?: string;
   campaignName?: string;
   kuehlerUnitId?: string | null;
@@ -153,7 +154,7 @@ function InventoryMarketRow({
         background: "transparent",
         font: "inherit",
       }}
-      aria-label={`${market.chain}, ${market.address}`}
+      aria-label={`${market.chain}, ${market.address}${market.visitNumber ? `, Besuch ${market.visitNumber}` : ""}`}
     >
       {completed ? (
         <CheckCircle2 size={10} strokeWidth={2} color="#059669" className="mt-0.5 shrink-0" />
@@ -175,6 +176,7 @@ function InventoryMarketRow({
           >
             {market.chain}
           </span>
+          {(market.visitNumber ?? 1) > 1 && <span className="text-[8px] font-semibold text-gray-500">Besuch {market.visitNumber}</span>}
 
           <span className="ml-auto flex flex-wrap items-center justify-end gap-y-0.5">
             <KuehlerNumberValue value={showTechnicalIdentNo ? market.kuehlerTechnicalIdentNo : null} />
@@ -203,10 +205,11 @@ function InventoryMarketRow({
   );
 }
 
-function getKuehlerChoiceKey(entry: Pick<KuehlerMarket, "campaignId" | "kuehlerUnitId" | "kuehlerNumber" | "address">, index = 0) {
+function getKuehlerChoiceKey(entry: Pick<KuehlerMarket, "campaignId" | "kuehlerUnitId" | "kuehlerNumber" | "address" | "visitNumber">, index = 0) {
   return [
     entry.campaignId ?? "campaign",
     entry.kuehlerUnitId ?? entry.kuehlerNumber ?? entry.address ?? `row-${index}`,
+    entry.visitNumber ?? 1,
   ].join("__");
 }
 
@@ -265,6 +268,7 @@ export function KuehlerInventurCard({
   const [marketDetailError, setMarketDetailError] = useState<string | null>(null);
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
   const [selectedKuehlerUnitId, setSelectedKuehlerUnitId] = useState<string | null>(null);
+  const [selectedKuehlerVisitKey, setSelectedKuehlerVisitKey] = useState<string | null>(null);
   const [dayStarted, setDayStarted] = useState(false);
   const [dayGateLoading, setDayGateLoading] = useState(true);
   const [isLaunching, setIsLaunching] = useState(false);
@@ -424,6 +428,7 @@ export function KuehlerInventurCard({
   const durcharbeitPercent = durcharbeitPayload?.percent ?? (loadingData ? 0 : Math.round((durcharbeitCurrent / Math.max(durcharbeitTotal, 1)) * 100));
   const mappedKuehlerMarkets = (kuehlerPayload?.markets ?? []).map((entry) => ({
     marketId: entry.marketId,
+    visitNumber: entry.visitNumber ?? 1,
     campaignId: entry.campaignId,
     campaignName: entry.campaignName,
     kuehlerUnitId: entry.kuehlerUnitId ?? null,
@@ -536,13 +541,16 @@ export function KuehlerInventurCard({
       .map((entry, index) => ({
         key: getKuehlerChoiceKey(entry, index),
         campaignId: entry.campaignId ?? "",
-        campaignName: entry.campaignName || "Kühlerinventur",
+        campaignName: `${entry.campaignName || "Kühlerinventur"}${entry.visitNumber > 1 ? ` · Besuch ${entry.visitNumber}` : ""}`,
         section: "kuehler" as const,
         kuehlerUnitId: entry.kuehlerUnitId ?? null,
         kuehlerNumber: entry.kuehlerTechnicalIdentNo ?? entry.stammnr ?? null,
         done: entry.done,
         doneDate: entry.doneDate,
-        isStartable: !entry.done,
+        isStartable: !entry.done && !mappedKuehlerMarkets.some((earlier) =>
+          earlier.marketId === entry.marketId && earlier.campaignId === entry.campaignId &&
+          earlier.kuehlerUnitId === entry.kuehlerUnitId && !earlier.done && earlier.visitNumber < entry.visitNumber,
+        ),
       }));
   }, [activeTab, mappedKuehlerMarkets, selectedMarket]);
 
@@ -551,11 +559,12 @@ export function KuehlerInventurCard({
       ? kuehlerCampaignChoices.find(
           (choice) =>
             choice.campaignId === selectedCampaignIds[0] &&
-            (choice.kuehlerUnitId ?? null) === (selectedKuehlerUnitId ?? null),
+            choice.key === selectedKuehlerVisitKey,
         )?.key ?? null
       : null;
 
   const selectKuehlerChoice = useCallback((choice: GmMarketDetailCampaignChoice) => {
+    setSelectedKuehlerVisitKey(choice.key ?? null);
     setSelectedCampaignIds([choice.campaignId]);
     setSelectedKuehlerUnitId(choice.kuehlerUnitId ?? null);
   }, []);
@@ -572,6 +581,7 @@ export function KuehlerInventurCard({
 
   const openMarketDetail = useCallback((market: KuehlerMarket) => {
     if (!market.marketId) return;
+    setSelectedKuehlerVisitKey(getKuehlerChoiceKey(market));
     setMarketDetail(null);
     setSelectedMarket(null);
     setSelectedCampaignIds([]);

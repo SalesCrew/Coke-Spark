@@ -1,6 +1,6 @@
 # SM Datenschutz- und DSGVO-Audit
 
-Stand: 28. August 2026
+Stand: 31. August 2026 (Korrektur der administrativen Rollenbeschreibung)
 Scope: ausschließlich Shelf-Merchandising-Funktionen, SM-Daten und SM-Admin-Zugriffe
 
 ## Ergebnis und Grenze
@@ -11,7 +11,7 @@ Die technische SM-Implementierung setzt Datenminimierung, Zweckbindung, Zugriffs
 
 | Bereich | Personenbezug | Technische Maßnahme | Nachweis |
 | --- | --- | --- | --- |
-| Account | Name, E-Mail, Kontakt, Rolle | serverseitige Authentifizierung; SM und SM-Admin rollenbegrenzt | `admin-role`, `admin-user-scope` Tests |
+| Account | Name, E-Mail, Kontakt, Rolle | serverseitige Authentifizierung; SM-Mitarbeiter ohne Admin-Rechte; `admin` und `sm_admin` sind vollständige administrative Rollen | `admin-role`, `admin-user-scope` Tests |
 | Planung | Marktzuordnung, Einsätze, Sollzeit | eigene `sm_*` Tabellen; SM liest nur eigene effektive Zuordnung | SM Planning API |
 | Fragebogen | Antworten, Status, Zeitstempel | Eigentumsprüfung; Pflichtfragen beim Abschluss; optionale Fragen überspringbar | `sm-visit.shared` Tests |
 | Offline | Planung, Fragebogen, ungesendete Antworten | nutzergebundener Browser-Cache; 30 Tage TTL; Bereinigung bei Abschluss, Verwerfen, Logout und Identitätswechsel | `privacyCache.test.ts` |
@@ -25,10 +25,10 @@ Die technische SM-Implementierung setzt Datenminimierung, Zweckbindung, Zugriffs
 ## Rollen- und Systemgrenze
 
 - `sm` erreicht nur ausdrücklich für SM freigegebene Endpunkte.
-- `sm_admin` erbt keine normale Admin-Route. SM-Admin-Zugriff muss am jeweiligen SM-Endpunkt ausdrücklich erlaubt sein.
-- SM-Admins verwalten nur Benutzer der Rolle `sm`; die Benutzerliste wird serverseitig auf diese Rolle begrenzt.
-- GM-Marktverzeichnis, GM-Kurti, RED-Month, Kampagnen, GM-Zeiterfassung und Datenschutzanfragen bleiben für SM und SM-Admin gesperrt.
-- Die SM-Oberfläche zeigt SM-Admins nur die Shelf-Merchandising-Verwaltung.
+- `sm_admin` ist gemäß bestätigtem Produktmodell eine vollständige Admin-Rolle. Sie darf Endpunkte nutzen, die `admin` erlauben, und startet standardmäßig im SM-Arbeitsbereich.
+- Admins und SM-Admins können zwischen GM- und SM-Verwaltung wechseln und Benutzer beider Bereiche verwalten. Der Arbeitsbereich ist ein Navigations- und Datenkontext, keine Berechtigungsgrenze zwischen diesen beiden Admin-Rollen.
+- Reguläre SM-Mitarbeiter erhalten dadurch keinen Zugriff auf GM- oder Admin-Endpunkte. Reine Mitarbeiter-Endpunkte (beispielsweise nur `gm` oder nur `sm`) werden nicht automatisch für Admins geöffnet.
+- Die frühere Einschränkung der SM-Admins auf SM wurde am 31.08.2026 als Regression des Audits korrigiert; sie widersprach der bestätigten Rollenentscheidung in der Living Spec. Engere Admin-Rollen benötigen eine eigene, ausdrücklich bestätigte Berechtigungsmatrix.
 - SM-Tabellen liegen getrennt von GM-Tabellen. Die Produktion verwendet erzwungenes RLS und entzieht `anon`/`authenticated` den direkten Tabellenzugriff; der Browser erhält keinen Service-Role-Schlüssel.
 
 ## Betroffenenrechte und Aufbewahrung

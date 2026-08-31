@@ -7150,6 +7150,8 @@ function MarketEditMenu({
 
 // ── Market add panel (large anchored popover) ─────────────────
 
+type MarketAdditionReceipt = { marketId: string; key: string; additionId?: string };
+
 function MarketAddPanel({
   pos,
   availableMarkets,
@@ -7172,8 +7174,8 @@ function MarketAddPanel({
   assignedMarkets?: MarketCatalogItem[];
   allMarkets?: MarketCatalogItem[];
   assignedMarketIds?: string[];
-  onAdd: (id: string, gmUserId?: string | null) => void;
-  onUndoAdd: (id: string) => void;
+  onAdd: (id: string, gmUserId?: string | null) => Promise<MarketAdditionReceipt | null>;
+  onUndoAdd: (addition: MarketAdditionReceipt) => Promise<boolean>;
   onClose: () => void;
   isPending?: boolean;
   campaignSection?: CampaignSection;
@@ -7185,7 +7187,10 @@ function MarketAddPanel({
 }) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<MarketListFilters>({ chain: null, gm: null, city: null, region: null });
-  const [addedIds, setAddedIds] = useState<string[]>([]);
+  const [additions, setAdditions] = useState<MarketAdditionReceipt[]>([]);
+  const addedIds = additions.map((addition) => addition.marketId);
+  const operationInFlight = useRef(false);
+  const allowsRepeatVisits = campaignSection === "kuehler";
   const [gmSelectionByMarketId, setGmSelectionByMarketId] = useState<Record<string, string>>({});
   const [expandedAdded, setExpandedAdded] = useState(false);
   const [undoMenu, setUndoMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -7254,16 +7259,19 @@ function MarketAddPanel({
     const byId = new Map<string, MarketCatalogItem>();
     for (const market of allMarkets) byId.set(market.id, market);
     for (const market of availableMarkets) byId.set(market.id, { ...byId.get(market.id), ...market });
-    for (const market of assignedMarkets) byId.set(market.id, { ...byId.get(market.id), ...market });
+    for (const market of assignedMarkets) {
+      const id = market.marketId ?? market.id;
+      byId.set(id, { ...market, ...byId.get(id), id });
+    }
     return Array.from(byId.values());
   }, [allMarkets, assignedMarkets, availableMarkets]);
   const assignedMarketIdSet = useMemo(
-    () => new Set([...assignedMarketIds, ...assignedMarkets.map((market) => market.id)]),
+    () => new Set([...assignedMarketIds, ...assignedMarkets.map((market) => market.marketId ?? market.id)]),
     [assignedMarketIds, assignedMarkets],
   );
   const filteredAvailableMarkets = useMemo(
-    () => directoryMarkets.filter((market) => !assignedMarketIdSet.has(market.id) && !addedIds.includes(market.id)),
-    [addedIds, assignedMarketIdSet, directoryMarkets],
+    () => directoryMarkets.filter((market) => allowsRepeatVisits || (!assignedMarketIdSet.has(market.id) && !addedIds.includes(market.id))),
+    [allowsRepeatVisits, addedIds, assignedMarketIdSet, directoryMarkets],
   );
   const effectiveAssignedMarkets = useMemo(
     () => directoryMarkets.filter((market) => assignedMarketIdSet.has(market.id)),
@@ -7275,11 +7283,11 @@ function MarketAddPanel({
   );
   const assignedSearchResults = useMemo(
     () => (
-      search.trim()
+      !allowsRepeatVisits && search.trim()
         ? applyMarketFilters(effectiveAssignedMarkets, search, filters).slice(0, 25)
         : []
     ),
-    [effectiveAssignedMarkets, filters, search],
+    [allowsRepeatVisits, effectiveAssignedMarkets, filters, search],
   );
   const visibleCandidates = useMemo(
     () => candidates.slice(0, candidateLimit),
@@ -7301,29 +7309,44 @@ function MarketAddPanel({
     setCandidateLimit(ADD_PANEL_INITIAL_LIMIT);
   }, [search, filters.chain, filters.gm, filters.city, filters.region, addedIds.length, directoryMarkets.length]);
 
-  const handleAdd = (id: string) => {
-    if (isPending) return;
+  const handleAdd = async (id: string) => {
+    if (isPending || operationInFlight.current) return;
     const selectedGmUserId = gmSelectionByMarketId[id] ?? "";
     if (requiresGmAssignment && !selectedGmUserId) return;
-    setAddedIds((p) => [...p, id]);
-    onAdd(id, requiresGmAssignment ? selectedGmUserId : null);
+    operationInFlight.current = true;
+    try {
+      const addition = await onAdd(id, requiresGmAssignment ? selectedGmUserId : null);
+      if (addition) setAdditions((current) => [...current, addition]);
+    } finally {
+      operationInFlight.current = false;
+    }
   };
 
-  const handleUndoSingle = (id: string) => {
-    if (isPending) return;
-    const remaining = addedIds.filter((aid) => aid !== id);
-    setAddedIds(remaining);
+  const handleUndoSingle = async (key: string) => {
+    if (isPending || operationInFlight.current) return;
+    const addition = additions.find((entry) => entry.key === key);
+    if (!addition) return;
+    operationInFlight.current = true;
     setUndoMenu(null);
-    onUndoAdd(id);
-    if (remaining.length === 0) setExpandedAdded(false);
+    try {
+      if (await onUndoAdd(addition)) setAdditions((current) => current.filter((entry) => entry.key !== key));
+    } finally {
+      operationInFlight.current = false;
+    }
   };
 
-  const handleUndoAll = () => {
-    if (isPending) return;
-    const toUndo = [...addedIds];
-    setAddedIds([]);
-    setExpandedAdded(false);
-    toUndo.forEach((id) => onUndoAdd(id));
+  const handleUndoAll = async () => {
+    if (isPending || operationInFlight.current) return;
+    operationInFlight.current = true;
+    try {
+      // Latest first, sequentially: never erase earlier assignments or race undo requests.
+      for (const addition of [...additions].reverse()) {
+        if (!await onUndoAdd(addition)) break;
+        setAdditions((current) => current.filter((entry) => entry.key !== addition.key));
+      }
+    } finally {
+      operationInFlight.current = false;
+    }
   };
 
   const addedMarketLookup = useMemo(() => {
@@ -7335,11 +7358,13 @@ function MarketAddPanel({
 
   const addedMarkets = useMemo(
     () =>
-      [...addedIds]
+      [...additions]
         .reverse()
-        .map((id) => addedMarketLookup.get(id))
-        .filter(Boolean) as MarketCatalogItem[],
-    [addedIds, addedMarketLookup],
+        .flatMap((addition) => {
+          const market = addedMarketLookup.get(addition.marketId);
+          return market ? [{ ...market, additionKey: addition.key }] : [];
+        }),
+    [additions, addedMarketLookup],
   );
 
   if (!mounted || typeof document === "undefined") return null;
@@ -7370,6 +7395,11 @@ function MarketAddPanel({
           </button>
         </div>
         {/* Search */}
+        {allowsRepeatVisits && (
+          <p style={{ margin: "0 0 10px", fontSize: 11, lineHeight: 1.5, color: "#6b7280" }}>
+            Bereits enthaltene Märkte können erneut zugewiesen werden. Jeder zusätzliche Besuch umfasst alle Kühler des Markts; bisherige Ergebnisse bleiben erhalten.
+          </p>
+        )}
         <div
           onMouseDown={(e) => e.stopPropagation()} // don't trigger drag from search area
           style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 10px", height: 34, borderRadius: 8, background: "rgba(0,0,0,0.04)", border: "1px solid transparent", transition: "border 0.15s ease", cursor: "text", userSelect: "text" }}
@@ -7433,8 +7463,8 @@ function MarketAddPanel({
         <div className="map-scroll" style={{ overflowY: "auto", maxHeight: 200, transform: expandedAdded ? "translateY(0)" : "translateY(-4px)", transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)", paddingTop: 4, paddingBottom: 4 }}>
           {addedMarkets.map((m) => (
             <div
-              key={m.id}
-              onContextMenu={(e) => { e.preventDefault(); setUndoMenu({ id: m.id, x: e.clientX, y: e.clientY }); }}
+              key={m.additionKey}
+              onContextMenu={(e) => { e.preventDefault(); setUndoMenu({ id: m.additionKey, x: e.clientX, y: e.clientY }); }}
               style={{ display: "flex", alignItems: "center", padding: "9px 16px", gap: 10, borderBottom: "1px solid rgba(0,0,0,0.03)", background: "rgba(22,163,74,0.025)", cursor: "context-menu", transition: "background 0.12s ease" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(22,163,74,0.055)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(22,163,74,0.025)"; }}
@@ -7493,6 +7523,7 @@ function MarketAddPanel({
             )}
             {visibleCandidates.map((m) => {
           const selectedGmUserId = gmSelectionByMarketId[m.id] ?? "";
+          const isRepeatVisit = allowsRepeatVisits && (assignedMarketIdSet.has(m.id) || addedIds.includes(m.id));
           const addDisabled = isPending || (requiresGmAssignment && !selectedGmUserId);
           return (
           <div
@@ -7508,10 +7539,12 @@ function MarketAddPanel({
             </div>
             {/* Meta */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+              {isRepeatVisit && <span style={{ fontSize: 9, fontWeight: 600, color: "#059669" }}>Weiterer Besuch</span>}
               <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 20, background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.35)" }}>{m.region}</span>
             </div>
             {requiresGmAssignment && (
               <select
+                aria-label={`GM für ${m.name}, ${m.address}`}
                 value={selectedGmUserId}
                 disabled={isPending || gmUsersLoading}
                 onChange={(event) =>
@@ -7559,7 +7592,8 @@ function MarketAddPanel({
                 cursor: addDisabled ? "not-allowed" : "pointer",
                 flexShrink: 0,
               }}
-              title={requiresGmAssignment && !selectedGmUserId ? "Bitte zuerst einen GM auswählen." : "Markt hinzufügen"}
+              aria-label={`${isRepeatVisit ? "Weiteren Besuch" : "Markt"} hinzufügen: ${m.name}, ${m.address}`}
+              title={requiresGmAssignment && !selectedGmUserId ? "Bitte zuerst einen GM auswählen." : isRepeatVisit ? "Weiteren Besuch hinzufügen" : "Markt hinzufügen"}
             >
               {isPending ? "..." : <Plus size={12} strokeWidth={2.5} />}
             </button>
@@ -8062,7 +8096,7 @@ export default function FbManagementPage() {
             ...market,
             id: getCampaignVisitStatusRowId(status),
             marketId: market.id,
-            name: kuehlerNumber ? `Kühler ${kuehlerNumber}` : "Kühler",
+            name: `${kuehlerNumber ? `Kühler ${kuehlerNumber}` : "Kühler"}${(status.visitNumber ?? 1) > 1 ? ` · Besuch ${status.visitNumber}` : ""}`,
             address: [market.name, market.address].filter(Boolean).join(" · "),
             gm: status.gmName ?? assignmentGmByMarketId.get(status.marketId) ?? "",
             finished: status.isComplete,
@@ -9031,84 +9065,58 @@ export default function FbManagementPage() {
     }, 320);
   }, [campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
-  const handleAddMarket = useCallback((id: string, gmUserId?: string | null) => {
-    if (!campaignId || isCampaignBusy(campaignId)) return;
+  const handleAddMarket = useCallback(async (id: string, gmUserId?: string | null): Promise<MarketAdditionReceipt | null> => {
+    if (!campaignId || isCampaignBusy(campaignId)) return null;
     const requiresGmAssignment = campaign?.section !== "flex";
     if (requiresGmAssignment && !gmUserId) {
       setMutationError("Bitte einen GM auswählen. Ohne GM ist der Markt für die GM-App nicht sichtbar.");
-      return;
+      return null;
     }
+    const additionId = campaign?.section === "kuehler" ? crypto.randomUUID() : undefined;
     setMutationError(null);
-    const previousMarketIds = campaignMarketIds;
-    setCampaignsData((current) =>
-      current.map((entry) =>
-        entry.id === campaignId
-          ? { ...entry, marketIds: entry.marketIds.includes(id) ? entry.marketIds : [id, ...entry.marketIds] }
-          : entry,
-      ),
-    );
     setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
-    const request = requiresGmAssignment
-      ? assignCampaignMarketAssignments(campaignId, [{ marketId: id, gmUserId: gmUserId ?? null }])
-      : assignCampaignMarkets(campaignId, [id]);
-    void request
-      .then((updated) => {
-        setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
-        invalidateCampaignVisitStatus(updated.id);
-        void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
-      })
-      .catch((error) => {
-        setCampaignsData((current) =>
-          current.map((entry) => (entry.id === campaignId ? { ...entry, marketIds: previousMarketIds } : entry)),
-        );
-        const conflicts = getCampaignOverlapConflicts(error);
-        if (conflicts.length > 0) {
-          setOverlapConflictMarketId(id);
-          setOverlapConflicts(conflicts);
-        } else {
-          setMutationError(error instanceof Error ? error.message : "Markt konnte nicht hinzugefuegt werden.");
-        }
-      })
-      .finally(() => {
-        setCampaignPendingOps((current) => {
-          const next = Math.max(0, (current[campaignId] ?? 0) - 1);
-          return { ...current, [campaignId]: next };
-        });
-    });
-    setEnteringIds((p) => [...p, id]);
-    setTimeout(() => setEnteringIds((p) => p.filter((eid) => eid !== id)), 320);
-  }, [campaign?.section, campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
+    try {
+      const updated = requiresGmAssignment
+        ? await assignCampaignMarketAssignments(campaignId, [{ marketId: id, gmUserId: gmUserId ?? null }], additionId)
+        : await assignCampaignMarkets(campaignId, [id]);
+      setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      invalidateCampaignVisitStatus(updated.id);
+      void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
+      setEnteringIds((current) => [...current, id]);
+      setTimeout(() => setEnteringIds((current) => current.filter((entry) => entry !== id)), 320);
+      return { marketId: id, key: additionId ?? id, additionId };
+    } catch (error) {
+      const conflicts = getCampaignOverlapConflicts(error);
+      if (conflicts.length > 0) {
+        setOverlapConflictMarketId(id);
+        setOverlapConflicts(conflicts);
+      } else {
+        setMutationError(error instanceof Error ? error.message : "Markt konnte nicht hinzugefügt werden.");
+      }
+      return null;
+    } finally {
+      setCampaignPendingOps((current) => ({ ...current, [campaignId]: Math.max(0, (current[campaignId] ?? 0) - 1) }));
+    }
+  }, [campaign?.section, campaignId, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
-  const handleUndoAddMarket = useCallback((id: string) => {
-    if (!campaignId || isCampaignBusy(campaignId)) return;
+  const handleUndoAddMarket = useCallback(async (addition: MarketAdditionReceipt): Promise<boolean> => {
+    if (!campaignId) return false;
     setMutationError(null);
-    const previousMarketIds = campaignMarketIds;
-    setCampaignsData((current) =>
-      current.map((entry) =>
-        entry.id === campaignId ? { ...entry, marketIds: entry.marketIds.filter((marketId) => marketId !== id) } : entry,
-      ),
-    );
     setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
-    void removeCampaignMarket(campaignId, id)
-      .then((updated) => {
-        setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
-        invalidateCampaignVisitStatus(updated.id);
-        void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
-      })
-      .catch((error) => {
-        setCampaignsData((current) =>
-          current.map((entry) => (entry.id === campaignId ? { ...entry, marketIds: previousMarketIds } : entry)),
-        );
-        setMutationError(error instanceof Error ? error.message : "?nderung konnte nicht rückgängig gemacht werden.");
-      })
-      .finally(() => {
-        setCampaignPendingOps((current) => {
-          const next = Math.max(0, (current[campaignId] ?? 0) - 1);
-          return { ...current, [campaignId]: next };
-        });
-      });
-    setEnteringIds((p) => p.filter((eid) => eid !== id));
-  }, [campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
+    try {
+      const updated = await removeCampaignMarket(campaignId, addition.marketId, addition.additionId);
+      setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      invalidateCampaignVisitStatus(updated.id);
+      void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
+      setEnteringIds((current) => current.filter((id) => id !== addition.marketId));
+      return true;
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Änderung konnte nicht rückgängig gemacht werden.");
+      return false;
+    } finally {
+      setCampaignPendingOps((current) => ({ ...current, [campaignId]: Math.max(0, (current[campaignId] ?? 0) - 1) }));
+    }
+  }, [campaignId, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
   const handleSwitchFragebogen = useCallback(
     async (nextId: string) => {

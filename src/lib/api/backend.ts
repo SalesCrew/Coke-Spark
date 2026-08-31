@@ -3034,6 +3034,7 @@ export type GmMarketDetailPayload = {
 
 export type GmKuehlerMhdProgressMarket = {
   marketId: string;
+  visitNumber?: number;
   campaignId: string;
   campaignName: string;
   kuehlerUnitId?: string | null;
@@ -3503,6 +3504,7 @@ export type CampaignMarketVisitSummary = BackendCampaignMarketVisitSummary;
 export type CampaignMarketVisitStatus = {
   rowId?: string;
   marketId: string;
+  visitNumber?: number;
   kuehlerUnitId?: string | null;
   kuehlerNumber?: string | null;
   kuehlerTechnicalIdentNo?: string | null;
@@ -5841,10 +5843,11 @@ export async function assignCampaignMarkets(campaignId: string, marketIds: strin
 export async function assignCampaignMarketAssignments(
   campaignId: string,
   assignments: CampaignMarketAssignmentInput[],
+  additionId?: string,
 ): Promise<Campaign> {
   const data = (await authedFetch(`/admin/campaigns/${campaignId}/markets`, {
     method: "POST",
-    body: JSON.stringify({ assignments }),
+    body: JSON.stringify({ assignments, ...(additionId ? { additionId } : {}) }),
   })) as { campaign: BackendCampaign };
   return normalizeCampaign(data.campaign);
 }
@@ -5882,9 +5885,10 @@ export async function setFlexCampaignAudience(
   return normalizeCampaign(data.campaign);
 }
 
-export async function removeCampaignMarket(campaignId: string, marketId: string): Promise<Campaign> {
+export async function removeCampaignMarket(campaignId: string, marketId: string, additionId?: string): Promise<Campaign> {
   const data = (await authedFetch(`/admin/campaigns/${campaignId}/markets/${marketId}/delete`, {
     method: "PATCH",
+    ...(additionId ? { body: JSON.stringify({ additionId }) } : {}),
   })) as { campaign: BackendCampaign };
   return normalizeCampaign(data.campaign);
 }

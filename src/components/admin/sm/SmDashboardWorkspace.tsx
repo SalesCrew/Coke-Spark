@@ -8,12 +8,11 @@ import {
   CheckCircle2,
   ClipboardCheck,
   RefreshCw,
-  Search,
   Store,
-  X,
 } from "lucide-react";
 
 import { BackendApiError, fetchSmDashboard } from "@/lib/api/backend";
+import { AdminDatePicker, AdminDropdown, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
 import type {
   SmDashboardDimensionRow,
   SmDashboardFilterOption,
@@ -129,14 +128,12 @@ function FilterSelect({
   placeholder: string;
   onChange: (value: string) => void;
 }) {
+  const filterOptions = useMemo(() => [{ value: "", label: placeholder }, ...options], [options, placeholder]);
   return (
-    <label className="sm-live-filter">
+    <div className="sm-live-filter">
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">{placeholder}</option>
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
-    </label>
+      <AdminDropdown ariaLabel={label} value={value} options={filterOptions} placeholder={placeholder} onChange={onChange} searchable={options.length > 10} />
+    </div>
   );
 }
 
@@ -229,7 +226,6 @@ export function SmDashboardWorkspace() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const requestIdRef = useRef(0);
   const payloadRef = useRef<SmDashboardPayload | null>(null);
@@ -284,18 +280,8 @@ export function SmDashboardWorkspace() {
     };
   }, []);
 
-  const filteredDimensions = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase("de-AT");
-    const matches = (row: SmDashboardDimensionRow) => !query || row.label.toLocaleLowerCase("de-AT").includes(query);
-    return {
-      chains: (payload?.chains ?? []).filter(matches),
-      regions: (payload?.regions ?? []).filter(matches),
-    };
-  }, [payload, search]);
-
   const resetFilters = () => {
     setFilters(initialFilters());
-    setSearch("");
   };
   const defaultRange = initialFilters();
   const hasDimensionFilters = Boolean(
@@ -304,21 +290,21 @@ export function SmDashboardWorkspace() {
     || filters.region
     || filters.chain
     || filters.smUserId
-    || filters.marketId
-    || search,
+    || filters.marketId,
   );
   const summary: SmDashboardMetricSummary | null = payload?.summary ?? null;
 
   return (
     <div className="sm-live-page">
+      <AdminFilterControlStyles />
       <style>{`
         .sm-live-page{min-width:980px;color:#172033;font-variant-numeric:tabular-nums}.sm-live-page *{box-sizing:border-box}
         .sm-live-shell{overflow:hidden;border:1px solid rgba(15,23,42,.07);border-radius:15px;background:#f6f7f9;box-shadow:0 1px 2px rgba(15,23,42,.02)}
         .sm-live-shell-head{min-height:58px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid rgba(15,23,42,.055);background:rgba(255,255,255,.74)}
         .sm-live-eyebrow{display:block;margin-bottom:3px;color:${RED};font-size:9px;font-weight:800;letter-spacing:.085em;text-transform:uppercase}.sm-live-shell-head h1{margin:0;font-size:17px;font-weight:760;letter-spacing:-.02em}.sm-live-freshness{display:flex;align-items:center;gap:9px;color:#7b8494;font-size:10px;font-weight:650}.sm-live-refresh{width:30px;height:30px;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;color:#667085;display:grid;place-items:center;cursor:pointer;box-shadow:0 1px 3px rgba(15,23,42,.04)}.sm-live-refresh:hover{color:${RED};border-color:rgba(220,38,38,.18)}.sm-live-refresh:disabled{cursor:wait;opacity:.65}.sm-live-refresh.is-spinning svg{animation:sm-live-spin .8s linear infinite}@keyframes sm-live-spin{to{transform:rotate(360deg)}}
         .sm-live-content{padding:11px;display:flex;flex-direction:column;gap:11px}.sm-live-toolbar{padding:12px 13px;display:grid;grid-template-columns:repeat(2,138px) repeat(4,minmax(145px,1fr)) auto;align-items:end;gap:8px;border:1px solid rgba(15,23,42,.06);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}
-        .sm-live-filter>span,.sm-live-date>span,.sm-live-search>span{display:block;margin-bottom:5px;color:#8b93a1;font-size:8.5px;font-weight:760;letter-spacing:.065em;text-transform:uppercase}.sm-live-date-input,.sm-live-filter select,.sm-live-search-box{width:100%;height:32px;border:1px solid rgba(15,23,42,.085);border-radius:8px;background:#fafafa;color:#344054;font:650 10px/1 inherit;outline:0;transition:.15s ease}.sm-live-date-input{padding:0 8px}.sm-live-filter select{padding:0 26px 0 9px}.sm-live-date-input:focus,.sm-live-filter select:focus,.sm-live-search-box:focus-within{border-color:rgba(220,38,38,.27);background:#fff;box-shadow:0 0 0 3px rgba(220,38,38,.045)}
-        .sm-live-toolbar-actions{height:32px;display:flex;gap:6px}.sm-live-reset{height:32px;padding:0 10px;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;color:#667085;font:720 9.5px/1 inherit;white-space:nowrap;cursor:pointer}.sm-live-reset:disabled{opacity:.4;cursor:default}.sm-live-search{padding:0 13px 12px}.sm-live-search-box{max-width:300px;padding:0 10px;display:flex;align-items:center;gap:7px}.sm-live-search-box input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:#344054;font:600 10px/1 inherit}.sm-live-search-box button{border:0;background:transparent;color:#98a2b3;display:grid;place-items:center;cursor:pointer}
+        .sm-live-filter,.sm-live-date{min-width:0}.sm-live-filter>span,.sm-live-date>span{display:block;margin-bottom:5px;color:#8b93a1;font-size:8.5px;font-weight:760;letter-spacing:.065em;text-transform:uppercase}
+        .sm-live-toolbar-actions{height:32px;display:flex;gap:6px}.sm-live-reset{height:32px;padding:0 10px;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;color:#667085;font-family:inherit;font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer}.sm-live-reset:disabled{opacity:.4;cursor:default}
         .sm-live-error{min-height:48px;padding:10px 13px;border:1px solid rgba(220,38,38,.15);border-radius:10px;background:#fff7f7;color:#9f1f24;display:flex;align-items:center;gap:9px;font-size:10.5px;font-weight:650}.sm-live-error button{margin-left:auto;border:0;background:transparent;color:${RED};font:750 10px/1 inherit;cursor:pointer}
         .sm-live-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.sm-live-metric{position:relative;min-height:151px;padding:14px 14px 13px;overflow:hidden;border:1px solid rgba(15,23,42,.06);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}.sm-live-metric:before{content:"";position:absolute;inset:0 0 auto;height:2px;background:#cbd0d8}.sm-live-metric.is-red:before{background:${RED}}.sm-live-metric.is-green:before{background:${GREEN}}.sm-live-metric.is-amber:before{background:${AMBER}}.sm-live-metric-top{display:flex;align-items:center;gap:7px}.sm-live-metric-icon{width:24px;height:24px;border-radius:7px;background:#f3f4f6;color:#7a8493;display:grid;place-items:center}.sm-live-metric.is-red .sm-live-metric-icon{background:#fff0f1;color:${RED}}.sm-live-metric.is-green .sm-live-metric-icon{background:#eaf9f1;color:${GREEN}}.sm-live-metric.is-amber .sm-live-metric-icon{background:#fff7e9;color:${AMBER}}.sm-live-metric-label{color:#7a8493;font-size:9px;font-weight:790;letter-spacing:.06em;text-transform:uppercase}.sm-live-metric-value{display:block;margin-top:12px;color:#111827;font-size:27px;font-weight:770;line-height:1;letter-spacing:-.035em}.sm-live-metric p{height:16px;margin:10px 0 0;overflow:hidden;color:#586174;font-size:10.5px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}.sm-live-metric small{display:block;height:14px;margin-top:2px;overflow:hidden;color:#98a2b3;font-size:9px;font-weight:580;white-space:nowrap;text-overflow:ellipsis}.sm-live-progress{position:absolute;left:14px;right:14px;bottom:12px;height:4px;overflow:hidden;border-radius:99px;background:#eef0f3}.sm-live-progress i{display:block;height:100%;border-radius:inherit;background:#9ca3af}.sm-live-metric.is-red .sm-live-progress i{background:${RED}}.sm-live-metric.is-green .sm-live-progress i{background:${GREEN}}.sm-live-metric.is-amber .sm-live-progress i{background:${AMBER}}
         .sm-live-card{min-width:0;overflow:hidden;border:1px solid rgba(15,23,42,.06);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}.sm-live-card-head{min-height:59px;padding:13px 15px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(15,23,42,.05)}.sm-live-card-head h2{margin:0;color:#172033;font-size:14px;font-weight:750;letter-spacing:-.012em}.sm-live-card-head p{margin:4px 0 0;color:#8a93a2;font-size:9.5px;font-weight:570}
@@ -326,7 +312,7 @@ export function SmDashboardWorkspace() {
         .sm-live-bottom{display:grid;grid-template-columns:1.25fr .75fr;gap:11px}.sm-live-dimension{padding:0 15px 10px}.sm-live-dimension-head,.sm-live-dimension-row{display:grid;grid-template-columns:minmax(130px,1.05fr) 60px 55px minmax(118px,.9fr) minmax(135px,1fr);align-items:center;column-gap:12px}.sm-live-dimension-head{height:34px;color:#98a2b3;font-size:8.5px;font-weight:780;letter-spacing:.055em;text-transform:uppercase}.sm-live-dimension-row{min-height:45px;border-top:1px solid rgba(15,23,42,.045);color:#596273;font-size:10px;font-weight:630}.sm-live-dimension-row>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#344054;font-weight:700}.sm-live-case-count{color:${RED}!important;font-weight:780!important}.sm-live-empty-row{padding:34px 10px;border-top:1px solid rgba(15,23,42,.045);color:#98a2b3;text-align:center;font-size:10px;font-weight:620}
         .sm-live-loading{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.sm-live-skeleton{height:151px;border-radius:12px;background:linear-gradient(90deg,#fff,#f4f5f7,#fff);background-size:220% 100%;animation:sm-live-shimmer 1.25s infinite}@keyframes sm-live-shimmer{to{background-position:-220% 0}}
         @media(max-width:1450px){.sm-live-toolbar{grid-template-columns:repeat(4,minmax(145px,1fr))}.sm-live-bottom{grid-template-columns:1fr}.sm-live-page{min-width:920px}}@media(max-width:1180px){.sm-live-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
-        @media print{nav,header,.sm-live-toolbar,.sm-live-search,.sm-live-refresh{display:none!important}.sm-live-page{min-width:0}.sm-live-shell{border:0;background:#fff}.sm-live-content{padding:0}.sm-live-bottom{grid-template-columns:1fr}.sm-live-card,.sm-live-metric{break-inside:avoid}}
+        @media print{nav,header,.sm-live-toolbar,.sm-live-refresh{display:none!important}.sm-live-page{min-width:0}.sm-live-shell{border:0;background:#fff}.sm-live-content{padding:0}.sm-live-bottom{grid-template-columns:1fr}.sm-live-card,.sm-live-metric{break-inside:avoid}}
       `}</style>
 
       <section className="sm-live-shell">
@@ -342,8 +328,8 @@ export function SmDashboardWorkspace() {
 
         <div className="sm-live-content">
           <div className="sm-live-toolbar">
-            <label className="sm-live-date"><span>Von</span><input className="sm-live-date-input" type="date" value={filters.from} max={filters.to} onChange={(event) => updateFilter("from", event.target.value)} /></label>
-            <label className="sm-live-date"><span>Bis</span><input className="sm-live-date-input" type="date" value={filters.to} min={filters.from} onChange={(event) => updateFilter("to", event.target.value)} /></label>
+            <div className="sm-live-date"><span>Von</span><AdminDatePicker ariaLabel="Von" value={filters.from} maxDate={filters.to} onChange={(value) => updateFilter("from", value)} /></div>
+            <div className="sm-live-date"><span>Bis</span><AdminDatePicker ariaLabel="Bis" value={filters.to} minDate={filters.from} onChange={(value) => updateFilter("to", value)} /></div>
             <FilterSelect label="Region" value={filters.region} options={payload?.filterOptions.regions ?? []} placeholder="Alle Regionen" onChange={(value) => updateFilter("region", value)} />
             <FilterSelect label="Handelskette" value={filters.chain} options={payload?.filterOptions.chains ?? []} placeholder="Alle Handelsketten" onChange={(value) => updateFilter("chain", value)} />
             <FilterSelect label="Shelf Merchandiser" value={filters.smUserId} options={payload?.filterOptions.sms ?? []} placeholder="Alle SMs" onChange={(value) => updateFilter("smUserId", value)} />
@@ -382,14 +368,9 @@ export function SmDashboardWorkspace() {
                 </div>
               </article>
 
-              <label className="sm-live-search">
-                <span>Handelskette oder Region suchen</span>
-                <span className="sm-live-search-box"><Search size={12} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Bereich filtern…" />{search ? <button type="button" onClick={() => setSearch("")} aria-label="Suche leeren"><X size={11} /></button> : null}</span>
-              </label>
-
               <div className="sm-live-bottom">
-                <DimensionTable title="Handelsketten im Vergleich" subtitle="Live-Fälle · Besuchsgewichtet" rows={filteredDimensions.chains} emptyLabel="Keine Handelsketten für diese Auswahl." />
-                <DimensionTable title="Regionen im Vergleich" subtitle="Live-Fälle · Besuchsgewichtet" rows={filteredDimensions.regions} emptyLabel="Keine Regionen für diese Auswahl." />
+                <DimensionTable title="Handelsketten im Vergleich" subtitle="Live-Fälle · Besuchsgewichtet" rows={payload?.chains ?? []} emptyLabel="Keine Handelsketten für diese Auswahl." />
+                <DimensionTable title="Regionen im Vergleich" subtitle="Live-Fälle · Besuchsgewichtet" rows={payload?.regions ?? []} emptyLabel="Keine Regionen für diese Auswahl." />
               </div>
             </>
           ) : null}

@@ -48,12 +48,13 @@ function isPast(date: Date): boolean {
 }
 
 interface WeekStripProps {
+  holidayLabel?: (date: string) => string | undefined;
   selectedDate: string;
   visitsByDate: Record<string, CalendarVisitPreview[]>;
   onDateChange: (date: string) => void;
 }
 
-export function WeekStrip({ selectedDate, visitsByDate, onDateChange }: WeekStripProps) {
+export function WeekStrip({ selectedDate, visitsByDate, onDateChange, holidayLabel }: WeekStripProps) {
   const [centerDate, setCenterDate] = useState(() => parseIsoDate(selectedDate));
   const [slideOffset, setSlideOffset] = useState(0);
   const [animating, setAnimating] = useState(false);
@@ -141,6 +142,7 @@ export function WeekStrip({ selectedDate, visitsByDate, onDateChange }: WeekStri
             return (
               <div
                 key={day.isoDate}
+                title={holidayLabel?.(day.isoDate)}
                 className="flex flex-col items-center cursor-pointer shrink-0"
                 style={{
                   width: SLOT_WIDTH,
@@ -176,7 +178,7 @@ export function WeekStrip({ selectedDate, visitsByDate, onDateChange }: WeekStri
                     borderRadius: 18,
                     backgroundColor: isHighlighted
                       ? "#DC2626"
-                      : day.isPast
+                      : holidayLabel?.(day.isoDate) ? "#fef3c7" : day.isPast
                         ? "rgba(220,38,38,0.07)"
                         : "rgba(0,0,0,0.04)",
                     boxShadow: isHighlighted
@@ -191,7 +193,7 @@ export function WeekStrip({ selectedDate, visitsByDate, onDateChange }: WeekStri
                     style={{
                       color: isHighlighted
                         ? "#ffffff"
-                        : day.isPast
+                        : holidayLabel?.(day.isoDate) ? "#b45309" : day.isPast
                           ? "rgba(220,38,38,0.45)"
                           : "rgba(0,0,0,0.22)",
                       transition: "color 350ms",
@@ -207,7 +209,7 @@ export function WeekStrip({ selectedDate, visitsByDate, onDateChange }: WeekStri
       </div>
 
       <div className="flex justify-center mt-1.5" style={{ minHeight: 16 }}>
-        {!animating && firstVisit && (
+        {!animating && holidayLabel?.(toIsoDate(centerDate)) ? <span className="text-[9px] font-semibold text-amber-700">{holidayLabel(toIsoDate(centerDate))}</span> : !animating && firstVisit && (
           <span
             className="text-[9px] font-medium whitespace-nowrap"
             style={{ color: "rgba(0,0,0,0.35)" }}

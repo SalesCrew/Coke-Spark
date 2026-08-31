@@ -4,8 +4,11 @@ import { CalendarDays, Clock3, LoaderCircle, MapPin, RefreshCw, Store, X } from 
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { SmPlanningStatus } from "@/types/smPlanning";
+import type { SmHolidayAdjustment } from "@/lib/sm/austrianHolidays";
+import { SmHolidayNote } from "@/components/sm/SmHolidayNote";
 
 export interface DashboardAssignment {
+  holidayAdjustment?: SmHolidayAdjustment | null;
   id: string;
   duration: string;
   market: string;
@@ -105,7 +108,7 @@ export function AssignmentList({
             aria-label={`Details zu ${a.market} öffnen`}
             onClick={() => setSelectedAssignment(a)}
             onKeyDown={(event) => openDetailsFromKeyboard(event, a)}
-            className="flex h-[44px] cursor-pointer items-center px-1 outline-none transition-colors hover:bg-black/[0.018] focus-visible:bg-black/[0.025]"
+            className={`flex ${a.holidayAdjustment ? "min-h-[58px]" : "h-[44px]"} cursor-pointer items-center px-1 outline-none transition-colors hover:bg-black/[0.018] focus-visible:bg-black/[0.025]`}
             style={{
               borderBottom:
                 i < assignments.length - 1
@@ -118,6 +121,7 @@ export function AssignmentList({
             </span>
             <span className="min-w-0 flex-1 pr-2">
               <span className="block truncate text-[12px] font-medium text-gray-800">{a.market}</span>
+              {a.holidayAdjustment ? <SmHolidayNote compact adjustment={a.holidayAdjustment} currentDate={a.workDate} /> : null}
               {a.address ? (
                 <a
                   href={googleMapsUrl(a)}
@@ -184,6 +188,7 @@ function AssignmentDetailDialog({ assignment, onClose }: { assignment: Dashboard
         </header>
 
         <div className="grid gap-3 px-5 py-4">
+          {assignment.holidayAdjustment ? <SmHolidayNote adjustment={assignment.holidayAdjustment} currentDate={assignment.workDate} /> : null}
           <DetailRow icon={<CalendarDays size={15} />} label="Datum" value={formatWorkDate(assignment.workDate)} />
           <DetailRow icon={<Clock3 size={15} />} label="Sollzeit" value={assignment.duration} />
           <DetailRow icon={<Store size={15} />} label="Planung" value={`${assignment.sourceType === "series" ? "Serie" : "Einmalig"} · ${status.label}`} />

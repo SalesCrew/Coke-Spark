@@ -38,6 +38,9 @@ import {
 import type { SmMarketRecord } from "@/types/smMarkets";
 import type { SmGlobalQuestionnaireConfiguration, SmPlanningAssignment, SmPlanningFrequency, SmPlanningReassignmentScope, SmPlanningStatus } from "@/types/smPlanning";
 import type { SMRecord } from "@/types/shelfmerchandiser";
+import { austrianHoliday, austrianHolidays } from "@/lib/sm/austrianHolidays";
+import { SmHolidayCalendarCard } from "./SmHolidayCalendarCard";
+import { SmHolidayNote } from "@/components/sm/SmHolidayNote";
 
 const RED = "#DC2626";
 const ROW_GRID = "132px minmax(150px, .8fr) minmax(110px, .65fr) minmax(230px, 1.35fr) 80px 118px 84px";
@@ -357,6 +360,8 @@ function PlanningDrawer({
       </div>
 
       <div className="sm-plan-drawer-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px 24px" }}>
+        {assignment?.holidayAdjustment ? <div className="mb-4"><SmHolidayNote adjustment={assignment.holidayAdjustment} currentDate={assignment.effective.workDate} /></div> : null}
+        {!assignment || rescheduling ? <p className={`mb-4 rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${austrianHoliday(workDate) ? "border-amber-200 bg-amber-50 text-amber-900" : "border-black/[.06] bg-white text-gray-500"}`}>{createsSeries ? "Feiertage werden je Einzeltermin auf einen benachbarten Werktag mit weniger Sollzeit verschoben. Die Serie behält ihren Rhythmus." : austrianHoliday(workDate) ? `${austrianHoliday(workDate)!.name}: ${assignment ? "Deine manuelle Datumswahl hat Vorrang und wird nicht automatisch überschrieben." : "Dieser Termin wird automatisch auf einen benachbarten Werktag mit weniger Sollzeit verschoben."}` : assignment ? "Die manuelle Datumswahl hat Vorrang vor der Feiertagsautomatik." : "Österreichische Feiertage werden automatisch berücksichtigt."}</p> : null}
         <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 15, borderBottom: "1px solid rgba(0,0,0,.06)" }}>
           <span style={{ width: 36, height: 36, borderRadius: 9, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: avatarColors(selectedUserName).background, color: avatarColors(selectedUserName).color, fontSize: 11, fontWeight: 800 }}>{initials(selectedUserName)}</span>
           <div style={{ minWidth: 0 }}>
@@ -525,8 +530,12 @@ export function SmVerplanungWorkspace() {
   const groupedRows = useMemo(() => {
     const groups = new Map<string, SmPlanningAssignment[]>();
     for (const row of rows) groups.set(row.effective.workDate, [...(groups.get(row.effective.workDate) ?? []), row]);
+    // A holiday remains visible even after all its occurrences moved elsewhere.
+    for (const year of new Set([weekStart.getFullYear(), weekEnd.getFullYear()])) {
+      for (const holiday of austrianHolidays(year)) if (holiday.date >= weekStartKey && holiday.date <= weekEndKey && !groups.has(holiday.date)) groups.set(holiday.date, []);
+    }
     return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
-  }, [rows]);
+  }, [rows, weekStart, weekEnd, weekStartKey, weekEndKey]);
 
   const totalMinutes = rows.reduce((sum, row) => sum + row.effective.plannedMinutes, 0);
   const activeSeries = new Set(rows.map((row) => row.seriesId).filter((value): value is string => Boolean(value))).size;
@@ -587,11 +596,11 @@ export function SmVerplanungWorkspace() {
   const persistPlanning = useCallback(async (request: PlanningSubmitRequest) => {
     try {
       if (request.kind === "create_single") {
-        await createSmPlanningAssignment(request);
-        setNotice({ message: "Einsatz wurde eingeplant", tone: "success" });
+        const result = await createSmPlanningAssignment(request);
+        setNotice({ message: result.holidayAdjustment ? `${result.holidayAdjustment.holidayName}: Einsatz auf ${formatDate(result.holidayAdjustment.adjustedDate)} verschoben` : "Einsatz wurde eingeplant", tone: "success" });
       } else if (request.kind === "create_series") {
         const result = await createSmPlanningSeries(request);
-        setNotice({ message: `${result.count} Einsätze wurden als Serie eingeplant`, tone: "success" });
+        setNotice({ message: `${result.count} Einsätze wurden als Serie eingeplant${result.holidayAdjustedCount ? ` · ${result.holidayAdjustedCount} wegen Feiertagen verschoben` : ""}`, tone: "success" });
       } else {
         const { assignment } = request;
         let expectedUpdatedAt = assignment.updatedAt;
@@ -735,6 +744,7 @@ export function SmVerplanungWorkspace() {
         .sm-plan-reset-filters{height:29px;padding:0 9px;display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(220,38,38,.12);border-radius:7px;background:rgba(220,38,38,.035);color:${RED};font-family:inherit;font-size:9.5px;font-weight:650;cursor:pointer;white-space:nowrap}
         .sm-plan-reset-filters:hover{background:rgba(220,38,38,.07)}
         .sm-plan-day-toggle:hover{background:rgba(0,0,0,.028)!important}
+        .sm-plan-day-toggle.is-holiday:hover{background:#fef3c7!important}
         .sm-plan-drawer{position:fixed;top:80px;right:0;bottom:0;width:408px;z-index:700;display:flex;flex-direction:column;background:#f7f7f8;box-shadow:-6px 0 28px rgba(0,0,0,.10),-1px 0 0 rgba(0,0,0,.06);animation:smPlanDrawerIn .22s cubic-bezier(.4,0,.2,1) both}
         .sm-plan-drawer-scroll::-webkit-scrollbar{width:4px}.sm-plan-drawer-scroll::-webkit-scrollbar-thumb{background:rgba(0,0,0,.12);border-radius:6px}
         .sm-plan-series-fields{animation:smPlanFadeIn .18s ease both}
@@ -750,6 +760,7 @@ export function SmVerplanungWorkspace() {
       {notice ? <div role="status" style={{ position: "fixed", top: 92, left: "50%", zIndex: 13000, transform: "translateX(-50%)", padding: "7px 14px", display: "flex", alignItems: "center", gap: 7, border: `1px solid ${notice.tone === "success" ? "rgba(22,163,74,.18)" : notice.tone === "error" ? "rgba(220,38,38,.18)" : "rgba(0,0,0,.09)"}`, borderRadius: 999, background: notice.tone === "success" ? "rgba(247,255,249,.97)" : notice.tone === "error" ? "rgba(255,247,247,.97)" : "rgba(255,255,255,.97)", boxShadow: "0 5px 18px rgba(0,0,0,.08)", animation: "smPlanNoticeIn .2s ease both" }}>{notice.tone === "error" ? <X size={11} strokeWidth={2.4} color={RED}/> : notice.tone === "success" ? <Check size={11} strokeWidth={2.4} color="#16A34A"/> : <RefreshCw size={11} strokeWidth={2} color="rgba(0,0,0,.48)"/>}<span style={{ color: notice.tone === "success" ? "#15803D" : notice.tone === "error" ? "#B91C1C" : "rgba(0,0,0,.58)", fontSize: 10, fontWeight: 650 }}>{notice.message}</span></div> : null}
 
       {loadError ? <div role="alert" style={{ marginBottom: 10, padding: "9px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: "1px solid rgba(220,38,38,.16)", borderRadius: 9, background: "rgba(220,38,38,.045)", color: "#B91C1C", fontSize: 10, fontWeight: 600 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><AlertCircle size={13}/>{loadError}</span><button type="button" onClick={() => { void reloadAssignments(true).catch(() => undefined); }} className="sm-plan-secondary-button">Erneut laden</button></div> : null}
+      <div className="mb-2.5"><SmHolidayCalendarCard /></div>
 
       <section className="sm-plan-card" style={{ marginBottom: 10, padding: "11px 12px", display: "grid", gridTemplateColumns: "minmax(240px,1fr) minmax(300px,430px) auto", alignItems: "center", gap: 14, border: "1px solid rgba(0,0,0,.07)", borderRadius: 12, background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,.035)" }}>
         <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
@@ -816,13 +827,17 @@ export function SmVerplanungWorkspace() {
                 </div>
               ) : groupedRows.map(([date, dayRows]) => {
                 const collapsed = collapsedDates.includes(date) && !hasActiveFilters;
+                const holiday = austrianHoliday(date);
+                const movedFromHoliday = rows.filter((row) => row.holidayAdjustment?.holidayDate === date && row.effective.workDate !== date);
                 const dayDate = parseDate(date);
                 const dayTotal = dayRows.reduce((sum, row) => sum + row.effective.plannedMinutes, 0);
                 return <div key={date}>
-                  <button type="button" aria-expanded={!collapsed} onClick={() => toggleDate(date)} className="sm-plan-day-toggle" style={{ width: "100%", height: 44, padding: "0 18px", display: "flex", alignItems: "center", justifyContent: "space-between", border: 0, borderBottom: "1px solid rgba(0,0,0,.05)", background: "rgba(0,0,0,.022)", fontFamily: "inherit", cursor: "pointer", transition: "background .12s" }}>
+                  <button type="button" aria-expanded={!collapsed} onClick={() => toggleDate(date)} className={`sm-plan-day-toggle${holiday ? " is-holiday" : ""}`} style={{ width: "100%", height: 44, padding: "0 18px", display: "flex", alignItems: "center", justifyContent: "space-between", border: 0, borderBottom: "1px solid rgba(0,0,0,.05)", background: holiday ? "#fffbeb" : "rgba(0,0,0,.022)", fontFamily: "inherit", cursor: "pointer", transition: "background .12s" }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "rgba(0,0,0,.60)", fontSize: 10.5, fontWeight: 750, letterSpacing: ".045em", textTransform: "uppercase" }}><ChevronRight size={12.5} strokeWidth={2} style={{ transform: collapsed ? "rotate(0deg)" : "rotate(90deg)", transition: "transform .16s" }}/>{DAY_NAMES[dayDate.getDay()]} · {formatDate(date)}</span>
+                    {holiday ? <span className="mx-3 inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-800"><CalendarDays size={11} />{holiday.name}</span> : null}
                     <span style={{ color: "rgba(0,0,0,.54)", fontSize: 10.25, fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{dayRows.length} Einsätze · {formatDuration(dayTotal)}</span>
                   </button>
+                  {!collapsed && holiday ? <div className="border-b border-amber-100 bg-amber-50/40 px-[18px] py-2.5 text-[10px] leading-relaxed text-amber-800">{movedFromHoliday.length ? `${movedFromHoliday.length} ${movedFromHoliday.length === 1 ? "Einsatz verschoben" : "Einsätze verschoben"}: ${[...new Set(movedFromHoliday.map((row) => formatDate(row.effective.workDate)))].join(", ")}.` : "Gesetzlicher Feiertag. Neue Einsätze werden auf einen benachbarten Werktag verschoben."}{dayRows.length ? " Manuell verplante Termine bleiben bestehen." : ""}</div> : null}
                   {!collapsed ? dayRows.map((row) => {
                     const meta = statusMeta(row.status);
                     const rescheduled = Boolean(row.replacement.workDate);
@@ -837,6 +852,7 @@ export function SmVerplanungWorkspace() {
                       <span style={{ minWidth: 0, display: "grid", gap: 3 }}>
                         <span style={{ color: "rgba(0,0,0,.42)", fontSize: 9.5, fontWeight: 650 }}>{formatDate(row.effective.workDate)}</span>
                         {rescheduled ? <span style={{ display: "inline-flex", alignItems: "center", gap: 3.5, color: "#6D28D9", fontSize: 8, fontWeight: 700, whiteSpace: "nowrap" }}><CalendarClock size={9.5} strokeWidth={2}/>{formatDate(row.original.workDate)} → {formatDate(row.effective.workDate)}</span> : null}
+                        {row.holidayAdjustment ? <SmHolidayNote compact adjustment={row.holidayAdjustment} currentDate={row.effective.workDate} /> : null}
                       </span>
                       <span style={{ minWidth: 0 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1a1a1a", fontSize: 10.5, fontWeight: 650 }}>{row.effective.smName}</span>{replaced ? <span style={{ display: "block", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1D4ED8", fontSize: 8.5, fontWeight: 650 }}>Original: {row.original.smName}</span> : null}</span>
                       <span style={{ minWidth: 0 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#374151", fontSize: 10.5, fontWeight: 600 }}>{row.effective.marketName}</span><span style={{ display: "block", marginTop: 2, color: "rgba(0,0,0,.35)", fontSize: 8.3, fontWeight: 650 }}>Stammnr. {row.effective.marketInternalId}</span></span>

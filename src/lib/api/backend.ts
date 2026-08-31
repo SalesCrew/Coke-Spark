@@ -2541,7 +2541,7 @@ export async function markSmMessageRead(messageId: string): Promise<{ messageId:
   })) as { messageId: string; readAt: string; alreadyRead: boolean };
 }
 
-export async function createSmPlanningAssignment(input: CreateSmPlanningAssignmentInput): Promise<{ assignmentId: string; replayed: boolean }> {
+export async function createSmPlanningAssignment(input: CreateSmPlanningAssignmentInput): Promise<{ assignmentId: string; replayed: boolean; holidayAdjustment?: SmPlanningAssignment["holidayAdjustment"] }> {
   const payload: CreateSmPlanningAssignmentInput = {
     smMarketId: input.smMarketId,
     smUserId: input.smUserId,
@@ -2556,7 +2556,7 @@ export async function createSmPlanningAssignment(input: CreateSmPlanningAssignme
   })) as { assignmentId: string; replayed: boolean };
 }
 
-export async function createSmPlanningSeries(input: CreateSmPlanningSeriesInput): Promise<{ seriesId: string; count: number; replayed: boolean }> {
+export async function createSmPlanningSeries(input: CreateSmPlanningSeriesInput): Promise<{ seriesId: string; count: number; replayed: boolean; holidayAdjustedCount?: number }> {
   const payload: CreateSmPlanningSeriesInput = {
     smMarketId: input.smMarketId,
     smUserId: input.smUserId,

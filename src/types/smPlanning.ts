@@ -56,6 +56,7 @@ export type SmTimeChangeRequest = {
 };
 
 export type SmPlanningAssignment = {
+  holidayAdjustment?: import("@/lib/sm/austrianHolidays").SmHolidayAdjustment | null;
   id: string;
   sourceType: "single" | "series";
   seriesId: string | null;

@@ -13,8 +13,10 @@ import {
   setSmVisitPreloadCache,
 } from "@/lib/api/backend";
 import type { SmPlanningAssignment } from "@/types/smPlanning";
+import { austrianHoliday } from "@/lib/sm/austrianHolidays";
 
 type DateRange = { from: string; to: string };
+const smHolidayLabel = (date: string) => austrianHoliday(date)?.name;
 
 function toIsoDate(date: Date): string {
   const year = date.getFullYear();
@@ -61,6 +63,7 @@ function toDashboardAssignment(assignment: SmPlanningAssignment): DashboardAssig
     region: assignment.effective.region,
     sourceType: assignment.sourceType,
     status: assignment.status,
+    holidayAdjustment: assignment.holidayAdjustment,
   };
 }
 
@@ -177,7 +180,7 @@ export function SmDashboardSchedule() {
         />
       </div>
       <div className="mt-6 px-1">
-        <WeekStrip selectedDate={selectedDate} visitsByDate={visitsByDate} onDateChange={handleDateChange} />
+        <WeekStrip selectedDate={selectedDate} visitsByDate={visitsByDate} onDateChange={handleDateChange} holidayLabel={smHolidayLabel} />
       </div>
     </>
   );

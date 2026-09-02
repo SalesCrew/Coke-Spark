@@ -2399,6 +2399,7 @@ export function ModuleEditor({ onClose, onSave, existingModule, availableChains 
               questions,
               createdAt: existingModule?.createdAt ?? new Date().toISOString(),
               usedInCount: existingModule?.usedInCount ?? 0,
+              revision: existingModule?.revision ?? 1,
             };
             setIsSaving(true);
             setSaveError(null);

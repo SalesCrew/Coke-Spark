@@ -710,6 +710,7 @@ export function MhdModuleEditor({ onClose, onSave, existingModule, availableChai
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [typeMenu, setTypeMenu] = useState<{ questionId: string; x: number; y: number } | null>(null);
   const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -777,10 +778,14 @@ export function MhdModuleEditor({ onClose, onSave, existingModule, availableChai
               description, questions,
               createdAt: existingModule?.createdAt ?? new Date().toISOString(),
               usedInCount: existingModule?.usedInCount ?? 0,
+              revision: existingModule?.revision ?? 1,
             };
             setIsSaving(true);
+            setSaveError(null);
             try {
               await onSave(mod);
+            } catch (error) {
+              setSaveError(error instanceof Error ? error.message : "Modul konnte nicht gespeichert werden.");
             } finally {
               setIsSaving(false);
             }
@@ -791,6 +796,8 @@ export function MhdModuleEditor({ onClose, onSave, existingModule, availableChai
           {isSaving ? "Speichern..." : "Speichern"}
         </button>
       </div>
+
+      {saveError ? <div role="alert" style={{ padding: "8px 24px", borderBottom: "1px solid rgba(220,38,38,0.12)", backgroundColor: "rgba(220,38,38,0.04)", color: "#b91c1c", fontSize: 11, fontWeight: 500 }}>{saveError}</div> : null}
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         <div style={{ width: 220, backgroundColor: "rgba(0,0,0,0.02)", borderRight: "1px solid rgba(0,0,0,0.06)", padding: "20px 12px", flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>

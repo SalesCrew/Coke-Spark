@@ -763,6 +763,7 @@ export function KuehlerModuleEditor({ onClose, onSave, existingModule, available
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [typeMenu, setTypeMenu] = useState<{ questionId: string; x: number; y: number } | null>(null);
   const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -843,10 +844,14 @@ export function KuehlerModuleEditor({ onClose, onSave, existingModule, available
               description, questions,
               createdAt: existingModule?.createdAt ?? new Date().toISOString(),
               usedInCount: existingModule?.usedInCount ?? 0,
+              revision: existingModule?.revision ?? 1,
             };
             setIsSaving(true);
+            setSaveError(null);
             try {
               await onSave(mod);
+            } catch (error) {
+              setSaveError(error instanceof Error ? error.message : "Modul konnte nicht gespeichert werden.");
             } finally {
               setIsSaving(false);
             }
@@ -857,6 +862,8 @@ export function KuehlerModuleEditor({ onClose, onSave, existingModule, available
           {isSaving ? "Speichern..." : "Speichern"}
         </button>
       </div>
+
+      {saveError ? <div role="alert" style={{ padding: "8px 24px", borderBottom: "1px solid rgba(220,38,38,0.12)", backgroundColor: "rgba(220,38,38,0.04)", color: "#b91c1c", fontSize: 11, fontWeight: 500 }}>{saveError}</div> : null}
 
       {/* Body */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>

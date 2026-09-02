@@ -3782,12 +3782,23 @@ function MarktbesuchInner() {
   const [photoSyncErrorByQuestionId, setPhotoSyncErrorByQuestionId] = useState<Record<string, string | null>>({});
   const [photoMetaByQuestionId, setPhotoMetaByQuestionId] = useState<Record<string, UploadedPhotoMeta[]>>({});
   const [photoAnswerIdByQuestionId, setPhotoAnswerIdByQuestionId] = useState<Record<string, string>>({});
+  const photoMetaByQuestionIdRef = useRef<Record<string, UploadedPhotoMeta[]>>({});
+  const photoAnswerIdByQuestionIdRef = useRef<Record<string, string>>({});
+  const photoSyncQueueRef = useRef<Record<string, Promise<void>>>({});
   const persistTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const persistFlushersRef = useRef<Record<string, () => Promise<void>>>({});
   const persistInFlightRef = useRef<Record<string, Promise<void>>>({});
   const lastPersistSigRef = useRef<Record<string, string>>({});
   const bootstrapRequestSeqRef = useRef(0);
   const bootstrapRunKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    photoMetaByQuestionIdRef.current = photoMetaByQuestionId;
+  }, [photoMetaByQuestionId]);
+
+  useEffect(() => {
+    photoAnswerIdByQuestionIdRef.current = photoAnswerIdByQuestionId;
+  }, [photoAnswerIdByQuestionId]);
 
   const setSessionIdInUrl = useCallback((sessionId: string) => {
     const next = new URLSearchParams(paramsString);
@@ -4212,90 +4223,118 @@ function MarktbesuchInner() {
   }, [allRenderedQuestions, answerByQuestionId, chainHiddenQuestionIds]);
 
   const handlePhotoSync = useCallback(
-    async (payload: { questionId: string; files: File[]; photoState: PhotoAnswerState; photoKeys: string[] }) => {
-      if (!visitSessionId) return;
-      setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: true }));
-      setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: null }));
-      try {
-        const existingAnswerId = photoAnswerIdByQuestionId[payload.questionId] ?? null;
-        const answerId = existingAnswerId
-          ? existingAnswerId
-          : (await saveGmVisitAnswer({
-              sessionId: visitSessionId,
-              visitQuestionId: payload.questionId,
-            })).result.answerId;
-        if (!answerId) throw new Error("Foto-Antwort konnte nicht initialisiert werden.");
-        if (!existingAnswerId) {
-          setPhotoAnswerIdByQuestionId((prev) => ({ ...prev, [payload.questionId]: answerId }));
-        }
+    (payload: { questionId: string; files: File[]; photoState: PhotoAnswerState; photoKeys: string[] }) => {
+      if (!visitSessionId) return Promise.resolve();
+      const sessionId = visitSessionId;
+      const questionId = payload.questionId;
+      setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [questionId]: true }));
 
-        const existingMeta = photoMetaByQuestionId[payload.questionId] ?? [];
-        const uploadedMeta: UploadedPhotoMeta[] = [];
-        for (const file of payload.files) {
-          const ext = (file.name.split(".").pop() ?? "jpg").toLowerCase();
-          const presign = await presignGmVisitPhoto({
-            sessionId: visitSessionId,
-            visitAnswerId: answerId,
-            extension: ext,
-          });
-          const uploadResponse = await fetch(presign.upload.signedUrl, {
-            method: "PUT",
-            headers: {
-              "content-type": file.type || "application/octet-stream",
-            },
-            body: file,
-          });
-          if (!uploadResponse.ok) {
-            throw new Error("Foto-Upload fehlgeschlagen.");
+      const previous = photoSyncQueueRef.current[questionId] ?? Promise.resolve();
+      let queued: Promise<void>;
+      queued = previous
+        .catch(() => undefined)
+        .then(async () => {
+          setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: null }));
+
+          const existingAnswerId = photoAnswerIdByQuestionIdRef.current[questionId] ?? null;
+          const answerId = existingAnswerId
+            ? existingAnswerId
+            : (await saveGmVisitAnswer({
+                sessionId,
+                visitQuestionId: questionId,
+              })).result.answerId;
+          if (!answerId) throw new Error("Foto-Antwort konnte nicht initialisiert werden.");
+          if (!existingAnswerId) {
+            photoAnswerIdByQuestionIdRef.current = {
+              ...photoAnswerIdByQuestionIdRef.current,
+              [questionId]: answerId,
+            };
+            setPhotoAnswerIdByQuestionId((prev) => ({ ...prev, [questionId]: answerId }));
           }
-          uploadedMeta.push({
-            storageBucket: presign.upload.bucket,
-            storagePath: presign.upload.path,
-            inherited: false,
-            mimeType: file.type || undefined,
-            byteSize: file.size,
-          });
-        }
 
-        const mergedMeta = payload.files.length > 0 ? [...existingMeta, ...uploadedMeta] : existingMeta;
-        const taggedMeta = mergedMeta.map((meta, index) => ({
-          meta,
-          photoTagIds: photoTagsForCommit(payload.photoState, meta, index, payload.photoKeys),
-        }));
-        const currentPhotos = taggedMeta
-          .filter(({ meta }) => !meta.inherited)
-          .map(({ meta, photoTagIds }) => ({
-            storageBucket: meta.storageBucket,
-            storagePath: meta.storagePath,
-            mimeType: meta.mimeType,
-            byteSize: meta.byteSize,
-            widthPx: meta.widthPx,
-            heightPx: meta.heightPx,
-            sha256: meta.sha256,
-            photoTagIds,
+          const existingMeta = photoMetaByQuestionIdRef.current[questionId] ?? [];
+          const uploadedMeta: UploadedPhotoMeta[] = [];
+          for (const file of payload.files) {
+            const ext = (file.name.split(".").pop() ?? "jpg").toLowerCase();
+            const presign = await presignGmVisitPhoto({
+              sessionId,
+              visitAnswerId: answerId,
+              extension: ext,
+            });
+            const uploadResponse = await fetch(presign.upload.signedUrl, {
+              method: "PUT",
+              headers: {
+                "content-type": file.type || "application/octet-stream",
+              },
+              body: file,
+            });
+            if (!uploadResponse.ok) {
+              throw new Error("Foto-Upload fehlgeschlagen.");
+            }
+            uploadedMeta.push({
+              storageBucket: presign.upload.bucket,
+              storagePath: presign.upload.path,
+              inherited: false,
+              mimeType: file.type || undefined,
+              byteSize: file.size,
+            });
+          }
+
+          const mergedMeta = payload.files.length > 0
+            ? Array.from(
+                new Map([...existingMeta, ...uploadedMeta].map((meta) => [meta.storagePath, meta])).values(),
+              )
+            : existingMeta;
+          const taggedMeta = mergedMeta.map((meta, index) => ({
+            meta,
+            photoTagIds: photoTagsForCommit(payload.photoState, meta, index, payload.photoKeys),
           }));
-        if (currentPhotos.length > 0) {
-          await commitGmVisitPhotos({
-            sessionId: visitSessionId,
-            visitAnswerId: answerId,
-            photos: currentPhotos,
-          });
-        }
-        const inheritedPhotos = taggedMeta.flatMap(({ meta, photoTagIds }) =>
-          meta.inherited && meta.photoId ? [{ photoId: meta.photoId, photoTagIds }] : [],
-        );
-        if (inheritedPhotos.length > 0) {
-          await updateInheritedGmVisitPhotoTags({ sessionId: visitSessionId, photos: inheritedPhotos });
-        }
-        setPhotoMetaByQuestionId((prev) => ({ ...prev, [payload.questionId]: mergedMeta }));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Fotos konnten nicht gespeichert werden.";
-        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: message }));
-      } finally {
-        setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: false }));
-      }
+          const uploadedPaths = new Set(uploadedMeta.map((meta) => meta.storagePath));
+          const photosToCommit = taggedMeta
+            .filter(({ meta }) => !meta.inherited && (payload.files.length === 0 || uploadedPaths.has(meta.storagePath)))
+            .map(({ meta, photoTagIds }) => ({
+              storageBucket: meta.storageBucket,
+              storagePath: meta.storagePath,
+              mimeType: meta.mimeType,
+              byteSize: meta.byteSize,
+              widthPx: meta.widthPx,
+              heightPx: meta.heightPx,
+              sha256: meta.sha256,
+              photoTagIds,
+            }));
+          if (photosToCommit.length > 0) {
+            await commitGmVisitPhotos({
+              sessionId,
+              visitAnswerId: answerId,
+              mode: payload.files.length > 0 ? "append" : "replace",
+              photos: photosToCommit,
+            });
+          }
+          const inheritedPhotos = taggedMeta.flatMap(({ meta, photoTagIds }) =>
+            meta.inherited && meta.photoId ? [{ photoId: meta.photoId, photoTagIds }] : [],
+          );
+          if (inheritedPhotos.length > 0) {
+            await updateInheritedGmVisitPhotoTags({ sessionId, photos: inheritedPhotos });
+          }
+          photoMetaByQuestionIdRef.current = {
+            ...photoMetaByQuestionIdRef.current,
+            [questionId]: mergedMeta,
+          };
+          setPhotoMetaByQuestionId((prev) => ({ ...prev, [questionId]: mergedMeta }));
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : "Fotos konnten nicht gespeichert werden.";
+          setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: message }));
+        })
+        .finally(() => {
+          if (photoSyncQueueRef.current[questionId] !== queued) return;
+          delete photoSyncQueueRef.current[questionId];
+          setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [questionId]: false }));
+        });
+      photoSyncQueueRef.current[questionId] = queued;
+      return queued;
     },
-    [photoAnswerIdByQuestionId, photoMetaByQuestionId, visitSessionId],
+    [visitSessionId],
   );
 
   const handlePhotoDelete = useCallback(
@@ -4307,7 +4346,7 @@ function MarktbesuchInner() {
       photoState: PhotoAnswerState;
       photoKeys: string[];
     }) => {
-      const answerId = photoAnswerIdByQuestionId[payload.questionId] ?? null;
+      const answerId = photoAnswerIdByQuestionIdRef.current[payload.questionId] ?? null;
       if (!answerId) return;
       if (!visitSessionId) {
         const message = "Foto konnte nicht gelöscht werden, weil der Fragebogen noch nicht gespeichert ist.";
@@ -4328,12 +4367,14 @@ function MarktbesuchInner() {
             storagePath: payload.storagePath,
           });
         }
-        setPhotoMetaByQuestionId((prev) => ({
-          ...prev,
-          [payload.questionId]: (prev[payload.questionId] ?? []).filter((meta) =>
-            payload.photoId ? meta.photoId !== payload.photoId : meta.storagePath !== payload.storagePath,
-          ),
-        }));
+        const nextMeta = (photoMetaByQuestionIdRef.current[payload.questionId] ?? []).filter((meta) =>
+          payload.photoId ? meta.photoId !== payload.photoId : meta.storagePath !== payload.storagePath,
+        );
+        photoMetaByQuestionIdRef.current = {
+          ...photoMetaByQuestionIdRef.current,
+          [payload.questionId]: nextMeta,
+        };
+        setPhotoMetaByQuestionId((prev) => ({ ...prev, [payload.questionId]: nextMeta }));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Foto konnte nicht gelöscht werden.";
         setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: message }));
@@ -4342,7 +4383,7 @@ function MarktbesuchInner() {
         setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [payload.questionId]: false }));
       }
     },
-    [photoAnswerIdByQuestionId, visitSessionId],
+    [visitSessionId],
   );
 
   useEffect(() => {

@@ -238,8 +238,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       });
       setKuehlerModuleEditorOpen(false);
       setKuehlerEditingModule(null);
-    } catch {
-      // Keep editor open on API failure.
+    } catch (error) {
+      // Keep editor open and let it surface the backend conflict/error.
+      throw error;
     }
   };
 
@@ -305,8 +306,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       });
       setMhdModuleEditorOpen(false);
       setMhdEditingModule(null);
-    } catch {
-      // Keep editor open on API failure.
+    } catch (error) {
+      // Keep editor open and let it surface the backend conflict/error.
+      throw error;
     }
   };
 
@@ -485,8 +487,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       });
       setFlexModuleEditorOpen(false);
       setFlexEditingModule(null);
-    } catch {
-      // Keep editor open on API failure.
+    } catch (error) {
+      // Keep editor open and let it surface the backend conflict/error.
+      throw error;
     }
   };
 
@@ -628,8 +631,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
       });
       setBillaModuleEditorOpen(false);
       setBillaEditingModule(null);
-    } catch {
-      // Keep editor open on API failure.
+    } catch (error) {
+      // Keep editor open and let it surface the backend conflict/error.
+      throw error;
     }
   };
 

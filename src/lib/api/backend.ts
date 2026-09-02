@@ -81,6 +81,13 @@ export class BackendApiError extends Error {
   }
 }
 
+export class BackendTimeoutError extends Error {
+  constructor(message = "Die Anfrage hat zu lange gedauert. Bitte erneut versuchen.") {
+    super(message);
+    this.name = "BackendTimeoutError";
+  }
+}
+
 type BackendUser = {
   id: string;
   role: "admin" | "sm_admin" | "gm" | "sm" | "kunde";
@@ -1080,7 +1087,7 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
       });
     }
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("Die Anfrage hat zu lange gedauert. Bitte erneut versuchen.");
+      throw new BackendTimeoutError();
     }
     throw error;
   } finally {
@@ -4954,6 +4961,7 @@ export async function presignGmVisitPhoto(input: {
 export async function commitGmVisitPhotos(input: {
   sessionId: string;
   visitAnswerId: string;
+  mode?: "replace" | "append";
   photos: Array<{
     storageBucket: string;
     storagePath: string;
@@ -4965,10 +4973,10 @@ export async function commitGmVisitPhotos(input: {
     photoTagIds?: string[];
   }>;
 }): Promise<{ ok: boolean }> {
-  const { sessionId, visitAnswerId, photos } = input;
+  const { sessionId, visitAnswerId, photos, mode } = input;
   return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}/photos/commit`, {
     method: "POST",
-    body: JSON.stringify({ visitAnswerId, photos }),
+    body: JSON.stringify({ visitAnswerId, photos, ...(mode ? { mode } : {}) }),
   })) as { ok: boolean };
 }
 
@@ -5287,6 +5295,9 @@ function normalizeModule(input: Module): Module {
     questions: (input.questions ?? []).map(normalizeQuestion),
     createdAt: input.createdAt ?? new Date().toISOString(),
     usedInCount: input.usedInCount ?? 0,
+    revision: typeof input.revision === "number" && Number.isInteger(input.revision) && input.revision > 0
+      ? input.revision
+      : 1,
   };
 }
 
@@ -5431,12 +5442,90 @@ export async function createModule(scope: FragebogenScope, module: Module & { se
   return normalizeModule(data.module);
 }
 
-export async function updateModuleBackend(scope: FragebogenScope, module: Module & { sectionKeywords?: Array<"standard" | "flex" | "billa"> }): Promise<Module> {
-  const data = (await authedFetch(`/admin/modules/${scope}/${module.id}`, {
-    method: "PATCH",
-    body: JSON.stringify(module),
-  })) as { module: Module };
-  return normalizeModule(data.module);
+type ModuleSaveStatusResponse = {
+  status: "pending" | "completed" | "failed";
+  resultRevision?: number | null;
+  module?: Module;
+  code?: string;
+  error?: string;
+};
+
+const moduleSaveInFlight = new Map<string, { payload: string; promise: Promise<Module> }>();
+
+function waitForModuleSavePoll(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function recoverModuleSave(
+  scope: FragebogenScope,
+  moduleId: string,
+  mutationToken: string,
+): Promise<Module> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (attempt > 0) await waitForModuleSavePoll(750 + attempt * 250);
+    let status: ModuleSaveStatusResponse;
+    try {
+      status = (await authedFetch(
+        `/admin/modules/${scope}/${moduleId}/save-status/${mutationToken}`,
+        {},
+        5000,
+      )) as ModuleSaveStatusResponse;
+    } catch (error) {
+      const transient = error instanceof BackendTimeoutError
+        || (error instanceof BackendApiError && (error.status === 404 || error.status >= 500));
+      if (transient && attempt < 7) continue;
+      throw error;
+    }
+    if (status.status === "completed" && status.module) return normalizeModule(status.module);
+    if (status.status === "failed") {
+      throw new BackendApiError(
+        status.error ?? "Modul konnte nicht gespeichert werden.",
+        409,
+        status.code ?? "module_save_failed",
+        status,
+      );
+    }
+  }
+  throw new Error("Der Speichervorgang läuft noch. Bitte nicht erneut speichern und das Modul in Kürze neu laden.");
+}
+
+async function performModuleUpdate(
+  scope: FragebogenScope,
+  module: Module & { sectionKeywords?: Array<"standard" | "flex" | "billa"> },
+): Promise<Module> {
+  if (typeof module.revision !== "number" || !Number.isInteger(module.revision) || module.revision < 1) {
+    throw new Error("Das Modul muss vor dem Speichern neu geladen werden.");
+  }
+  const mutationToken = crypto.randomUUID();
+  try {
+    const data = (await authedFetch(`/admin/modules/${scope}/${module.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ...module, mutationToken }),
+    })) as { module?: Module; status?: "pending" };
+    if (data.module) return normalizeModule(data.module);
+    return recoverModuleSave(scope, module.id, mutationToken);
+  } catch (error) {
+    if (!(error instanceof BackendTimeoutError)) throw error;
+    return recoverModuleSave(scope, module.id, mutationToken);
+  }
+}
+
+export function updateModuleBackend(
+  scope: FragebogenScope,
+  module: Module & { sectionKeywords?: Array<"standard" | "flex" | "billa"> },
+): Promise<Module> {
+  const key = `${scope}:${module.id}`;
+  const payload = JSON.stringify(module);
+  const existing = moduleSaveInFlight.get(key);
+  if (existing) {
+    if (existing.payload === payload) return existing.promise;
+    return Promise.reject(new Error("Dieses Modul wird bereits gespeichert. Bitte kurz warten."));
+  }
+  const promise = performModuleUpdate(scope, module).finally(() => {
+    if (moduleSaveInFlight.get(key)?.promise === promise) moduleSaveInFlight.delete(key);
+  });
+  moduleSaveInFlight.set(key, { payload, promise });
+  return promise;
 }
 
 export async function deleteModuleBackend(scope: FragebogenScope, moduleId: string): Promise<void> {

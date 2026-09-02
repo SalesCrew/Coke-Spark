@@ -47,7 +47,8 @@ export function ModuleProvider({ children }: { children: React.ReactNode }) {
     );
     if (!persist || !uuidRegex.test(m.id)) return;
     try {
-      await updateModuleBackend("main", { ...m, sectionKeywords: ["standard"] });
+      const persisted = await updateModuleBackend("main", { ...m, sectionKeywords: ["standard"] });
+      setModules((prev) => prev.map((old) => (old.id === persisted.id ? persisted : old)));
     } catch (error) {
       if (previous) {
         setModules((prev) => prev.map((old) => (old.id === m.id ? previous! : old)));

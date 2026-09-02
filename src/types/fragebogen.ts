@@ -58,6 +58,7 @@ export interface Module {
   questions: Question[];
   createdAt: string;
   usedInCount: number;
+  revision?: number;
 }
 
 export interface MarketAssignment {

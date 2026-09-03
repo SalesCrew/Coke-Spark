@@ -207,3 +207,19 @@ The app already contains:
 - strong admin UI patterns for polished creation/configuration surfaces
 
 The missing piece is a dedicated admin orchestration page that connects those three layers into one coherent quarter builder for `Prämien`.
+
+## Implementation Update — Distributionsantworten im Kalenderquartal (03.09.2026)
+
+The runtime behavior for already answered distribution questions is now defined independently from reward-wave activation and reward calculation:
+
+- only exact `Distributionsziel` source mappings receive quarter-long answer reuse;
+- the source must be a valid answer from a submitted visit by the same GM in the same market for the same question ID;
+- the newest qualifying answer is inserted as the filled, editable answer in a newly created visit, including its comment;
+- the boundary is the `Europe/Vienna` calendar quarter, not the RED month and not the wave start/end interval;
+- a wave that spans two calendar quarters can identify the same distribution questions in both quarters, but no answer crosses from the earlier quarter into the later one;
+- all other questions retain the existing RED-month behavior;
+- draft/active wave configuration may identify the relevant question IDs without activating a wave or changing bonus calculation.
+
+The implementation performs current-snapshot validation before copying an answer, so a changed question type or no-longer-valid option leaves the new question empty. Existing draft visits are not retroactively rewritten. No schema or production-data mutation is required.
+
+The maintained source of truth is [`docs/gm-distribution-quarter-answer-persistence-living.md`](docs/gm-distribution-quarter-answer-persistence-living.md).

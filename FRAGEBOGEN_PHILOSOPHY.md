@@ -68,3 +68,15 @@ The three tiers cleanly separate:
 - **Where and when to deploy it** → Fragebogen
 
 This keeps the system maintainable, prevents duplication, and ensures consistency across all questionnaires.
+
+## Runtime Answer Reuse
+
+Question reuse in the authoring model does not normally imply unlimited reuse of prior runtime answers. The one explicit exception is a question assigned to the premium pillar `Distributionsziel`:
+
+- a valid answer from a completed GM visit is prefilled in later visits during the same calendar quarter;
+- identity must match on GM, market, and technical question ID;
+- the answer remains editable and its comment is carried with it;
+- at the Vienna calendar-quarter boundary the prior answer expires, even when the configured premium wave continues;
+- other questions keep their established RED-month reuse behavior.
+
+The authoritative contract and verification record is [`docs/gm-distribution-quarter-answer-persistence-living.md`](docs/gm-distribution-quarter-answer-persistence-living.md).

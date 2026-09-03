@@ -174,6 +174,14 @@ Die Excel-Auswertung summiert mehrere Frage-/Platzierungsarten mit unterschiedli
 
 Die Detailauswertung enthält zehn Frage-/Metrikpaare. Die finale Durchschnittsformel verwendet allerdings nur neun davon und lässt „Jack & Coke Kühler“ aus. Ob diese Kennzahl bewusst ausgeschlossen oder versehentlich vergessen wurde, muss fachlich bestätigt werden.
 
+#### Laufzeit bereits beantworteter Distributionsfragen
+
+Distributionsantworten werden innerhalb eines Kalenderquartals für denselben GM, denselben Markt und dieselbe technische Frage-ID als ausgefüllte, editierbare Antwort weitergeführt. Der vorhandene Kommentar wird mit übernommen. Nur gültige Antworten aus abgeschlossenen Marktbesuchen sind zulässig.
+
+Die Quartalsgrenze ist unabhängig von der Laufzeit der Prämienwelle. Reicht eine Welle in das nächste Quartal, bleiben ihre zugeordneten Distributionsfragen dort gültig, aber die Antworten aus dem vorigen Quartal werden nicht übernommen. Der erste Besuch im neuen Quartal beginnt für diese Fragen leer. Andere Prämien-Säulen behalten die bestehende RED-Monatslogik.
+
+Die genaue Laufzeit-, Auswahl- und Sicherheitslogik ist im LivingMD [`docs/gm-distribution-quarter-answer-persistence-living.md`](docs/gm-distribution-quarter-answer-persistence-living.md) dokumentiert.
+
 ### Säule 3: Flex Q2
 
 Komponente Kühler-Nettoaufbau:

@@ -75,6 +75,43 @@ function matrixSummary(question: SmQuestion): string {
   return `Zeilen: ${rows.join(" | ")}; Spalten: ${columns.join(" | ")}`;
 }
 
+function answerSubheadingSummary(question: SmQuestion): string {
+  const rawOptions: unknown[] = question.type === "yesno"
+    ? ["Ja", "Nein"]
+    : question.type === "yesnomulti"
+      ? Array.isArray(question.config.answers) ? question.config.answers : question.options
+      : question.type === "single" || question.type === "multiple"
+        ? Array.isArray(question.config.options) ? question.config.options : question.options
+        : question.type === "likert"
+          ? (() => {
+              const min = Number(question.config.min ?? 1);
+              const max = Number(question.config.max ?? 5);
+              return Number.isInteger(min) && Number.isInteger(max) && min <= max ? Array.from({ length: max - min + 1 }, (_, index) => String(min + index)) : [];
+            })()
+          : question.type === "matrix"
+            ? Array.isArray(question.config.columns) ? question.config.columns : []
+          : [];
+  const subheadings = Array.isArray(question.config.answerSubheadings) ? question.config.answerSubheadings : [];
+  const primary = rawOptions.flatMap((option, index) => {
+    const label = typeof option === "string" ? option.trim() : String(option ?? "").trim();
+    const subheading = typeof subheadings[index] === "string" ? subheadings[index].trim() : "";
+    return label && subheading ? [`${label}: ${subheading}`] : [];
+  });
+  const branches = Array.isArray(question.config.branches) ? question.config.branches.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const branch = entry as Record<string, unknown>;
+    const answer = typeof branch.answer === "string" ? branch.answer.trim() : "";
+    const options = Array.isArray(branch.options) ? branch.options : [];
+    const branchSubheadings = Array.isArray(branch.answerSubheadings) ? branch.answerSubheadings : [];
+    return options.flatMap((option, index) => {
+      const label = typeof option === "string" ? option.trim() : "";
+      const subheading = typeof branchSubheadings[index] === "string" ? branchSubheadings[index].trim() : "";
+      return answer && label && subheading ? [`${answer} → ${label}: ${subheading}`] : [];
+    });
+  }) : [];
+  return [...primary, ...branches].join("; ");
+}
+
 function oosOutcomeSummary(question: SmQuestion): string {
   return Object.entries(question.oos?.answerOutcomes ?? {})
     .map(([answer, outcome]) => `${answer}: ${outcome}`)
@@ -128,7 +165,9 @@ function buildSheets(input: SmQuestionnaireExportInput, XLSX: XlsxModule, workbo
       { header: "Typ", width: 20, value: (row) => TYPE_LABELS[row.question.type] },
       { header: "Pflicht", width: 10, value: (row) => yesNo(row.question.required), align: "center" },
       { header: "Frage", width: 60, value: (row) => row.question.text },
+      { header: "Frage-Unterzeile", width: 48, value: (row) => typeof row.question.config.subheading === "string" ? row.question.config.subheading : "" },
       { header: "Antwortoptionen", width: 48, value: (row) => configuredOptions(row.question).join(" | ") },
+      { header: "Antwort-Unterzeilen", width: 62, value: (row) => answerSubheadingSummary(row.question) },
       { header: "Unterauswahl", width: 52, value: (row) => branchSummary(row.question) },
       { header: "Matrix", width: 52, value: (row) => matrixSummary(row.question) },
       { header: "Logikregeln", width: 12, value: (row) => row.question.rules.length, align: "right" },

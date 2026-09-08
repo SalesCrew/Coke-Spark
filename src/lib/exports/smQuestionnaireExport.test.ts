@@ -17,8 +17,10 @@ const modules: SmModule[] = [{
     required: true,
     options: ["Ja", "Nein"],
     config: {
+      subheading: "Bitte den sichtbaren Regalbestand prüfen.",
       answers: ["Ja", "Nein"],
-      branches: [{ answer: "Nein", options: ["Nicht gelistet", "Ausverkauft"] }],
+      answerSubheadings: ["Produkt ist verfügbar", "Produkt fehlt"],
+      branches: [{ answer: "Nein", options: ["Nicht gelistet", "Ausverkauft"], answerSubheadings: ["Kein Listungsplatz", "Regalplatz ist leer"] }],
     },
     rules: [{
       id: "rule-a",
@@ -75,6 +77,9 @@ test("builds the GM-aligned SM questionnaire workbook with SM-specific sheets", 
   assert.equal(questionRows.length, 2);
   assert.equal(questionRows[0]?.Typ, "Ja / Nein Multi");
   assert.equal(questionRows[0]?.Pflicht, "Ja");
+  assert.equal(questionRows[0]?.["Frage-Unterzeile"], "Bitte den sichtbaren Regalbestand prüfen.");
+  assert.match(String(questionRows[0]?.["Antwort-Unterzeilen"]), /Produkt ist verfügbar/);
+  assert.match(String(questionRows[0]?.["Antwort-Unterzeilen"]), /Regalplatz ist leer/);
   assert.match(String(questionRows[0]?.Unterauswahl), /Nicht gelistet/);
   assert.match(String(questionRows[0]?.["OOS Antworten"]), /oos_present/);
 

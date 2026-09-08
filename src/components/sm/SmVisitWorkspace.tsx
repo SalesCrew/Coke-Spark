@@ -1051,12 +1051,14 @@ type QuestionCardProps = {
 };
 
 function QuestionCard({ question, answer, onAnswer, saveState, saveError, photoFiles, photoBusy, onPhotoUpload, onPhotoDelete, questionNumber, questionCount, previousDisabled, nextLabel, onPrevious, onNext }: QuestionCardProps) {
+  const subheading = typeof question.config.subheading === "string" ? question.config.subheading.trim() : "";
   return <article className="flex min-w-0 w-full flex-col overflow-hidden rounded-[14px] border border-white/90 bg-white/80 px-4 pb-4 pt-[18px] shadow-[0_2px_16px_rgba(0,0,0,.05),0_1px_4px_rgba(0,0,0,.04)] backdrop-blur-2xl">
     <div className="flex items-center justify-between gap-3">
       <span className="text-[9px] font-bold uppercase tracking-[.07em] text-black/25">{questionTypeLabel(question.type)} · {questionNumber} von {questionCount}</span>
       <SaveState state={saveState} />
     </div>
     <h1 className="mt-3 break-words text-[13px] font-semibold leading-[1.5] tracking-[-.01em] text-[#1a1a1a]">{question.text}{question.required ? <span className="ml-1 text-[11px] text-red-600">*</span> : null}</h1>
+    {subheading ? <p className="mt-0.5 overflow-hidden break-words text-[9px] font-normal leading-[1.4] text-black/35 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{subheading}</p> : null}
     {typeof question.config.instruction === "string" && question.config.instruction ? <p className="mt-2 text-[10px] italic leading-relaxed text-black/40">{question.config.instruction}</p> : null}
     <QuestionImageCarousel question={question} />
     <div className="mt-4 min-h-0 min-w-0"><QuestionInput question={question} answer={answer} onAnswer={onAnswer} photoFiles={photoFiles} photoBusy={photoBusy} onPhotoUpload={onPhotoUpload} onPhotoDelete={onPhotoDelete} /></div>
@@ -1153,10 +1155,35 @@ function QuestionInput({ question, answer, onAnswer, photoFiles, photoBusy, onPh
   return <PhotoInput files={photoFiles} busy={photoBusy} onUpload={onPhotoUpload} onDelete={onPhotoDelete} />;
 }
 
+function answerSubheadings(question: SmVisitQuestion): string[] {
+  const values = Array.isArray(question.config.answerSubheadings) ? question.config.answerSubheadings : [];
+  const configuredOptions = question.type === "yesno"
+    ? ["Ja", "Nein"]
+    : question.type === "yesnomulti"
+      ? Array.isArray(question.config.answers) ? question.config.answers : []
+      : question.type === "single" || question.type === "multiple"
+        ? Array.isArray(question.config.options) ? question.config.options : []
+        : [];
+  const configuredIndexByLabel = new Map(configuredOptions.map((value, index) => [String(value).trim(), index]));
+  return question.options.map((option, optionIndex) => {
+    const configuredIndex = configuredIndexByLabel.get(option.label.trim());
+    const value = values[configuredIndex ?? optionIndex];
+    return typeof value === "string" ? value.trim() : "";
+  });
+}
+
+function AnswerOptionCopy({ label, subheading, centered = false }: { label: string; subheading: string; centered?: boolean }) {
+  return <span className={`min-w-0 ${centered ? "flex flex-1 flex-col items-center text-center" : "flex flex-1 flex-col"}`}>
+    <span className="block max-w-full break-words">{label}</span>
+    {subheading ? <span className="mt-px block max-w-full truncate text-[7px] font-normal leading-[1.2] opacity-55">{subheading}</span> : null}
+  </span>;
+}
+
 function ChoiceInput({ question, answer, onAnswer }: { question: SmVisitQuestion; answer: SmVisitAnswer; onAnswer: (answer: SmVisitAnswer) => void }) {
   const selected = answer.kind === "choice" ? answer.optionCode : answer.kind === "yesnomulti" ? answer.optionCode : null;
+  const subheadings = answerSubheadings(question);
   if (question.type === "yesno") {
-    return <div className="flex min-w-0 gap-[7px]">{question.options.map((option, index) => { const active = selected === option.code; return <button key={option.code} type="button" aria-label={option.label} onClick={() => onAnswer({ kind: "choice", optionCode: option.code })} className={`box-border h-9 min-w-0 flex-1 rounded-[9px] border px-1.5 text-[10px] font-bold tracking-[.01em] transition ${active ? "border-[#a91b1b] bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_2px_8px_rgba(180,20,20,.18)]" : "border-transparent bg-black/[0.04] text-black/45"}`}>{compactYesNoLabel(option.label, index)}</button>; })}</div>;
+    return <div className="flex min-w-0 gap-[7px]">{question.options.map((option, index) => { const active = selected === option.code; return <button key={option.code} type="button" aria-label={option.label} onClick={() => onAnswer({ kind: "choice", optionCode: option.code })} className={`box-border flex h-9 min-w-0 flex-1 items-center rounded-[9px] border px-1.5 text-[10px] font-bold tracking-[.01em] transition ${active ? "border-[#a91b1b] bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_2px_8px_rgba(180,20,20,.18)]" : "border-transparent bg-black/[0.04] text-black/45"}`}><AnswerOptionCopy label={compactYesNoLabel(option.label, index)} subheading={subheadings[index] ?? ""} centered /></button>; })}</div>;
   }
   if (question.type === "likert") {
     const count = question.options.length;
@@ -1169,27 +1196,31 @@ function ChoiceInput({ question, answer, onAnswer }: { question: SmVisitQuestion
       const s = (t - 0.5) / 0.5;
       return [Math.round(234 - 212 * s), Math.round(179 - 16 * s), Math.round(8 + 66 * s)] as const;
     };
-    return <div><div className="flex flex-wrap gap-1">{question.options.map((option, index) => { const active = selected === option.code; const [r, g, b] = colorAt(index); const dark = `rgb(${Math.round(r * .84)},${Math.round(g * .84)},${Math.round(b * .84)})`; return <button key={option.code} type="button" onClick={() => onAnswer({ kind: "choice", optionCode: option.code })} className="box-border h-9 min-w-[32px] flex-1 rounded-[9px] border px-1 text-[11px] font-bold text-black/50 transition" style={active ? { color: "#fff", borderColor: dark, background: `linear-gradient(to bottom,rgb(${r},${g},${b}),${dark})`, boxShadow: `inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 1px 6px rgba(${r},${g},${b},.18)` } : { borderColor: "transparent", background: "rgba(0,0,0,.04)" }}>{option.label}</button>; })}</div><div className="mt-[7px] flex justify-between gap-5 px-0.5 text-[9px] font-medium leading-relaxed text-black/35"><span className="max-w-[46%]">{String(question.config.minLabel ?? "")}</span><span className="max-w-[46%] text-right">{String(question.config.maxLabel ?? "")}</span></div></div>;
+    return <div><div className="flex flex-wrap gap-1">{question.options.map((option, index) => { const active = selected === option.code; const [r, g, b] = colorAt(index); const dark = `rgb(${Math.round(r * .84)},${Math.round(g * .84)},${Math.round(b * .84)})`; return <button key={option.code} type="button" onClick={() => onAnswer({ kind: "choice", optionCode: option.code })} className="box-border flex h-9 min-w-[32px] flex-1 items-center rounded-[9px] border px-1 text-[11px] font-bold text-black/50 transition" style={active ? { color: "#fff", borderColor: dark, background: `linear-gradient(to bottom,rgb(${r},${g},${b}),${dark})`, boxShadow: `inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 1px 6px rgba(${r},${g},${b},.18)` } : { borderColor: "transparent", background: "rgba(0,0,0,.04)" }}><AnswerOptionCopy label={option.label} subheading={subheadings[index] ?? ""} centered /></button>; })}</div><div className="mt-[7px] flex justify-between gap-5 px-0.5 text-[9px] font-medium leading-relaxed text-black/35"><span className="max-w-[46%]">{String(question.config.minLabel ?? "")}</span><span className="max-w-[46%] text-right">{String(question.config.maxLabel ?? "")}</span></div></div>;
   }
-  return <div className="max-h-[42dvh] space-y-[5px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{question.options.map((option) => { const active = selected === option.code; return <button key={option.code} type="button" onClick={() => onAnswer({ kind: "choice", optionCode: option.code })} className={`box-border flex min-h-[38px] w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-[11px] font-medium leading-[1.35] transition ${active ? "border-red-200 bg-red-600/[0.05] text-red-600" : "border-transparent bg-black/[0.03] text-black/60"}`}><span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${active ? "border-red-600 bg-red-600" : "border-black/15"}`}>{active ? <Check size={8} strokeWidth={3} className="text-white" /> : null}</span><span className="break-words">{option.label}</span></button>; })}</div>;
+  return <div className="max-h-[42dvh] space-y-[5px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{question.options.map((option, index) => { const active = selected === option.code; return <button key={option.code} type="button" onClick={() => onAnswer({ kind: "choice", optionCode: option.code })} className={`box-border flex min-h-[38px] w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-[11px] font-medium leading-[1.35] transition ${active ? "border-red-200 bg-red-600/[0.05] text-red-600" : "border-transparent bg-black/[0.03] text-black/60"}`}><span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${active ? "border-red-600 bg-red-600" : "border-black/15"}`}>{active ? <Check size={8} strokeWidth={3} className="text-white" /> : null}</span><AnswerOptionCopy label={option.label} subheading={subheadings[index] ?? ""} /></button>; })}</div>;
 }
 
 function MultiInput({ question, answer, onAnswer }: { question: SmVisitQuestion; answer: SmVisitAnswer; onAnswer: (answer: SmVisitAnswer) => void }) {
   const selected = answer.kind === "multi" ? answer.optionCodes : [];
-  return <div><div className="mb-2 text-[9px] font-semibold text-black/35">{selected.length} ausgewählt</div><div className="max-h-[42dvh] space-y-[5px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{question.options.map((option) => { const active = selected.includes(option.code); return <button key={option.code} type="button" onClick={() => onAnswer({ kind: "multi", optionCodes: active ? selected.filter((code) => code !== option.code) : [...selected, option.code] })} className={`box-border flex min-h-[38px] w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-[11px] font-medium leading-[1.35] transition ${active ? "border-red-200 bg-red-600/[0.05] text-red-600" : "border-transparent bg-black/[0.03] text-black/60"}`}><span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border ${active ? "border-red-600 bg-red-600" : "border-black/15"}`}>{active ? <Check size={8} strokeWidth={3} className="text-white" /> : null}</span><span className="break-words">{option.label}</span></button>; })}</div></div>;
+  const subheadings = answerSubheadings(question);
+  return <div><div className="mb-2 text-[9px] font-semibold text-black/35">{selected.length} ausgewählt</div><div className="max-h-[42dvh] space-y-[5px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{question.options.map((option, index) => { const active = selected.includes(option.code); return <button key={option.code} type="button" onClick={() => onAnswer({ kind: "multi", optionCodes: active ? selected.filter((code) => code !== option.code) : [...selected, option.code] })} className={`box-border flex min-h-[38px] w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-[11px] font-medium leading-[1.35] transition ${active ? "border-red-200 bg-red-600/[0.05] text-red-600" : "border-transparent bg-black/[0.03] text-black/60"}`}><span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border ${active ? "border-red-600 bg-red-600" : "border-black/15"}`}>{active ? <Check size={8} strokeWidth={3} className="text-white" /> : null}</span><AnswerOptionCopy label={option.label} subheading={subheadings[index] ?? ""} /></button>; })}</div></div>;
 }
 
 function YesNoMultiInput({ question, answer, onAnswer }: { question: SmVisitQuestion; answer: SmVisitAnswer; onAnswer: (answer: SmVisitAnswer) => void }) {
   const current = answer.kind === "yesnomulti" ? answer : null;
-  const branches = Array.isArray(question.config.branches) ? question.config.branches as Array<{ answer?: unknown; options?: unknown }> : [];
+  const subheadings = answerSubheadings(question);
+  const branches = Array.isArray(question.config.branches) ? question.config.branches as Array<{ answer?: unknown; options?: unknown; answerSubheadings?: unknown }> : [];
   const selectedLabel = question.options.find((option) => option.code === current?.optionCode)?.label;
   const branch = branches.find((entry) => typeof entry.answer === "string" && entry.answer.trim() === selectedLabel?.trim());
-  const subOptions = Array.isArray(branch?.options) ? branch.options.filter((entry): entry is string => typeof entry === "string" && Boolean(entry.trim())).map((entry) => entry.trim()) : [];
+  const branchSubheadings = Array.isArray(branch?.answerSubheadings) ? branch.answerSubheadings : [];
+  const subOptionItems = Array.isArray(branch?.options) ? branch.options.flatMap((entry, index) => typeof entry === "string" && entry.trim() ? [{ label: entry.trim(), subheading: typeof branchSubheadings[index] === "string" ? branchSubheadings[index].trim() : "" }] : []) : [];
+  const subOptions = subOptionItems.map((item) => item.label);
   return <div className="min-w-0 space-y-2">
     <div className="flex min-w-0 gap-[7px]">
       {question.options.map((option, index) => {
         const active = current?.optionCode === option.code;
-        return <button key={option.code} type="button" aria-label={option.label} onClick={() => onAnswer({ kind: "yesnomulti", optionCode: option.code, subOptions: [] })} className={`box-border h-9 min-w-0 flex-1 rounded-[9px] border px-1.5 text-[10px] font-bold transition ${active ? "border-[#a91b1b] bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_2px_8px_rgba(180,20,20,.18)]" : "border-transparent bg-black/[0.04] text-black/45"}`}>{compactYesNoLabel(option.label, index)}</button>;
+        return <button key={option.code} type="button" aria-label={option.label} onClick={() => onAnswer({ kind: "yesnomulti", optionCode: option.code, subOptions: [] })} className={`box-border flex h-9 min-w-0 flex-1 items-center rounded-[9px] border px-1.5 text-[10px] font-bold transition ${active ? "border-[#a91b1b] bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_2px_8px_rgba(180,20,20,.18)]" : "border-transparent bg-black/[0.04] text-black/45"}`}><AnswerOptionCopy label={compactYesNoLabel(option.label, index)} subheading={subheadings[index] ?? ""} centered /></button>;
       })}
     </div>
     {subOptions.length ? <div className="overflow-hidden rounded-[10px] border border-black/[0.06] bg-black/[0.02]">
@@ -1198,9 +1229,9 @@ function YesNoMultiInput({ question, answer, onAnswer }: { question: SmVisitQues
         {current?.subOptions.length ? <span className="rounded-full bg-red-600/[0.08] px-2 py-0.5 text-[9px] font-bold text-red-600">{current.subOptions.length} gewählt</span> : null}
       </div>
       <div className="max-h-[220px] space-y-[3px] overflow-y-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {subOptions.map((option) => {
-          const active = current?.subOptions.includes(option) ?? false;
-          return <button key={option} type="button" onClick={() => current && onAnswer({ ...current, subOptions: active ? current.subOptions.filter((value) => value !== option) : [...current.subOptions, option] })} className={`box-border flex min-h-9 w-full items-center gap-2.5 rounded-[7px] border px-2.5 py-2 text-left text-[11px] font-medium leading-[1.35] ${active ? "border-red-200 bg-red-600/[0.05] text-red-600" : "border-transparent bg-black/[0.025] text-black/60"}`}><span className={`flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] border ${active ? "border-red-600 bg-red-600" : "border-black/[0.13]"}`}>{active ? <Check size={7} strokeWidth={3} className="text-white" /> : null}</span><span className="break-words">{option}</span></button>;
+        {subOptionItems.map((option) => {
+          const active = current?.subOptions.includes(option.label) ?? false;
+          return <button key={option.label} type="button" onClick={() => current && onAnswer({ ...current, subOptions: active ? current.subOptions.filter((value) => value !== option.label) : [...current.subOptions, option.label] })} className={`box-border flex min-h-9 w-full items-center gap-2.5 rounded-[7px] border px-2.5 py-2 text-left text-[11px] font-medium leading-[1.35] ${active ? "border-red-200 bg-red-600/[0.05] text-red-600" : "border-transparent bg-black/[0.025] text-black/60"}`}><span className={`flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] border ${active ? "border-red-600 bg-red-600" : "border-black/[0.13]"}`}>{active ? <Check size={7} strokeWidth={3} className="text-white" /> : null}</span><AnswerOptionCopy label={option.label} subheading={option.subheading} /></button>;
         })}
       </div>
     </div> : null}
@@ -1231,24 +1262,23 @@ function SliderInput({ question, answer, onAnswer }: { question: SmVisitQuestion
 }
 
 function MatrixInput({ question, answer, onAnswer }: { question: SmVisitQuestion; answer: SmVisitAnswer; onAnswer: (answer: SmVisitAnswer) => void }) {
-  const rows = (Array.isArray(question.config.rows) ? question.config.rows : []).filter((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
-  const columns = (Array.isArray(question.config.columns) ? question.config.columns : []).filter((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
+  const rows = (Array.isArray(question.config.rows) ? question.config.rows : []).flatMap((entry, index) => typeof entry === "string" && entry.trim() ? [{ code: `row_${index + 1}`, label: entry.trim() }] : []);
+  const configuredColumnSubheadings = Array.isArray(question.config.answerSubheadings) ? question.config.answerSubheadings : [];
+  const columns = (Array.isArray(question.config.columns) ? question.config.columns : []).flatMap((entry, index) => typeof entry === "string" && entry.trim() ? [{ code: `column_${index + 1}`, label: entry.trim(), subheading: typeof configuredColumnSubheadings[index] === "string" ? configuredColumnSubheadings[index].trim() : "" }] : []);
   const cells = answer.kind === "matrix" ? answer.cells : [];
   return <div>
     <p className="mb-2 text-[9px] text-black/35">{new Set(cells.filter((cell) => cell.selected).map((cell) => cell.rowCode)).size} von {rows.length} Zeilen beantwortet</p>
     <div className="-mx-4 max-h-[42dvh] overflow-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <table className="border-separate border-spacing-[3px]" style={{ minWidth: `${Math.max(300, columns.length * 52 + 120)}px` }}>
-        <thead><tr><th className="w-[110px] px-1.5 py-1" />{columns.map((column) => <th key={column} title={column} className="max-w-12 truncate px-1 py-1 text-center text-[9px] font-semibold text-black/45">{column}</th>)}</tr></thead>
-        <tbody>{rows.map((row, rowIndex) => {
-          const rowCode = `row_${rowIndex + 1}`;
-          const selected = cells.find((cell) => cell.rowCode === rowCode && cell.selected)?.columnCode;
-          return <tr key={rowCode}>
-            <td title={row} className="max-w-[110px] truncate px-1.5 py-1 text-[10px] font-medium text-black/65">{row}</td>
-            {columns.map((column, columnIndex) => {
-              const columnCode = `column_${columnIndex + 1}`;
-              const active = selected === columnCode;
-              return <td key={columnCode} className="px-[3px] py-0.5 text-center">
-                <button type="button" aria-label={`${row}: ${column}`} onClick={() => onAnswer({ kind: "matrix", cells: [...cells.filter((cell) => cell.rowCode !== rowCode), { rowCode, columnCode, selected: true }] })} className={`box-border h-8 w-full rounded-[7px] border text-[10px] font-semibold transition ${active ? "border-red-200 bg-red-600/[0.07] text-red-600" : "border-black/[0.06] bg-black/[0.03] text-black/35"}`}>{active ? "✓" : "○"}</button>
+        <thead><tr><th className="w-[110px] px-1.5 py-1" />{columns.map((column) => <th key={column.code} title={column.label} className="max-w-12 px-1 py-1 text-center"><span className="block truncate text-[9px] font-semibold text-black/45">{column.label}</span>{column.subheading ? <span className="mt-px block truncate text-[7px] font-normal leading-[1.2] text-black/25">{column.subheading}</span> : null}</th>)}</tr></thead>
+        <tbody>{rows.map((row) => {
+          const selected = cells.find((cell) => cell.rowCode === row.code && cell.selected)?.columnCode;
+          return <tr key={row.code}>
+            <td title={row.label} className="max-w-[110px] truncate px-1.5 py-1 text-[10px] font-medium text-black/65">{row.label}</td>
+            {columns.map((column) => {
+              const active = selected === column.code;
+              return <td key={column.code} className="px-[3px] py-0.5 text-center">
+                <button type="button" aria-label={`${row.label}: ${column.label}`} onClick={() => onAnswer({ kind: "matrix", cells: [...cells.filter((cell) => cell.rowCode !== row.code), { rowCode: row.code, columnCode: column.code, selected: true }] })} className={`box-border h-8 w-full rounded-[7px] border text-[10px] font-semibold transition ${active ? "border-red-200 bg-red-600/[0.07] text-red-600" : "border-black/[0.06] bg-black/[0.03] text-black/35"}`}>{active ? "✓" : "○"}</button>
               </td>;
             })}
           </tr>;

@@ -54,6 +54,8 @@ const QUESTION_TYPES: Array<{
   { key: "matrix", label: "Matrix", icon: Grid3x3 },
 ];
 
+const SM_SUBHEADING_MAX_LENGTH = 500;
+
 let questionId = 0;
 
 function nextId(): string {
@@ -625,8 +627,8 @@ const SM_OOS_CATEGORY_OPTIONS: Array<{ value: SmOosCategory; label: string }> = 
 
 const SM_OOS_DETECTION_OUTCOMES: Array<{ value: SmOosAnswerOutcome | ""; label: string }> = [
   { value: "", label: "Nicht zugeordnet" },
-  { value: "oos_present", label: "OOS vorhanden" },
-  { value: "oos_absent", label: "Kein OOS vorhanden" },
+  { value: "oos_present", label: "OOS aufgefunden" },
+  { value: "oos_absent", label: "Kein OOS aufgefunden" },
   { value: "not_applicable", label: "Nicht anwendbar" },
 ];
 
@@ -648,7 +650,7 @@ function SmOosQuestionEditor({
   onUpdate: (question: SmQuestion) => void;
 }) {
   const options = smQuestionOptions(question) ?? [];
-  const supportsOos = question.type === "yesno" || question.type === "yesnomulti" || question.type === "single";
+  const supportsOos = question.type === "yesno" || question.type === "yesnomulti" || question.type === "single" || question.type === "multiple";
   const config = question.oos ?? {};
   const enabled = config.enabled === true;
   const role = config.role;
@@ -760,7 +762,10 @@ function SmOosQuestionEditor({
 
           {role ? (
             <div style={{ marginTop: 12 }}>
-              <span style={{ display: "block", marginBottom: 5, color: "rgba(0,0,0,.35)", fontSize: 9, fontWeight: 650, letterSpacing: ".04em", textTransform: "uppercase" }}>Antwortzuordnung</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 5 }}>
+                <span style={{ color: "rgba(0,0,0,.35)", fontSize: 9, fontWeight: 650, letterSpacing: ".04em", textTransform: "uppercase" }}>Antwortzuordnung</span>
+                <span style={{ color: "rgba(0,0,0,.3)", fontSize: 9, fontWeight: 500 }}>Mehrfachzuordnung erlaubt</span>
+              </div>
               {options.map((answer) => (
                 <div key={answer} style={{ minHeight: 38, display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid rgba(0,0,0,.035)" }}>
                   <span title={answer} style={{ width: 240, flexShrink: 0, overflow: "hidden", color: "#4b5563", fontSize: 10, fontWeight: 500, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{answer}</span>
@@ -771,6 +776,9 @@ function SmOosQuestionEditor({
                   />
                 </div>
               ))}
+              <p style={{ margin: "7px 0 0", color: "rgba(0,0,0,.32)", fontSize: 9, lineHeight: 1.5 }}>
+                Mehrere Optionen dürfen dasselbe OOS-Ergebnis auslösen. In der Auswertung zählt das Ergebnis pro Frage nur einmal.
+              </p>
             </div>
           ) : null}
 
@@ -788,13 +796,16 @@ function SmOosQuestionEditor({
 
 function ChoiceConfig({
   options,
+  answerSubheadings,
   label = "Optionen",
   onChange,
 }: {
   options: string[];
+  answerSubheadings?: string[];
   label?: string;
-  onChange: (options: string[]) => void;
+  onChange: (options: string[], answerSubheadings: string[]) => void;
 }) {
+  const subheadings = Array.from({ length: options.length }, (_, index) => answerSubheadings?.[index] ?? "");
   return (
     <div style={{ marginTop: 10 }}>
       <span
@@ -812,34 +823,45 @@ function ChoiceConfig({
         {options.map((option, index) => (
           <div
             key={index}
-            style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}
+            style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}
           >
-            <input
-              type="text"
-              value={option}
-              onChange={(event) => {
-                const next = [...options];
-                next[index] = event.target.value;
-                onChange(next);
-              }}
-              placeholder={`Option ${index + 1}`}
-              style={{
-                flex: 1,
-                fontFamily: "inherit",
-                fontSize: 11,
-                padding: "4px 0",
-                border: "none",
-                borderBottom: "1px solid rgba(0,0,0,0.08)",
-                outline: "none",
-                color: "#374151",
-                backgroundColor: "transparent",
-              }}
-            />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <input
+                type="text"
+                value={option}
+                onChange={(event) => {
+                  const next = [...options];
+                  next[index] = event.target.value;
+                  onChange(next, subheadings);
+                }}
+                placeholder={`Option ${index + 1}`}
+                style={{
+                  width: "100%",
+                  fontFamily: "inherit",
+                  fontSize: 11,
+                  padding: "4px 0",
+                  border: "none",
+                  borderBottom: "1px solid rgba(0,0,0,0.08)",
+                  outline: "none",
+                  color: "#374151",
+                  backgroundColor: "transparent",
+                }}
+              />
+              <input
+                type="text"
+                value={subheadings[index]}
+                maxLength={SM_SUBHEADING_MAX_LENGTH}
+                aria-label={`Unterzeile für Option ${index + 1}`}
+                onChange={(event) => onChange(options, subheadings.map((value, subheadingIndex) => subheadingIndex === index ? event.target.value : value))}
+                placeholder="Kleine Unterzeile (optional)"
+                style={{ width: "100%", padding: "3px 0 1px", border: "none", outline: "none", color: "rgba(0,0,0,.38)", backgroundColor: "transparent", fontFamily: "inherit", fontSize: 9, fontWeight: 400 }}
+              />
+            </div>
             {options.length > 1 ? (
               <button
                 type="button"
                 aria-label={`Option ${index + 1} entfernen`}
-                onClick={() => onChange(options.filter((_, optionIndex) => optionIndex !== index))}
+                onClick={() => onChange(options.filter((_, optionIndex) => optionIndex !== index), subheadings.filter((_, subheadingIndex) => subheadingIndex !== index))}
                 style={{
                   background: "none",
                   border: "none",
@@ -858,7 +880,7 @@ function ChoiceConfig({
         ))}
         <button
           type="button"
-          onClick={() => onChange([...options, ""])}
+          onClick={() => onChange([...options, ""], [...subheadings, ""])}
           style={{
             marginTop: 4,
             display: "flex",
@@ -882,10 +904,11 @@ function ChoiceConfig({
   );
 }
 
-type YesNoMultiBranch = { answer: string; options: string[] };
+type YesNoMultiBranch = { answer: string; options: string[]; answerSubheadings?: string[] };
 
 function YesNoMultiConfig({ config, onChange }: ConfigProps) {
   const answers = Array.isArray(config.answers) ? config.answers.map(String) : ["Ja", "Nein"];
+  const answerSubheadings = Array.from({ length: answers.length }, (_, index) => Array.isArray(config.answerSubheadings) && typeof config.answerSubheadings[index] === "string" ? config.answerSubheadings[index] : "");
   const branches = Array.isArray(config.branches)
     ? config.branches.filter((entry): entry is YesNoMultiBranch => Boolean(entry) && typeof entry === "object" && typeof (entry as YesNoMultiBranch).answer === "string" && Array.isArray((entry as YesNoMultiBranch).options))
     : [];
@@ -899,7 +922,7 @@ function YesNoMultiConfig({ config, onChange }: ConfigProps) {
     const previous = answers[index] ?? "";
     const nextAnswers = answers.map((answer, answerIndex) => answerIndex === index ? value : answer);
     const nextBranches = branches.map((branch) => branch.answer === previous ? { ...branch, answer: value } : branch);
-    onChange({ ...config, answers: nextAnswers, branches: nextBranches });
+    onChange({ ...config, answers: nextAnswers, answerSubheadings, branches: nextBranches });
   };
 
   const toggleBranch = (answer: string) => {
@@ -920,7 +943,7 @@ function YesNoMultiConfig({ config, onChange }: ConfigProps) {
           const active = Boolean(answer.trim()) && branchAnswers.has(answer);
           const branchNumber = orderedBranches.findIndex((entry) => entry.answer === answer) + 1;
           return (
-            <div key={index} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+            <div key={index} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
               <button
                 type="button"
                 aria-pressed={active}
@@ -932,19 +955,30 @@ function YesNoMultiConfig({ config, onChange }: ConfigProps) {
               >
                 {active ? <span style={{ fontSize: 8, fontWeight: 800 }}>{branchNumber}</span> : <Plus size={10} />}
               </button>
-              <input type="text" value={answer} onChange={(event) => setAnswer(index, event.target.value)} placeholder={`Antwort ${index + 1}`} style={{ ...fieldInputStyle, flex: 1, marginTop: 0 }} />
-              {answers.length > 2 ? <button type="button" aria-label={`Antwort ${index + 1} entfernen`} onClick={() => onChange({ ...config, answers: answers.filter((_, answerIndex) => answerIndex !== index), branches: branches.filter((branch) => branch.answer !== answer) })} style={{ border: "none", background: "none", color: "rgba(0,0,0,.25)", cursor: "pointer", padding: 2 }}><X size={11} /></button> : null}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <input type="text" value={answer} onChange={(event) => setAnswer(index, event.target.value)} placeholder={`Antwort ${index + 1}`} style={{ ...fieldInputStyle, marginTop: 0 }} />
+                <input
+                  type="text"
+                  value={answerSubheadings[index]}
+                  maxLength={SM_SUBHEADING_MAX_LENGTH}
+                  aria-label={`Unterzeile für Antwort ${index + 1}`}
+                  onChange={(event) => onChange({ ...config, answers, answerSubheadings: answerSubheadings.map((value, subheadingIndex) => subheadingIndex === index ? event.target.value : value), branches })}
+                  placeholder="Kleine Unterzeile (optional)"
+                  style={{ width: "100%", padding: "3px 0 1px", border: "none", outline: "none", color: "rgba(0,0,0,.38)", backgroundColor: "transparent", fontFamily: "inherit", fontSize: 9, fontWeight: 400 }}
+                />
+              </div>
+              {answers.length > 2 ? <button type="button" aria-label={`Antwort ${index + 1} entfernen`} onClick={() => onChange({ ...config, answers: answers.filter((_, answerIndex) => answerIndex !== index), answerSubheadings: answerSubheadings.filter((_, subheadingIndex) => subheadingIndex !== index), branches: branches.filter((branch) => branch.answer !== answer) })} style={{ border: "none", background: "none", color: "rgba(0,0,0,.25)", cursor: "pointer", padding: 2 }}><X size={11} /></button> : null}
             </div>
           );
         })}
-        <button type="button" onClick={() => onChange({ ...config, answers: [...answers, ""], branches })} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: "#0d9488", cursor: "pointer", padding: 0, fontFamily: "inherit", fontSize: 10, fontWeight: 600 }}><Plus size={10} />Antwort hinzufügen</button>
+        <button type="button" onClick={() => onChange({ ...config, answers: [...answers, ""], answerSubheadings: [...answerSubheadings, ""], branches })} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: "#0d9488", cursor: "pointer", padding: 0, fontFamily: "inherit", fontSize: 10, fontWeight: 600 }}><Plus size={10} />Antwort hinzufügen</button>
         <p style={{ margin: "8px 0 0", fontSize: 9, lineHeight: 1.5, color: "rgba(0,0,0,.32)" }}>Mit <strong>+</strong> öffnet diese Antwort auf dem Telefon eine zusätzliche Mehrfachauswahl.</p>
       </div>
 
       {orderedBranches.map(({ answer, branch }, index) => (
         <div key={`${answer}-${index}`} style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,.06)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ display: "inline-flex", width: 18, height: 18, alignItems: "center", justifyContent: "center", borderRadius: 5, background: "#0d9488", color: "#fff", fontSize: 8, fontWeight: 800 }}>{index + 1}</span><span style={fieldLabelStyle}>Optionen wenn „{answer}“</span></div>
-          <ChoiceConfig label="Unteroptionen" options={branch.options} onChange={(options) => onChange({ ...config, branches: branches.map((entry) => entry.answer === answer ? { ...entry, options } : entry) })} />
+          <ChoiceConfig label="Unteroptionen" options={branch.options} answerSubheadings={branch.answerSubheadings} onChange={(options, subheadings) => onChange({ ...config, branches: branches.map((entry) => entry.answer === answer ? { ...entry, options, answerSubheadings: subheadings } : entry) })} />
         </div>
       ))}
     </div>
@@ -972,6 +1006,30 @@ const fieldInputStyle: CSSProperties = {
   fontFamily: "inherit",
   fontSize: 11,
 };
+
+function FixedAnswerSubheadings({ labels, config, onChange }: { labels: string[]; config: Record<string, unknown>; onChange: (config: Record<string, unknown>) => void }) {
+  const subheadings = Array.from({ length: labels.length }, (_, index) => Array.isArray(config.answerSubheadings) && typeof config.answerSubheadings[index] === "string" ? config.answerSubheadings[index] : "");
+  return (
+    <div style={{ marginTop: 10 }}>
+      <span style={fieldLabelStyle}>Antwort-Unterzeilen (optional)</span>
+      <div style={{ marginTop: 5, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 7 }}>
+        {labels.map((label, index) => (
+          <label key={`${label}-${index}`} style={{ minWidth: 0, padding: "6px 8px", borderRadius: 7, backgroundColor: "rgba(0,0,0,.018)" }}>
+            <span style={{ display: "block", overflow: "hidden", color: "rgba(0,0,0,.46)", fontSize: 9, fontWeight: 600, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+            <input
+              type="text"
+              value={subheadings[index]}
+              maxLength={SM_SUBHEADING_MAX_LENGTH}
+              onChange={(event) => onChange({ ...config, answerSubheadings: subheadings.map((value, subheadingIndex) => subheadingIndex === index ? event.target.value : value) })}
+              placeholder="Kleine Unterzeile"
+              style={{ width: "100%", padding: "3px 0 0", border: "none", outline: "none", color: "rgba(0,0,0,.38)", backgroundColor: "transparent", fontFamily: "inherit", fontSize: 9, fontWeight: 400 }}
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function LikertConfig({ config, onChange }: ConfigProps) {
   return (
@@ -1045,23 +1103,48 @@ function SliderConfig({ config, onChange }: ConfigProps) {
   );
 }
 
-function MatrixList({ label, values, onChange }: { label: string; values: string[]; onChange: (values: string[]) => void }) {
+function MatrixList({
+  label,
+  values,
+  answerSubheadings,
+  onChange,
+}: {
+  label: string;
+  values: string[];
+  answerSubheadings?: string[];
+  onChange: (values: string[], answerSubheadings: string[]) => void;
+}) {
+  const subheadings = Array.from({ length: values.length }, (_, index) => answerSubheadings?.[index] ?? "");
+  const showsAnswerSubheadings = answerSubheadings !== undefined;
   return (
     <div style={{ flex: 1 }}>
       <span style={fieldLabelStyle}>{label}</span>
       <div style={{ marginTop: 6 }}>
         {values.map((value, index) => (
           <div key={index} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-            <input
-              value={value}
-              onChange={(event) => onChange(values.map((item, itemIndex) => itemIndex === index ? event.target.value : item))}
-              placeholder={`${label.slice(0, -1)} ${index + 1}`}
-              style={{ ...fieldInputStyle, flex: 1, marginTop: 0 }}
-            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <input
+                value={value}
+                onChange={(event) => onChange(values.map((item, itemIndex) => itemIndex === index ? event.target.value : item), subheadings)}
+                placeholder={`${label.slice(0, -1)} ${index + 1}`}
+                style={{ ...fieldInputStyle, width: "100%", marginTop: 0 }}
+              />
+              {showsAnswerSubheadings ? (
+                <input
+                  type="text"
+                  value={subheadings[index]}
+                  maxLength={SM_SUBHEADING_MAX_LENGTH}
+                  aria-label={`Unterzeile für ${label.slice(0, -1)} ${index + 1}`}
+                  onChange={(event) => onChange(values, subheadings.map((item, itemIndex) => itemIndex === index ? event.target.value : item))}
+                  placeholder="Kleine Unterzeile (optional)"
+                  style={{ width: "100%", padding: "3px 0 1px", border: "none", outline: "none", color: "rgba(0,0,0,.38)", backgroundColor: "transparent", fontFamily: "inherit", fontSize: 9, fontWeight: 400 }}
+                />
+              ) : null}
+            </div>
             {values.length > 1 ? (
               <button
                 type="button"
-                onClick={() => onChange(values.filter((_, itemIndex) => itemIndex !== index))}
+                onClick={() => onChange(values.filter((_, itemIndex) => itemIndex !== index), subheadings.filter((_, itemIndex) => itemIndex !== index))}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "rgba(0,0,0,0.25)", transition: "color .15s ease" }}
                 onMouseEnter={(event) => { event.currentTarget.style.color = "#DC2626"; }}
                 onMouseLeave={(event) => { event.currentTarget.style.color = "rgba(0,0,0,0.25)"; }}
@@ -1071,7 +1154,7 @@ function MatrixList({ label, values, onChange }: { label: string; values: string
             ) : null}
           </div>
         ))}
-        <button type="button" onClick={() => onChange([...values, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, padding: 0, border: "none", background: "none", color: "var(--module-accent, #DC2626)", fontFamily: "inherit", fontSize: 10, fontWeight: 500, cursor: "pointer" }}>
+        <button type="button" onClick={() => onChange([...values, ""], [...subheadings, ""])} style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, padding: 0, border: "none", background: "none", color: "var(--module-accent, #DC2626)", fontFamily: "inherit", fontSize: 10, fontWeight: 500, cursor: "pointer" }}>
           <Plus size={10} strokeWidth={2} />
           Hinzufügen
         </button>
@@ -1084,7 +1167,12 @@ function MatrixConfig({ config, onChange }: ConfigProps) {
   return (
     <div style={{ marginTop: 10, display: "flex", gap: 20 }}>
       <MatrixList label="Zeilen" values={(config.rows as string[]) ?? [""]} onChange={(rows) => onChange({ ...config, rows })} />
-      <MatrixList label="Spalten" values={(config.columns as string[]) ?? ["", ""]} onChange={(columns) => onChange({ ...config, columns })} />
+      <MatrixList
+        label="Spalten"
+        values={(config.columns as string[]) ?? ["", ""]}
+        answerSubheadings={Array.isArray(config.answerSubheadings) ? config.answerSubheadings.map(String) : []}
+        onChange={(columns, answerSubheadings) => onChange({ ...config, columns, answerSubheadings })}
+      />
     </div>
   );
 }
@@ -1105,22 +1193,46 @@ function PhotoConfig({ config, onChange }: ConfigProps) {
 
 function TypeConfig({ question, onUpdate }: { question: SmQuestion; onUpdate: (question: SmQuestion) => void }) {
   const setConfig = (config: Record<string, unknown>) => {
+    const previousOptions = question.type === "single" || question.type === "multiple"
+      ? ((question.config.options as string[]) ?? [])
+      : question.type === "yesnomulti"
+        ? ((question.config.answers as string[]) ?? [])
+        : question.options;
     const options = question.type === "single" || question.type === "multiple"
       ? ((config.options as string[]) ?? [])
       : question.type === "yesnomulti"
         ? ((config.answers as string[]) ?? [])
         : question.options;
-    onUpdate({ ...question, config, options });
+    const currentOutcomes = question.oos?.answerOutcomes;
+    let oos = question.oos;
+    if (oos?.enabled && currentOutcomes) {
+      const nextOutcomes: Record<string, SmOosAnswerOutcome> = {};
+      for (const option of options) {
+        if (option && currentOutcomes[option]) nextOutcomes[option] = currentOutcomes[option];
+      }
+      if (previousOptions.length === options.length) {
+        options.forEach((option, index) => {
+          const previousOption = previousOptions[index];
+          if (option && previousOption && currentOutcomes[previousOption] && !nextOutcomes[option]) {
+            nextOutcomes[option] = currentOutcomes[previousOption];
+          }
+        });
+      }
+      oos = { ...oos, answerOutcomes: nextOutcomes };
+    }
+    onUpdate({ ...question, config, options, oos });
   };
 
   switch (question.type) {
     case "single":
     case "multiple":
-      return <ChoiceConfig options={(question.config.options as string[]) ?? [""]} onChange={(options) => setConfig({ ...question.config, options })} />;
+      return <ChoiceConfig options={(question.config.options as string[]) ?? [""]} answerSubheadings={Array.isArray(question.config.answerSubheadings) ? question.config.answerSubheadings.map(String) : undefined} onChange={(options, answerSubheadings) => setConfig({ ...question.config, options, answerSubheadings })} />;
+    case "yesno":
+      return <FixedAnswerSubheadings labels={["Ja", "Nein"]} config={question.config} onChange={setConfig} />;
     case "yesnomulti":
       return <YesNoMultiConfig config={question.config} onChange={setConfig} />;
     case "likert":
-      return <LikertConfig config={question.config} onChange={setConfig} />;
+      return <><LikertConfig config={question.config} onChange={setConfig} /><FixedAnswerSubheadings labels={smQuestionOptions(question) ?? []} config={question.config} onChange={setConfig} /></>;
     case "numeric":
       return <NumericConfig config={question.config} onChange={setConfig} />;
     case "slider":
@@ -1352,6 +1464,15 @@ function QuestionCard({
               placeholder="Frage eingeben..."
               onClick={(event) => event.stopPropagation()}
               style={{ width: "100%", padding: "6px 0", border: "none", borderBottom: "1px solid rgba(0,0,0,0.08)", outline: "none", backgroundColor: "transparent", color: "#1a1a1a", fontFamily: "inherit", fontSize: 12, fontWeight: 500 }}
+            />
+            <input
+              type="text"
+              value={typeof question.config.subheading === "string" ? question.config.subheading : ""}
+              maxLength={SM_SUBHEADING_MAX_LENGTH}
+              aria-label="Unterzeile zur Frage"
+              onChange={(event) => onUpdate({ ...question, config: { ...question.config, subheading: event.target.value } })}
+              placeholder="Kleine Unterzeile zur Frage (optional)"
+              style={{ width: "100%", padding: "4px 0 2px", border: "none", outline: "none", backgroundColor: "transparent", color: "rgba(0,0,0,.38)", fontFamily: "inherit", fontSize: 9, fontWeight: 400 }}
             />
             <ImageAttachment value={(question.config.images as string[]) ?? []} onChange={(images) => onUpdate({ ...question, config: { ...question.config, images } })} />
             <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>

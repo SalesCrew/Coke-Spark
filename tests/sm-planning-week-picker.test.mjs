@@ -18,7 +18,7 @@ async function load(path, mocks = {}) {
 const dates = await load("../src/lib/sm/calendarWeeks.ts");
 const { SmWeekCalendar, SmPlanningWeekPicker } = await load("../src/components/admin/sm/SmPlanningWeekPicker.tsx", { "@/lib/sm/calendarWeeks": dates });
 const plain = (value) => JSON.parse(JSON.stringify(value));
-const props = { month: "2026-09-01", value: "2026-08-31", today: "2026-08-31", onChoose() {}, onMonthChange() {} };
+const props = { month: "2026-09-01", start: "2026-08-31", end: "2026-08-31", pendingStart: null, today: "2026-08-31", error: null, onChoose() {}, onChooseCurrent() {}, onMonthChange() {} };
 
 test("every day selects the containing ISO week, never a rolling seven-day range", () => {
   for (const day of ["2026-08-31", "2026-09-01", "2026-09-04", "2026-09-06"]) {
@@ -56,14 +56,20 @@ test("planner offsets remain integral across Austrian DST changes, in either dir
   }
 });
 
-test("calendar renders one pressed week row, a KW column, and no individually selectable days", () => {
-  const html = renderToStaticMarkup(createElement(SmWeekCalendar, props));
+test("KW ranges normalize reverse selection and count inclusive weeks", () => {
+  assert.deepEqual(plain(dates.calendarWeekRange("2026-09-21", "2026-08-31")), { start: "2026-08-31", end: "2026-09-21", weekCount: 4 });
+  assert.deepEqual(plain(dates.calendarWeekRange("2026-08-31", "2026-08-31")), { start: "2026-08-31", end: "2026-08-31", weekCount: 1 });
+});
+
+test("calendar renders a KW range with full endpoints and a subdued middle", () => {
+  const rangeProps = { ...props, end: "2026-09-14" };
+  const html = renderToStaticMarkup(createElement(SmWeekCalendar, rangeProps));
   assert.match(html, />KW<\/span>/);
   assert.match(html, /September 2026/);
   assert.equal((html.match(/data-week-start=/g) ?? []).length, 5);
-  assert.equal((html.match(/aria-pressed="true"/g) ?? []).length, 1);
+  assert.equal((html.match(/aria-pressed="true"/g) ?? []).length, 3);
   assert.equal((html.match(/<button/g) ?? []).length, 8); // 5 weeks, 2 month arrows, current KW.
-  assert.match(html, /aria-label="KW 36 · 31.08.2026 – 06.09.2026"/);
+  assert.match(html, /is-range-start/); assert.match(html, /is-in-range/); assert.match(html, /is-range-end/);
   assert.match(html, /is-outside/);
 });
 
@@ -73,15 +79,15 @@ function elements(node) {
   return [node, ...elements(node.props?.children)];
 }
 
-test("clicking anywhere in a week row selects its Monday; browsing months does not select", () => {
-  const chosen = [], months = [];
-  const nodes = elements(SmWeekCalendar({ ...props, onChoose: (value) => chosen.push(value), onMonthChange: (value) => months.push(value) }));
+test("clicking anywhere in a week row selects its Monday; browsing months and current-week shortcut remain distinct", () => {
+  const chosen = [], months = [], current = [];
+  const nodes = elements(SmWeekCalendar({ ...props, onChoose: (value) => chosen.push(value), onChooseCurrent: () => current.push(true), onMonthChange: (value) => months.push(value) }));
   nodes.find((node) => node.props?.["aria-label"] === "Nächster Monat").props.onClick();
   assert.deepEqual(months, [1]); assert.deepEqual(chosen, []);
   nodes.find((node) => node.props?.["data-week-start"] === "2026-09-07").props.onClick();
   assert.deepEqual(chosen, ["2026-09-07"]);
   nodes.find((node) => node.type === "button" && node.props.children === "Aktuelle KW").props.onClick();
-  assert.deepEqual(chosen, ["2026-09-07", "2026-08-31"]);
+  assert.deepEqual(chosen, ["2026-09-07"]); assert.deepEqual(current, [true]);
 });
 
 test("keyboard week navigation previews focus without selecting or fetching another week", () => {
@@ -98,16 +104,18 @@ test("keyboard week navigation previews focus without selecting or fetching anot
   assert.deepEqual(focused, [2, 0, 0, 4]); assert.deepEqual(chosen, []);
 });
 
-test("trigger announces KW and popover state; hover is cosmetic and planner integration uses week offset", async () => {
-  const html = renderToStaticMarkup(createElement(SmPlanningWeekPicker, { value: "2026-08-31", onChange() {} }));
+test("trigger announces a KW range and planner integration stores both endpoints", async () => {
+  const html = renderToStaticMarkup(createElement(SmPlanningWeekPicker, { start: "2026-08-31", end: "2026-09-14", onChange() {} }));
   assert.match(html, /aria-haspopup="dialog"/); assert.match(html, /aria-expanded="false"/);
-  assert.match(html, /KW 36 · 31.08. – 06.09./);
+  assert.match(html, /KW 36–38/);
   assert.match(html, /sm-plan-week-row:hover/);
   const source = await readFile(new URL("../src/components/admin/sm/SmPlanningWeekPicker.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /onMouseEnter|onPointerEnter|onMouseMove/);
+  assert.match(source, /if \(!pendingStart\)/); assert.match(source, /onChange\(range\.start, range\.end\)/);
+  assert.match(source, /MAX_RANGE_WEEKS = 13/); assert.match(source, /is-in-range/);
   assert.match(source, /rect.bottom \+ 6/); assert.match(source, /createPortal/);
   assert.match(source, /event.key !== "Escape"/); assert.match(source, /handleOutside/);
   const planner = await readFile(new URL("../src/components/admin/sm/SmVerplanungWorkspace.tsx", import.meta.url), "utf8");
-  assert.match(planner, /<SmPlanningWeekPicker value=\{weekStartKey\}/);
-  assert.match(planner, /setWeekOffset\(calendarWeekOffset\(toDateInputValue\(baseStart\), monday\)\)/);
+  assert.match(planner, /<SmPlanningWeekPicker start=\{selectedWeekStartKey\} end=\{selectedWeekEndKey\}/);
+  assert.match(planner, /setSelectedWeekStartKey\(start\)/); assert.match(planner, /setSelectedWeekEndKey\(end\)/);
 });

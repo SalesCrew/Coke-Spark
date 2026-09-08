@@ -12,6 +12,7 @@ export type AdminDropdownOption = {
   value: string;
   label: string;
   description?: string;
+  recommended?: boolean;
 };
 
 function parseDate(dateIso: string): Date {
@@ -180,12 +181,12 @@ export function AdminDropdown({
               type="button"
               role="option"
               aria-selected={selected}
-              className={`sm-plan-dropdown-option${selected ? " is-selected" : ""}${highlighted ? " is-highlighted" : ""}`}
+              className={`sm-plan-dropdown-option${selected ? " is-selected" : ""}${highlighted ? " is-highlighted" : ""}${option.recommended ? " is-recommended" : ""}`}
               onMouseEnter={() => setHighlightedIndex(index)}
               onClick={() => choose(option.value)}
             >
               <span style={{ minWidth: 0 }}>
-                <span className="sm-plan-dropdown-option-label">{option.label}</span>
+                <span className="sm-plan-dropdown-option-label">{option.label}{option.recommended ? <span className="sm-plan-dropdown-recommended">Synchronisiert</span> : null}</span>
                 {option.description ? <span className="sm-plan-dropdown-option-description">{option.description}</span> : null}
               </span>
               {selected ? <Check size={11} strokeWidth={2.5} color={RED} style={{ flexShrink: 0 }} /> : null}
@@ -403,8 +404,11 @@ export function AdminFilterControlStyles() {
         .sm-plan-dropdown-option{width:100%;min-height:31px;padding:6px 9px;display:flex;align-items:center;justify-content:space-between;gap:9px;border:0;border-radius:5px;background:transparent;color:#374151;font-family:inherit;text-align:left;cursor:pointer}
         .sm-plan-dropdown-option.is-highlighted{background:rgba(0,0,0,.028)}
         .sm-plan-dropdown-option.is-selected{background:rgba(220,38,38,.055);color:${RED}}
+        .sm-plan-dropdown-option.is-recommended{background:rgba(22,163,74,.045)}
+        .sm-plan-dropdown-option.is-recommended.is-highlighted{background:rgba(22,163,74,.085)}
         .sm-plan-dropdown-option-label{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;font-weight:550}
         .sm-plan-dropdown-option.is-selected .sm-plan-dropdown-option-label{font-weight:650}
+        .sm-plan-dropdown-recommended{display:inline-flex;margin-left:7px;padding:1px 5px;border-radius:999px;background:rgba(22,163,74,.09);color:#15803D;font-size:7.5px;font-weight:750;letter-spacing:.02em;vertical-align:1px}
         .sm-plan-dropdown-option-description{display:block;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(0,0,0,.35);font-size:8.8px;font-weight:500}
         .sm-plan-dropdown-empty{padding:14px 10px;color:rgba(0,0,0,.34);font-size:10px;text-align:center}
         .sm-plan-date-trigger{width:100%;height:32px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid rgba(0,0,0,.10);border-radius:7px;outline:0;background:linear-gradient(to bottom,#fff,#fafafa);color:#374151;font-family:inherit;font-size:10.5px;font-weight:550;text-align:left;cursor:pointer;box-shadow:inset 0 1px .6px rgba(255,255,255,.9),0 1px 3px rgba(0,0,0,.03);transition:border-color .14s,box-shadow .14s,background .14s}

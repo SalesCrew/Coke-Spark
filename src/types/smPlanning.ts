@@ -10,6 +10,42 @@ export type SmPlanningStatus =
 export type SmPlanningFrequency = "weekly" | "biweekly";
 export type SmPlanningReassignmentScope = "occurrence" | "series_future";
 
+export type AdminGmPlanningVisit = {
+  id: string;
+  workDate: string;
+  startedAt: string;
+  submittedAt: string;
+  durationMinutes: number;
+  gm: {
+    id: string;
+    name: string;
+    region: string;
+  };
+  market: {
+    id: string;
+    internalId: string;
+    name: string;
+    address: string;
+    postalCode: string;
+    city: string;
+    region: string;
+  };
+  sections: Array<{
+    id: string;
+    section: "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
+    campaignName: string;
+    fragebogenName: string;
+    questionCount: number;
+    answeredCount: number;
+    photoCount: number;
+  }>;
+  totals: {
+    questionCount: number;
+    answeredCount: number;
+    photoCount: number;
+  };
+};
+
 export type SmGlobalQuestionnaireOption = {
   questionnaireTemplateId: string;
   latestPublishedVersionId: string;

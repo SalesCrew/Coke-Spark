@@ -56,7 +56,7 @@ export interface GmDashboardMarket {
   visitedThisMonth: boolean;
   record: MarketRecord;
   activeNowCampaigns: MarketCampaignSummary[];
-  nextSM?: string;
+  nextSmVisitDate?: string | null;
 }
 
 type Market = GmDashboardMarket;
@@ -102,7 +102,11 @@ function formatStammnr(record: MarketRecord): string {
   return record.cokeMasterNumber?.trim() || record.kuehlerStammnr?.trim() || "";
 }
 
-export function toMarketListEntry(record: MarketRecord, activeNowCampaigns: MarketCampaignSummary[] = []): Market {
+export function toMarketListEntry(
+  record: MarketRecord,
+  activeNowCampaigns: MarketCampaignSummary[] = [],
+  nextSmVisitDate: string | null = null,
+): Market {
   const submittedVisitCount = activeNowCampaigns.reduce(
     (sum, campaign) => sum + Math.max(0, Number(campaign.submittedVisitCount ?? 0)),
     0,
@@ -121,7 +125,13 @@ export function toMarketListEntry(record: MarketRecord, activeNowCampaigns: Mark
     visitedThisMonth: submittedVisitCount > 0,
     record,
     activeNowCampaigns,
+    nextSmVisitDate,
   };
+}
+
+function formatNextSmVisitDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
 }
 
 function formatDateTime(value: string | null): string {
@@ -798,10 +808,11 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
         const mapped = rows
           .map((row) => ({
             market: row.market,
+            nextSmVisitDate: row.nextSmVisitDate,
             activeNowCampaigns: row.activeNowCampaigns.filter(isStandardListCampaign),
           }))
           .filter((row) => row.activeNowCampaigns.length > 0)
-          .map((row) => toMarketListEntry(row.market, row.activeNowCampaigns));
+          .map((row) => toMarketListEntry(row.market, row.activeNowCampaigns, row.nextSmVisitDate));
         const deduped = Array.from(new Map(mapped.map((entry) => [entry.id, entry])).values());
         setMarkets(deduped);
       })
@@ -1117,10 +1128,10 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
                 </span>
 
                 <div className="min-w-0 flex-1">
-                  {revealedId === m.id && m.nextSM ? (
+                  {revealedId === m.id && m.nextSmVisitDate ? (
                     <>
-                      <span className="block text-[10px] font-medium truncate" style={{ color: "#DC2626", fontSize: 10 }} title={`Naechster SM: ${m.nextSM}`}>
-                        Naechster SM: {m.nextSM}
+                      <span className="block text-[10px] font-medium truncate" style={{ color: "#DC2626", fontSize: 10 }} title={`Nächster SM: ${formatNextSmVisitDate(m.nextSmVisitDate)}`}>
+                        Nächster SM: {formatNextSmVisitDate(m.nextSmVisitDate)}
                       </span>
                       {m.address && (
                         <span className="block text-[9px] font-medium truncate" style={{ color: "rgba(15,23,42,0.34)", marginTop: 1, fontSize: 9 }} title={m.address}>
@@ -1144,9 +1155,11 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
               </div>
 
               <div className="shrink-0 flex items-center gap-2">
-                {m.nextSM && (
+                {m.nextSmVisitDate && (
                   <button
                     type="button"
+                    aria-label={`Nächsten SM-Termin für ${m.name} für fünf Sekunden anzeigen`}
+                    title="Nächster SM"
                     onClick={(event) => {
                       event.stopPropagation();
                       handleReveal(m.id);

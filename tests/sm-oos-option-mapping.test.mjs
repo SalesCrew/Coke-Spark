@@ -21,3 +21,9 @@ test("renaming or removing choice options keeps OOS mappings aligned", () => {
   assert.match(editor, /currentOutcomes\[previousOption\]/);
   assert.match(editor, /oos = \{ \.\.\.oos, answerOutcomes: nextOutcomes \}/);
 });
+
+test("an OOS detection dropdown never collapses into an empty strip", () => {
+  assert.match(editor, /Math\.max\(54, options\.length \* 34 \+ 8\)/);
+  assert.match(editor, /Keine passende Erkennungsfrage/);
+  assert.match(editor, /Erkennungs- und Behebungsfrage müssen im selben Modul/);
+});

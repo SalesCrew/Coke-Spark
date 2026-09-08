@@ -21,6 +21,15 @@ export function calendarWeekOffset(base: string, value: string): number {
   return (readDate(calendarWeek(value).start).getTime() - readDate(calendarWeek(base).start).getTime()) / (7 * DAY_MS);
 }
 
+export function calendarWeekRange(left: string, right: string) {
+  const first = calendarWeek(left).start;
+  const second = calendarWeek(right).start;
+  const start = first <= second ? first : second;
+  const end = first <= second ? second : first;
+  const weekCount = calendarWeekOffset(start, end) + 1;
+  return { start, end, weekCount };
+}
+
 export function shiftCalendarMonth(value: string, months: number): string {
   const date = readDate(value);
   return dateKey(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1, 12)));

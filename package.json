@@ -13,7 +13,7 @@
     "test:sm-onboarding": "node --test tests/sm-onboarding-input.test.mjs",
     "test:sm-safety": "node --test tests/sm-safety-ui.test.mjs",
     "test:sm-holidays": "node --test tests/sm-holidays-ui.test.mjs",
-    "test:sm-planning-week": "node --test tests/sm-planning-week-picker.test.mjs",
+    "test:sm-planning-week": "node --test tests/sm-planning-week-picker.test.mjs tests/sm-planning-view.test.mjs",
     "test:sm-oos": "node --test tests/sm-oos-option-mapping.test.mjs",
     "test:sm-subheadings": "node --test tests/sm-question-subheadings.test.mjs"
   },

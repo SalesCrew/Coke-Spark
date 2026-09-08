@@ -10,6 +10,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Camera,
+  Eye,
+  FileQuestion,
+  History,
   LoaderCircle,
   RotateCcw,
   RefreshCw,
@@ -24,6 +28,7 @@ import {
   cancelSmPlanningAssignment,
   createSmPlanningAssignment,
   createSmPlanningSeries,
+  fetchAdminGmPlanningVisits,
   fetchSmMarkets,
   fetchSmGlobalQuestionnaireConfiguration,
   fetchSmPlanningAssignments,
@@ -36,18 +41,20 @@ import {
   updateSmGlobalQuestionnaireAssignment,
 } from "@/lib/api/backend";
 import type { SmMarketRecord } from "@/types/smMarkets";
-import type { SmGlobalQuestionnaireConfiguration, SmPlanningAssignment, SmPlanningFrequency, SmPlanningReassignmentScope, SmPlanningStatus } from "@/types/smPlanning";
+import type { AdminGmPlanningVisit, SmGlobalQuestionnaireConfiguration, SmPlanningAssignment, SmPlanningFrequency, SmPlanningReassignmentScope, SmPlanningStatus } from "@/types/smPlanning";
 import type { SMRecord } from "@/types/shelfmerchandiser";
 import { austrianHoliday, austrianHolidays } from "@/lib/sm/austrianHolidays";
 import { SmHolidayCalendarCard } from "./SmHolidayCalendarCard";
 import { SmHolidayNote } from "@/components/sm/SmHolidayNote";
 import { SmPlanningWeekPicker } from "./SmPlanningWeekPicker";
-import { calendarWeek, calendarWeekOffset } from "@/lib/sm/calendarWeeks";
+import { calendarWeek } from "@/lib/sm/calendarWeeks";
+import { filterAdminGmPlanningVisits, recommendedUserFirst } from "@/lib/sm/planningView";
 
 const RED = "#DC2626";
 const ROW_GRID = "132px minmax(150px, .8fr) minmax(110px, .65fr) minmax(230px, 1.35fr) 80px 118px 84px";
 
 type DrawerMode = "single" | "series" | null;
+type PlanningListRow = { kind: "sm"; row: SmPlanningAssignment } | { kind: "gm"; row: AdminGmPlanningVisit };
 
 type PlanningSubmitRequest =
   | {
@@ -240,12 +247,15 @@ function PlanningDrawer({
     label: market.name,
     description: `Stammnr. ${market.internalId} · ${market.address}, ${market.postalCode} ${market.city}`,
   })), [markets]);
-  const userOptions = useMemo<SmPlanDropdownOption[]>(() => users.map((user) => ({
-    value: user.id,
-    label: `${user.firstName} ${user.lastName}`.trim(),
-    description: user.email,
-  })), [users]);
   const selectedMarket = markets.find((market) => market.id === smMarketId);
+  const recommendedSmUserId = selectedMarket?.assignedSmUserId ?? null;
+  const userOptions = useMemo<SmPlanDropdownOption[]>(() => recommendedUserFirst(users, recommendedSmUserId)
+    .map((user) => ({
+      value: user.id,
+      label: `${user.firstName} ${user.lastName}`.trim(),
+      description: user.id === recommendedSmUserId ? "Mit diesem Markt synchronisiert" : user.email,
+      recommended: user.id === recommendedSmUserId,
+    })), [recommendedSmUserId, users]);
   const selectedUser = users.find((user) => user.id === smUserId);
   const selectedUserName = selectedUser ? `${selectedUser.firstName} ${selectedUser.lastName}`.trim() : assignment?.effective.smName ?? "Shelf Merchandiser";
   const smChanged = Boolean(assignment && smUserId !== assignment.effective.smUserId);
@@ -442,15 +452,85 @@ function PlanningDrawer({
   );
 }
 
+const GM_SECTION_LABELS: Record<AdminGmPlanningVisit["sections"][number]["section"], string> = {
+  standard: "Standard",
+  flex: "Flex",
+  billa: "Billa",
+  kuehler: "Kühler",
+  mhd: "MHD",
+  durcharbeit: "Durcharbeit",
+};
+
+function formatVisitTime(value: string): string {
+  return new Intl.DateTimeFormat("de-AT", { timeZone: "Europe/Vienna", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
+function GmVisitDetailDrawer({ visit, onClose }: { visit: AdminGmPlanningVisit; onClose: () => void }) {
+  return (
+    <aside className="sm-plan-drawer" aria-label="Abgeschlossenen GM-Besuch ansehen" onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
+      <div style={{ height: 64, padding: "0 18px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderBottom: "1px solid rgba(0,0,0,.06)", flexShrink: 0 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, color: "#1a1a1a", fontSize: 14, fontWeight: 750, letterSpacing: "-.02em" }}><History size={14} color="#2563EB" />GM-Marktbesuch</div>
+          <div style={{ marginTop: 3, color: "rgba(0,0,0,.35)", fontSize: 9.5 }}>Abgeschlossen · Nur lesen</div>
+        </div>
+        <button type="button" aria-label="Schließen" onClick={onClose} className="sm-plan-icon-button"><X size={14} strokeWidth={2}/></button>
+      </div>
+      <div className="sm-plan-drawer-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px 24px" }}>
+        <div className="sm-plan-gm-detail-hero">
+          <span className="sm-plan-gm-detail-icon"><Eye size={15}/></span>
+          <span><strong>{visit.market.name}</strong><small>Stammnr. {visit.market.internalId} · {visit.market.region}</small></span>
+        </div>
+        <div className="sm-plan-gm-detail-grid">
+          <span><small>Gebietsmanager</small><strong>{visit.gm.name}</strong></span>
+          <span><small>Besuchsdatum</small><strong>{formatDate(visit.workDate)}</strong></span>
+          <span><small>Start – Ende</small><strong>{formatVisitTime(visit.startedAt)} – {formatVisitTime(visit.submittedAt)}</strong></span>
+          <span><small>Ist-Zeit</small><strong>{formatDuration(visit.durationMinutes)}</strong></span>
+        </div>
+        <div style={{ marginTop: 18 }}>
+          <FieldLabel>MARKT</FieldLabel>
+          <div className="sm-plan-gm-info-card"><strong>{visit.market.address}</strong><span>{visit.market.postalCode} {visit.market.city}</span></div>
+        </div>
+        <div style={{ marginTop: 18 }}>
+          <FieldLabel>BESUCHSBEREICHE</FieldLabel>
+          <div style={{ display: "grid", gap: 7 }}>
+            {visit.sections.map((section) => <div key={section.id} className="sm-plan-gm-section-card">
+              <span className="sm-plan-gm-section-icon"><FileQuestion size={13}/></span>
+              <span style={{ minWidth: 0, flex: 1 }}><strong>{section.campaignName || GM_SECTION_LABELS[section.section]}</strong><small>{section.fragebogenName || GM_SECTION_LABELS[section.section]}</small></span>
+              <span className="sm-plan-gm-section-counts">{section.answeredCount}/{section.questionCount} Fragen{section.photoCount ? ` · ${section.photoCount} Fotos` : ""}</span>
+            </div>)}
+          </div>
+        </div>
+        <div className="sm-plan-gm-totals">
+          <span><FileQuestion size={12}/>{visit.totals.answeredCount}/{visit.totals.questionCount} beantwortet</span>
+          <span><Camera size={12}/>{visit.totals.photoCount} Fotos</span>
+        </div>
+      </div>
+      <div style={{ minHeight: 58, padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "flex-end", background: "#fff", borderTop: "1px solid rgba(0,0,0,.06)", flexShrink: 0 }}>
+        <button type="button" onClick={onClose} className="sm-plan-secondary-button">Schließen</button>
+      </div>
+    </aside>
+  );
+}
+
 export function SmVerplanungWorkspace() {
   const baseStart = useMemo(() => startOfWeek(new Date()), []);
+  const baseStartKey = useMemo(() => toDateInputValue(baseStart), [baseStart]);
   const [search, setSearch] = useState("");
   const [region, setRegion] = useState("all");
   const [smFilter, setSmFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [weekOffset, setWeekOffset] = useState(0);
+  const [selectedWeekStartKey, setSelectedWeekStartKey] = useState(baseStartKey);
+  const [selectedWeekEndKey, setSelectedWeekEndKey] = useState(baseStartKey);
   const [assignments, setAssignments] = useState<SmPlanningAssignment[]>([]);
+  const [showGmVisits, setShowGmVisits] = useState(false);
+  const [gmVisits, setGmVisits] = useState<AdminGmPlanningVisit[]>([]);
+  const [gmLoading, setGmLoading] = useState(false);
+  const [gmLoadError, setGmLoadError] = useState<string | null>(null);
+  const [gmSearch, setGmSearch] = useState("");
+  const [gmUserFilter, setGmUserFilter] = useState("all");
+  const [gmRegionFilter, setGmRegionFilter] = useState("all");
+  const [gmSectionFilter, setGmSectionFilter] = useState("all");
   const [markets, setMarkets] = useState<SmMarketRecord[]>([]);
   const [users, setUsers] = useState<SMRecord[]>([]);
   const [questionnaireConfiguration, setQuestionnaireConfiguration] = useState<SmGlobalQuestionnaireConfiguration | null>(null);
@@ -461,13 +541,26 @@ export function SmVerplanungWorkspace() {
   const [collapsedDates, setCollapsedDates] = useState<string[]>([]);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<SmPlanningAssignment | null>(null);
+  const [selectedGmVisit, setSelectedGmVisit] = useState<AdminGmPlanningVisit | null>(null);
   const [notice, setNotice] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(null);
 
-  const weekStart = useMemo(() => { const value = new Date(baseStart); value.setDate(value.getDate() + weekOffset * 7); return value; }, [baseStart, weekOffset]);
-  const weekEnd = useMemo(() => { const value = new Date(weekStart); value.setDate(value.getDate() + 6); return value; }, [weekStart]);
-  const weekStartKey = toDateInputValue(weekStart);
-  const weekEndKey = toDateInputValue(weekEnd);
+  const weekStartKey = selectedWeekStartKey;
+  const weekEndKey = toDateInputValue(addDays(parseDate(selectedWeekEndKey), 6));
+  const weekStart = useMemo(() => parseDate(weekStartKey), [weekStartKey]);
+  const weekEnd = useMemo(() => parseDate(weekEndKey), [weekEndKey]);
   const weekNumber = calendarWeek(weekStartKey).number;
+  const endWeekNumber = calendarWeek(selectedWeekEndKey).number;
+  const selectedWeekCount = Math.round((parseDate(selectedWeekEndKey).getTime() - parseDate(selectedWeekStartKey).getTime()) / (7 * 86400000)) + 1;
+
+  const shiftSelectedRange = useCallback((direction: -1 | 1) => {
+    setSelectedWeekStartKey((current) => toDateInputValue(addDays(parseDate(current), direction * 7)));
+    setSelectedWeekEndKey((current) => toDateInputValue(addDays(parseDate(current), direction * 7)));
+  }, []);
+
+  const resetToCurrentWeek = useCallback(() => {
+    setSelectedWeekStartKey(baseStartKey);
+    setSelectedWeekEndKey(baseStartKey);
+  }, [baseStartKey]);
 
   const reloadAssignments = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -485,24 +578,49 @@ export function SmVerplanungWorkspace() {
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    Promise.all([fetchSmUsers(), fetchSmMarkets(), fetchSmPlanningAssignments(weekStartKey, weekEndKey), fetchSmGlobalQuestionnaireConfiguration()])
-      .then(([userRows, marketRows, assignmentRows, questionnaireRows]) => {
+    Promise.all([fetchSmUsers(), fetchSmMarkets(), fetchSmGlobalQuestionnaireConfiguration()])
+      .then(([userRows, marketRows, questionnaireRows]) => {
         if (!active) return;
         setUsers(userRows);
         setMarkets(marketRows.filter((market) => market.isActive && Boolean(market.internalId)));
-        setAssignments(assignmentRows);
         setQuestionnaireConfiguration(questionnaireRows);
         setQuestionnaireSelection(questionnaireRows.assignment?.questionnaireTemplateId ?? "");
-        setLoadError(null);
       })
       .catch((error: unknown) => {
         if (!active) return;
-        setLoadError(error instanceof Error ? error.message : "Die Verplanung konnte nicht geladen werden.");
+        setLoadError(error instanceof Error ? error.message : "Die Planungsgrunddaten konnten nicht geladen werden.");
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetchSmPlanningAssignments(weekStartKey, weekEndKey)
+      .then((assignmentRows) => {
+        if (!active) return;
+        setAssignments(assignmentRows);
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        if (active) setLoadError(error instanceof Error ? error.message : "Die Verplanung konnte nicht geladen werden.");
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [weekEndKey, weekStartKey]);
+
+  useEffect(() => {
+    if (!showGmVisits) return;
+    let active = true;
+    setGmVisits([]);
+    setGmLoading(true);
+    setGmLoadError(null);
+    fetchAdminGmPlanningVisits(weekStartKey, weekEndKey)
+      .then((visits) => { if (active) setGmVisits(visits); })
+      .catch((error: unknown) => { if (active) setGmLoadError(error instanceof Error ? error.message : "Die GM-Besuche konnten nicht geladen werden."); })
+      .finally(() => { if (active) setGmLoading(false); });
+    return () => { active = false; };
+  }, [showGmVisits, weekEndKey, weekStartKey]);
 
   const normalizedSearch = search.trim().toLocaleLowerCase("de-AT");
   const rows = useMemo(() => assignments.filter((row) => {
@@ -523,19 +641,31 @@ export function SmVerplanungWorkspace() {
       && matchesStatus;
   }), [assignments, normalizedSearch, region, smFilter, statusFilter, typeFilter]);
 
+  const normalizedGmSearch = gmSearch.trim().toLocaleLowerCase("de-AT");
+  const filteredGmVisits = useMemo(() => showGmVisits ? filterAdminGmPlanningVisits(gmVisits, {
+    search: gmSearch,
+    gmUserId: gmUserFilter,
+    region: gmRegionFilter,
+    section: gmSectionFilter,
+  }) : [], [gmRegionFilter, gmSearch, gmSectionFilter, gmUserFilter, gmVisits, showGmVisits]);
+
   const groupedRows = useMemo(() => {
-    const groups = new Map<string, SmPlanningAssignment[]>();
-    for (const row of rows) groups.set(row.effective.workDate, [...(groups.get(row.effective.workDate) ?? []), row]);
+    const groups = new Map<string, PlanningListRow[]>();
+    for (const row of rows) groups.set(row.effective.workDate, [...(groups.get(row.effective.workDate) ?? []), { kind: "sm", row }]);
+    for (const row of filteredGmVisits) groups.set(row.workDate, [...(groups.get(row.workDate) ?? []), { kind: "gm", row }]);
     // A holiday remains visible even after all its occurrences moved elsewhere.
     for (const year of new Set([weekStart.getFullYear(), weekEnd.getFullYear()])) {
       for (const holiday of austrianHolidays(year)) if (holiday.date >= weekStartKey && holiday.date <= weekEndKey && !groups.has(holiday.date)) groups.set(holiday.date, []);
     }
     return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
-  }, [rows, weekStart, weekEnd, weekStartKey, weekEndKey]);
+  }, [filteredGmVisits, rows, weekStart, weekEnd, weekStartKey, weekEndKey]);
 
   const totalMinutes = rows.reduce((sum, row) => sum + row.effective.plannedMinutes, 0);
   const activeSeries = new Set(rows.map((row) => row.seriesId).filter((value): value is string => Boolean(value))).size;
   const hasActiveFilters = Boolean(normalizedSearch) || region !== "all" || smFilter !== "all" || typeFilter !== "all" || statusFilter !== "all";
+  const hasActiveGmFilters = Boolean(normalizedGmSearch) || gmUserFilter !== "all" || gmRegionFilter !== "all" || gmSectionFilter !== "all";
+  const hasAnyActiveFilters = hasActiveFilters || (showGmVisits && hasActiveGmFilters);
+  const isCurrentSingleWeek = selectedWeekStartKey === baseStartKey && selectedWeekEndKey === baseStartKey;
   const regionFilterOptions = useMemo<SmPlanDropdownOption[]>(() => [
     { value: "all", label: "Region" },
     ...[...new Set(markets.map((market) => market.region).filter(Boolean))].sort().map((value) => ({ value, label: value })),
@@ -544,6 +674,18 @@ export function SmVerplanungWorkspace() {
     { value: "all", label: "Shelf Merchandiser" },
     ...users.map((user) => ({ value: user.id, label: `${user.firstName} ${user.lastName}`.trim() })),
   ], [users]);
+  const gmUserFilterOptions = useMemo<SmPlanDropdownOption[]>(() => [
+    { value: "all", label: "Alle GMs" },
+    ...[...new Map(gmVisits.map((visit) => [visit.gm.id, { value: visit.gm.id, label: visit.gm.name }])).values()].sort((left, right) => left.label.localeCompare(right.label, "de-AT")),
+  ], [gmVisits]);
+  const gmRegionFilterOptions = useMemo<SmPlanDropdownOption[]>(() => [
+    { value: "all", label: "Alle GM-Regionen" },
+    ...[...new Set(gmVisits.map((visit) => visit.market.region).filter(Boolean))].sort().map((value) => ({ value, label: value })),
+  ], [gmVisits]);
+  const gmSectionFilterOptions = useMemo<SmPlanDropdownOption[]>(() => [
+    { value: "all", label: "Alle Besuchsarten" },
+    ...[...new Set(gmVisits.flatMap((visit) => visit.sections.map((section) => section.section)))].map((value) => ({ value, label: GM_SECTION_LABELS[value] })),
+  ], [gmVisits]);
   const questionnaireOptions = useMemo<SmPlanDropdownOption[]>(() => (questionnaireConfiguration?.options ?? []).map((option) => ({
     value: option.questionnaireTemplateId,
     label: option.name,
@@ -559,6 +701,7 @@ export function SmVerplanungWorkspace() {
       setNotice({ message: markets.length === 0 ? "Lege zuerst einen aktiven SM-Markt mit Stammnummer an" : "Lege zuerst einen aktiven Shelf Merchandiser an", tone: "error" });
       return;
     }
+    setSelectedGmVisit(null);
     setSelectedAssignment(assignment);
     setDrawerMode(mode);
   }, [markets.length, questionnaireConfiguration?.assignment?.questionnaire, users.length]);
@@ -588,6 +731,23 @@ export function SmVerplanungWorkspace() {
     setTypeFilter("all");
     setStatusFilter("all");
   }, []);
+
+  const clearGmFilters = useCallback(() => {
+    setGmSearch("");
+    setGmUserFilter("all");
+    setGmRegionFilter("all");
+    setGmSectionFilter("all");
+  }, []);
+
+  const toggleGmVisits = useCallback(() => {
+    if (showGmVisits) {
+      setSelectedGmVisit(null);
+      setGmVisits([]);
+      setGmLoadError(null);
+      clearGmFilters();
+    }
+    setShowGmVisits(!showGmVisits);
+  }, [clearGmFilters, showGmVisits]);
 
   const persistPlanning = useCallback(async (request: PlanningSubmitRequest) => {
     try {
@@ -651,7 +811,7 @@ export function SmVerplanungWorkspace() {
   useEffect(() => {
     const openSingle = () => openDrawer("single");
     const openSeries = () => openDrawer("series");
-    const resetToday = () => setWeekOffset(0);
+    const resetToday = () => resetToCurrentWeek();
     const exportExcel = async () => {
       try {
         setNotice({ message: "Excel-Export wird erstellt…", tone: "info" });
@@ -668,8 +828,9 @@ export function SmVerplanungWorkspace() {
         ])]);
         worksheet["!cols"] = [{ wch: 13 }, { wch: 24 }, { wch: 18 }, { wch: 42 }, { wch: 12 }, { wch: 16 }, { wch: 14 }];
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, `KW ${weekNumber}`);
-        XLSX.writeFile(workbook, `CokeSpark_SM_Verplanung_KW${weekNumber}.xlsx`);
+        const rangeSlug = selectedWeekCount === 1 ? `KW${weekNumber}` : `KW${weekNumber}-${endWeekNumber}`;
+        XLSX.utils.book_append_sheet(workbook, worksheet, rangeSlug.slice(0, 31));
+        XLSX.writeFile(workbook, `CokeSpark_SM_Verplanung_${rangeSlug}.xlsx`);
         setNotice({ message: "Excel-Export wurde erstellt", tone: "success" });
       } catch {
         setNotice({ message: "Excel-Export konnte nicht erstellt werden", tone: "error" });
@@ -686,7 +847,7 @@ export function SmVerplanungWorkspace() {
       window.removeEventListener("sm-verplanung:today", resetToday);
       window.removeEventListener("admin:sm-verplanung:export", exportHandler);
     };
-  }, [openDrawer, rows, weekNumber]);
+  }, [endWeekNumber, openDrawer, resetToCurrentWeek, rows, selectedWeekCount, weekNumber]);
 
   useEffect(() => {
     if (!notice) return;
@@ -695,7 +856,8 @@ export function SmVerplanungWorkspace() {
   }, [notice]);
 
   useEffect(() => {
-    const label = `KW ${weekNumber} · ${new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(weekStart)} – ${new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(weekEnd)}`;
+    const weekLabel = selectedWeekCount === 1 ? `KW ${weekNumber}` : `KW ${weekNumber}–${endWeekNumber}`;
+    const label = `${weekLabel} · ${new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(weekStart)} – ${new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(weekEnd)}`;
     const emitContext = () => window.dispatchEvent(new CustomEvent("sm-verplanung:weekContext", { detail: { label } }));
     emitContext();
     const deferredEmit = window.setTimeout(emitContext, 0);
@@ -704,12 +866,12 @@ export function SmVerplanungWorkspace() {
       window.clearTimeout(deferredEmit);
       window.removeEventListener("sm-verplanung:requestWeekContext", emitContext);
     };
-  }, [weekEnd, weekNumber, weekStart]);
+  }, [endWeekNumber, selectedWeekCount, weekEnd, weekNumber, weekStart]);
 
   const toggleDate = (date: string) => setCollapsedDates((current) => current.includes(date) ? current.filter((entry) => entry !== date) : [...current, date]);
 
   return (
-    <div style={{ marginRight: drawerMode ? 408 : 0, transition: "margin-right .22s cubic-bezier(.4,0,.2,1)" }}>
+    <div style={{ marginRight: drawerMode || selectedGmVisit ? 408 : 0, transition: "margin-right .22s cubic-bezier(.4,0,.2,1)" }}>
       <AdminFilterControlStyles />
       <style>{`
         @keyframes smPlanFadeIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
@@ -739,6 +901,15 @@ export function SmVerplanungWorkspace() {
         .sm-plan-delete-button:hover{background:rgba(220,38,38,.06);color:#B91C1C}
         .sm-plan-reset-filters{height:29px;padding:0 9px;display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(220,38,38,.12);border-radius:7px;background:rgba(220,38,38,.035);color:${RED};font-family:inherit;font-size:9.5px;font-weight:650;cursor:pointer;white-space:nowrap}
         .sm-plan-reset-filters:hover{background:rgba(220,38,38,.07)}
+        .sm-plan-gm-toggle{height:30px;padding:0 10px;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(37,99,235,.13);border-radius:7px;background:rgba(37,99,235,.035);color:#475569;font-family:inherit;font-size:9.5px;font-weight:650;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
+        .sm-plan-gm-toggle.is-active{border-color:rgba(37,99,235,.24);background:rgba(37,99,235,.08);color:#1D4ED8}
+        .sm-plan-gm-row:hover{background:rgba(37,99,235,.025)}.sm-plan-gm-row.is-selected{background:rgba(37,99,235,.055)}
+        .sm-plan-gm-detail-hero{min-height:58px;padding:10px 11px;display:flex;align-items:center;gap:10px;border:1px solid rgba(37,99,235,.10);border-radius:10px;background:rgba(37,99,235,.035)}
+        .sm-plan-gm-detail-icon{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border-radius:9px;background:rgba(37,99,235,.10);color:#2563EB}.sm-plan-gm-detail-hero strong{display:block;color:#1a1a1a;font-size:11.5px}.sm-plan-gm-detail-hero small{display:block;margin-top:3px;color:rgba(0,0,0,.4);font-size:8.8px}
+        .sm-plan-gm-detail-grid{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:7px}.sm-plan-gm-detail-grid>span{padding:9px 10px;border:1px solid rgba(0,0,0,.06);border-radius:8px;background:#fff}.sm-plan-gm-detail-grid small{display:block;color:rgba(0,0,0,.34);font-size:8px;font-weight:700;text-transform:uppercase}.sm-plan-gm-detail-grid strong{display:block;margin-top:4px;color:#374151;font-size:10px;font-weight:650}
+        .sm-plan-gm-info-card{padding:10px 11px;border:1px solid rgba(0,0,0,.06);border-radius:8px;background:#fff}.sm-plan-gm-info-card strong,.sm-plan-gm-info-card span{display:block;color:#374151;font-size:10px}.sm-plan-gm-info-card span{margin-top:3px;color:rgba(0,0,0,.4);font-size:9px}
+        .sm-plan-gm-section-card{min-height:48px;padding:8px 9px;display:flex;align-items:center;gap:9px;border:1px solid rgba(0,0,0,.06);border-radius:8px;background:#fff}.sm-plan-gm-section-icon{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;background:rgba(37,99,235,.065);color:#2563EB}.sm-plan-gm-section-card strong,.sm-plan-gm-section-card small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sm-plan-gm-section-card strong{color:#374151;font-size:9.8px}.sm-plan-gm-section-card small{margin-top:2px;color:rgba(0,0,0,.36);font-size:8.5px}.sm-plan-gm-section-counts{color:rgba(0,0,0,.38);font-size:8.4px;font-weight:650;white-space:nowrap}
+        .sm-plan-gm-totals{margin-top:12px;padding:9px 10px;display:flex;gap:14px;border-radius:8px;background:rgba(0,0,0,.025);color:rgba(0,0,0,.48);font-size:9px;font-weight:650}.sm-plan-gm-totals span{display:inline-flex;align-items:center;gap:5px}
         .sm-plan-day-toggle:hover{background:rgba(0,0,0,.028)!important}
         .sm-plan-day-toggle.is-holiday:hover{background:#fef3c7!important}
         .sm-plan-drawer{position:fixed;top:80px;right:0;bottom:0;width:408px;z-index:700;display:flex;flex-direction:column;background:#f7f7f8;box-shadow:-6px 0 28px rgba(0,0,0,.10),-1px 0 0 rgba(0,0,0,.06);animation:smPlanDrawerIn .22s cubic-bezier(.4,0,.2,1) both}
@@ -774,8 +945,8 @@ export function SmVerplanungWorkspace() {
 
       <section className="sm-plan-card" style={{ overflow: "hidden", border: "1px solid rgba(0,0,0,.07)", borderRadius: 14, background: "rgba(0,0,0,.025)" }}>
         <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ color: "rgba(0,0,0,.3)", fontSize: 9, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase" }}>Wochenplanung</span>
-          <span style={{ color: "rgba(0,0,0,.48)", fontSize: 10.5, fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{rows.length} Einsätze · {formatDuration(totalMinutes)} Sollstunden</span>
+          <span style={{ color: "rgba(0,0,0,.3)", fontSize: 9, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase" }}>{selectedWeekCount === 1 ? "Wochenplanung" : `${selectedWeekCount}-Wochen-Planung`}</span>
+          <span style={{ color: "rgba(0,0,0,.48)", fontSize: 10.5, fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{rows.length} SM-Einsätze · {formatDuration(totalMinutes)} Soll{showGmVisits ? ` · ${filteredGmVisits.length} GM-Besuche` : ""}</span>
         </div>
 
         <div className="sm-plan-card-scroll" style={{ margin: "0 10px 10px", overflow: "hidden", border: "1px solid rgba(0,0,0,.06)", borderRadius: 12, background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,.05)" }}>
@@ -785,23 +956,36 @@ export function SmVerplanungWorkspace() {
                 <Search size={11} strokeWidth={2} color="rgba(0,0,0,.3)"/>
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Markt oder SM suchen…" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: "transparent", color: "#1a1a1a", fontFamily: "inherit", fontSize: 10.5 }}/>
               </label>
-              <button type="button" aria-label="Vorherige Woche" onClick={() => setWeekOffset((current) => current - 1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronLeft size={12}/></button>
-              <SmPlanningWeekPicker value={weekStartKey} onChange={(monday) => setWeekOffset(calendarWeekOffset(toDateInputValue(baseStart), monday))} />
-              <button type="button" aria-label="Nächste Woche" onClick={() => setWeekOffset((current) => current + 1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronRight size={12}/></button>
+              <button type="button" aria-label="Zeitraum eine Woche zurück" onClick={() => shiftSelectedRange(-1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronLeft size={12}/></button>
+              <SmPlanningWeekPicker start={selectedWeekStartKey} end={selectedWeekEndKey} onChange={(start, end) => { setSelectedWeekStartKey(start); setSelectedWeekEndKey(end); }} />
+              <button type="button" aria-label="Zeitraum eine Woche vor" onClick={() => shiftSelectedRange(1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronRight size={12}/></button>
               <div style={{ flex: 1 }}/>
               <SmPlanDropdown compact ariaLabel="Region filtern" value={region} onChange={setRegion} placeholder="Region" options={regionFilterOptions} />
               <SmPlanDropdown compact searchable ariaLabel="Shelf Merchandiser filtern" value={smFilter} onChange={setSmFilter} placeholder="Shelf Merchandiser" options={smFilterOptions} />
               <SmPlanDropdown compact ariaLabel="Planungstyp filtern" value={typeFilter} onChange={setTypeFilter} placeholder="Planungstyp" options={TYPE_FILTER_OPTIONS} />
               <SmPlanDropdown compact ariaLabel="Status filtern" value={statusFilter} onChange={setStatusFilter} placeholder="Status" options={STATUS_FILTER_OPTIONS} />
               {hasActiveFilters ? <button type="button" className="sm-plan-reset-filters" onClick={clearFilters}><X size={10} strokeWidth={2.2} />Filter löschen</button> : null}
+              <button type="button" aria-pressed={showGmVisits} onClick={toggleGmVisits} className={`sm-plan-gm-toggle${showGmVisits ? " is-active" : ""}`}><History size={11}/>{showGmVisits ? "GM-Besuche sichtbar" : "GM-Besuche"}</button>
             </div>
 
+            {showGmVisits ? <div style={{ minHeight: 43, padding: "6px 14px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid rgba(37,99,235,.08)", background: "rgba(37,99,235,.018)" }}>
+              <span style={{ color: "#2563EB", fontSize: 8.5, fontWeight: 750, letterSpacing: ".06em", textTransform: "uppercase" }}>GM-Verlauf</span>
+              <label className="sm-plan-search" style={{ width: 190, height: 29, padding: "0 9px", display: "flex", alignItems: "center", gap: 7, borderRadius: 7, background: "#fff", border: "1px solid rgba(37,99,235,.08)" }}>
+                <Search size={10.5} strokeWidth={2} color="rgba(37,99,235,.45)"/><input value={gmSearch} onChange={(event) => setGmSearch(event.target.value)} placeholder="GM oder Markt suchen…" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: "transparent", color: "#1a1a1a", fontFamily: "inherit", fontSize: 10 }}/>
+              </label>
+              <SmPlanDropdown compact searchable ariaLabel="Gebietsmanager filtern" value={gmUserFilter} onChange={setGmUserFilter} placeholder="Alle GMs" options={gmUserFilterOptions}/>
+              <SmPlanDropdown compact ariaLabel="GM-Region filtern" value={gmRegionFilter} onChange={setGmRegionFilter} placeholder="Alle GM-Regionen" options={gmRegionFilterOptions}/>
+              <SmPlanDropdown compact ariaLabel="GM-Besuchsart filtern" value={gmSectionFilter} onChange={setGmSectionFilter} placeholder="Alle Besuchsarten" options={gmSectionFilterOptions}/>
+              {hasActiveGmFilters ? <button type="button" className="sm-plan-reset-filters" onClick={clearGmFilters}><X size={10} strokeWidth={2.2}/>GM-Filter löschen</button> : null}
+              <span aria-live="polite" style={{ marginLeft: "auto", color: gmLoadError ? "#B91C1C" : "rgba(0,0,0,.4)", fontSize: 9.2, fontWeight: 600 }}>{gmLoading ? "GM-Besuche werden geladen…" : gmLoadError ?? `${filteredGmVisits.length} abgeschlossene Besuche`}</span>
+            </div> : null}
+
             <div style={{ height: 50, padding: "0 18px", display: "flex", alignItems: "center", gap: 26, borderBottom: "1px solid rgba(0,0,0,.05)" }}>
-              {[`${rows.length} Einsätze`, `${formatDuration(totalMinutes)} Sollstunden`, `${new Set(rows.map((row) => row.effective.smUserId)).size} SMs`, `${activeSeries} aktive Serien`].map((value, index) => <div key={value} style={{ paddingRight: index < 3 ? 26 : 0, borderRight: index < 3 ? "1px solid rgba(0,0,0,.08)" : 0, color: "rgba(0,0,0,.64)", fontSize: 11, fontWeight: 650, letterSpacing: "-.005em", fontVariantNumeric: "tabular-nums" }}>{value}</div>)}
+              {[`${rows.length} SM-Einsätze`, `${formatDuration(totalMinutes)} Sollstunden`, `${new Set(rows.map((row) => row.effective.smUserId)).size} SMs`, showGmVisits ? `${filteredGmVisits.length} GM-Besuche` : `${activeSeries} aktive Serien`].map((value, index) => <div key={value} style={{ paddingRight: index < 3 ? 26 : 0, borderRight: index < 3 ? "1px solid rgba(0,0,0,.08)" : 0, color: "rgba(0,0,0,.64)", fontSize: 11, fontWeight: 650, letterSpacing: "-.005em", fontVariantNumeric: "tabular-nums" }}>{value}</div>)}
             </div>
 
             <div style={{ height: 40, padding: "0 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: 12, alignItems: "center", borderBottom: "1px solid rgba(0,0,0,.05)", background: "rgba(0,0,0,.018)" }}>
-              {["Tag", "Shelf Merchandiser", "Markt", "Adresse", "Sollzeit", "Planung", "Status"].map((label) => <span key={label} style={{ color: "rgba(0,0,0,.46)", fontSize: 9.25, fontWeight: 750, letterSpacing: ".055em", textTransform: "uppercase" }}>{label}</span>)}
+              {["Tag", "Mitarbeiter", "Markt", "Adresse", "Zeit", "Planung / Besuch", "Status"].map((label) => <span key={label} style={{ color: "rgba(0,0,0,.46)", fontSize: 9.25, fontWeight: 750, letterSpacing: ".055em", textTransform: "uppercase" }}>{label}</span>)}
             </div>
 
             <div style={{ minHeight: 500 }}>
@@ -811,30 +995,48 @@ export function SmVerplanungWorkspace() {
                     <span style={{ width: 42, height: 42, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, background: "rgba(220,38,38,.065)", color: RED }}>
                       <CalendarDays size={18} strokeWidth={1.65}/>
                     </span>
-                    <div style={{ marginTop: 14, color: "#1a1a1a", fontSize: 13.5, fontWeight: 750, letterSpacing: "-.01em" }}>{hasActiveFilters ? "Keine Einsätze gefunden" : "Keine Einsätze in dieser Woche"}</div>
-                    <div style={{ marginTop: 5, color: "rgba(0,0,0,.38)", fontSize: 10, lineHeight: 1.55 }}>{hasActiveFilters ? "Passe die Suche oder Filter an, um wieder Ergebnisse zu sehen." : "Plane einen neuen Einsatz oder navigiere zu einer anderen Kalenderwoche."}</div>
+                    <div style={{ marginTop: 14, color: "#1a1a1a", fontSize: 13.5, fontWeight: 750, letterSpacing: "-.01em" }}>{hasAnyActiveFilters ? "Keine Einträge gefunden" : "Keine Einträge in diesem Zeitraum"}</div>
+                    <div style={{ marginTop: 5, color: "rgba(0,0,0,.38)", fontSize: 10, lineHeight: 1.55 }}>{hasAnyActiveFilters ? "Passe die getrennten SM- oder GM-Filter an, um wieder Ergebnisse zu sehen." : "Plane einen neuen Einsatz oder wähle einen anderen KW-Zeitraum."}</div>
                     <div style={{ marginTop: 18, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
-                      {hasActiveFilters ? <button type="button" onClick={clearFilters} className="sm-plan-secondary-button">Filter zurücksetzen</button> : <>
-                        {weekOffset !== 0 ? <button type="button" onClick={() => setWeekOffset(0)} className="sm-plan-secondary-button">Zur aktuellen Woche</button> : null}
+                      {hasAnyActiveFilters ? <button type="button" onClick={() => { clearFilters(); clearGmFilters(); }} className="sm-plan-secondary-button">Filter zurücksetzen</button> : <>
+                        {!isCurrentSingleWeek ? <button type="button" onClick={resetToCurrentWeek} className="sm-plan-secondary-button">Zur aktuellen Woche</button> : null}
                         <button type="button" onClick={() => openDrawer("single")} className="sm-plan-primary-button">Einsatz planen</button>
                       </>}
                     </div>
                   </div>
                 </div>
               ) : groupedRows.map(([date, dayRows]) => {
-                const collapsed = collapsedDates.includes(date) && !hasActiveFilters;
+                const collapsed = collapsedDates.includes(date) && !hasAnyActiveFilters;
                 const holiday = austrianHoliday(date);
                 const movedFromHoliday = rows.filter((row) => row.holidayAdjustment?.holidayDate === date && row.effective.workDate !== date);
                 const dayDate = parseDate(date);
-                const dayTotal = dayRows.reduce((sum, row) => sum + row.effective.plannedMinutes, 0);
+                const daySmRows = dayRows.filter((entry): entry is Extract<PlanningListRow, { kind: "sm" }> => entry.kind === "sm");
+                const dayGmRows = dayRows.filter((entry): entry is Extract<PlanningListRow, { kind: "gm" }> => entry.kind === "gm");
+                const dayTotal = daySmRows.reduce((sum, entry) => sum + entry.row.effective.plannedMinutes, 0);
                 return <div key={date}>
                   <button type="button" aria-expanded={!collapsed} onClick={() => toggleDate(date)} className={`sm-plan-day-toggle${holiday ? " is-holiday" : ""}`} style={{ width: "100%", height: 44, padding: "0 18px", display: "flex", alignItems: "center", justifyContent: "space-between", border: 0, borderBottom: "1px solid rgba(0,0,0,.05)", background: holiday ? "#fffbeb" : "rgba(0,0,0,.022)", fontFamily: "inherit", cursor: "pointer", transition: "background .12s" }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "rgba(0,0,0,.60)", fontSize: 10.5, fontWeight: 750, letterSpacing: ".045em", textTransform: "uppercase" }}><ChevronRight size={12.5} strokeWidth={2} style={{ transform: collapsed ? "rotate(0deg)" : "rotate(90deg)", transition: "transform .16s" }}/>{DAY_NAMES[dayDate.getDay()]} · {formatDate(date)}</span>
                     {holiday ? <span className="mx-3 inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-800"><CalendarDays size={11} />{holiday.name}</span> : null}
-                    <span style={{ color: "rgba(0,0,0,.54)", fontSize: 10.25, fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{dayRows.length} Einsätze · {formatDuration(dayTotal)}</span>
+                    <span style={{ color: "rgba(0,0,0,.54)", fontSize: 10.25, fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{daySmRows.length} SM{dayTotal ? ` · ${formatDuration(dayTotal)} Soll` : ""}{dayGmRows.length ? ` · ${dayGmRows.length} GM` : ""}</span>
                   </button>
                   {!collapsed && holiday ? <div className="border-b border-amber-100 bg-amber-50/40 px-[18px] py-2.5 text-[10px] leading-relaxed text-amber-800">{movedFromHoliday.length ? `${movedFromHoliday.length} ${movedFromHoliday.length === 1 ? "Einsatz verschoben" : "Einsätze verschoben"}: ${[...new Set(movedFromHoliday.map((row) => formatDate(row.effective.workDate)))].join(", ")}.` : "Gesetzlicher Feiertag. Neue Einsätze werden auf einen benachbarten Werktag verschoben."}{dayRows.length ? " Manuell verplante Termine bleiben bestehen." : ""}</div> : null}
-                  {!collapsed ? dayRows.map((row) => {
+                  {!collapsed ? dayRows.map((entry) => {
+                    if (entry.kind === "gm") {
+                      const visit = entry.row;
+                      const isSelected = selectedGmVisit?.id === visit.id;
+                      const visitKinds = [...new Set(visit.sections.map((section) => GM_SECTION_LABELS[section.section]))].join(" · ") || "Marktbesuch";
+                      return <button key={`gm-${visit.id}`} type="button" aria-label={`${visit.gm.name}, ${visit.market.name}, abgeschlossener GM-Besuch am ${formatDate(visit.workDate)} ansehen`} onClick={() => { setDrawerMode(null); setSelectedAssignment(null); setSelectedGmVisit(visit); }} className={`sm-plan-row sm-plan-gm-row${isSelected ? " is-selected" : ""}`} style={{ position: "relative", width: "100%", minHeight: 52, padding: "0 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: 12, alignItems: "center", border: 0, borderBottom: "1px solid rgba(0,0,0,.045)", background: "transparent", color: "#374151", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
+                        {isSelected ? <span style={{ position: "absolute", inset: "0 auto 0 0", width: 2, background: "#2563EB" }}/> : null}
+                        <span style={{ color: "rgba(0,0,0,.42)", fontSize: 9.5, fontWeight: 650 }}>{formatDate(visit.workDate)}</span>
+                        <span style={{ minWidth: 0 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1a1a1a", fontSize: 10.5, fontWeight: 650 }}>{visit.gm.name}</span><span style={{ display: "block", marginTop: 2, color: "#2563EB", fontSize: 8.3, fontWeight: 700 }}>Gebietsmanager</span></span>
+                        <span style={{ minWidth: 0 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#374151", fontSize: 10.5, fontWeight: 600 }}>{visit.market.name}</span><span style={{ display: "block", marginTop: 2, color: "rgba(0,0,0,.35)", fontSize: 8.3, fontWeight: 650 }}>Stammnr. {visit.market.internalId}</span></span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(0,0,0,.46)", fontSize: 9.8 }}>{visit.market.address}, {visit.market.postalCode} {visit.market.city}</span>
+                        <span style={{ minWidth: 0 }}><span style={{ display: "block", color: "#374151", fontSize: 10.5, fontWeight: 650 }}>{formatDuration(visit.durationMinutes)}</span><span style={{ display: "block", marginTop: 2, color: "rgba(0,0,0,.34)", fontSize: 8.2 }}>{formatVisitTime(visit.startedAt)}–{formatVisitTime(visit.submittedAt)}</span></span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#2563EB", fontSize: 9.2, fontWeight: 650 }}>{visitKinds}</span>
+                        <span style={{ justifySelf: "start", padding: "3px 7px", borderRadius: 999, background: "rgba(37,99,235,.08)", color: "#1D4ED8", fontSize: 8.5, fontWeight: 700 }}>GM · Fertig</span>
+                      </button>;
+                    }
+                    const row = entry.row;
                     const meta = statusMeta(row.status);
                     const rescheduled = Boolean(row.replacement.workDate);
                     const replaced = Boolean(row.replacement.smUserId);
@@ -843,7 +1045,7 @@ export function SmVerplanungWorkspace() {
                     const rescheduleAria = rescheduled ? `, verschoben von ${formatDate(row.original.workDate)} auf ${formatDate(row.effective.workDate)}` : "";
                     const replacementAria = replaced ? `, ursprünglich ${row.original.smName}` : "";
                     const hasReplacement = rescheduled || replaced || Boolean(row.replacement.smMarketId) || row.replacement.plannedMinutes !== null;
-                    return <button key={row.id} type="button" aria-label={`${row.effective.smName}${replacementAria}, ${row.effective.marketName}, Stammnummer ${row.effective.marketInternalId}, ${formatDate(row.effective.workDate)}${rescheduleAria}, ${row.sourceType === "series" ? "Serie" : "Einmalig"}, ${meta.label} bearbeiten`} onClick={() => openDrawer(row.sourceType === "series" ? "series" : "single", row)} className={`sm-plan-row${isSelected ? " is-selected" : ""}`} style={{ position: "relative", width: "100%", minHeight: hasReplacement ? 64 : 52, padding: "0 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: 12, alignItems: "center", border: 0, borderBottom: "1px solid rgba(0,0,0,.045)", background: "transparent", color: "#374151", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
+                    return <button key={`sm-${row.id}`} type="button" aria-label={`${row.effective.smName}${replacementAria}, ${row.effective.marketName}, Stammnummer ${row.effective.marketInternalId}, ${formatDate(row.effective.workDate)}${rescheduleAria}, ${row.sourceType === "series" ? "Serie" : "Einmalig"}, ${meta.label} bearbeiten`} onClick={() => openDrawer(row.sourceType === "series" ? "series" : "single", row)} className={`sm-plan-row${isSelected ? " is-selected" : ""}`} style={{ position: "relative", width: "100%", minHeight: hasReplacement ? 64 : 52, padding: "0 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: 12, alignItems: "center", border: 0, borderBottom: "1px solid rgba(0,0,0,.045)", background: "transparent", color: "#374151", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
                       {isSelected ? <span style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 2, background: RED }}/>: null}
                       <span style={{ minWidth: 0, display: "grid", gap: 3 }}>
                         <span style={{ color: "rgba(0,0,0,.42)", fontSize: 9.5, fontWeight: 650 }}>{formatDate(row.effective.workDate)}</span>
@@ -861,12 +1063,13 @@ export function SmVerplanungWorkspace() {
                 </div>;
               })}
             </div>
-            <div style={{ height: 42, padding: "0 18px", display: "flex", alignItems: "center", color: "rgba(0,0,0,.50)", fontSize: 10, fontWeight: 650 }}>{rows.length} Einsätze gesamt</div>
+            <div style={{ height: 42, padding: "0 18px", display: "flex", alignItems: "center", color: "rgba(0,0,0,.50)", fontSize: 10, fontWeight: 650 }}>{rows.length} SM-Einsätze{showGmVisits ? ` · ${filteredGmVisits.length} abgeschlossene GM-Besuche` : ""}</div>
           </div>
         </div>
       </section>
 
       {drawerMode ? <PlanningDrawer key={`${drawerMode}-${selectedAssignment?.id ?? "new"}-${weekStartKey}`} mode={drawerMode} assignment={selectedAssignment} defaultDate={weekStartKey} markets={markets} users={users} onClose={() => { setDrawerMode(null); setSelectedAssignment(null); }} onSubmit={persistPlanning}/> : null}
+      {selectedGmVisit ? <GmVisitDetailDrawer visit={selectedGmVisit} onClose={() => setSelectedGmVisit(null)}/> : null}
     </div>
   );
 }

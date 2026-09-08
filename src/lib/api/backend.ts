@@ -27,6 +27,7 @@ import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/la
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod, RedMonthYear } from "@/types/red-month";
 import type { SmModule, SmQuestionnaire } from "@/types/smQuestionnaire";
 import type {
+  AdminGmPlanningVisit,
   CreateSmPlanningAssignmentInput,
   CreateSmPlanningSeriesInput,
   SmGlobalQuestionnaireConfiguration,
@@ -136,6 +137,7 @@ type BackendMarket = {
   importedAt?: string | null;
   plannedToId?: string | null;
   plannedByActiveStandardGmName?: string | null;
+  nextSmVisitDate?: string | null;
   activeNowCampaigns?: Array<{
     campaignId: string;
     campaignName: string;
@@ -1991,6 +1993,15 @@ export async function fetchMySmPlanningAssignments(from: string, to: string): Pr
   return data.assignments ?? [];
 }
 
+export async function fetchAdminGmPlanningVisits(from: string, to: string): Promise<AdminGmPlanningVisit[]> {
+  const data = (await authedFetch(
+    `/admin/sm-planning/gm-visits?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { cache: "no-store" },
+    60_000,
+  )) as { visits?: AdminGmPlanningVisit[] };
+  return data.visits ?? [];
+}
+
 export const SM_HOME_DASHBOARD_CHANGED_EVENT = "sm-home-dashboard-changed";
 
 export async function fetchMySmHomeDashboard(): Promise<SmHomeDashboardPayload> {
@@ -2997,6 +3008,7 @@ export async function fetchGmAssignedActiveCampaignMarkets(): Promise<MarketReco
 
 export type GmStartMarket = {
   market: MarketRecord;
+  nextSmVisitDate: string | null;
   activeNowCampaigns: Array<{
     campaignId: string;
     campaignName: string;
@@ -3121,6 +3133,7 @@ const gmKuehlerMhdProgressCache: TimedApiCache<GmKuehlerMhdProgressPayload> = {
 
 function cloneGmStartMarkets(rows: GmStartMarket[]): GmStartMarket[] {
   return rows.map((row) => ({
+    ...row,
     market: { ...row.market },
     activeNowCampaigns: row.activeNowCampaigns.map((campaign) => ({ ...campaign })),
   }));
@@ -3175,6 +3188,7 @@ export async function fetchGmAssignedStartMarkets(): Promise<GmStartMarket[]> {
       const data = (await authedFetch("/markets/gm/assigned-active")) as { markets?: BackendMarket[] };
       return (data.markets ?? []).map((market) => ({
         market: mapBackendMarketToMarketRecord(market),
+        nextSmVisitDate: market.nextSmVisitDate ?? null,
         activeNowCampaigns: market.activeNowCampaigns ?? [],
       }));
     },
@@ -3201,6 +3215,7 @@ export async function fetchGmFlexStartMarkets(): Promise<GmStartMarket[]> {
       const data = (await authedFetch("/markets/gm/flex-start-markets")) as { markets?: BackendMarket[] };
       return (data.markets ?? []).map((market) => ({
         market: mapBackendMarketToMarketRecord(market),
+        nextSmVisitDate: market.nextSmVisitDate ?? null,
         activeNowCampaigns: market.activeNowCampaigns ?? [],
       }));
     },

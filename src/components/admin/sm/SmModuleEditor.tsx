@@ -275,11 +275,13 @@ function SmLogicDropdown({
   options,
   onChange,
   placeholder,
+  emptyMessage = "Keine Auswahl verfügbar",
 }: {
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
   placeholder?: string;
+  emptyMessage?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -291,7 +293,7 @@ function SmLogicDropdown({
     if (!trigger) return;
 
     const rect = trigger.getBoundingClientRect();
-    const estimatedHeight = Math.min(180, options.length * 34 + 8);
+    const estimatedHeight = Math.min(180, Math.max(54, options.length * 34 + 8));
     const roomBelow = window.innerHeight - rect.bottom;
     const openAbove = roomBelow < estimatedHeight + 8 && rect.top > estimatedHeight + 8;
     const width = rect.width;
@@ -374,7 +376,11 @@ function SmLogicDropdown({
             boxShadow: "0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04)",
           }}
         >
-          {options.map((option) => {
+          {options.length === 0 ? (
+            <div role="status" style={{ minHeight: 46, padding: "8px 9px", display: "flex", alignItems: "center", color: "rgba(0,0,0,.38)", fontSize: 9.5, fontWeight: 500, lineHeight: 1.45 }}>
+              {emptyMessage}
+            </div>
+          ) : options.map((option) => {
             const selected = value === option.value;
             return (
               <button
@@ -755,9 +761,15 @@ function SmOosQuestionEditor({
                 value={config.detectionQuestionId ?? ""}
                 options={detectionQuestions.map((candidate) => ({ value: candidate.id, label: candidate.text || "Frage ohne Titel" }))}
                 placeholder={category ? "Erkennungsfrage auswählen..." : "Zuerst Kategorie auswählen"}
+                emptyMessage={category ? "Keine passende Erkennungsfrage. Lege zuerst in diesem Modul eine OOS-Erkennungsfrage derselben Kategorie an." : "Wähle zuerst eine OOS-Kategorie aus."}
                 onChange={(value) => updateConfig({ detectionQuestionId: value || undefined })}
               />
             </div>
+          ) : null}
+          {role === "remediation" && category && detectionQuestions.length === 0 ? (
+            <p style={{ margin: "-2px 0 8px 252px", color: "rgba(0,0,0,.34)", fontSize: 8.7, lineHeight: 1.45 }}>
+              Erkennungs- und Behebungsfrage müssen im selben Modul und derselben Kategorie liegen.
+            </p>
           ) : null}
 
           {role ? (

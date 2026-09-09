@@ -3,6 +3,7 @@ export interface SMRecord {
   firstName: string;
   lastName: string;
   email: string;
+  isActive: boolean;
   travelTimeEnabled: boolean;
   visitCount?: number;
   createdAt: string;

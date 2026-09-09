@@ -29,8 +29,9 @@ import {
 import { SmMarketImportModal } from "@/components/admin/sm/SmMarketImportModal";
 import { SmMarketUserSyncModal } from "@/components/admin/sm/SmMarketUserSyncModal";
 import { SmMarketDeactivationModal } from "@/components/admin/sm/SmMarketDeactivationModal";
-import { createSmMarket, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket } from "@/lib/api/backend";
+import { createSmMarket, fetchGmUsers, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket } from "@/lib/api/backend";
 import type { ImportSmMarketsInput, SmMarketImportSummary, SmMarketRecord } from "@/types/smMarkets";
+import type { GMRecord } from "@/types/gebietsmanager";
 import type { SMRecord } from "@/types/shelfmerchandiser";
 
 const COKE_RED = "#DC2626";
@@ -45,6 +46,11 @@ type SmMarketPreview = SmMarketRecord;
 
 type EditableMarketFields = Pick<SmMarketPreview, "name" | "dbName" | "internalId" | "infoNote" | "address" | "postalCode" | "city" | "region" | "isActive"> & {
   chain: string;
+};
+
+type MarketEditDraft = EditableMarketFields & {
+  assignedSmUserId: string | null;
+  fieldServiceManagerUserId: string | null;
 };
 
 type NewSmMarketInput = EditableMarketFields & {
@@ -106,8 +112,17 @@ function marketChain(market: SmMarketPreview): string {
   return market.chain?.trim() || market.dbName.trim() || market.name.split(" ")[0]?.trim() || "Markt";
 }
 
+function formatGmName(gm: GMRecord): string {
+  const fullName = `${gm.firstName ?? ""} ${gm.lastName ?? ""}`.trim();
+  return fullName || gm.email || "Unbenannter GM";
+}
+
 function marketOwnerDisplayName(market: SmMarketPreview, assignedSm: SMRecord | undefined): string {
   return assignedSm ? formatSmName(assignedSm) : market.shelfMerchandiserName?.trim() || "—";
+}
+
+function marketFieldServiceDisplayName(market: SmMarketPreview, assignedGm: GMRecord | undefined): string {
+  return assignedGm ? formatGmName(assignedGm) : market.fieldServiceManagerName?.trim() || "—";
 }
 
 function formatPlanningHours(value: number | undefined): string {
@@ -120,7 +135,7 @@ function planningInitials(value: string | undefined): string {
   return value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase("de-AT") ?? "").join("");
 }
 
-function editableMarketFields(market: SmMarketPreview): EditableMarketFields {
+function editableMarketFields(market: SmMarketPreview): MarketEditDraft {
   return {
     name: market.name,
     dbName: market.dbName,
@@ -132,6 +147,8 @@ function editableMarketFields(market: SmMarketPreview): EditableMarketFields {
     city: market.city,
     region: market.region,
     isActive: market.isActive,
+    assignedSmUserId: market.assignedSmUserId,
+    fieldServiceManagerUserId: market.fieldServiceManagerUserId,
   };
 }
 
@@ -151,7 +168,7 @@ function uniqueSorted(values: string[]): string[] {
   );
 }
 
-function buildSearchText(market: SmMarketPreview, assignedSm: SMRecord | undefined): string {
+function buildSearchText(market: SmMarketPreview, assignedSm: SMRecord | undefined, assignedGm: GMRecord | undefined): string {
   return normalize(
     [
       market.name,
@@ -166,11 +183,13 @@ function buildSearchText(market: SmMarketPreview, assignedSm: SMRecord | undefin
       market.fieldServiceManagerName ?? "",
       assignedSm ? formatSmName(assignedSm) : "",
       assignedSm?.email ?? "",
+      assignedGm ? formatGmName(assignedGm) : "",
+      assignedGm?.email ?? "",
     ].join(" "),
   );
 }
 
-function initials(sm: SMRecord): string {
+function initials(sm: Pick<SMRecord, "firstName" | "lastName">): string {
   const value = `${sm.firstName?.charAt(0) ?? ""}${sm.lastName?.charAt(0) ?? ""}`.toLocaleUpperCase("de-AT");
   return value || "SM";
 }
@@ -360,14 +379,14 @@ function MarketFieldSelect({ value, options, large = false, onChange }: { value:
   );
 }
 
-function SmAssignmentSelect({
+function AccountAssignmentSelect({
   value,
   users,
   compact,
   onChange,
 }: {
   value: string | null;
-  users: SMRecord[];
+  users: Array<{ id: string; firstName: string; lastName: string; email: string }>;
   compact?: boolean;
   onChange: (value: string | null) => void;
 }) {
@@ -375,7 +394,7 @@ function SmAssignmentSelect({
   const anchorRef = useRef<HTMLButtonElement>(null);
   const selected = users.find((user) => user.id === value);
   const options = useMemo<SelectOption[]>(
-    () => users.map((user) => ({ value: user.id, label: formatSmName(user), subLabel: user.email })),
+    () => users.map((user) => ({ value: user.id, label: `${user.firstName} ${user.lastName}`.trim() || user.email, subLabel: user.email })),
     [users],
   );
 
@@ -413,7 +432,7 @@ function SmAssignmentSelect({
           </span>
         )}
         <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: compact ? 10 : 10.5, fontWeight: selected ? 650 : 500, color: selected ? "#262626" : "rgba(0,0,0,0.38)" }}>
-          {selected ? formatSmName(selected) : "Nicht zugewiesen"}
+          {selected ? `${selected.firstName} ${selected.lastName}`.trim() || selected.email : "Nicht zugewiesen"}
         </span>
         <ChevronDown size={10} strokeWidth={2} color="rgba(0,0,0,0.32)" style={{ flexShrink: 0 }} />
       </button>
@@ -625,8 +644,7 @@ function EditInfoRow({ label, children }: { label: string; children: React.React
 function MarketDetailDrawer({
   market,
   users,
-  assignedSmId,
-  onAssign,
+  gmUsers,
   onSave,
   onDeactivated,
   onDelete,
@@ -634,16 +652,15 @@ function MarketDetailDrawer({
 }: {
   market: SmMarketPreview;
   users: SMRecord[];
-  assignedSmId: string | null;
-  onAssign: (smId: string | null) => void;
-  onSave: (fields: EditableMarketFields) => Promise<void>;
+  gmUsers: GMRecord[];
+  onSave: (fields: MarketEditDraft) => Promise<void>;
   onDeactivated: (market: SmMarketRecord) => void;
   onDelete: () => Promise<void>;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"info" | "assignments">("info");
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<EditableMarketFields>(() => editableMarketFields(market));
+  const [draft, setDraft] = useState<MarketEditDraft>(() => editableMarketFields(market));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -651,15 +668,28 @@ function MarketDetailDrawer({
   const [showDeactivation, setShowDeactivation] = useState(false);
   const chain = marketChain(market);
   const colors = chainColors(chain);
-  const linkedSmUser = assignedSmId ? users.find((user) => user.id === assignedSmId) : undefined;
+  const linkedSmUser = market.assignedSmUserId ? users.find((user) => user.id === market.assignedSmUserId) : undefined;
+  const linkedGmUser = market.fieldServiceManagerUserId ? gmUsers.find((user) => user.id === market.fieldServiceManagerUserId) : undefined;
   const ownerDisplayName = marketOwnerDisplayName(market, linkedSmUser);
+  const fieldServiceDisplayName = marketFieldServiceDisplayName(market, linkedGmUser);
+  const assignableSmUsers = useMemo(
+    () => users.filter((user) => user.isActive || user.id === market.assignedSmUserId),
+    [market.assignedSmUserId, users],
+  );
+  const assignableGmUsers = useMemo(
+    () => gmUsers.filter((user) =>
+      (user.isActive !== false && !user.deletedAt && !user.anonymizedAt)
+      || user.id === market.fieldServiceManagerUserId,
+    ),
+    [gmUsers, market.fieldServiceManagerUserId],
+  );
   const importedSmName = market.shelfMerchandiserName?.trim() ?? "";
   const weekdayHours = market.weekdayHours ?? {};
   const derivedServiceDays = WEEKDAYS.filter(({ key }) => weekdayHours[key] !== undefined).length;
   const derivedWeeklyHours = WEEKDAYS.reduce((sum, { key }) => sum + (weekdayHours[key] ?? 0), 0);
   const serviceDaysPerWeek = market.serviceDaysPerWeek ?? (derivedServiceDays || undefined);
   const weeklyHours = market.weeklyHours ?? (derivedWeeklyHours || undefined);
-  const updateDraft = <K extends keyof EditableMarketFields>(field: K, value: EditableMarketFields[K]) => {
+  const updateDraft = <K extends keyof MarketEditDraft>(field: K, value: MarketEditDraft[K]) => {
     setDraft((current) => ({ ...current, [field]: value }));
   };
   const save = async () => {
@@ -742,13 +772,9 @@ function MarketDetailDrawer({
             </InfoSection>
             <div className="sm-drawer-divider" />
             <InfoSection label="Zuordnung & Klassifikation">
-              <InfoRow label="Stammmarkt von" value={ownerDisplayName} />
+              {editing ? <EditInfoRow label="Stammmarkt von"><AccountAssignmentSelect value={draft.assignedSmUserId} users={assignableSmUsers} onChange={(value) => updateDraft("assignedSmUserId", value)} /></EditInfoRow> : <InfoRow label="Stammmarkt von" value={ownerDisplayName} />}
               {linkedSmUser && importedSmName && normalize(importedSmName) !== normalize(ownerDisplayName) ? <InfoRow label="Importierter SM-Name" value={importedSmName} /> : null}
-              <InfoRow label="Field Service Gebietsleiter" value={market.fieldServiceManagerName} />
-              <div style={{ display: "grid", gridTemplateColumns: "112px minmax(0,1fr)", gap: 10, alignItems: "center" }}>
-                <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Verknüpfter SM-Account</span>
-                <SmAssignmentSelect value={assignedSmId} users={users} onChange={onAssign} />
-              </div>
+              {editing ? <EditInfoRow label="Field Service Gebietsleiter"><AccountAssignmentSelect value={draft.fieldServiceManagerUserId} users={assignableGmUsers} onChange={(value) => updateDraft("fieldServiceManagerUserId", value)} /></EditInfoRow> : <InfoRow label="Field Service Gebietsleiter" value={fieldServiceDisplayName} />}
               {editing ? <EditInfoRow label="Markt"><input className="sm-market-edit-field" value={draft.chain} onChange={(event) => updateDraft("chain", event.target.value)} /></EditInfoRow> : <InfoRow label="Markt" value={marketChain(market)} />}
               {editing ? <EditInfoRow label="Status"><MarketFieldSelect value={draft.isActive ? "active" : "inactive"} options={[{ value: "active", label: "Aktiv" }, { value: "inactive", label: "Inaktiv" }]} onChange={(value) => { if (value === "inactive" && market.isActive) setShowDeactivation(true); else updateDraft("isActive", value === "active"); }} /></EditInfoRow> : <InfoRow label="Status" value={<span style={{ color: market.isActive ? "#15803d" : COKE_RED, fontWeight: 700 }}>{market.isActive ? "Aktiv" : "Inaktiv"}</span>} />}
             </InfoSection>
@@ -941,7 +967,7 @@ function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: 
             <div className="sm-market-create-section-title">Zuordnung &amp; interner Hinweis</div>
             <div className="sm-market-create-grid is-bottom">
               <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                <label className="sm-market-create-label"><span>Verknüpfter SM-Account</span><SmAssignmentSelect value={assignedSmId} users={users} onChange={setAssignedSmId} /></label>
+                <label className="sm-market-create-label"><span>Verknüpfter SM-Account</span><AccountAssignmentSelect value={assignedSmId} users={users.filter((user) => user.isActive)} onChange={setAssignedSmId} /></label>
                 <label className="sm-market-create-label"><span>Status</span><button type="button" onClick={() => setIsActive((current) => !current)} className={`sm-market-create-status${isActive ? " is-active" : " is-inactive"}`}>{isActive ? "Aktiv" : "Inaktiv"}</button></label>
               </div>
               <label className="sm-market-create-label">
@@ -989,6 +1015,7 @@ function PageSkeleton() {
 export default function SmMaerktePage() {
   const [markets, setMarkets] = useState<SmMarketPreview[]>([]);
   const [users, setUsers] = useState<SMRecord[]>([]);
+  const [gmUsers, setGmUsers] = useState<GMRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -1006,10 +1033,12 @@ export default function SmMaerktePage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [smRows, marketRows] = await Promise.all([fetchSmUsers(), fetchSmMarkets()]);
+        const [smRows, gmRows, marketRows] = await Promise.all([fetchSmUsers(), fetchGmUsers(), fetchSmMarkets()]);
         if (!active) return;
         const sortedUsers = [...smRows].sort((a, b) => formatSmName(a).localeCompare(formatSmName(b), "de-AT", { sensitivity: "base" }));
+        const sortedGmUsers = [...gmRows].sort((a, b) => formatGmName(a).localeCompare(formatGmName(b), "de-AT", { sensitivity: "base" }));
         setUsers(sortedUsers);
+        setGmUsers(sortedGmUsers);
         setMarkets(marketRows);
       } catch (reason) {
         if (active) setLoadError(reason instanceof Error ? reason.message : "SM-Märkte konnten nicht geladen werden.");
@@ -1051,6 +1080,7 @@ export default function SmMaerktePage() {
   }, []);
 
   const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const gmById = useMemo(() => new Map(gmUsers.map((user) => [user.id, user])), [gmUsers]);
   const existingInternalIds = useMemo(() => new Set(markets.map((market) => market.internalId.trim().toLocaleLowerCase("de-AT")).filter(Boolean)), [markets]);
   const options = useMemo(() => ({
     region: uniqueSorted(markets.map((market) => market.region)),
@@ -1061,46 +1091,36 @@ export default function SmMaerktePage() {
       const value = marketOwnerDisplayName(market, market.assignedSmUserId ? userById.get(market.assignedSmUserId) : undefined);
       return value === "—" ? "" : value;
     })),
-    fieldServiceManagerName: uniqueSorted(markets.map((market) => market.fieldServiceManagerName ?? "")),
-  }), [markets, userById]);
+    fieldServiceManagerName: uniqueSorted(markets.map((market) => {
+      const value = marketFieldServiceDisplayName(market, market.fieldServiceManagerUserId ? gmById.get(market.fieldServiceManagerUserId) : undefined);
+      return value === "—" ? "" : value;
+    })),
+  }), [gmById, markets, userById]);
 
   const filteredMarkets = useMemo(() => {
     const query = normalize(deferredSearch);
     return markets.filter((market) => {
       const assignedSmId = market.assignedSmUserId;
       const assignedSm = assignedSmId ? userById.get(assignedSmId) : undefined;
-      if (query && !buildSearchText(market, assignedSm).includes(query)) return false;
+      const assignedGm = market.fieldServiceManagerUserId ? gmById.get(market.fieldServiceManagerUserId) : undefined;
+      if (query && !buildSearchText(market, assignedSm, assignedGm).includes(query)) return false;
       if (filters.region && market.region !== filters.region) return false;
       if (filters.city && market.city !== filters.city) return false;
       if (filters.postalCode && market.postalCode !== filters.postalCode) return false;
       if (filters.chain && marketChain(market) !== filters.chain) return false;
       if (filters.shelfMerchandiserName && marketOwnerDisplayName(market, assignedSm) !== filters.shelfMerchandiserName) return false;
-      if (filters.fieldServiceManagerName && market.fieldServiceManagerName?.trim() !== filters.fieldServiceManagerName) return false;
+      if (filters.fieldServiceManagerName && marketFieldServiceDisplayName(market, assignedGm) !== filters.fieldServiceManagerName) return false;
       if (filters.status === "Aktiv" && !market.isActive) return false;
       if (filters.status === "Inaktiv" && market.isActive) return false;
       return true;
     });
-  }, [deferredSearch, filters, markets, userById]);
+  }, [deferredSearch, filters, gmById, markets, userById]);
 
   const selectedMarket = useMemo(() => markets.find((market) => market.id === selectedId) ?? null, [markets, selectedId]);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
   const assignedCount = useMemo(() => markets.filter((market) => market.assignedSmUserId).length, [markets]);
 
-  const handleAssignment = useCallback(async (marketId: string, smId: string | null) => {
-    const previous = markets.find((market) => market.id === marketId)?.assignedSmUserId ?? null;
-    setMutationError(null);
-    setMarkets((current) => current.map((market) => market.id === marketId ? { ...market, assignedSmUserId: smId } : market));
-    try {
-      const updated = await updateSmMarket(marketId, { assignedSmUserId: smId });
-      setMarkets((current) => current.map((market) => market.id === marketId && market.assignedSmUserId === smId ? updated : market));
-    } catch (reason) {
-      setMarkets((current) => current.map((market) => market.id === marketId && market.assignedSmUserId === smId ? { ...market, assignedSmUserId: previous } : market));
-      const error = reason instanceof Error ? reason : new Error("SM-Zuordnung konnte nicht gespeichert werden.");
-      setMutationError(error.message);
-    }
-  }, [markets]);
-
-  const handleMarketSave = useCallback(async (marketId: string, fields: EditableMarketFields) => {
+  const handleMarketSave = useCallback(async (marketId: string, fields: MarketEditDraft) => {
     setMutationError(null);
     try {
       const updated = await updateSmMarket(marketId, {
@@ -1113,6 +1133,8 @@ export default function SmMaerktePage() {
         city: fields.city,
         region: fields.region,
         adminInfoNote: fields.infoNote,
+        assignedSmUserId: fields.assignedSmUserId,
+        fieldServiceManagerUserId: fields.fieldServiceManagerUserId,
         isActive: fields.isActive,
       });
       setMarkets((current) => current.map((market) => market.id === marketId ? updated : market));
@@ -1354,8 +1376,7 @@ export default function SmMaerktePage() {
           key={selectedMarket.id}
           market={selectedMarket}
           users={users}
-          assignedSmId={selectedMarket.assignedSmUserId}
-          onAssign={(smId) => void handleAssignment(selectedMarket.id, smId)}
+          gmUsers={gmUsers}
           onSave={(fields) => handleMarketSave(selectedMarket.id, fields)}
           onDeactivated={(updated) => setMarkets((current) => current.map((market) => market.id === updated.id ? updated : market))}
           onDelete={() => handleDeleteMarket(selectedMarket.id)}

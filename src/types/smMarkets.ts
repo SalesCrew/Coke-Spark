@@ -20,6 +20,7 @@ export type SmMarketRecord = {
   weeklyHours?: number;
   shelfMerchandiserName?: string;
   assignedSmUserId: string | null;
+  fieldServiceManagerUserId: string | null;
   fieldServiceManagerName?: string;
   sourceInfo?: string;
   importSourceFileName?: string;
@@ -89,6 +90,7 @@ export type CreateSmMarketInput = {
   region: string;
   adminInfoNote?: string;
   assignedSmUserId?: string | null;
+  fieldServiceManagerUserId?: string | null;
   isActive?: boolean;
 };
 

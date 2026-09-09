@@ -95,6 +95,27 @@ function TravelTimeToggle({ value, onChange }: { value: boolean; onChange: (valu
   );
 }
 
+function AccountStatusToggle({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 3, borderRadius: 9, background: "rgba(0,0,0,0.045)", border: "1px solid rgba(0,0,0,0.06)" }} role="group" aria-label="Accountstatus">
+      {[true, false].map(option => {
+        const selected = value === option;
+        return (
+          <button
+            key={String(option)}
+            type="button"
+            onClick={() => onChange(option)}
+            aria-pressed={selected}
+            style={{ height: 30, borderRadius: 6, border: selected ? "1px solid rgba(0,0,0,0.08)" : "1px solid transparent", background: selected ? "#fff" : "transparent", boxShadow: selected ? "0 1px 4px rgba(0,0,0,0.07)" : "none", color: selected ? (option ? "#15803d" : R) : "rgba(0,0,0,0.4)", fontSize: 11, fontWeight: selected ? 700 : 500, fontFamily: "inherit", cursor: "pointer", transition: "all 0.14s" }}
+          >
+            {option ? "Aktiv" : "Inaktiv"}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── GM Card ───────────────────────────────────────────────────
 function SMCard({
   gm,
@@ -135,6 +156,9 @@ function SMCard({
             <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>Shelf Merchandiser</div>
           </div>
         </div>
+        <span style={{ flexShrink: 0, padding: "3px 8px", borderRadius: 999, background: gm.isActive ? "rgba(22,163,74,.08)" : "rgba(220,38,38,.08)", color: gm.isActive ? "#15803d" : R, fontSize: 8.5, fontWeight: 750 }}>
+          {gm.isActive ? "Aktiv" : "Inaktiv"}
+        </span>
       </div>
       <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
         <div style={{ padding: "16px 16px 12px", textAlign: "center", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
@@ -274,6 +298,12 @@ function SMDetailDrawer({ gm, onClose, onSave, assignments }: { gm: SMRecord; on
     setSaved(false);
   };
 
+  const setAccountStatus = (value: boolean) => {
+    setDraft(d => ({ ...d, isActive: value }));
+    setDirty(true);
+    setSaved(false);
+  };
+
   const handleSave = async () => {
     if (saving || !dirty) return;
     setSaving(true);
@@ -389,6 +419,14 @@ function SMDetailDrawer({ gm, onClose, onSave, assignments }: { gm: SMRecord; on
           <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
 
           <div>
+            <div style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 7 }}>Accountstatus</div>
+            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", lineHeight: 1.5, marginBottom: 9 }}>Inaktive SMs können sich nicht anmelden. Ihre historischen Daten bleiben vollständig erhalten.</div>
+            <AccountStatusToggle value={draft.isActive} onChange={setAccountStatus} />
+          </div>
+
+          <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+
+          <div>
             <div style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 7 }}>Fahrtzeiten</div>
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", lineHeight: 1.5, marginBottom: 9 }}>Dürfen Fahrtzeiten für diesen SM erfasst werden?</div>
             <TravelTimeToggle value={draft.travelTimeEnabled} onChange={setTravelTimeEnabled} />
@@ -480,9 +518,10 @@ function SMDetailDrawer({ gm, onClose, onSave, assignments }: { gm: SMRecord; on
 type FormState = {
   firstName: string; lastName: string;
   email: string;
+  isActive: boolean;
   travelTimeEnabled: boolean;
 };
-const EMPTY_FORM: FormState = { firstName: "", lastName: "", email: "", travelTimeEnabled: false };
+const EMPTY_FORM: FormState = { firstName: "", lastName: "", email: "", isActive: true, travelTimeEnabled: false };
 function isValidEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function isFormValid(f: FormState) {
   return Boolean(f.firstName.trim() && f.lastName.trim() && f.email.trim() && isValidEmail(f.email));
@@ -610,6 +649,13 @@ function CreateModal({
               <InputField label="E-Mail *" value={form.email} onChange={set("email")} placeholder="m.mustermann@salescrew.at" type="email" error={!!emailError} />
             </div>
             <div style={{ padding: 12, borderRadius: 10, border: "1px solid rgba(0,0,0,0.07)", background: "rgba(0,0,0,0.018)" }}>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#374151" }}>Accountstatus</div>
+                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 1 }}>Inaktive Accounts können sich nicht anmelden</div>
+              </div>
+              <AccountStatusToggle value={form.isActive} onChange={isActive => setForm(current => ({ ...current, isActive }))} />
+            </div>
+            <div style={{ padding: 12, borderRadius: 10, border: "1px solid rgba(0,0,0,0.07)", background: "rgba(0,0,0,0.018)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
                 <Car size={12} strokeWidth={1.9} color="rgba(0,0,0,0.42)" />
                 <div>
@@ -717,6 +763,7 @@ export default function ShelfMerchandiserPage() {
       firstName: form.firstName,
       lastName: form.lastName,
       email: form.email,
+      isActive: form.isActive,
       travelTimeEnabled: form.travelTimeEnabled,
     });
     setGms((prev) => [created, ...prev]);
@@ -734,6 +781,7 @@ export default function ShelfMerchandiserPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "SM konnte nicht gespeichert werden.";
       setBackendError(msg);
+      throw err;
     }
   }, []);
 

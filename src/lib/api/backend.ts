@@ -568,6 +568,7 @@ function mapBackendUserToSmRecord(user: BackendUser, oneTimePassword?: string): 
     firstName: user.firstName,
     lastName: user.lastName,
     email: user.email,
+    isActive: Boolean(user.isActive ?? true),
     travelTimeEnabled: Boolean(user.travelTimeEnabled),
     visitCount: 0,
     createdAt: user.createdAt ?? new Date().toISOString(),
@@ -2885,6 +2886,7 @@ export async function createSmUser(payload: Omit<SMRecord, "id" | "createdAt" | 
       firstName: payload.firstName,
       lastName: payload.lastName,
       email: payload.email,
+      isActive: payload.isActive,
       travelTimeEnabled: payload.travelTimeEnabled,
     }),
   })) as { user: BackendUser; oneTimePassword?: string };
@@ -2900,6 +2902,7 @@ export async function updateSmUser(payload: SMRecord): Promise<SMRecord> {
       firstName: payload.firstName,
       lastName: payload.lastName,
       email: payload.email,
+      isActive: payload.isActive,
       travelTimeEnabled: payload.travelTimeEnabled,
     }),
   })) as { user: BackendUser };

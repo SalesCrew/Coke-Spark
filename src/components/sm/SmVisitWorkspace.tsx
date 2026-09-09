@@ -32,9 +32,11 @@ import { SmTravelTimeInput } from "@/components/sm/SmTravelTimeInput";
 import { SmVisitTimeConflict, type SmVisitTimeConflictDetails } from "@/components/sm/SmVisitTimeConflict";
 import {
   BackendApiError,
+  cleanupSmVisitPhotoUpload,
   clearMySmPlanningAssignmentsCache,
   clearSmVisitPendingAnswers,
   clearSmVisitPreloadCache,
+  commitSmVisitPhotos,
   discardSmVisit,
   fetchSmVisit,
   getSmVisitStartTokenStorageKey,
@@ -45,11 +47,12 @@ import {
   removeSmVisitPendingAnswer,
   saveSmVisitAnswer,
   setSmVisitPreloadCache,
+  stageSmVisitPhotos,
   startSmVisit,
   submitSmVisit,
   updateSmVisitTiming,
   updateSmVisitPendingAnswerVersion,
-  uploadSmVisitPhotos,
+  type SmVisitPhotoCommitItem,
 } from "@/lib/api/backend";
 import { computeHiddenQuestionIds } from "@/lib/conditional-visibility";
 import type { SmVisitAnswer, SmVisitPayload, SmVisitQuestion, SmVisitReceipt, SmVisitSection } from "@/types/smVisit";
@@ -274,6 +277,16 @@ function flattenQuestions(sections: SmVisitSection[]): Array<{ section: SmVisitS
 
 type SmVisitSaveState = "idle" | "local" | "saved" | "queued" | "error";
 
+type PendingSmVisitPhoto = SmVisitPhotoCommitItem & {
+  localId: string;
+  previewUrl: string;
+};
+
+type PendingSmVisitPhotoCommit = {
+  answerId: string;
+  photos: PendingSmVisitPhoto[];
+};
+
 export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { assignmentId: string; resumeQuestionId?: string | null }) {
   const router = useRouter();
   const initialPayloadRef = useRef<SmVisitPayload | null | undefined>(undefined);
@@ -299,6 +312,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
   const [travelInput, setTravelInput] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [pendingPhotoFilesByQuestionId, setPendingPhotoFilesByQuestionId] = useState<Record<string, SmVisitPhotoFile[]>>({});
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
   const [exitStage, setExitStage] = useState<VisitExitStage>("choice");
   const [exitBusy, setExitBusy] = useState(false);
@@ -317,10 +331,33 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
   const saveStateRef = useRef<SmVisitSaveState>("idle");
   const persistedAnswerSignaturesRef = useRef<Record<string, string>>({});
   const appliedResumeQuestionKeyRef = useRef<string | null>(null);
+  const pendingPhotoCommitsRef = useRef<Record<string, PendingSmVisitPhotoCommit>>({});
+  const photoUploadQueueRef = useRef<Record<string, Promise<boolean>>>({});
+  const photoCommitQueueRef = useRef<Record<string, Promise<boolean>>>({});
+  const photoErrorByQuestionIdRef = useRef<Record<string, string | null>>({});
+  const photoOperationCountRef = useRef(0);
 
   useEffect(() => () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     if (savedStateTimer.current) clearTimeout(savedStateTimer.current);
+    for (const pending of Object.values(pendingPhotoCommitsRef.current)) {
+      for (const photo of pending.photos) URL.revokeObjectURL(photo.previewUrl);
+    }
+  }, []);
+
+  const beginPhotoOperation = useCallback(() => {
+    photoOperationCountRef.current += 1;
+    setPhotoBusy(true);
+  }, []);
+
+  const endPhotoOperation = useCallback(() => {
+    photoOperationCountRef.current = Math.max(0, photoOperationCountRef.current - 1);
+    if (photoOperationCountRef.current === 0) setPhotoBusy(false);
+  }, []);
+
+  const updatePhotoError = useCallback((questionId: string, message: string | null) => {
+    photoErrorByQuestionIdRef.current = { ...photoErrorByQuestionIdRef.current, [questionId]: message };
+    if (activeRef.current?.question.id === questionId) setPhotoError(message);
   }, []);
 
   const updateSaveState = useCallback((state: SmVisitSaveState) => {
@@ -403,6 +440,24 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
   const flat = useMemo(() => flattenQuestions(payload?.sections ?? []), [payload?.sections]);
   const active = flat[currentIndex] ?? null;
   activeRef.current = active;
+
+  useEffect(() => {
+    setPhotoError(active ? photoErrorByQuestionIdRef.current[active.question.id] ?? null : null);
+  }, [active?.question.id]);
+
+  const applyLocalPhotoAnswer = useCallback((questionId: string) => {
+    const currentPayload = payloadRef.current;
+    if (!currentPayload) return;
+    const committedIds = (currentPayload.photoFiles[questionId] ?? []).map((file) => file.id);
+    const pendingIds = (pendingPhotoCommitsRef.current[questionId]?.photos ?? []).map((photo) => photo.localId);
+    const answer: SmVisitAnswer = { kind: "photo", fileIds: [...committedIds, ...pendingIds] };
+    const next = withLocalSmVisitAnswer(currentPayload, questionId, answer);
+    applyPayload(next, { persistCache: false });
+    if (activeRef.current?.question.id === questionId) {
+      draftRef.current = answer;
+      setDraft(answer);
+    }
+  }, [applyPayload]);
 
   useEffect(() => {
     if (!resumeQuestionId || flat.length === 0) return;
@@ -549,7 +604,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
 
   const saveCurrent = useCallback((answer = draftRef.current, force = false) => {
     const current = activeRef.current;
-    if (!current || !answer) return Promise.resolve(true);
+    if (!current || !answer || current.question.type === "photo") return Promise.resolve(true);
     return persistAnswer(current.question, answer, force);
   }, [persistAnswer]);
 
@@ -647,6 +702,11 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
 
   useEffect(() => {
     const hasUnsavedWork = () => {
+      if (
+        Object.keys(pendingPhotoCommitsRef.current).length > 0
+        || Object.keys(photoUploadQueueRef.current).length > 0
+        || Object.keys(photoCommitQueueRef.current).length > 0
+      ) return true;
       const current = activeRef.current;
       const currentPayload = payloadRef.current;
       if (!current || !currentPayload?.submission || !draftRef.current) return false;
@@ -689,14 +749,158 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     }
   };
 
-  const goNext = () => {
-    if (!active) return;
-    const currentAnswer = draftRef.current
-      ?? defaultAnswer(active.question, payloadRef.current?.answers[active.question.id]);
-    if (photoBusy) {
-      setPhotoError("Bitte warte, bis alle Fotos gespeichert wurden.");
-      return;
+  const uploadPhotos = (questionId: string, files: File[]) => {
+    if (files.length === 0) return;
+    beginPhotoOperation();
+    const previous = photoUploadQueueRef.current[questionId] ?? Promise.resolve(true);
+    let queued: Promise<boolean>;
+    const run = async (): Promise<boolean> => {
+      updatePhotoError(questionId, null);
+      try {
+        const committedCount = payloadRef.current?.photoFiles[questionId]?.length ?? 0;
+        const pendingCount = pendingPhotoCommitsRef.current[questionId]?.photos.length ?? 0;
+        if (committedCount + pendingCount + files.length > 20) {
+          throw new Error("Pro Foto-Frage sind maximal 20 Fotos erlaubt.");
+        }
+        const staged = await stageSmVisitPhotos(assignmentId, questionId, files);
+        const existing = pendingPhotoCommitsRef.current[questionId];
+        if (existing && existing.answerId !== staged.answerId) {
+          await Promise.allSettled(staged.photos.map((photo) => cleanupSmVisitPhotoUpload(assignmentId, {
+            answerId: staged.answerId,
+            storageBucket: photo.storageBucket,
+            storagePath: photo.storagePath,
+          })));
+          throw new Error("Die Foto-Antwort hat sich unerwartet geändert. Bitte lade die Seite neu.");
+        }
+        const pendingPhotos = staged.photos.map((photo, index): PendingSmVisitPhoto => ({
+          ...photo,
+          localId: `pending:${photo.storagePath}`,
+          previewUrl: URL.createObjectURL(files[index]),
+        }));
+        const nextPending: PendingSmVisitPhotoCommit = {
+          answerId: staged.answerId,
+          photos: [...(existing?.photos ?? []), ...pendingPhotos],
+        };
+        pendingPhotoCommitsRef.current = { ...pendingPhotoCommitsRef.current, [questionId]: nextPending };
+        setPendingPhotoFilesByQuestionId((current) => ({
+          ...current,
+          [questionId]: nextPending.photos.map((photo) => ({
+            id: photo.localId,
+            fileName: photo.originalFileName ?? null,
+            mimeType: photo.mimeType,
+            byteSize: photo.byteSize,
+            signedUrl: photo.previewUrl,
+          })),
+        }));
+        applyLocalPhotoAnswer(questionId);
+        updateSaveState("local");
+        return true;
+      } catch (uploadError) {
+        updatePhotoError(questionId, uploadError instanceof Error ? uploadError.message : "Die Fotos konnten nicht hochgeladen werden.");
+        updateSaveState("error");
+        return false;
+      }
+    };
+    queued = previous.then(run, run).finally(() => {
+      if (photoUploadQueueRef.current[questionId] === queued) delete photoUploadQueueRef.current[questionId];
+      endPhotoOperation();
+    });
+    photoUploadQueueRef.current[questionId] = queued;
+  };
+
+  const flushPendingPhotoCommit = useCallback((questionId: string): Promise<boolean> => {
+    const inFlight = photoCommitQueueRef.current[questionId];
+    if (inFlight) return inFlight;
+    const queuedUpload = photoUploadQueueRef.current[questionId];
+    const pendingBeforeUpload = pendingPhotoCommitsRef.current[questionId];
+    if (!queuedUpload && !pendingBeforeUpload) {
+      return Promise.resolve(!photoErrorByQuestionIdRef.current[questionId]);
     }
+
+    beginPhotoOperation();
+    let commitPromise: Promise<boolean>;
+    const run = async (): Promise<boolean> => {
+      try {
+        if (queuedUpload && !(await queuedUpload)) return false;
+        const pending = pendingPhotoCommitsRef.current[questionId];
+        if (!pending || pending.photos.length === 0) return !photoErrorByQuestionIdRef.current[questionId];
+
+        updatePhotoError(questionId, null);
+        const commit = () => commitSmVisitPhotos(assignmentId, {
+          answerId: pending.answerId,
+          photos: pending.photos.map(({ storageBucket, storagePath, originalFileName, mimeType, byteSize }) => ({
+            storageBucket,
+            storagePath,
+            originalFileName,
+            mimeType,
+            byteSize,
+          })),
+        });
+        try {
+          await commit();
+        } catch (commitError) {
+          if (!(commitError instanceof TypeError)) throw commitError;
+          await commit();
+        }
+
+        let nextPayload: SmVisitPayload;
+        try {
+          nextPayload = await fetchSmVisit(assignmentId);
+        } catch (reloadError) {
+          if (!(reloadError instanceof TypeError)) throw reloadError;
+          nextPayload = await fetchSmVisit(assignmentId);
+        }
+        applyPayload(nextPayload, { fromServer: true });
+        if (pendingPhotoCommitsRef.current[questionId] === pending) {
+          delete pendingPhotoCommitsRef.current[questionId];
+          setPendingPhotoFilesByQuestionId((current) => {
+            const next = { ...current };
+            delete next[questionId];
+            return next;
+          });
+          for (const photo of pending.photos) URL.revokeObjectURL(photo.previewUrl);
+        }
+        if (activeRef.current?.question.id === questionId) {
+          const serverAnswer = defaultAnswer(activeRef.current.question, nextPayload.answers[questionId]);
+          draftRef.current = serverAnswer;
+          observedServerSignatureRef.current = stableAnswer(serverAnswer);
+          setDraft(serverAnswer);
+        }
+        updatePhotoError(questionId, null);
+        updateSaveState("saved");
+        return true;
+      } catch (commitError) {
+        updatePhotoError(questionId, commitError instanceof Error ? commitError.message : "Die Fotos konnten nicht gespeichert werden.");
+        updateSaveState("error");
+        return false;
+      }
+    };
+    commitPromise = run().finally(() => {
+      if (photoCommitQueueRef.current[questionId] === commitPromise) delete photoCommitQueueRef.current[questionId];
+      endPhotoOperation();
+    });
+    photoCommitQueueRef.current[questionId] = commitPromise;
+    return commitPromise;
+  }, [applyPayload, assignmentId, beginPhotoOperation, endPhotoOperation, updatePhotoError, updateSaveState]);
+
+  const flushAllPendingPhotoCommits = useCallback(async (): Promise<boolean> => {
+    const questionIds = new Set([
+      ...Object.keys(pendingPhotoCommitsRef.current),
+      ...Object.keys(photoUploadQueueRef.current),
+      ...Object.entries(photoErrorByQuestionIdRef.current).filter(([, message]) => Boolean(message)).map(([questionId]) => questionId),
+    ]);
+    for (const questionId of questionIds) {
+      if (!(await flushPendingPhotoCommit(questionId))) return false;
+    }
+    return true;
+  }, [flushPendingPhotoCommit]);
+
+  const goNext = async () => {
+    if (!active) return;
+    if (active.question.type === "photo" && !(await flushPendingPhotoCommit(active.question.id))) return;
+    const currentAnswer = active.question.type === "photo"
+      ? defaultAnswer(active.question, payloadRef.current?.answers[active.question.id])
+      : draftRef.current ?? defaultAnswer(active.question, payloadRef.current?.answers[active.question.id]);
     if (active.question.required && !isCompleteAnswer(active.question, currentAnswer)) {
       setMissingRequiredIds((current) => new Set(current).add(active.question.id));
       setSaveError("Bitte beantworte diese Pflichtfrage, bevor du fortfährst.");
@@ -734,37 +938,49 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     setNavigatorOpen(false);
   };
 
-  const uploadPhotos = async (questionId: string, files: File[]) => {
-    setPhotoBusy(true);
-    setPhotoError(null);
+  const removePhoto = async (questionId: string, fileId: string) => {
+    beginPhotoOperation();
+    updatePhotoError(questionId, null);
     try {
-      await uploadSmVisitPhotos(assignmentId, questionId, files);
-      const next = await fetchSmVisit(assignmentId);
-      applyPayload(next, { fromServer: true });
-      updateSaveState("saved");
-    } catch (uploadError) {
-      try {
-        applyPayload(await fetchSmVisit(assignmentId), { fromServer: true });
-      } catch {
-        // Keep the original upload error; a later retry/reload will reconcile the payload.
+      const pending = pendingPhotoCommitsRef.current[questionId];
+      const pendingPhoto = pending?.photos.find((photo) => photo.localId === fileId);
+      if (pending && pendingPhoto) {
+        await cleanupSmVisitPhotoUpload(assignmentId, {
+          answerId: pending.answerId,
+          storageBucket: pendingPhoto.storageBucket,
+          storagePath: pendingPhoto.storagePath,
+        });
+        const remaining = pending.photos.filter((photo) => photo.localId !== fileId);
+        if (remaining.length > 0) {
+          pendingPhotoCommitsRef.current = {
+            ...pendingPhotoCommitsRef.current,
+            [questionId]: { ...pending, photos: remaining },
+          };
+        } else {
+          delete pendingPhotoCommitsRef.current[questionId];
+        }
+        setPendingPhotoFilesByQuestionId((current) => ({
+          ...current,
+          [questionId]: remaining.map((photo) => ({
+            id: photo.localId,
+            fileName: photo.originalFileName ?? null,
+            mimeType: photo.mimeType,
+            byteSize: photo.byteSize,
+            signedUrl: photo.previewUrl,
+          })),
+        }));
+        URL.revokeObjectURL(pendingPhoto.previewUrl);
+        applyLocalPhotoAnswer(questionId);
+        updateSaveState(remaining.length > 0 ? "local" : "idle");
+        return;
       }
-      setPhotoError(uploadError instanceof Error ? uploadError.message : "Die Fotos konnten nicht hochgeladen werden.");
-      updateSaveState("error");
-    } finally {
-      setPhotoBusy(false);
-    }
-  };
-
-  const removePhoto = async (fileId: string) => {
-    setPhotoBusy(true);
-    setPhotoError(null);
-    try {
       await deleteSmVisitPhoto(assignmentId, fileId);
       applyPayload(await fetchSmVisit(assignmentId), { fromServer: true });
+      if (pendingPhotoCommitsRef.current[questionId]) applyLocalPhotoAnswer(questionId);
     } catch (deleteError) {
-      setPhotoError(deleteError instanceof Error ? deleteError.message : "Das Foto konnte nicht entfernt werden.");
+      updatePhotoError(questionId, deleteError instanceof Error ? deleteError.message : "Das Foto konnte nicht entfernt werden.");
     } finally {
-      setPhotoBusy(false);
+      endPhotoOperation();
     }
   };
 
@@ -779,6 +995,10 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     setExitBusy(true);
     setExitError(null);
     try {
+      if (!(await flushAllPendingPhotoCommits())) {
+        setExitError("Die Fotos konnten noch nicht vollständig gespeichert werden. Bitte versuche es erneut.");
+        return;
+      }
       syncCurrentAnswerInBackground();
       announcePausedVisit(assignmentId, payload?.assignment.market.name ?? "Marktbesuch", activeRef.current?.question.id);
       router.push(`/sm?pausedVisit=${encodeURIComponent(assignmentId)}`);
@@ -795,7 +1015,18 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     setExitError(null);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     try {
+      const pendingUploads = Object.values(pendingPhotoCommitsRef.current);
+      await Promise.allSettled(pendingUploads.flatMap((pending) => pending.photos.map((photo) => cleanupSmVisitPhotoUpload(assignmentId, {
+        answerId: pending.answerId,
+        storageBucket: photo.storageBucket,
+        storagePath: photo.storagePath,
+      }))));
       await discardSmVisit(assignmentId);
+      for (const pending of pendingUploads) {
+        for (const photo of pending.photos) URL.revokeObjectURL(photo.previewUrl);
+      }
+      pendingPhotoCommitsRef.current = {};
+      setPendingPhotoFilesByQuestionId({});
       clearMySmPlanningAssignmentsCache();
       clearSmVisitPendingAnswers(assignmentId);
       clearSmVisitPreloadCache(assignmentId);
@@ -812,6 +1043,10 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     if (!payload?.submission) return;
     if (!reviewTiming.visitStartedAt || !reviewTiming.visitCompletedAt) {
       setError("Bitte trage Start und Ende deines Marktbesuchs ein.");
+      return;
+    }
+    if (!(await flushAllPendingPhotoCommits())) {
+      setError("Die Fotos konnten noch nicht vollständig gespeichert werden. Bitte versuche es erneut.");
       return;
     }
     if (!(await flushCurrentAnswer())) {
@@ -897,7 +1132,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-[calc(64px+env(safe-area-inset-bottom))] pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="my-auto w-full shrink-0 py-3">
-            <QuestionCard question={active.question} answer={draft ?? defaultAnswer(active.question)} onAnswer={answerCurrentQuestion} saveState={saveState} saveError={photoError ?? saveError} photoFiles={payload.photoFiles[active.question.id] ?? []} photoBusy={photoBusy} onPhotoUpload={(files) => void uploadPhotos(active.question.id, files)} onPhotoDelete={(fileId) => void removePhoto(fileId)} questionNumber={currentIndex + 1} questionCount={flat.length} previousDisabled={currentIndex === 0} nextLabel={currentIndex === flat.length - 1 ? "Zur Übersicht" : "Weiter"} onPrevious={() => void goPrevious()} onNext={() => void goNext()} />
+            <QuestionCard question={active.question} answer={draft ?? defaultAnswer(active.question)} onAnswer={answerCurrentQuestion} saveState={saveState} saveError={photoError ?? saveError} photoFiles={[...(payload.photoFiles[active.question.id] ?? []), ...(pendingPhotoFilesByQuestionId[active.question.id] ?? [])]} photoBusy={photoBusy} onPhotoUpload={(files) => uploadPhotos(active.question.id, files)} onPhotoDelete={(fileId) => void removePhoto(active.question.id, fileId)} questionNumber={currentIndex + 1} questionCount={flat.length} previousDisabled={currentIndex === 0} nextLabel={photoBusy ? "Fotos speichern…" : currentIndex === flat.length - 1 ? "Zur Übersicht" : "Weiter"} onPrevious={() => void goPrevious()} onNext={() => void goNext()} />
           </div>
         </section>
         <QuickNavigationFlap sectionName={active.section.name} questionText={active.question.text} currentIndex={currentIndex} questionCount={flat.length} answeredCount={flat.filter(({ question }) => isCompleteAnswer(question, question.id === active.question.id ? draft : payload.answers[question.id])).length} onOpen={() => setNavigatorOpen(true)} />
@@ -1066,7 +1301,7 @@ function QuestionCard({ question, answer, onAnswer, saveState, saveError, photoF
     <div className="mt-4 border-t border-black/[0.055] pt-3">
       <div className="flex gap-2">
         <button type="button" disabled={previousDisabled} onClick={onPrevious} className="flex h-9 items-center justify-center gap-1 rounded-lg bg-white px-3 text-[10px] font-semibold text-black/40 shadow-[0_1px_4px_rgba(0,0,0,.06),inset_0_0_0_1px_rgba(0,0,0,.06)] disabled:bg-black/[0.03] disabled:text-black/15 disabled:shadow-none"><ChevronLeft size={12} />Zurück</button>
-        <button type="button" onClick={onNext} className="flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-[11px] font-bold text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_0_0_1px_#a91b1b,0_1px_6px_rgba(180,20,20,.18)]">{nextLabel}<ChevronRight size={12} strokeWidth={2.5} /></button>
+        <button type="button" disabled={photoBusy} onClick={onNext} className="flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-[11px] font-bold text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_0_0_1px_#a91b1b,0_1px_6px_rgba(180,20,20,.18)] disabled:bg-none disabled:bg-black/[0.08] disabled:text-black/25 disabled:shadow-none">{photoBusy ? <LoaderCircle size={12} className="animate-spin" /> : null}{nextLabel}{photoBusy ? null : <ChevronRight size={12} strokeWidth={2.5} />}</button>
       </div>
     </div>
   </article>;

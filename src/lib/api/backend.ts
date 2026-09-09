@@ -2467,9 +2467,17 @@ export async function presignSmVisitPhoto(assignmentId: string, answerId: string
   })) as { upload: { bucket: string; path: string; signedUrl: string; token: string } };
 }
 
+export type SmVisitPhotoCommitItem = {
+  storageBucket: "sm-visit-photos";
+  storagePath: string;
+  originalFileName?: string;
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  byteSize: number;
+};
+
 export async function commitSmVisitPhotos(assignmentId: string, input: {
   answerId: string;
-  photos: Array<{ storageBucket: "sm-visit-photos"; storagePath: string; originalFileName?: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; byteSize: number }>;
+  photos: SmVisitPhotoCommitItem[];
 }): Promise<{ fileIds: string[] }> {
   return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/commit`, {
     method: "POST",
@@ -2484,48 +2492,59 @@ export async function cleanupSmVisitPhotoUpload(assignmentId: string, input: { a
   }, 120_000);
 }
 
-export async function uploadSmVisitPhotos(assignmentId: string, submissionQuestionId: string, files: File[]): Promise<{ fileIds: string[] }> {
+export async function stageSmVisitPhotos(assignmentId: string, submissionQuestionId: string, files: File[]): Promise<{ answerId: string; photos: SmVisitPhotoCommitItem[] }> {
   const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-  if (!files.length) return { fileIds: [] };
+  if (!files.length) throw new Error("Es wurden keine Fotos ausgewählt.");
   if (files.length > 20) throw new Error("Es können höchstens 20 Fotos pro Frage hochgeladen werden.");
   for (const file of files) {
     if (!allowedMimeTypes.has(file.type)) throw new Error(`„${file.name}“ hat kein unterstütztes Bildformat.`);
     if (file.size > 15 * 1024 * 1024) throw new Error(`„${file.name}“ ist größer als 15 MB.`);
   }
   const { answerId } = await initializeSmVisitPhoto(assignmentId, submissionQuestionId);
-  let committedFileIds: string[] = [];
-  for (const file of files) {
-    const extension = (file.name.split(".").pop() ?? (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg")).toLowerCase();
-    const presigned = await presignSmVisitPhoto(assignmentId, answerId, extension);
-    const cleanupInput = { answerId, storageBucket: "sm-visit-photos" as const, storagePath: presigned.upload.path };
-    try {
+  const photos: SmVisitPhotoCommitItem[] = [];
+  try {
+    for (const file of files) {
+      const extension = (file.name.split(".").pop() ?? (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg")).toLowerCase();
+      const presigned = await presignSmVisitPhoto(assignmentId, answerId, extension);
+      const photo: SmVisitPhotoCommitItem = {
+        storageBucket: "sm-visit-photos",
+        storagePath: presigned.upload.path,
+        originalFileName: file.name,
+        mimeType: file.type as SmVisitPhotoCommitItem["mimeType"],
+        byteSize: file.size,
+      };
+      photos.push(photo);
       const uploadResponse = await fetch(presigned.upload.signedUrl, {
         method: "PUT",
         headers: { "content-type": file.type },
         body: file,
       });
       if (!uploadResponse.ok) throw new Error(`„${file.name}“ konnte nicht hochgeladen werden.`);
-      const committed = await commitSmVisitPhotos(assignmentId, {
-        answerId,
-        photos: [{
-          storageBucket: "sm-visit-photos",
-          storagePath: presigned.upload.path,
-          originalFileName: file.name,
-          mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
-          byteSize: file.size,
-        }],
-      });
-      committedFileIds.push(...committed.fileIds);
-    } catch (uploadError) {
-      try {
-        await cleanupSmVisitPhotoUpload(assignmentId, cleanupInput);
-      } catch {
-        // The server logs/storage audit can reconcile a rare failed best-effort cleanup.
-      }
-      throw uploadError;
     }
+    return { answerId, photos };
+  } catch (uploadError) {
+    await Promise.allSettled(photos.map((photo) => cleanupSmVisitPhotoUpload(assignmentId, {
+      answerId,
+      storageBucket: photo.storageBucket,
+      storagePath: photo.storagePath,
+    })));
+    throw uploadError;
   }
-  return { fileIds: committedFileIds };
+}
+
+export async function uploadSmVisitPhotos(assignmentId: string, submissionQuestionId: string, files: File[]): Promise<{ fileIds: string[] }> {
+  if (!files.length) return { fileIds: [] };
+  const staged = await stageSmVisitPhotos(assignmentId, submissionQuestionId, files);
+  try {
+    return await commitSmVisitPhotos(assignmentId, staged);
+  } catch (commitError) {
+    await Promise.allSettled(staged.photos.map((photo) => cleanupSmVisitPhotoUpload(assignmentId, {
+      answerId: staged.answerId,
+      storageBucket: photo.storageBucket,
+      storagePath: photo.storagePath,
+    })));
+    throw commitError;
+  }
 }
 
 export async function deleteSmVisitPhoto(assignmentId: string, fileId: string): Promise<void> {

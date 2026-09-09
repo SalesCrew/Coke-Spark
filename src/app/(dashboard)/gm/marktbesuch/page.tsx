@@ -160,6 +160,11 @@ interface PhotoAnswerState {
   photoTagIdsByPhotoKey?: Record<string, string[]>;
 }
 
+type PendingPhotoCommitState = {
+  photoState: PhotoAnswerState;
+  photoKeys: string[];
+};
+
 interface UploadedPhotoMeta {
   photoId?: string;
   storageBucket: string;
@@ -2225,7 +2230,6 @@ function QuestionCard({
   );
   const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
   const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
-  const photoTagSyncTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [photoSourcePickerOpen, setPhotoSourcePickerOpen] = React.useState(false);
   const [tagSearch, setTagSearch] = React.useState("");
   const [activePhotoIndex, setActivePhotoIndex] = React.useState(0);
@@ -2254,30 +2258,6 @@ function QuestionCard({
     if (!photoState) return;
     setActivePhotoIndex((prev) => Math.max(0, Math.min(prev, Math.max(photoState.photos.length - 1, 0))));
   }, [answer, question.id, question.type]);
-
-  React.useEffect(() => () => {
-    if (photoTagSyncTimerRef.current) {
-      clearTimeout(photoTagSyncTimerRef.current);
-      photoTagSyncTimerRef.current = null;
-    }
-  }, [question.id]);
-
-  const schedulePhotoTagSync = React.useCallback(
-    (payload: { questionId: string; photoState: PhotoAnswerState; photoKeys: string[] }) => {
-      if (!onPhotoSync || payload.photoState.photos.length === 0) return;
-      if (photoTagSyncTimerRef.current) clearTimeout(photoTagSyncTimerRef.current);
-      photoTagSyncTimerRef.current = setTimeout(() => {
-        photoTagSyncTimerRef.current = null;
-        void onPhotoSync({
-          questionId: payload.questionId,
-          files: [],
-          photoState: payload.photoState,
-          photoKeys: payload.photoKeys,
-        });
-      }, 450);
-    },
-    [onPhotoSync],
-  );
 
   return (
     <div
@@ -2858,9 +2838,10 @@ function QuestionCard({
             },
           };
           onAnswer(encodePhotoAnswer(nextState));
-          if (photoState.photos.length > 0) {
-            schedulePhotoTagSync({
+          if (onPhotoSync && photoState.photos.length > 0) {
+            void onPhotoSync({
               questionId: question.id,
+              files: [],
               photoState: nextState,
               photoKeys,
             });
@@ -3784,7 +3765,9 @@ function MarktbesuchInner() {
   const [photoAnswerIdByQuestionId, setPhotoAnswerIdByQuestionId] = useState<Record<string, string>>({});
   const photoMetaByQuestionIdRef = useRef<Record<string, UploadedPhotoMeta[]>>({});
   const photoAnswerIdByQuestionIdRef = useRef<Record<string, string>>({});
+  const photoSyncErrorByQuestionIdRef = useRef<Record<string, string | null>>({});
   const photoSyncQueueRef = useRef<Record<string, Promise<void>>>({});
+  const pendingPhotoCommitByQuestionIdRef = useRef<Record<string, PendingPhotoCommitState>>({});
   const persistTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const persistFlushersRef = useRef<Record<string, () => Promise<void>>>({});
   const persistInFlightRef = useRef<Record<string, Promise<void>>>({});
@@ -3799,6 +3782,10 @@ function MarktbesuchInner() {
   useEffect(() => {
     photoAnswerIdByQuestionIdRef.current = photoAnswerIdByQuestionId;
   }, [photoAnswerIdByQuestionId]);
+
+  useEffect(() => {
+    photoSyncErrorByQuestionIdRef.current = photoSyncErrorByQuestionId;
+  }, [photoSyncErrorByQuestionId]);
 
   const setSessionIdInUrl = useCallback((sessionId: string) => {
     const next = new URLSearchParams(paramsString);
@@ -3816,6 +3803,9 @@ function MarktbesuchInner() {
   }, [paramsString, router]);
 
   const hydrateFromStartPayload = useCallback((payload: GmVisitStartPayload) => {
+    photoSyncQueueRef.current = {};
+    pendingPhotoCommitByQuestionIdRef.current = {};
+    photoSyncErrorByQuestionIdRef.current = {};
     setVisitSections(payload.sections ?? []);
     setVisitSessionId(null);
     setVisitSessionStartedAt(null);
@@ -3823,6 +3813,8 @@ function MarktbesuchInner() {
     setKuehlerAnswers({});
     setMhdAnswers({});
     setQuestionComments({});
+    setPhotoSyncBusyByQuestionId({});
+    setPhotoSyncErrorByQuestionId({});
     setPhotoMetaByQuestionId({});
     setPhotoAnswerIdByQuestionId({});
     setTimerRunning(false);
@@ -3832,6 +3824,9 @@ function MarktbesuchInner() {
   }, []);
 
   const hydrateFromSessionPayload = useCallback((payload: GmVisitSessionReadPayload, options?: { runTimer?: boolean }) => {
+    photoSyncQueueRef.current = {};
+    pendingPhotoCommitByQuestionIdRef.current = {};
+    photoSyncErrorByQuestionIdRef.current = {};
     const runTimer = options?.runTimer ?? true;
     const nextFragebogenAnswers: Record<string, string | string[]> = {};
     const nextKuehlerAnswers: Record<string, string | string[]> = {};
@@ -4001,6 +3996,10 @@ function MarktbesuchInner() {
     setKuehlerAnswers(nextKuehlerAnswers);
     setMhdAnswers(nextMhdAnswers);
     setQuestionComments(nextComments);
+    setPhotoSyncBusyByQuestionId({});
+    setPhotoSyncErrorByQuestionId({});
+    photoMetaByQuestionIdRef.current = nextPhotoMetaByQuestionId;
+    photoAnswerIdByQuestionIdRef.current = nextPhotoAnswerIdByQuestionId;
     setPhotoMetaByQuestionId(nextPhotoMetaByQuestionId);
     setPhotoAnswerIdByQuestionId(nextPhotoAnswerIdByQuestionId);
     setSessionIdInUrl(payload.session.id);
@@ -4227,6 +4226,16 @@ function MarktbesuchInner() {
       if (!visitSessionId) return Promise.resolve();
       const sessionId = visitSessionId;
       const questionId = payload.questionId;
+      pendingPhotoCommitByQuestionIdRef.current = {
+        ...pendingPhotoCommitByQuestionIdRef.current,
+        [questionId]: {
+          photoState: payload.photoState,
+          photoKeys: [...payload.photoKeys],
+        },
+      };
+      // Tag-only changes stay local until Weiter. This collapses many rapid tag
+      // taps into one definitive snapshot commit at the navigation boundary.
+      if (payload.files.length === 0) return Promise.resolve();
       setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [questionId]: true }));
 
       const previous = photoSyncQueueRef.current[questionId] ?? Promise.resolve();
@@ -4234,6 +4243,10 @@ function MarktbesuchInner() {
       queued = previous
         .catch(() => undefined)
         .then(async () => {
+          photoSyncErrorByQuestionIdRef.current = {
+            ...photoSyncErrorByQuestionIdRef.current,
+            [questionId]: null,
+          };
           setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: null }));
 
           const existingAnswerId = photoAnswerIdByQuestionIdRef.current[questionId] ?? null;
@@ -4285,6 +4298,13 @@ function MarktbesuchInner() {
                 new Map([...existingMeta, ...uploadedMeta].map((meta) => [meta.storagePath, meta])).values(),
               )
             : existingMeta;
+          // Keep the uploaded object metadata even if the browser loses only the
+          // commit response. Weiter can safely retry the idempotent commit.
+          photoMetaByQuestionIdRef.current = {
+            ...photoMetaByQuestionIdRef.current,
+            [questionId]: mergedMeta,
+          };
+          setPhotoMetaByQuestionId((prev) => ({ ...prev, [questionId]: mergedMeta }));
           const taggedMeta = mergedMeta.map((meta, index) => ({
             meta,
             photoTagIds: photoTagsForCommit(payload.photoState, meta, index, payload.photoKeys),
@@ -4316,14 +4336,17 @@ function MarktbesuchInner() {
           if (inheritedPhotos.length > 0) {
             await updateInheritedGmVisitPhotoTags({ sessionId, photos: inheritedPhotos });
           }
-          photoMetaByQuestionIdRef.current = {
-            ...photoMetaByQuestionIdRef.current,
-            [questionId]: mergedMeta,
+          photoSyncErrorByQuestionIdRef.current = {
+            ...photoSyncErrorByQuestionIdRef.current,
+            [questionId]: null,
           };
-          setPhotoMetaByQuestionId((prev) => ({ ...prev, [questionId]: mergedMeta }));
         })
         .catch((error) => {
           const message = error instanceof Error ? error.message : "Fotos konnten nicht gespeichert werden.";
+          photoSyncErrorByQuestionIdRef.current = {
+            ...photoSyncErrorByQuestionIdRef.current,
+            [questionId]: message,
+          };
           setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: message }));
         })
         .finally(() => {
@@ -4337,6 +4360,132 @@ function MarktbesuchInner() {
     [visitSessionId],
   );
 
+  const flushPendingPhotoCommit = useCallback(
+    async (questionId: string): Promise<boolean> => {
+      const pending = pendingPhotoCommitByQuestionIdRef.current[questionId];
+      if (!pending) return true;
+
+      if (pending.photoState.photos.length === 0) {
+        if (pendingPhotoCommitByQuestionIdRef.current[questionId] === pending) {
+          delete pendingPhotoCommitByQuestionIdRef.current[questionId];
+        }
+        photoSyncErrorByQuestionIdRef.current = {
+          ...photoSyncErrorByQuestionIdRef.current,
+          [questionId]: null,
+        };
+        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: null }));
+        return true;
+      }
+
+      const queuedUpload = photoSyncQueueRef.current[questionId];
+      if (queuedUpload) await queuedUpload;
+
+      if (!visitSessionId) {
+        const message = "Fotos konnten nicht gespeichert werden, weil der Fragebogen noch nicht bereit ist.";
+        photoSyncErrorByQuestionIdRef.current = {
+          ...photoSyncErrorByQuestionIdRef.current,
+          [questionId]: message,
+        };
+        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: message }));
+        return false;
+      }
+
+      const answerId = photoAnswerIdByQuestionIdRef.current[questionId] ?? null;
+      const meta = photoMetaByQuestionIdRef.current[questionId] ?? [];
+      if (!answerId || meta.length !== pending.photoState.photos.length) {
+        const existingError = photoSyncErrorByQuestionIdRef.current[questionId];
+        const message = existingError || "Mindestens ein Foto ist noch nicht vollständig hochgeladen. Bitte erneut versuchen.";
+        photoSyncErrorByQuestionIdRef.current = {
+          ...photoSyncErrorByQuestionIdRef.current,
+          [questionId]: message,
+        };
+        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: message }));
+        return false;
+      }
+
+      setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [questionId]: true }));
+      photoSyncErrorByQuestionIdRef.current = {
+        ...photoSyncErrorByQuestionIdRef.current,
+        [questionId]: null,
+      };
+      setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: null }));
+
+      try {
+        const taggedMeta = meta.map((entry, index) => ({
+          entry,
+          photoTagIds: photoTagsForCommit(pending.photoState, entry, index, pending.photoKeys),
+        }));
+        const currentPhotos = taggedMeta
+          .filter(({ entry }) => !entry.inherited)
+          .map(({ entry, photoTagIds }) => ({
+            storageBucket: entry.storageBucket,
+            storagePath: entry.storagePath,
+            mimeType: entry.mimeType,
+            byteSize: entry.byteSize,
+            widthPx: entry.widthPx,
+            heightPx: entry.heightPx,
+            sha256: entry.sha256,
+            photoTagIds,
+          }));
+
+        if (currentPhotos.length > 0) {
+          const commit = () => commitGmVisitPhotos({
+            sessionId: visitSessionId,
+            visitAnswerId: answerId,
+            mode: "replace",
+            photos: currentPhotos,
+          });
+          try {
+            await commit();
+          } catch (error) {
+            // Mobile WebKit can reject fetch with TypeError even though Railway
+            // finishes the request. The endpoint is idempotent, so one retry is safe.
+            if (!(error instanceof TypeError)) throw error;
+            await commit();
+          }
+        }
+
+        const inheritedPhotos = taggedMeta.flatMap(({ entry, photoTagIds }) =>
+          entry.inherited && entry.photoId ? [{ photoId: entry.photoId, photoTagIds }] : [],
+        );
+        if (inheritedPhotos.length > 0) {
+          await updateInheritedGmVisitPhotoTags({ sessionId: visitSessionId, photos: inheritedPhotos });
+        }
+
+        if (pendingPhotoCommitByQuestionIdRef.current[questionId] === pending) {
+          delete pendingPhotoCommitByQuestionIdRef.current[questionId];
+        }
+        photoSyncErrorByQuestionIdRef.current = {
+          ...photoSyncErrorByQuestionIdRef.current,
+          [questionId]: null,
+        };
+        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: null }));
+        return true;
+      } catch (error) {
+        const message = error instanceof Error && error.message
+          ? error.message
+          : "Fotos konnten nicht gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.";
+        photoSyncErrorByQuestionIdRef.current = {
+          ...photoSyncErrorByQuestionIdRef.current,
+          [questionId]: message,
+        };
+        setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [questionId]: message }));
+        return false;
+      } finally {
+        setPhotoSyncBusyByQuestionId((prev) => ({ ...prev, [questionId]: false }));
+      }
+    },
+    [visitSessionId],
+  );
+
+  const flushAllPendingPhotoCommits = useCallback(async (): Promise<boolean> => {
+    const questionIds = Object.keys(pendingPhotoCommitByQuestionIdRef.current);
+    for (const questionId of questionIds) {
+      if (!(await flushPendingPhotoCommit(questionId))) return false;
+    }
+    return true;
+  }, [flushPendingPhotoCommit]);
+
   const handlePhotoDelete = useCallback(
     async (payload: {
       questionId: string;
@@ -4346,8 +4495,20 @@ function MarktbesuchInner() {
       photoState: PhotoAnswerState;
       photoKeys: string[];
     }) => {
+      const stageRemainingPhotos = () => {
+        pendingPhotoCommitByQuestionIdRef.current = {
+          ...pendingPhotoCommitByQuestionIdRef.current,
+          [payload.questionId]: {
+            photoState: payload.photoState,
+            photoKeys: [...payload.photoKeys],
+          },
+        };
+      };
       const answerId = photoAnswerIdByQuestionIdRef.current[payload.questionId] ?? null;
-      if (!answerId) return;
+      if (!answerId) {
+        stageRemainingPhotos();
+        return;
+      }
       if (!visitSessionId) {
         const message = "Foto konnte nicht gelöscht werden, weil der Fragebogen noch nicht gespeichert ist.";
         setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: message }));
@@ -4360,7 +4521,10 @@ function MarktbesuchInner() {
           if (!payload.photoId) throw new Error("Das übernommene Foto konnte nicht eindeutig zugeordnet werden.");
           await deleteInheritedGmVisitPhoto({ sessionId: visitSessionId, photoId: payload.photoId });
         } else {
-          if (!payload.storagePath) return;
+          if (!payload.storagePath) {
+            stageRemainingPhotos();
+            return;
+          }
           await deleteGmVisitPhoto({
             sessionId: visitSessionId,
             visitAnswerId: answerId,
@@ -4375,6 +4539,7 @@ function MarktbesuchInner() {
           [payload.questionId]: nextMeta,
         };
         setPhotoMetaByQuestionId((prev) => ({ ...prev, [payload.questionId]: nextMeta }));
+        stageRemainingPhotos();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Foto konnte nicht gelöscht werden.";
         setPhotoSyncErrorByQuestionId((prev) => ({ ...prev, [payload.questionId]: message }));
@@ -4693,6 +4858,12 @@ function MarktbesuchInner() {
         return;
       }
 
+      const photosCommitted = await flushAllPendingPhotoCommits();
+      if (!photosCommitted) {
+        setSubmitSessionError("Fotos konnten nicht vollständig gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.");
+        return;
+      }
+
       const localMissing = computeMissingRequired();
       if (localMissing.all.length > 0) {
         setSubmitSessionError("Nicht alle Pflichtfragen sind vollständig beantwortet.");
@@ -4838,7 +5009,9 @@ function MarktbesuchInner() {
   ]);
 
   // Question navigation
-  function goNext() {
+  async function goNext() {
+    const question = visibleSAMPLE_QUESTIONS[currentQIndex];
+    if (question?.type === "photo" && !(await flushPendingPhotoCommit(question.id))) return;
     if (currentQIndex < visibleSAMPLE_QUESTIONS.length - 1) {
       setDirection("forward");
       setAnimKey(`${currentQIndex + 1}-fwd`);
@@ -6067,15 +6240,17 @@ function MarktbesuchInner() {
                       <ChevronLeft size={12} strokeWidth={2} />
                       Zurück
                     </button>
-                    <button onClick={goNext} disabled={!currentQReady} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !currentQReady ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !currentQReady ? "rgba(0,0,0,0.2)" : "#fff", background: !currentQReady ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: !currentQReady ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-                      {currentQIndex < visibleSAMPLE_QUESTIONS.length - 1
+                    <button onClick={goNext} disabled={!currentQReady || Boolean(photoSyncBusyByQuestionId[currentQ.id])} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !currentQReady || photoSyncBusyByQuestionId[currentQ.id] ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !currentQReady || photoSyncBusyByQuestionId[currentQ.id] ? "rgba(0,0,0,0.2)" : "#fff", background: !currentQReady || photoSyncBusyByQuestionId[currentQ.id] ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #DC2626, #b91c1c)", boxShadow: !currentQReady || photoSyncBusyByQuestionId[currentQ.id] ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.18)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                      {photoSyncBusyByQuestionId[currentQ.id]
+                        ? "Fotos speichern…"
+                        : currentQIndex < visibleSAMPLE_QUESTIONS.length - 1
                         ? "Weiter"
                         : visibleKUEHLER_QUESTIONS.length > 0
                           ? "Zur Kühlerinventur"
                           : visibleMHD_QUESTIONS.length > 0
                             ? "Zur MHD-Prüfung"
                           : "Abschließen"}
-                      <ChevronRight size={12} strokeWidth={2.5} />
+                      {!photoSyncBusyByQuestionId[currentQ.id] && <ChevronRight size={12} strokeWidth={2.5} />}
                     </button>
                   </div>
                 </div>
@@ -6158,16 +6333,19 @@ function MarktbesuchInner() {
                         Zurück
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (!kReady) return;
+                          if (kQ?.type === "photo" && !(await flushPendingPhotoCommit(kQ.id))) return;
                           if (!isLast) { setKuehlerQIndex((i) => i + 1); }
                           else if (visibleMHD_QUESTIONS.length > 0) { setActiveSection("mhd"); setMhdQIndex(0); setAuroraColors(["#EDE9FE", "#7C3AED", "#EDE9FE"]); }
                           else { handleAbschluss(); }
                         }}
-                        disabled={!kReady}
-                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !kReady ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !kReady ? "rgba(0,0,0,0.2)" : "#fff", background: !kReady ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #F59E0B, #d97706)", boxShadow: !kReady ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #b45309, 0 1px 6px rgba(180,100,0,0.16)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-                        {isLast ? (visibleMHD_QUESTIONS.length > 0 ? "Weiter zu MHD" : "Abschließen") : "Weiter"}
-                        <ChevronRight size={12} strokeWidth={2.5} />
+                        disabled={!kReady || Boolean(kQ && photoSyncBusyByQuestionId[kQ.id])}
+                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !kReady || (kQ && photoSyncBusyByQuestionId[kQ.id]) ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !kReady || (kQ && photoSyncBusyByQuestionId[kQ.id]) ? "rgba(0,0,0,0.2)" : "#fff", background: !kReady || (kQ && photoSyncBusyByQuestionId[kQ.id]) ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #F59E0B, #d97706)", boxShadow: !kReady || (kQ && photoSyncBusyByQuestionId[kQ.id]) ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #b45309, 0 1px 6px rgba(180,100,0,0.16)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                        {kQ && photoSyncBusyByQuestionId[kQ.id]
+                          ? "Fotos speichern…"
+                          : isLast ? (visibleMHD_QUESTIONS.length > 0 ? "Weiter zu MHD" : "Abschließen") : "Weiter"}
+                        {!(kQ && photoSyncBusyByQuestionId[kQ.id]) && <ChevronRight size={12} strokeWidth={2.5} />}
                       </button>
                     </div>
                   </div>
@@ -6257,18 +6435,21 @@ function MarktbesuchInner() {
                         Zurück
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (!mhdReady) return;
+                          if (mhdQ?.type === "photo" && !(await flushPendingPhotoCommit(mhdQ.id))) return;
                           if (!isLast) {
                             setMhdQIndex((i) => i + 1);
                           } else {
                             handleAbschluss();
                           }
                         }}
-                        disabled={!mhdReady}
-                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !mhdReady ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !mhdReady ? "rgba(0,0,0,0.2)" : "#fff", background: !mhdReady ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #8b5cf6, #7C3AED)", boxShadow: !mhdReady ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #6d28d9, 0 1px 6px rgba(109,40,217,0.2)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-                        {isLast ? "Abschließen" : "Weiter"}
-                        <ChevronRight size={12} strokeWidth={2.5} />
+                        disabled={!mhdReady || Boolean(mhdQ && photoSyncBusyByQuestionId[mhdQ.id])}
+                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: !mhdReady || (mhdQ && photoSyncBusyByQuestionId[mhdQ.id]) ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, color: !mhdReady || (mhdQ && photoSyncBusyByQuestionId[mhdQ.id]) ? "rgba(0,0,0,0.2)" : "#fff", background: !mhdReady || (mhdQ && photoSyncBusyByQuestionId[mhdQ.id]) ? "rgba(0,0,0,0.05)" : "linear-gradient(to bottom, #8b5cf6, #7C3AED)", boxShadow: !mhdReady || (mhdQ && photoSyncBusyByQuestionId[mhdQ.id]) ? "none" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #6d28d9, 0 1px 6px rgba(109,40,217,0.2)", transition: "all 0.18s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                        {mhdQ && photoSyncBusyByQuestionId[mhdQ.id]
+                          ? "Fotos speichern…"
+                          : isLast ? "Abschließen" : "Weiter"}
+                        {!(mhdQ && photoSyncBusyByQuestionId[mhdQ.id]) && <ChevronRight size={12} strokeWidth={2.5} />}
                       </button>
                     </div>
                   </div>

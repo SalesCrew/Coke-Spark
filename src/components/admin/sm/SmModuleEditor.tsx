@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { SmCommentTriggerEditor, reconcileCommentOptions } from "./SmCommentTriggerEditor";
 import {
   AlignLeft,
   Camera,
@@ -815,7 +816,7 @@ function ChoiceConfig({
   options: string[];
   answerSubheadings?: string[];
   label?: string;
-  onChange: (options: string[], answerSubheadings: string[]) => void;
+  onChange: (options: string[], answerSubheadings: string[], removedIndex?: number) => void;
 }) {
   const subheadings = Array.from({ length: options.length }, (_, index) => answerSubheadings?.[index] ?? "");
   return (
@@ -873,7 +874,7 @@ function ChoiceConfig({
               <button
                 type="button"
                 aria-label={`Option ${index + 1} entfernen`}
-                onClick={() => onChange(options.filter((_, optionIndex) => optionIndex !== index), subheadings.filter((_, subheadingIndex) => subheadingIndex !== index))}
+                onClick={() => onChange(options.filter((_, optionIndex) => optionIndex !== index), subheadings.filter((_, subheadingIndex) => subheadingIndex !== index), index)}
                 style={{
                   background: "none",
                   border: "none",
@@ -979,7 +980,7 @@ function YesNoMultiConfig({ config, onChange }: ConfigProps) {
                   style={{ width: "100%", padding: "3px 0 1px", border: "none", outline: "none", color: "rgba(0,0,0,.38)", backgroundColor: "transparent", fontFamily: "inherit", fontSize: 9, fontWeight: 400 }}
                 />
               </div>
-              {answers.length > 2 ? <button type="button" aria-label={`Antwort ${index + 1} entfernen`} onClick={() => onChange({ ...config, answers: answers.filter((_, answerIndex) => answerIndex !== index), answerSubheadings: answerSubheadings.filter((_, subheadingIndex) => subheadingIndex !== index), branches: branches.filter((branch) => branch.answer !== answer) })} style={{ border: "none", background: "none", color: "rgba(0,0,0,.25)", cursor: "pointer", padding: 2 }}><X size={11} /></button> : null}
+              {answers.length > 2 ? <button type="button" aria-label={`Antwort ${index + 1} entfernen`} onClick={() => onChange({ ...config, answers: answers.filter((_, answerIndex) => answerIndex !== index), answerSubheadings: answerSubheadings.filter((_, subheadingIndex) => subheadingIndex !== index), branches: branches.filter((branch) => branch.answer !== answer) }, index)} style={{ border: "none", background: "none", color: "rgba(0,0,0,.25)", cursor: "pointer", padding: 2 }}><X size={11} /></button> : null}
             </div>
           );
         })}
@@ -1068,7 +1069,7 @@ function LikertConfig({ config, onChange }: ConfigProps) {
 
 type ConfigProps = {
   config: Record<string, unknown>;
-  onChange: (config: Record<string, unknown>) => void;
+  onChange: (config: Record<string, unknown>, removedIndex?: number) => void;
 };
 
 function NumericConfig({ config, onChange }: ConfigProps) {
@@ -1124,7 +1125,7 @@ function MatrixList({
   label: string;
   values: string[];
   answerSubheadings?: string[];
-  onChange: (values: string[], answerSubheadings: string[]) => void;
+  onChange: (values: string[], answerSubheadings: string[], removedIndex?: number) => void;
 }) {
   const subheadings = Array.from({ length: values.length }, (_, index) => answerSubheadings?.[index] ?? "");
   const showsAnswerSubheadings = answerSubheadings !== undefined;
@@ -1156,7 +1157,7 @@ function MatrixList({
             {values.length > 1 ? (
               <button
                 type="button"
-                onClick={() => onChange(values.filter((_, itemIndex) => itemIndex !== index), subheadings.filter((_, itemIndex) => itemIndex !== index))}
+                onClick={() => onChange(values.filter((_, itemIndex) => itemIndex !== index), subheadings.filter((_, itemIndex) => itemIndex !== index), index)}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "rgba(0,0,0,0.25)", transition: "color .15s ease" }}
                 onMouseEnter={(event) => { event.currentTarget.style.color = "#DC2626"; }}
                 onMouseLeave={(event) => { event.currentTarget.style.color = "rgba(0,0,0,0.25)"; }}
@@ -1183,7 +1184,7 @@ function MatrixConfig({ config, onChange }: ConfigProps) {
         label="Spalten"
         values={(config.columns as string[]) ?? ["", ""]}
         answerSubheadings={Array.isArray(config.answerSubheadings) ? config.answerSubheadings.map(String) : []}
-        onChange={(columns, answerSubheadings) => onChange({ ...config, columns, answerSubheadings })}
+        onChange={(columns, answerSubheadings, removedIndex) => onChange({ ...config, columns, answerSubheadings }, removedIndex)}
       />
     </div>
   );
@@ -1204,7 +1205,8 @@ function PhotoConfig({ config, onChange }: ConfigProps) {
 }
 
 function TypeConfig({ question, onUpdate }: { question: SmQuestion; onUpdate: (question: SmQuestion) => void }) {
-  const setConfig = (config: Record<string, unknown>) => {
+  const setConfig = (inputConfig: Record<string, unknown>, removedIndex?: number) => {
+    const config = reconcileCommentOptions(question, inputConfig, removedIndex);
     const previousOptions = question.type === "single" || question.type === "multiple"
       ? ((question.config.options as string[]) ?? [])
       : question.type === "yesnomulti"
@@ -1238,7 +1240,7 @@ function TypeConfig({ question, onUpdate }: { question: SmQuestion; onUpdate: (q
   switch (question.type) {
     case "single":
     case "multiple":
-      return <ChoiceConfig options={(question.config.options as string[]) ?? [""]} answerSubheadings={Array.isArray(question.config.answerSubheadings) ? question.config.answerSubheadings.map(String) : undefined} onChange={(options, answerSubheadings) => setConfig({ ...question.config, options, answerSubheadings })} />;
+      return <ChoiceConfig options={(question.config.options as string[]) ?? [""]} answerSubheadings={Array.isArray(question.config.answerSubheadings) ? question.config.answerSubheadings.map(String) : undefined} onChange={(options, answerSubheadings, removedIndex) => setConfig({ ...question.config, options, answerSubheadings }, removedIndex)} />;
     case "yesno":
       return <FixedAnswerSubheadings labels={["Ja", "Nein"]} config={question.config} onChange={setConfig} />;
     case "yesnomulti":
@@ -1492,6 +1494,7 @@ function QuestionCard({
               <span style={{ color: "#6b7280", fontSize: 10, fontWeight: 500 }}>Pflichtfrage</span>
             </div>
             <TypeConfig question={question} onUpdate={onUpdate} />
+            <SmCommentTriggerEditor question={question} onUpdate={onUpdate} />
             <SmOosQuestionEditor question={question} allQuestions={allQuestions} onUpdate={onUpdate} />
 
             <div style={{ marginTop: 14 }}>

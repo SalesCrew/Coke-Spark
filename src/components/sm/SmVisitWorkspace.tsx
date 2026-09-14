@@ -16,6 +16,7 @@ import {
   FileText,
   LoaderCircle,
   MapPin,
+  MessageSquare,
   Navigation,
   Save,
   Store,
@@ -27,6 +28,8 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
 import Aurora from "@/components/ui/Aurora";
+import { SmAnswerCommentDialog } from "@/components/sm/SmAnswerCommentDialog";
+import { smCommentMissing, smCommentTriggerKey } from "@/lib/sm/answerComments";
 import { announcePausedVisit } from "@/components/sm/SmPausedVisitNotice";
 import { SmTravelTimeInput } from "@/components/sm/SmTravelTimeInput";
 import { SmVisitTimeConflict, type SmVisitTimeConflictDetails } from "@/components/sm/SmVisitTimeConflict";
@@ -184,6 +187,7 @@ function isAnswered(answer: SmVisitAnswer | null | undefined): boolean {
 
 function isCompleteAnswer(question: SmVisitQuestion, answer: SmVisitAnswer | null | undefined): boolean {
   if (!isAnswered(answer)) return false;
+  if (smCommentMissing(question, answer)) return false;
   if (question.type !== "matrix" || answer?.kind !== "matrix") return true;
   const rows = Array.isArray(question.config.rows) ? question.config.rows : [];
   if (rows.length === 0) return false;
@@ -450,7 +454,8 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     if (!currentPayload) return;
     const committedIds = (currentPayload.photoFiles[questionId] ?? []).map((file) => file.id);
     const pendingIds = (pendingPhotoCommitsRef.current[questionId]?.photos ?? []).map((photo) => photo.localId);
-    const answer: SmVisitAnswer = { kind: "photo", fileIds: [...committedIds, ...pendingIds] };
+    const comment = currentPayload.answers[questionId]?.comment;
+    const answer: SmVisitAnswer = { kind: "photo", fileIds: [...committedIds, ...pendingIds], ...(comment && committedIds.length + pendingIds.length ? { comment } : {}) };
     const next = withLocalSmVisitAnswer(currentPayload, questionId, answer);
     applyPayload(next, { persistCache: false });
     if (activeRef.current?.question.id === questionId) {
@@ -604,13 +609,13 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
 
   const saveCurrent = useCallback((answer = draftRef.current, force = false) => {
     const current = activeRef.current;
-    if (!current || !answer || current.question.type === "photo") return Promise.resolve(true);
+    if (!current || !answer) return Promise.resolve(true);
+    if (current.question.type === "photo" && !readSmVisitPendingAnswers(assignmentId).some((mutation) => mutation.submissionQuestionId === current.question.id)) return Promise.resolve(true);
     return persistAnswer(current.question, answer, force);
-  }, [persistAnswer]);
+  }, [assignmentId, persistAnswer]);
 
   useEffect(() => {
     if (!active || !draft || !payload?.submission) return;
-    if (active.question.type === "photo") return;
     if (!readSmVisitPendingAnswers(assignmentId).some((mutation) => mutation.submissionQuestionId === active.question.id)) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void persistAnswer(active.question, draft); }, active.question.type === "text" || active.question.type === "numeric" ? 750 : 280);
@@ -621,11 +626,12 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     const current = activeRef.current;
     const currentPayload = payloadRef.current;
     if (!current || !currentPayload) return;
+    if (answer.kind === "photo") answer = { ...answer, fileIds: (currentPayload.photoFiles[current.question.id] ?? []).map((file) => file.id) };
     draftRef.current = answer;
     setDraft(answer);
     setError(null);
     setSaveError(null);
-    if (currentPayload.submission && current.question.type !== "photo") {
+    if (currentPayload.submission) {
       const existingPending = readSmVisitPendingAnswers(assignmentId).find((mutation) => mutation.submissionQuestionId === current.question.id);
       if (!existingPending && persistedAnswerSignaturesRef.current[current.question.id] === undefined) {
         persistedAnswerSignaturesRef.current[current.question.id] = stableAnswer(currentPayload.answers[current.question.id] ?? null);
@@ -671,9 +677,10 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     }
     const current = activeRef.current;
     const answer = draftRef.current;
-    if (!current || !answer || current.question.type === "photo") return;
+    if (!current || !answer) return;
+    if (current.question.type === "photo" && !readSmVisitPendingAnswers(assignmentId).some((mutation) => mutation.submissionQuestionId === current.question.id)) return;
     window.setTimeout(() => { void persistAnswer(current.question, answer); }, 0);
-  }, [persistAnswer]);
+  }, [assignmentId, persistAnswer]);
 
   const syncPendingAnswers = useCallback(async (): Promise<boolean> => {
     if (!payloadRef.current?.submission || typeof navigator !== "undefined" && navigator.onLine === false) return false;
@@ -681,7 +688,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     const pending = readSmVisitPendingAnswers(assignmentId);
     for (const mutation of pending) {
       const question = questions.get(mutation.submissionQuestionId);
-      if (!question || question.type === "photo") continue;
+      if (!question) continue;
       if (!(await persistAnswer(question, mutation.answer, true))) return false;
     }
     await saveQueue.current;
@@ -757,6 +764,11 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     const run = async (): Promise<boolean> => {
       updatePhotoError(questionId, null);
       try {
+        const pendingComment = readSmVisitPendingAnswers(assignmentId).find((mutation) => mutation.submissionQuestionId === questionId);
+        const question = payloadRef.current?.sections.flatMap((section) => section.questions).find((entry) => entry.id === questionId);
+        if (pendingComment && question && (!(await persistAnswer(question, pendingComment.answer)) || readSmVisitPendingAnswers(assignmentId).some((mutation) => mutation.submissionQuestionId === questionId))) {
+          throw new Error("Bitte synchronisiere zuerst den Foto-Kommentar, bevor du weitere Fotos hinzufügst.");
+        }
         const committedCount = payloadRef.current?.photoFiles[questionId]?.length ?? 0;
         const pendingCount = pendingPhotoCommitsRef.current[questionId]?.photos.length ?? 0;
         if (committedCount + pendingCount + files.length > 20) {
@@ -901,9 +913,9 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     const currentAnswer = active.question.type === "photo"
       ? defaultAnswer(active.question, payloadRef.current?.answers[active.question.id])
       : draftRef.current ?? defaultAnswer(active.question, payloadRef.current?.answers[active.question.id]);
-    if (active.question.required && !isCompleteAnswer(active.question, currentAnswer)) {
+    if (smCommentMissing(active.question, currentAnswer) || active.question.required && !isCompleteAnswer(active.question, currentAnswer)) {
       setMissingRequiredIds((current) => new Set(current).add(active.question.id));
-      setSaveError("Bitte beantworte diese Pflichtfrage, bevor du fortfährst.");
+      setSaveError(smCommentMissing(active.question, currentAnswer) ? "Bitte ergänze den Kommentar zu dieser Antwort." : "Bitte beantworte diese Pflichtfrage, bevor du fortfährst.");
       return;
     }
     syncCurrentAnswerInBackground();
@@ -942,6 +954,11 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     beginPhotoOperation();
     updatePhotoError(questionId, null);
     try {
+      const pendingComment = readSmVisitPendingAnswers(assignmentId).find((mutation) => mutation.submissionQuestionId === questionId);
+      const question = payloadRef.current?.sections.flatMap((section) => section.questions).find((entry) => entry.id === questionId);
+      if (pendingComment && question && (!(await persistAnswer(question, pendingComment.answer)) || readSmVisitPendingAnswers(assignmentId).some((mutation) => mutation.submissionQuestionId === questionId))) {
+        throw new Error("Bitte synchronisiere zuerst den Foto-Kommentar, bevor du Fotos entfernst.");
+      }
       const pending = pendingPhotoCommitsRef.current[questionId];
       const pendingPhoto = pending?.photos.find((photo) => photo.localId === fileId);
       if (pending && pendingPhoto) {
@@ -1132,7 +1149,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-[calc(64px+env(safe-area-inset-bottom))] pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="my-auto w-full shrink-0 py-3">
-            <QuestionCard question={active.question} answer={draft ?? defaultAnswer(active.question)} onAnswer={answerCurrentQuestion} saveState={saveState} saveError={photoError ?? saveError} photoFiles={[...(payload.photoFiles[active.question.id] ?? []), ...(pendingPhotoFilesByQuestionId[active.question.id] ?? [])]} photoBusy={photoBusy} onPhotoUpload={(files) => uploadPhotos(active.question.id, files)} onPhotoDelete={(fileId) => void removePhoto(active.question.id, fileId)} questionNumber={currentIndex + 1} questionCount={flat.length} previousDisabled={currentIndex === 0} nextLabel={photoBusy ? "Fotos speichern…" : currentIndex === flat.length - 1 ? "Zur Übersicht" : "Weiter"} onPrevious={() => void goPrevious()} onNext={() => void goNext()} />
+            <QuestionCard onPrepareComment={active.question.type === "photo" ? () => flushPendingPhotoCommit(active.question.id) : undefined} question={active.question} answer={draft ?? defaultAnswer(active.question)} onAnswer={answerCurrentQuestion} saveState={saveState} saveError={photoError ?? saveError} photoFiles={[...(payload.photoFiles[active.question.id] ?? []), ...(pendingPhotoFilesByQuestionId[active.question.id] ?? [])]} photoBusy={photoBusy} onPhotoUpload={(files) => uploadPhotos(active.question.id, files)} onPhotoDelete={(fileId) => void removePhoto(active.question.id, fileId)} questionNumber={currentIndex + 1} questionCount={flat.length} previousDisabled={currentIndex === 0} nextLabel={photoBusy ? "Fotos speichern…" : currentIndex === flat.length - 1 ? "Zur Übersicht" : "Weiter"} onPrevious={() => void goPrevious()} onNext={() => void goNext()} />
           </div>
         </section>
         <QuickNavigationFlap sectionName={active.section.name} questionText={active.question.text} currentIndex={currentIndex} questionCount={flat.length} answeredCount={flat.filter(({ question }) => isCompleteAnswer(question, question.id === active.question.id ? draft : payload.answers[question.id])).length} onOpen={() => setNavigatorOpen(true)} />
@@ -1283,9 +1300,28 @@ type QuestionCardProps = {
   nextLabel: string;
   onPrevious: () => void;
   onNext: () => void;
+  onPrepareComment?: () => Promise<boolean>;
 };
 
-function QuestionCard({ question, answer, onAnswer, saveState, saveError, photoFiles, photoBusy, onPhotoUpload, onPhotoDelete, questionNumber, questionCount, previousDisabled, nextLabel, onPrevious, onNext }: QuestionCardProps) {
+export function QuestionCard({ question, answer, onAnswer, saveState, saveError, photoFiles, photoBusy, onPhotoUpload, onPhotoDelete, questionNumber, questionCount, previousDisabled, nextLabel, onPrevious, onNext, onPrepareComment }: QuestionCardProps) {
+  const [commentOpen, setCommentOpen] = useState(false);
+  const triggerKey = smCommentTriggerKey(question, answer);
+  const changeAnswer = (next: SmVisitAnswer) => {
+    const nextKey = smCommentTriggerKey(question, next);
+    const { comment: _oldComment, ...base } = next;
+    const nextAnswer = nextKey && nextKey === triggerKey && answer.comment ? { ...base, comment: answer.comment } : base;
+    onAnswer(nextAnswer);
+    if (nextKey && nextKey !== triggerKey && ["choice", "multi", "yesnomulti", "matrix"].includes(next.kind)) setCommentOpen(true);
+  };
+  const openComment = async () => {
+    if (photoBusy || onPrepareComment && !(await onPrepareComment())) return;
+    setCommentOpen(true);
+  };
+  const next = () => {
+    if (smCommentMissing(question, answer)) { void openComment(); return; }
+    onNext();
+  };
+  useEffect(() => { setCommentOpen(false); }, [question.id]);
   const subheading = typeof question.config.subheading === "string" ? question.config.subheading.trim() : "";
   return <article className="flex min-w-0 w-full flex-col overflow-hidden rounded-[14px] border border-white/90 bg-white/80 px-4 pb-4 pt-[18px] shadow-[0_2px_16px_rgba(0,0,0,.05),0_1px_4px_rgba(0,0,0,.04)] backdrop-blur-2xl">
     <div className="flex items-center justify-between gap-3">
@@ -1296,12 +1332,14 @@ function QuestionCard({ question, answer, onAnswer, saveState, saveError, photoF
     {subheading ? <p className="mt-0.5 overflow-hidden break-words text-[9px] font-normal leading-[1.4] text-black/35 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{subheading}</p> : null}
     {typeof question.config.instruction === "string" && question.config.instruction ? <p className="mt-2 text-[10px] italic leading-relaxed text-black/40">{question.config.instruction}</p> : null}
     <QuestionImageCarousel question={question} />
-    <div className="mt-4 min-h-0 min-w-0"><QuestionInput question={question} answer={answer} onAnswer={onAnswer} photoFiles={photoFiles} photoBusy={photoBusy} onPhotoUpload={onPhotoUpload} onPhotoDelete={onPhotoDelete} /></div>
+    <div className="mt-4 min-h-0 min-w-0"><QuestionInput question={question} answer={answer} onAnswer={changeAnswer} photoFiles={photoFiles} photoBusy={photoBusy} onPhotoUpload={onPhotoUpload} onPhotoDelete={onPhotoDelete} /></div>
+    {triggerKey ? <button type="button" disabled={photoBusy} onClick={() => void openComment()} className="mt-2 flex w-full items-center gap-1.5 text-left text-[9px] font-medium text-black/40"><MessageSquare size={11} className={answer.comment?.trim() ? "text-emerald-600" : "text-red-500"} /><span className="min-w-0 flex-1 truncate">{answer.comment?.trim() || "Kommentar erforderlich"}</span><span className="shrink-0 text-black/30">{answer.comment?.trim() ? "Bearbeiten" : "Ergänzen"}</span></button> : null}
+    {commentOpen && triggerKey ? <SmAnswerCommentDialog questionText={question.text} value={answer.comment ?? ""} onChange={(comment) => onAnswer({ ...answer, comment })} onClose={() => setCommentOpen(false)} onSave={() => { onAnswer({ ...answer, comment: answer.comment?.trim() }); setCommentOpen(false); }} /> : null}
     {saveError ? <p role="alert" className="mt-3 flex items-start gap-2 rounded-[9px] bg-red-50 px-3 py-2 text-[9px] font-semibold leading-relaxed text-red-700"><AlertCircle size={11} className="mt-0.5 shrink-0" />{saveError}</p> : null}
     <div className="mt-4 border-t border-black/[0.055] pt-3">
       <div className="flex gap-2">
         <button type="button" disabled={previousDisabled} onClick={onPrevious} className="flex h-9 items-center justify-center gap-1 rounded-lg bg-white px-3 text-[10px] font-semibold text-black/40 shadow-[0_1px_4px_rgba(0,0,0,.06),inset_0_0_0_1px_rgba(0,0,0,.06)] disabled:bg-black/[0.03] disabled:text-black/15 disabled:shadow-none"><ChevronLeft size={12} />Zurück</button>
-        <button type="button" disabled={photoBusy} onClick={onNext} className="flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-[11px] font-bold text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_0_0_1px_#a91b1b,0_1px_6px_rgba(180,20,20,.18)] disabled:bg-none disabled:bg-black/[0.08] disabled:text-black/25 disabled:shadow-none">{photoBusy ? <LoaderCircle size={12} className="animate-spin" /> : null}{nextLabel}{photoBusy ? null : <ChevronRight size={12} strokeWidth={2.5} />}</button>
+        <button type="button" disabled={photoBusy} onClick={next} className="flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-[11px] font-bold text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_0_0_1px_#a91b1b,0_1px_6px_rgba(180,20,20,.18)] disabled:bg-none disabled:bg-black/[0.08] disabled:text-black/25 disabled:shadow-none">{photoBusy ? <LoaderCircle size={12} className="animate-spin" /> : null}{nextLabel}{photoBusy ? null : <ChevronRight size={12} strokeWidth={2.5} />}</button>
       </div>
     </div>
   </article>;
@@ -1731,7 +1769,7 @@ function VisitDatePicker({ value, onChange }: { value: string; onChange: (next: 
 }
 
 function ReviewScreen({ payload, flat, error, timeConflict, busy, onBack, onSubmit }: { payload: SmVisitPayload; flat: Array<{ section: SmVisitSection; question: SmVisitQuestion }>; error: string | null; timeConflict?: SmVisitTimeConflictDetails | null; busy: boolean; onBack: () => void; onSubmit: (timing: { visitStartedAt?: string; visitCompletedAt?: string; travelMinutes?: number | null }) => void }) {
-  const missing = flat.filter((entry) => entry.question.required && !isCompleteAnswer(entry.question, payload.answers[entry.question.id]));
+  const missing = flat.filter((entry) => smCommentMissing(entry.question, payload.answers[entry.question.id]) || entry.question.required && !isCompleteAnswer(entry.question, payload.answers[entry.question.id]));
   const submission = payload.submission!;
   const isTimer = submission.visitTimeMode === "timer";
   const [startValue, setStartValue] = useState(() => isTimer ? localDateTimeInputValue(submission.visitStartedAt) : "");
@@ -2031,7 +2069,7 @@ export function SmVisitTemporaryQuestionnaire({ assignmentId, marketName, market
   };
 
   const goNext = () => {
-    if (active.question.required && !isCompleteAnswer(active.question, answer)) {
+    if (smCommentMissing(active.question, answer) || active.question.required && !isCompleteAnswer(active.question, answer)) {
       setValidationError("Bitte beantworte diese Pflichtfrage, bevor du fortfährst.");
       return;
     }

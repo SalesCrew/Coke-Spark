@@ -850,3 +850,9 @@ Post-write verification:
 - test SM API sees exactly one questionnaire on each assignment;
 - zero submissions were started, leaving the first Start action available for manual UI testing;
 - the pre-existing matched-market count remains 1, confirming markets were not reassigned.
+# Answer-triggered comments — local update
+
+See [SM answer comments](sm-answer-comments-living.md) for the SM-only admin
+configuration, required-comment checks, offline answer persistence and compact
+modal UI. Comments are part of answer JSON, not a separate questionnaire question.
+Old visit snapshots remain unchanged.

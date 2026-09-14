@@ -1,7 +1,7 @@
 import type { SmPlanningStatus } from "@/types/smPlanning";
 import type { SmQuestionType } from "@/types/smQuestionnaire";
 
-export type SmVisitAnswer =
+export type SmVisitAnswer = (
   | { kind: "empty" }
   | { kind: "choice"; optionCode: string }
   | { kind: "multi"; optionCodes: string[] }
@@ -9,7 +9,8 @@ export type SmVisitAnswer =
   | { kind: "text"; value: string }
   | { kind: "number"; value: number }
   | { kind: "matrix"; cells: Array<{ rowCode: string; columnCode: string; selected: boolean }> }
-  | { kind: "photo"; fileIds: string[] };
+  | { kind: "photo"; fileIds: string[] }
+) & { comment?: string };
 
 export type SmVisitQuestion = {
   id: string;

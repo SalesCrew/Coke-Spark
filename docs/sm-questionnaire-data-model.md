@@ -281,3 +281,10 @@ Still deferred:
 3. backend applicability and completeness validation at submission time;
 4. photo storage bucket/policies only when photo upload is connected;
 5. admin correction approval endpoints that create answer/submission revisions.
+# SM answer comments
+
+The optional admin configuration lives in question config as `commentTrigger`;
+submission snapshots preserve it. Triggered comments are required at submission
+and saved in the existing answer `value_json.comment` (maximum 2,000 characters).
+No migration or GM table change. Full semantics and verification:
+[SM answer comments](sm-answer-comments-living.md).

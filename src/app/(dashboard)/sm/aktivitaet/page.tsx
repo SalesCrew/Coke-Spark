@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { SmAnswerCommentDialog } from "@/components/sm/SmAnswerCommentDialog";
+import { smCommentMissing, smCommentTriggerKey } from "@/lib/sm/answerComments";
 import {
   Activity,
   AlertCircle,
@@ -135,6 +137,14 @@ function answerText(
   question: SmVisitQuestion,
   answer: SmVisitAnswer | null | undefined,
 ) {
+  const text = answerTextValue(question, answer);
+  return answer?.comment ? `${text} · Kommentar: ${answer.comment}` : text;
+}
+
+function answerTextValue(
+  question: SmVisitQuestion,
+  answer: SmVisitAnswer | null | undefined,
+) {
   if (!answer || answer.kind === "empty") return "Keine Antwort";
   const label = (code: string) =>
     question.options.find((option) => option.code === code)?.label ?? code;
@@ -153,6 +163,7 @@ function answerText(
 }
 
 function isMeaningful(question: SmVisitQuestion, answer: SmVisitAnswer) {
+  if (smCommentMissing(question, answer)) return false;
   if (answer.kind === "empty") return !question.required;
   if (answer.kind === "choice") return Boolean(answer.optionCode);
   if (answer.kind === "multi")
@@ -229,7 +240,11 @@ function RequestStatus({
   );
 }
 
-function ReadOnlyAnswer({
+function ReadOnlyAnswer(props: Parameters<typeof ReadOnlyAnswerValue>[0]) {
+  return <><ReadOnlyAnswerValue {...props} />{props.answer?.comment ? <p className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-black/45"><span className="mr-1 font-semibold">Kommentar:</span>{props.answer.comment}</p> : null}</>;
+}
+
+function ReadOnlyAnswerValue({
   question,
   answer,
   photos,
@@ -598,6 +613,7 @@ function ChangeRequestSheet({
   onSaved: () => Promise<void>;
 }) {
   const pendingRequest = existing?.status === "pending" ? existing : null;
+  const [commentOpen, setCommentOpen] = useState(false);
   const [answer, setAnswer] = useState<SmVisitAnswer>(() =>
     defaultAnswer(question, currentAnswer),
   );
@@ -701,7 +717,12 @@ function ChangeRequestSheet({
                   question={question}
                   answer={answer}
                   photos={photos}
-                  onChange={setAnswer}
+                  onChange={(next) => {
+                    const key = smCommentTriggerKey(question, next);
+                    const { comment: _previous, ...base } = next;
+                    setAnswer(key && key === smCommentTriggerKey(question, answer) && answer.comment ? { ...base, comment: answer.comment } : base);
+                    if (key && key !== smCommentTriggerKey(question, answer) && ["choice", "multi", "yesnomulti", "matrix"].includes(next.kind)) setCommentOpen(true);
+                  }}
                 />
                 {!question.required && answer.kind !== "empty" ? (
                   <button
@@ -713,6 +734,8 @@ function ChangeRequestSheet({
                   </button>
                 ) : null}
               </label>
+              {smCommentTriggerKey(question, answer) ? <button type="button" className="text-left text-[11px] text-red-600" onClick={() => setCommentOpen(true)}>{answer.comment?.trim() ? "Kommentar bearbeiten" : "Kommentar ergänzen *"}</button> : null}
+              {commentOpen ? <SmAnswerCommentDialog questionText={question.text} value={answer.comment ?? ""} onChange={(comment) => setAnswer((current) => ({ ...current, comment }))} onClose={() => setCommentOpen(false)} onSave={() => setCommentOpen(false)} /> : null}
               <label className="sm-act-field">
                 <span>Grund für die Änderung</span>
                 <textarea

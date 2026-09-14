@@ -2,6 +2,22 @@
 
 Stand: 2026-09-14. SIMPL: „Einsätze Ändern“ (`f1d5270d-b567-4201-9e17-16ee1d052f16`).
 
+## Ergänzung: Alinas Frage zu Serienende und falsch verplantem Markt
+
+Prüfung am 14.09.2026: Serienende ist bereits über „Serie ändern oder stoppen → Stoppen“ umgesetzt. Einzeltermine konnten ebenfalls bereits abgesagt und wiederhergestellt werden; die Bezeichnung „Als Ausfall markieren“ machte die Korrektur eines falsch geplanten Marktes jedoch schlecht erkennbar. Es braucht keine zweite Löschfunktion und keine Datenmigration.
+
+- Der Einsatz-Drawer bietet jetzt „Einsatz entfernen“. Aufklappen zeigt den konkreten Markt/Tag, die Auswirkung und den Hinweis auf Wiederherstellung. Ein Grund und „Entfernen bestätigen“ sind erforderlich. Bei Serien wird ausdrücklich nur dieser Termin entfernt; für alle künftigen Termine bleibt die separate Serienverwaltung zuständig.
+- Technisch bleibt das die vorhandene transaktionale Absage (`cancelled`) mit Actor, Grund, Zeitstempel und Vorher/Nachher-Event. Der Marktstamm, Originalplanung, Fragebogen-/Zeitdaten und alle anderen Einsätze werden nicht gelöscht. Laufende, abgeschlossene und versäumte Termine bleiben durch die bestehenden Backend-Regeln gesperrt.
+- Entfernen/Wiederherstellen haben einen separaten Frontend-Submit-Typ. Ungespeicherte Markt-, SM-, Datums- oder Sollzeitänderungen können nicht versehentlich vor der Absage gespeichert werden. Die UI erklärt das, wenn solche Eingaben vorhanden sind. Doppelklicks werden blockiert, Fehler erhalten den Eingabezustand, fehlgeschlagene Listen-Refreshes nach erfolgreichem Commit lösen keine Wiederholung aus.
+- Die normale Ansicht verwendet „Ohne abgesagte Einsätze“. Über „Status → Abgesagt / entfernt“ oder „Alle inkl. abgesagte Einsätze“ bleibt die Historie sichtbar. „Einsatz wiederherstellen“ aktiviert nur diesen Termin und startet keine gestoppte Serie neu.
+- Abgesagte Einträge tragen vorrangig das Label „Abgesagt“, auch wenn sie früher verschoben/ersetzt wurden. Ihre ursprünglichen Sollminuten bleiben am Datensatz erhalten, zählen jedoch nicht mehr zu den angezeigten Wochen-/Tages-Sollstunden. Die beiden Zusammenfassungen verwenden dieselbe getestete Berechnung. Auch der Zähler aktiver Serien ignoriert abgesagte Zeilen.
+- SM-Phone-Regeln bleiben erhalten: ein abgesagter Einsatz ist nicht startbar. Keine GM-Funktion, GM-Tabelle, Rolle, RLS-Regel oder Produktionszeile wurde geändert. Keine Migration erforderlich.
+- Die vorhandenen Backend-Transaktionskörper für Einzelabsage/Wiederherstellung wurden unverändert in testbare Funktionen innerhalb derselben Route extrahiert. Die HTTP-Verträge, Auth-Prüfung und Lock-/Konfliktregeln bleiben gleich.
+
+Prüfungen dieser Ergänzung: `npm run test:sm-series` enthält jetzt 31 erfolgreiche Tests einschließlich echter Einzelabsage, Wiederherstellung, Konkurrenzfehler, geschützter Status, Geschwisterschutz und Audit-Rollback im isolierten PGlite. Die drei Tests unter `npm run test:sm-planning-cancellation` prüfen Filter, Sollsummen und UI/API-Sicherheitsvertrag. Weitere 20 Kalender-/Verplanungs-/SM-Safety-Tests sowie 17 Dashboard-Regressionen sind erfolgreich. Frontend- und Backend-Produktionsbuild sowie die abschließende fokussierte Frontend-Typprüfung sind erfolgreich.
+
+Lokale Browserprüfung: `/dev/sm-planning-remove` verwendet den echten Drawer mit ausschließlich lokalem Speicher; keine produktiven Einsätze werden zu Testzwecken verändert. Geprüft: Entfernen erfordert einen Grund, ungespeicherte Sollzeit wird nicht übernommen, Entfernen/Wiederherstellen schließen nach Erfolg, abgeschlossene Einsätze haben keine Entfernen-Aktion, ein simulierter Konkurrenzfehler lässt Drawer und Begründung erhalten. Screenshot der Bestätigung visuell geprüft. Der Dev-Pfad ist in Produktion gesperrt. Veröffentlichungsstatus steht im Aufgabenabschluss, nicht in einer automatisch gesetzten Release-Markierung.
+
 ## Ursache
 
 Die Verplanung konnte Serien erstellen, aber danach nur Einzeltermine bearbeiten/absagen und den SM für zukünftige Einsätze ersetzen. Eine Änderung von Rhythmus, Wochentagen, Ende, Markt und Sollzeit sowie ein expliziter Serienstopp fehlten. Die materialisierten Einsätze wurden unabhängig voneinander geladen; die angezeigte Serienbeschreibung stammte außerdem immer aus der ursprünglichen Erzeugungsversion.

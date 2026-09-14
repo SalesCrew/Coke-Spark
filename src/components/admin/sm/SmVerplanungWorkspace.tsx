@@ -21,7 +21,7 @@ import {
   UserX,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminDropdown as SmPlanDropdown, AdminDatePicker as SmPlanDatePicker, AdminFilterControlStyles, type AdminDropdownOption as SmPlanDropdownOption } from "@/components/admin/AdminFilterControls";
 
 import {
@@ -46,11 +46,12 @@ import type { SMRecord } from "@/types/shelfmerchandiser";
 import { austrianHoliday, austrianHolidays } from "@/lib/sm/austrianHolidays";
 import { SmHolidayCalendarCard } from "./SmHolidayCalendarCard";
 import { SmHolidayNote } from "@/components/sm/SmHolidayNote";
-import { SmPlanningWeekPicker } from "./SmPlanningWeekPicker";
+import { SmPlanningPeriodPicker } from "./SmPlanningPeriodPicker";
 import { SmSeriesDrawer } from "./SmSeriesDrawer";
 import type { SmSeriesPreview } from "@/types/smPlanning";
-import { calendarWeek } from "@/lib/sm/calendarWeeks";
+import { currentSmPeriod, shiftSmPeriod, smPeriodExportSlug, smPeriodHeading, smPeriodLabel, type SmPlanningPeriod } from "@/lib/sm/planningPeriod";
 import { filterAdminGmPlanningVisits, recommendedUserFirst } from "@/lib/sm/planningView";
+import { DEFAULT_SM_PLANNING_STATUS, matchesSmPlanningStatus, smPlanningMinutes } from "@/lib/sm/planningCancellation";
 
 const RED = "#DC2626";
 const ROW_GRID = "132px minmax(150px, .8fr) minmax(110px, .65fr) minmax(230px, 1.35fr) 80px 118px 84px";
@@ -58,7 +59,7 @@ const ROW_GRID = "132px minmax(150px, .8fr) minmax(110px, .65fr) minmax(230px, 1
 type DrawerMode = "single" | "series" | null;
 type PlanningListRow = { kind: "sm"; row: SmPlanningAssignment } | { kind: "gm"; row: AdminGmPlanningVisit };
 
-type PlanningSubmitRequest =
+export type PlanningSubmitRequest =
   | {
       kind: "create_single";
       workDate: string;
@@ -86,7 +87,11 @@ type PlanningSubmitRequest =
       plannedMinutes: number;
       workDate: string;
       reassignmentScope: SmPlanningReassignmentScope;
-      cancellationAction: "none" | "cancel" | "restore";
+      reason: string;
+    }
+  | {
+      kind: "cancel" | "restore";
+      assignment: SmPlanningAssignment;
       reason: string;
     };
 
@@ -102,11 +107,12 @@ const TYPE_FILTER_OPTIONS: SmPlanDropdownOption[] = [
   { value: "series", label: "Serie" },
 ];
 const STATUS_FILTER_OPTIONS: SmPlanDropdownOption[] = [
-  { value: "all", label: "Status" },
+  { value: DEFAULT_SM_PLANNING_STATUS, label: "Ohne abgesagte Einsätze" },
+  { value: "all", label: "Alle inkl. abgesagte Einsätze" },
   { value: "confirmed", label: "Bestätigt" },
   { value: "planned", label: "Geplant" },
   { value: "open", label: "Offen" },
-  { value: "cancelled", label: "Ausfall" },
+  { value: "cancelled", label: "Abgesagt / entfernt" },
   { value: "completed", label: "Erledigt" },
   { value: "missed", label: "Versäumt" },
   { value: "rescheduled", label: "Verschoben" },
@@ -134,7 +140,7 @@ function formatDate(dateIso: string): string {
 function statusMeta(status: SmPlanningStatus) {
   if (status === "confirmed") return { label: "Bestätigt", color: "#15803D", background: "rgba(22,163,74,.09)" };
   if (status === "open") return { label: "Offen", color: "#B45309", background: "rgba(245,158,11,.13)" };
-  if (status === "cancelled") return { label: "Ausfall", color: "#B91C1C", background: "rgba(220,38,38,.09)" };
+  if (status === "cancelled") return { label: "Abgesagt", color: "#B91C1C", background: "rgba(220,38,38,.09)" };
   if (status === "completed") return { label: "Erledigt", color: "#15803D", background: "rgba(22,163,74,.09)" };
   if (status === "in_progress") return { label: "In Arbeit", color: "#1D4ED8", background: "rgba(37,99,235,.09)" };
   if (status === "missed") return { label: "Versäumt", color: "#B91C1C", background: "rgba(220,38,38,.09)" };
@@ -203,7 +209,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 
-function PlanningDrawer({
+export function PlanningDrawer({
   mode,
   assignment,
   defaultDate,
@@ -239,6 +245,7 @@ function PlanningDrawer({
   const [cancellationAction, setCancellationAction] = useState<"none" | "cancel" | "restore">("none");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const submitting = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [idempotencyKey] = useState(() => `sm-plan:${crypto.randomUUID()}`);
   const [seriesPreview, setSeriesPreview] = useState<{ effectiveFromDate: string; affectedCount: number; skippedCount: number } | null>(null);
@@ -279,7 +286,9 @@ function PlanningDrawer({
     : 0;
   const requiresReason = smChanged || cancellationAction !== "none";
   const hasEditChange = marketChanged || minutesChanged || dateChanged || smChanged || cancellationAction !== "none";
-  const validationMessage = !smMarketId || !smUserId
+  const validationMessage = cancellationAction !== "none"
+    ? reason.trim().length < 3 ? "Bitte gib einen kurzen Änderungsgrund an." : null
+    : !smMarketId || !smUserId
     ? "Ein aktiver Markt und Shelf Merchandiser sind erforderlich."
     : Number(plannedMinutes) < 1 || Number(plannedMinutes) > 1440
       ? "Die Sollzeit ist ungültig."
@@ -300,7 +309,7 @@ function PlanningDrawer({
                 : null;
 
   useEffect(() => {
-    if (!assignment || assignment.sourceType !== "series" || !smChanged || reassignmentScope !== "series_future") {
+    if (cancellationAction !== "none" || !assignment || assignment.sourceType !== "series" || !smChanged || reassignmentScope !== "series_future") {
       setSeriesPreview(null);
       setSeriesPreviewError(null);
       setSeriesPreviewLoading(false);
@@ -314,14 +323,15 @@ function PlanningDrawer({
       .catch((error: unknown) => { if (active) setSeriesPreviewError(error instanceof Error ? error.message : "Die Serienauswirkung konnte nicht geladen werden."); })
       .finally(() => { if (active) setSeriesPreviewLoading(false); });
     return () => { active = false; };
-  }, [assignment, reassignmentScope, smChanged, smUserId]);
+  }, [assignment, cancellationAction, reassignmentScope, smChanged, smUserId]);
 
   const toggleWeekday = (weekday: number) => setWeekdays((current) => current.includes(weekday)
     ? current.filter((entry) => entry !== weekday)
     : [...current, weekday].sort((left, right) => left - right));
 
   const submit = async () => {
-    if (validationMessage || saving) return;
+    if (validationMessage || submitting.current || isLocked) return;
+    submitting.current = true;
     setSaving(true);
     setSubmitError(null);
     try {
@@ -344,6 +354,9 @@ function PlanningDrawer({
           plannedMinutes: Number(plannedMinutes),
           idempotencyKey,
         });
+      } else if (cancellationAction !== "none") {
+        // Never mix removal/restoration with unsaved date, market or series changes.
+        await onSubmit({ kind: cancellationAction, assignment, reason: reason.trim() });
       } else {
         await onSubmit({
           kind: "edit",
@@ -353,7 +366,6 @@ function PlanningDrawer({
           plannedMinutes: Number(plannedMinutes),
           workDate,
           reassignmentScope,
-          cancellationAction,
           reason: reason.trim(),
         });
       }
@@ -361,6 +373,7 @@ function PlanningDrawer({
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Die Änderung konnte nicht gespeichert werden.");
     } finally {
+      submitting.current = false;
       setSaving(false);
     }
   };
@@ -379,6 +392,7 @@ function PlanningDrawer({
       </div>
 
       <div className="sm-plan-drawer-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px 24px" }}>
+        <fieldset disabled={saving} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
         {assignment?.seriesId ? <button type="button" disabled={saving} onClick={() => setManagingSeries(true)} className="mb-4 flex w-full items-center justify-between rounded-lg border border-black/[.08] bg-white px-3 py-2.5 text-left"><span className="flex items-center gap-2 text-[11px] font-semibold"><RefreshCw size={13}/>{assignment.series?.status === "ended" ? "Gestoppte Serie ansehen" : "Serie ändern oder stoppen"}</span><ChevronRight size={13} className="text-black/35"/></button> : null}
         {assignment?.holidayAdjustment ? <div className="mb-4"><SmHolidayNote adjustment={assignment.holidayAdjustment} currentDate={assignment.effective.workDate} /></div> : null}
         {!assignment || rescheduling ? <p className={`mb-4 rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${austrianHoliday(workDate) ? "border-amber-200 bg-amber-50 text-amber-900" : "border-black/[.06] bg-white text-gray-500"}`}>{createsSeries ? "Feiertage werden je Einzeltermin auf einen benachbarten Werktag mit weniger Sollzeit verschoben. Die Serie behält ihren Rhythmus." : austrianHoliday(workDate) ? `${austrianHoliday(workDate)!.name}: ${assignment ? "Deine manuelle Datumswahl hat Vorrang und wird nicht automatisch überschrieben." : "Dieser Termin wird automatisch auf einen benachbarten Werktag mit weniger Sollzeit verschoben."}` : assignment ? "Die manuelle Datumswahl hat Vorrang vor der Feiertagsautomatik." : "Österreichische Feiertage werden automatisch berücksichtigt."}</p> : null}
@@ -397,7 +411,7 @@ function PlanningDrawer({
 
         {isLocked ? <div role="status" style={{ marginTop: 14, padding: "10px 11px", display: "flex", gap: 8, border: "1px solid rgba(245,158,11,.18)", borderRadius: 9, background: "rgba(245,158,11,.05)", color: "#92400E", fontSize: 9.4, lineHeight: 1.5 }}><AlertCircle size={13} style={{ flexShrink: 0 }}/><span>Dieser Einsatz ist bereits {assignment?.status === "completed" ? "abgeschlossen" : assignment?.status === "in_progress" ? "in Arbeit" : "versäumt"} und kann nicht mehr umgeplant werden.</span></div> : null}
 
-        <div style={{ marginTop: 17, display: "grid", gap: 14 }}>
+        <fieldset disabled={cancellationAction !== "none"} style={{ border: 0, padding: 0, minWidth: 0, marginTop: 17, display: "grid", gap: 14 }}>
           {!createsSeries ? <div>
             <FieldLabel>{assignment ? "Aktuelles Datum" : "Datum"}</FieldLabel>
             {assignment && !rescheduling ? <div className="sm-plan-date-trigger is-readonly"><span>{formatDate(assignment.effective.workDate)}</span><Calendar size={12} strokeWidth={1.8}/></div> : <SmPlanDatePicker ariaLabel={assignment ? "Neues Datum" : "Datum"} value={workDate} onChange={(nextDate) => { setWorkDate(nextDate); setValidFrom(nextDate); }} />}
@@ -406,7 +420,7 @@ function PlanningDrawer({
           <div><FieldLabel>Markt · Stammnummer</FieldLabel><SmPlanDropdown disabled={isLocked || isCancelled || rescheduling} ariaLabel="Markt" value={smMarketId} options={marketOptions} onChange={setSmMarketId} placeholder="Markt auswählen" searchable /></div>
           <div><FieldLabel>Shelf Merchandiser</FieldLabel><SmPlanDropdown disabled={isLocked || isCancelled || rescheduling} ariaLabel="Shelf Merchandiser" value={smUserId} options={userOptions} onChange={setSmUserId} placeholder="Shelf Merchandiser auswählen" searchable /></div>
           <div><FieldLabel>Sollzeit</FieldLabel><SmPlanDropdown disabled={isLocked || isCancelled || rescheduling} ariaLabel="Sollzeit" value={plannedMinutes} options={DURATION_OPTIONS} onChange={setPlannedMinutes} placeholder="Sollzeit" /></div>
-        </div>
+        </fieldset>
 
         {!assignment ? <div style={{ marginTop: 18, paddingTop: 15, borderTop: "1px solid rgba(0,0,0,.06)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -427,11 +441,11 @@ function PlanningDrawer({
           <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid rgba(0,0,0,.06)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}><span style={{ width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: rescheduling ? "rgba(124,58,237,.09)" : "rgba(0,0,0,.035)", color: rescheduling ? "#6D28D9" : "rgba(0,0,0,.42)" }}><CalendarClock size={13}/></span><div><div style={{ color: "#1a1a1a", fontSize: 11, fontWeight: 700 }}>Einsatz verschieben</div><div style={{ marginTop: 2, color: "rgba(0,0,0,.38)", fontSize: 9.2, lineHeight: 1.45 }}>Ändert nur diesen Einsatz; die Serie bleibt unverändert.</div></div></div>
-              <button type="button" disabled={isCancelled} aria-label="Einsatz verschieben" aria-pressed={rescheduling} onClick={() => { setRescheduling((current) => !current); setWorkDate(assignment.effective.workDate); }} className={`sm-plan-switch${rescheduling ? " is-active" : ""}`}><span/></button>
+              <button type="button" disabled={isCancelled || cancellationAction !== "none"} aria-label="Einsatz verschieben" aria-pressed={rescheduling} onClick={() => { setRescheduling((current) => !current); setWorkDate(assignment.effective.workDate); }} className={`sm-plan-switch${rescheduling ? " is-active" : ""}`}><span/></button>
             </div>
           </div>
 
-          {smChanged && assignment.sourceType === "series" ? <div style={{ marginTop: 16 }}>
+          {smChanged && assignment.sourceType === "series" && cancellationAction === "none" ? <div style={{ marginTop: 16 }}>
             <FieldLabel>Umfang der SM-Änderung</FieldLabel>
             <div style={{ display: "grid", gap: 8 }}>
               <button type="button" onClick={() => setReassignmentScope("occurrence")} className={`sm-plan-scope-card${reassignmentScope === "occurrence" ? " is-active" : ""}`}><span className="sm-plan-radio"/><span><strong>Nur dieser Einsatz</strong><small>Alle anderen Termine der Serie behalten ihre aktuelle Besetzung.</small></span></button>
@@ -443,18 +457,31 @@ function PlanningDrawer({
           </div> : null}
 
           <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid rgba(0,0,0,.06)" }}>
-            {isCancelled ? <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}><div style={{ display: "flex", gap: 9 }}><span style={{ width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: "rgba(22,163,74,.08)", color: "#15803D" }}><RotateCcw size={13}/></span><div><div style={{ color: "#1a1a1a", fontSize: 11, fontWeight: 700 }}>Einsatz wiederherstellen</div><div style={{ marginTop: 2, color: "rgba(0,0,0,.38)", fontSize: 9.2 }}>Nur dieser Einsatz wird wieder aktiv.</div></div></div><button type="button" aria-label="Einsatz wiederherstellen" aria-pressed={cancellationAction === "restore"} onClick={() => setCancellationAction((current) => current === "restore" ? "none" : "restore")} className={`sm-plan-switch${cancellationAction === "restore" ? " is-active" : ""}`}><span/></button></div> : <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}><div style={{ display: "flex", gap: 9 }}><span style={{ width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: cancellationAction === "cancel" ? "rgba(220,38,38,.08)" : "rgba(0,0,0,.035)", color: cancellationAction === "cancel" ? RED : "rgba(0,0,0,.42)" }}><Ban size={13}/></span><div><div style={{ color: "#1a1a1a", fontSize: 11, fontWeight: 700 }}>Als Ausfall markieren</div><div style={{ marginTop: 2, color: "rgba(0,0,0,.38)", fontSize: 9.2 }}>{assignment.sourceType === "series" ? "Nur dieser Serientermin wird abgesagt." : "Der Einsatz bleibt vollständig nachvollziehbar."}</div></div></div><button type="button" aria-label="Als Ausfall markieren" aria-pressed={cancellationAction === "cancel"} onClick={() => setCancellationAction((current) => current === "cancel" ? "none" : "cancel")} className={`sm-plan-switch${cancellationAction === "cancel" ? " is-active" : ""}`}><span/></button></div>}
+            <button type="button" aria-label={isCancelled ? "Einsatz wiederherstellen" : "Einsatz entfernen"} aria-expanded={cancellationAction !== "none"} onClick={() => {
+              setCancellationAction((current) => current !== "none" ? "none" : isCancelled ? "restore" : "cancel");
+              setSubmitError(null);
+            }} className="flex w-full items-center gap-2.5 rounded-lg border border-black/[.08] bg-white px-3 py-2.5 text-left">
+              {isCancelled ? <RotateCcw size={14} className="shrink-0 text-green-700"/> : <Ban size={14} className="shrink-0 text-red-600"/>}
+              <span className="flex-1"><span className="block text-[11px] font-semibold">{isCancelled ? "Einsatz wiederherstellen" : "Einsatz entfernen"}</span><span className="mt-0.5 block text-[10px] leading-relaxed text-black/45">{isCancelled ? "Nur diesen Termin wieder einplanen." : assignment.seriesId ? "Nur diesen Termin absagen; die Serie läuft weiter." : "Falsch geplanten oder ausgefallenen Termin herausnehmen."}</span></span>
+              <ChevronRight size={13} className={`shrink-0 text-black/35 ${cancellationAction !== "none" ? "rotate-90" : ""}`}/>
+            </button>
+            {cancellationAction !== "none" ? <div role="status" className="mt-2 rounded-lg border border-black/[.06] bg-white px-3 py-2.5 text-[10px] leading-relaxed text-black/55">
+              <strong className="block text-black/75">{assignment.effective.marketName} · {formatDate(assignment.effective.workDate)}</strong>
+              {cancellationAction === "cancel" ? <>Dieser Einsatz wird abgesagt und aus der normalen Planungsansicht entfernt. Unter „Status → Abgesagt / entfernt“ bleibt er wiederherstellbar. Markt, Historie und andere Termine bleiben erhalten.</> : <>Dieser Einsatz wird wieder eingeplant. Eine gestoppte Serie wird dadurch nicht neu gestartet.</>}
+              {marketChanged || minutesChanged || dateChanged || smChanged ? <span className="mt-1 block font-semibold">Andere ungespeicherte Änderungen werden dabei nicht übernommen.</span> : null}
+            </div> : isCancelled ? <p className="mt-2 text-[10px] leading-relaxed text-black/45">Grund: {assignment.cancellation?.reason || "Kein Grund hinterlegt"}</p> : null}
           </div>
 
-          {(smChanged || cancellationAction !== "none" || marketChanged || minutesChanged || dateChanged) ? <div style={{ marginTop: 16 }}><FieldLabel>Änderungsgrund{requiresReason ? " *" : " (optional)"}</FieldLabel><textarea value={reason} onChange={(event) => setReason(event.target.value)} className="sm-plan-input" style={{ height: 66, paddingTop: 8, resize: "vertical" }} placeholder="Kurze Begründung…"/></div> : null}
+          {(smChanged || cancellationAction !== "none" || marketChanged || minutesChanged || dateChanged) ? <div style={{ marginTop: 16 }}><FieldLabel>Änderungsgrund{requiresReason ? " *" : " (optional)"}</FieldLabel><textarea aria-label="Änderungsgrund" maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} className="sm-plan-input" style={{ height: 66, paddingTop: 8, resize: "vertical" }} placeholder={cancellationAction === "cancel" ? "Zum Beispiel: Markt versehentlich verplant" : "Kurze Begründung…"}/></div> : null}
         </> : null}
 
-        {validationMessage || submitError ? <div role="alert" style={{ marginTop: 14, padding: "8px 9px", display: "flex", gap: 7, border: "1px solid rgba(220,38,38,.14)", borderRadius: 7, background: "rgba(220,38,38,.045)", color: "#B91C1C", fontSize: 9.5, fontWeight: 600 }}><AlertCircle size={12} style={{ flexShrink: 0 }}/><span>{validationMessage ?? submitError}</span></div> : null}
+        {validationMessage || submitError ? <div role="alert" style={{ marginTop: 14, padding: "8px 9px", display: "flex", gap: 7, border: "1px solid rgba(220,38,38,.14)", borderRadius: 7, background: "rgba(220,38,38,.045)", color: "#B91C1C", fontSize: 9.5, fontWeight: 600 }}><AlertCircle size={12} style={{ flexShrink: 0 }}/><span>{submitError ?? validationMessage}</span></div> : null}
+        </fieldset>
       </div>
 
       <div style={{ minHeight: 66, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "#fff", borderTop: "1px solid rgba(0,0,0,.06)", flexShrink: 0 }}>
         <button type="button" disabled={saving} onClick={onClose} className="sm-plan-secondary-button">Abbrechen</button>
-        <button type="button" disabled={Boolean(validationMessage) || saving || isLocked} onClick={() => { void submit(); }} className="sm-plan-primary-button">{saving ? <LoaderCircle className="sm-plan-spinner" size={12}/> : null}{assignment ? cancellationAction === "restore" ? "Wiederherstellen" : cancellationAction === "cancel" ? "Ausfall speichern" : "Änderung speichern" : createsSeries ? "Serie planen" : "Einsatz planen"}</button>
+        <button type="button" disabled={Boolean(validationMessage) || saving || isLocked} onClick={() => { void submit(); }} className="sm-plan-primary-button">{saving ? <LoaderCircle className="sm-plan-spinner" size={12}/> : null}{assignment ? cancellationAction === "restore" ? "Wiederherstellen" : cancellationAction === "cancel" ? "Entfernen bestätigen" : "Änderung speichern" : createsSeries ? "Serie planen" : "Einsatz planen"}</button>
       </div>
     </aside>
   );
@@ -521,15 +548,12 @@ function GmVisitDetailDrawer({ visit, onClose }: { visit: AdminGmPlanningVisit; 
 }
 
 export function SmVerplanungWorkspace() {
-  const baseStart = useMemo(() => startOfWeek(new Date()), []);
-  const baseStartKey = useMemo(() => toDateInputValue(baseStart), [baseStart]);
   const [search, setSearch] = useState("");
   const [region, setRegion] = useState("all");
   const [smFilter, setSmFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedWeekStartKey, setSelectedWeekStartKey] = useState(baseStartKey);
-  const [selectedWeekEndKey, setSelectedWeekEndKey] = useState(baseStartKey);
+  const [statusFilter, setStatusFilter] = useState(DEFAULT_SM_PLANNING_STATUS);
+  const [period, setPeriod] = useState<SmPlanningPeriod>(() => currentSmPeriod("week"));
   const [assignments, setAssignments] = useState<SmPlanningAssignment[]>([]);
   const [showGmVisits, setShowGmVisits] = useState(false);
   const [gmVisits, setGmVisits] = useState<AdminGmPlanningVisit[]>([]);
@@ -545,6 +569,7 @@ export function SmVerplanungWorkspace() {
   const [questionnaireSelection, setQuestionnaireSelection] = useState("");
   const [questionnaireSaving, setQuestionnaireSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadedRange, setLoadedRange] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [collapsedDates, setCollapsedDates] = useState<string[]>([]);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>(null);
@@ -552,37 +577,40 @@ export function SmVerplanungWorkspace() {
   const [selectedGmVisit, setSelectedGmVisit] = useState<AdminGmPlanningVisit | null>(null);
   const [notice, setNotice] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(null);
 
-  const weekStartKey = selectedWeekStartKey;
-  const weekEndKey = toDateInputValue(addDays(parseDate(selectedWeekEndKey), 6));
-  const weekStart = useMemo(() => parseDate(weekStartKey), [weekStartKey]);
-  const weekEnd = useMemo(() => parseDate(weekEndKey), [weekEndKey]);
-  const weekNumber = calendarWeek(weekStartKey).number;
-  const endWeekNumber = calendarWeek(selectedWeekEndKey).number;
-  const selectedWeekCount = Math.round((parseDate(selectedWeekEndKey).getTime() - parseDate(selectedWeekStartKey).getTime()) / (7 * 86400000)) + 1;
+  const rangeStartKey = period.from;
+  const rangeEndKey = period.to;
+  const rangeKey = `${period.from}:${period.to}`;
+  const visibleRangeRef = useRef(rangeKey);
+  visibleRangeRef.current = rangeKey;
+  const periodLoading = loading || loadedRange !== rangeKey;
+  const rangeStart = useMemo(() => parseDate(rangeStartKey), [rangeStartKey]);
+  const rangeEnd = useMemo(() => parseDate(rangeEndKey), [rangeEndKey]);
 
   const shiftSelectedRange = useCallback((direction: -1 | 1) => {
-    setSelectedWeekStartKey((current) => toDateInputValue(addDays(parseDate(current), direction * 7)));
-    setSelectedWeekEndKey((current) => toDateInputValue(addDays(parseDate(current), direction * 7)));
+    setPeriod((current) => shiftSmPeriod(current, direction));
   }, []);
 
-  const resetToCurrentWeek = useCallback(() => {
-    setSelectedWeekStartKey(baseStartKey);
-    setSelectedWeekEndKey(baseStartKey);
-  }, [baseStartKey]);
+  const resetToCurrentPeriod = useCallback(() => {
+    setPeriod((current) => currentSmPeriod(current.mode));
+  }, []);
 
   const reloadAssignments = useCallback(async (showLoading = false) => {
+    const requestedRange = `${rangeStartKey}:${rangeEndKey}`;
     if (showLoading) setLoading(true);
     try {
-      const rows = await fetchSmPlanningAssignments(weekStartKey, weekEndKey);
+      const rows = await fetchSmPlanningAssignments(rangeStartKey, rangeEndKey);
+      if (visibleRangeRef.current !== requestedRange) return;
       setAssignments(rows);
+      setLoadedRange(requestedRange);
       setLoadError(null);
     } catch (error) {
+      if (visibleRangeRef.current !== requestedRange) return;
       setLoadError(error instanceof Error ? error.message : "Die Verplanung konnte nicht geladen werden.");
       throw error;
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading && visibleRangeRef.current === requestedRange) setLoading(false);
     }
-  }, [weekEndKey, weekStartKey]);
+  }, [rangeEndKey, rangeStartKey]);
 
   useEffect(() => {
     let active = true;
@@ -604,10 +632,11 @@ export function SmVerplanungWorkspace() {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    fetchSmPlanningAssignments(weekStartKey, weekEndKey)
+    fetchSmPlanningAssignments(rangeStartKey, rangeEndKey)
       .then((assignmentRows) => {
         if (!active) return;
         setAssignments(assignmentRows);
+        setLoadedRange(`${rangeStartKey}:${rangeEndKey}`);
         setLoadError(null);
       })
       .catch((error: unknown) => {
@@ -615,7 +644,7 @@ export function SmVerplanungWorkspace() {
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [weekEndKey, weekStartKey]);
+  }, [rangeEndKey, rangeStartKey]);
 
   useEffect(() => {
     if (!showGmVisits) return;
@@ -623,15 +652,16 @@ export function SmVerplanungWorkspace() {
     setGmVisits([]);
     setGmLoading(true);
     setGmLoadError(null);
-    fetchAdminGmPlanningVisits(weekStartKey, weekEndKey)
+    fetchAdminGmPlanningVisits(rangeStartKey, rangeEndKey)
       .then((visits) => { if (active) setGmVisits(visits); })
       .catch((error: unknown) => { if (active) setGmLoadError(error instanceof Error ? error.message : "Die GM-Besuche konnten nicht geladen werden."); })
       .finally(() => { if (active) setGmLoading(false); });
     return () => { active = false; };
-  }, [showGmVisits, weekEndKey, weekStartKey]);
+  }, [showGmVisits, rangeEndKey, rangeStartKey]);
 
   const normalizedSearch = search.trim().toLocaleLowerCase("de-AT");
   const rows = useMemo(() => assignments.filter((row) => {
+    if (row.effective.workDate < rangeStartKey || row.effective.workDate > rangeEndKey) return false;
     const matchesSearch = !normalizedSearch || [
       row.effective.smName,
       row.effective.marketName,
@@ -640,14 +670,13 @@ export function SmVerplanungWorkspace() {
       row.original.smName,
       row.original.marketInternalId,
     ].some((value) => value.toLocaleLowerCase("de-AT").includes(normalizedSearch));
-    const matchesStatus = statusFilter === "all"
-      || (statusFilter === "rescheduled" ? Boolean(row.replacement.workDate) : statusFilter === "replaced" ? Boolean(row.replacement.smUserId) : row.status === statusFilter);
+    const matchesStatus = matchesSmPlanningStatus(row, statusFilter);
     return matchesSearch
       && (region === "all" || row.effective.region === region)
       && (smFilter === "all" || row.effective.smUserId === smFilter)
       && (typeFilter === "all" || row.sourceType === typeFilter)
       && matchesStatus;
-  }), [assignments, normalizedSearch, region, smFilter, statusFilter, typeFilter]);
+  }), [assignments, normalizedSearch, region, smFilter, statusFilter, typeFilter, rangeStartKey, rangeEndKey]);
 
   const normalizedGmSearch = gmSearch.trim().toLocaleLowerCase("de-AT");
   const filteredGmVisits = useMemo(() => showGmVisits ? filterAdminGmPlanningVisits(gmVisits, {
@@ -662,18 +691,19 @@ export function SmVerplanungWorkspace() {
     for (const row of rows) groups.set(row.effective.workDate, [...(groups.get(row.effective.workDate) ?? []), { kind: "sm", row }]);
     for (const row of filteredGmVisits) groups.set(row.workDate, [...(groups.get(row.workDate) ?? []), { kind: "gm", row }]);
     // A holiday remains visible even after all its occurrences moved elsewhere.
-    for (const year of new Set([weekStart.getFullYear(), weekEnd.getFullYear()])) {
-      for (const holiday of austrianHolidays(year)) if (holiday.date >= weekStartKey && holiday.date <= weekEndKey && !groups.has(holiday.date)) groups.set(holiday.date, []);
+    for (const year of new Set([rangeStart.getFullYear(), rangeEnd.getFullYear()])) {
+      for (const holiday of austrianHolidays(year)) if (holiday.date >= rangeStartKey && holiday.date <= rangeEndKey && !groups.has(holiday.date)) groups.set(holiday.date, []);
     }
     return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
-  }, [filteredGmVisits, rows, weekStart, weekEnd, weekStartKey, weekEndKey]);
+  }, [filteredGmVisits, rows, rangeStart, rangeEnd, rangeStartKey, rangeEndKey]);
 
-  const totalMinutes = rows.reduce((sum, row) => sum + row.effective.plannedMinutes, 0);
-  const activeSeries = new Set(rows.filter((row) => !row.series?.status || row.series.status === "active").map((row) => row.seriesId).filter((value): value is string => Boolean(value))).size;
-  const hasActiveFilters = Boolean(normalizedSearch) || region !== "all" || smFilter !== "all" || typeFilter !== "all" || statusFilter !== "all";
+  const totalMinutes = smPlanningMinutes(rows);
+  const activeSeries = new Set(rows.filter((row) => row.status !== "cancelled" && (!row.series?.status || row.series.status === "active")).map((row) => row.seriesId).filter((value): value is string => Boolean(value))).size;
+  const hasActiveFilters = Boolean(normalizedSearch) || region !== "all" || smFilter !== "all" || typeFilter !== "all" || statusFilter !== DEFAULT_SM_PLANNING_STATUS;
   const hasActiveGmFilters = Boolean(normalizedGmSearch) || gmUserFilter !== "all" || gmRegionFilter !== "all" || gmSectionFilter !== "all";
   const hasAnyActiveFilters = hasActiveFilters || (showGmVisits && hasActiveGmFilters);
-  const isCurrentSingleWeek = selectedWeekStartKey === baseStartKey && selectedWeekEndKey === baseStartKey;
+  const currentPeriod = currentSmPeriod(period.mode);
+  const isCurrentPeriod = period.from === currentPeriod.from && period.to === currentPeriod.to;
   const regionFilterOptions = useMemo<SmPlanDropdownOption[]>(() => [
     { value: "all", label: "Region" },
     ...[...new Set(markets.map((market) => market.region).filter(Boolean))].sort().map((value) => ({ value, label: value })),
@@ -737,7 +767,7 @@ export function SmVerplanungWorkspace() {
     setRegion("all");
     setSmFilter("all");
     setTypeFilter("all");
-    setStatusFilter("all");
+    setStatusFilter(DEFAULT_SM_PLANNING_STATUS);
   }, []);
 
   const clearGmFilters = useCallback(() => {
@@ -765,7 +795,15 @@ export function SmVerplanungWorkspace() {
       } else if (request.kind === "create_series") {
         const result = await createSmPlanningSeries(request);
         setNotice({ message: `${result.count} Einsätze wurden als Serie eingeplant${result.holidayAdjustedCount ? ` · ${result.holidayAdjustedCount} wegen Feiertagen verschoben` : ""}`, tone: "success" });
-      } else {
+      } else if (request.kind === "cancel" || request.kind === "restore") {
+        const action = request.kind === "cancel" ? cancelSmPlanningAssignment : restoreSmPlanningAssignment;
+        const result = await action(request.assignment.id, { expectedUpdatedAt: request.assignment.updatedAt, reason: request.reason });
+        if (request.kind === "cancel") {
+          // Hide the row immediately, including when the subsequent reload fails.
+          setAssignments((current) => current.map((row) => row.id === request.assignment.id ? { ...row, status: "cancelled", updatedAt: result.updatedAt, cancellation: { reason: request.reason, cancelledAt: result.updatedAt } } : row));
+        }
+        setNotice({ message: request.kind === "cancel" ? "Einsatz entfernt · unter Status → Abgesagt / entfernt wiederherstellbar" : "Einsatz wurde wiederhergestellt", tone: "success" });
+      } else if (request.kind === "edit") {
         const { assignment } = request;
         let expectedUpdatedAt = assignment.updatedAt;
         if (request.smMarketId !== assignment.effective.smMarketId || request.plannedMinutes !== assignment.effective.plannedMinutes) {
@@ -797,19 +835,13 @@ export function SmVerplanungWorkspace() {
             setNotice({ message: `${result.affectedCount} zukünftige Einsätze aktualisiert${result.skippedCount ? ` · ${result.skippedCount} unverändert` : ""}`, tone: "success" });
           }
         }
-        if (request.cancellationAction === "cancel") {
-          const result = await cancelSmPlanningAssignment(assignment.id, { expectedUpdatedAt, reason: request.reason });
-          expectedUpdatedAt = result.updatedAt;
-        } else if (request.cancellationAction === "restore") {
-          const result = await restoreSmPlanningAssignment(assignment.id, { expectedUpdatedAt, reason: request.reason });
-          expectedUpdatedAt = result.updatedAt;
-        }
         void expectedUpdatedAt;
         if (request.reassignmentScope !== "series_future" || request.smUserId === assignment.effective.smUserId) {
-          setNotice({ message: request.cancellationAction === "cancel" ? "Einsatz wurde als Ausfall markiert" : request.cancellationAction === "restore" ? "Einsatz wurde wiederhergestellt" : "Änderung wurde gespeichert", tone: "success" });
+          setNotice({ message: "Änderung wurde gespeichert", tone: "success" });
         }
       }
-      await reloadAssignments();
+      // The mutation succeeded. A reload error must not invite a duplicate save.
+      await reloadAssignments().catch(() => undefined);
     } catch (error) {
       setNotice({ message: error instanceof Error ? error.message : "Die Änderung konnte nicht gespeichert werden", tone: "error" });
       throw error;
@@ -825,8 +857,12 @@ export function SmVerplanungWorkspace() {
   useEffect(() => {
     const openSingle = () => openDrawer("single");
     const openSeries = () => openDrawer("series");
-    const resetToday = () => resetToCurrentWeek();
+    const resetToday = () => resetToCurrentPeriod();
     const exportExcel = async () => {
+      if (periodLoading || loadError) {
+        setNotice({ message: "Bitte warte, bis der gewählte Zeitraum vollständig geladen ist.", tone: "error" });
+        return;
+      }
       try {
         setNotice({ message: "Excel-Export wird erstellt…", tone: "info" });
         const header = ["Tag", "Shelf Merchandiser", "Markt", "Adresse", "Sollzeit", "Planung", "Status"];
@@ -842,7 +878,7 @@ export function SmVerplanungWorkspace() {
         ])]);
         worksheet["!cols"] = [{ wch: 13 }, { wch: 24 }, { wch: 18 }, { wch: 42 }, { wch: 12 }, { wch: 16 }, { wch: 14 }];
         const workbook = XLSX.utils.book_new();
-        const rangeSlug = selectedWeekCount === 1 ? `KW${weekNumber}` : `KW${weekNumber}-${endWeekNumber}`;
+        const rangeSlug = smPeriodExportSlug(period);
         XLSX.utils.book_append_sheet(workbook, worksheet, rangeSlug.slice(0, 31));
         XLSX.writeFile(workbook, `CokeSpark_SM_Verplanung_${rangeSlug}.xlsx`);
         setNotice({ message: "Excel-Export wurde erstellt", tone: "success" });
@@ -861,7 +897,7 @@ export function SmVerplanungWorkspace() {
       window.removeEventListener("sm-verplanung:today", resetToday);
       window.removeEventListener("admin:sm-verplanung:export", exportHandler);
     };
-  }, [endWeekNumber, openDrawer, resetToCurrentWeek, rows, selectedWeekCount, weekNumber]);
+  }, [openDrawer, resetToCurrentPeriod, rows, period, periodLoading, loadError]);
 
   useEffect(() => {
     if (!notice) return;
@@ -870,8 +906,7 @@ export function SmVerplanungWorkspace() {
   }, [notice]);
 
   useEffect(() => {
-    const weekLabel = selectedWeekCount === 1 ? `KW ${weekNumber}` : `KW ${weekNumber}–${endWeekNumber}`;
-    const label = `${weekLabel} · ${new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(weekStart)} – ${new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(weekEnd)}`;
+    const label = smPeriodLabel(period, true);
     const emitContext = () => window.dispatchEvent(new CustomEvent("sm-verplanung:weekContext", { detail: { label } }));
     emitContext();
     const deferredEmit = window.setTimeout(emitContext, 0);
@@ -880,7 +915,7 @@ export function SmVerplanungWorkspace() {
       window.clearTimeout(deferredEmit);
       window.removeEventListener("sm-verplanung:requestWeekContext", emitContext);
     };
-  }, [endWeekNumber, selectedWeekCount, weekEnd, weekNumber, weekStart]);
+  }, [period]);
 
   const toggleDate = (date: string) => setCollapsedDates((current) => current.includes(date) ? current.filter((entry) => entry !== date) : [...current, date]);
 
@@ -959,7 +994,7 @@ export function SmVerplanungWorkspace() {
 
       <section className="sm-plan-card" style={{ overflow: "hidden", border: "1px solid rgba(0,0,0,.07)", borderRadius: 14, background: "rgba(0,0,0,.025)" }}>
         <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ color: "rgba(0,0,0,.3)", fontSize: 9, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase" }}>{selectedWeekCount === 1 ? "Wochenplanung" : `${selectedWeekCount}-Wochen-Planung`}</span>
+          <span style={{ color: "rgba(0,0,0,.3)", fontSize: 9, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase" }}>{smPeriodHeading(period)}</span>
           <span style={{ color: "rgba(0,0,0,.48)", fontSize: 10.5, fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{rows.length} SM-Einsätze · {formatDuration(totalMinutes)} Soll{showGmVisits ? ` · ${filteredGmVisits.length} GM-Besuche` : ""}</span>
         </div>
 
@@ -970,9 +1005,9 @@ export function SmVerplanungWorkspace() {
                 <Search size={11} strokeWidth={2} color="rgba(0,0,0,.3)"/>
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Markt oder SM suchen…" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: "transparent", color: "#1a1a1a", fontFamily: "inherit", fontSize: 10.5 }}/>
               </label>
-              <button type="button" aria-label="Zeitraum eine Woche zurück" onClick={() => shiftSelectedRange(-1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronLeft size={12}/></button>
-              <SmPlanningWeekPicker start={selectedWeekStartKey} end={selectedWeekEndKey} onChange={(start, end) => { setSelectedWeekStartKey(start); setSelectedWeekEndKey(end); }} />
-              <button type="button" aria-label="Zeitraum eine Woche vor" onClick={() => shiftSelectedRange(1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronRight size={12}/></button>
+              <button type="button" aria-label="Vorheriger Planungszeitraum" onClick={() => shiftSelectedRange(-1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronLeft size={12}/></button>
+              <SmPlanningPeriodPicker value={period} onChange={setPeriod} />
+              <button type="button" aria-label="Nächster Planungszeitraum" onClick={() => shiftSelectedRange(1)} className="sm-plan-icon-button" style={{ width: 30, height: 30 }}><ChevronRight size={12}/></button>
               <div style={{ flex: 1 }}/>
               <SmPlanDropdown compact ariaLabel="Region filtern" value={region} onChange={setRegion} placeholder="Region" options={regionFilterOptions} />
               <SmPlanDropdown compact searchable ariaLabel="Shelf Merchandiser filtern" value={smFilter} onChange={setSmFilter} placeholder="Shelf Merchandiser" options={smFilterOptions} />
@@ -1003,17 +1038,17 @@ export function SmVerplanungWorkspace() {
             </div>
 
             <div style={{ minHeight: 500 }}>
-              {loading ? <div style={{ minHeight: 500, display: "grid", placeItems: "center", color: "rgba(0,0,0,.38)" }}><div style={{ display: "grid", justifyItems: "center", gap: 9 }}><LoaderCircle className="sm-plan-spinner" size={22}/><span style={{ fontSize: 10, fontWeight: 600 }}>Verplanung wird geladen…</span></div></div> : groupedRows.length === 0 ? (
+              {periodLoading && !loadError ? <div style={{ minHeight: 500, display: "grid", placeItems: "center", color: "rgba(0,0,0,.38)" }}><div style={{ display: "grid", justifyItems: "center", gap: 9 }}><LoaderCircle className="sm-plan-spinner" size={22}/><span style={{ fontSize: 10, fontWeight: 600 }}>Verplanung wird geladen…</span></div></div> : groupedRows.length === 0 ? (
                 <div style={{ minHeight: 500, padding: "64px 24px", display: "grid", placeItems: "center", textAlign: "center" }}>
                   <div style={{ width: "min(100%, 360px)", display: "grid", justifyItems: "center" }}>
                     <span style={{ width: 42, height: 42, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, background: "rgba(220,38,38,.065)", color: RED }}>
                       <CalendarDays size={18} strokeWidth={1.65}/>
                     </span>
                     <div style={{ marginTop: 14, color: "#1a1a1a", fontSize: 13.5, fontWeight: 750, letterSpacing: "-.01em" }}>{hasAnyActiveFilters ? "Keine Einträge gefunden" : "Keine Einträge in diesem Zeitraum"}</div>
-                    <div style={{ marginTop: 5, color: "rgba(0,0,0,.38)", fontSize: 10, lineHeight: 1.55 }}>{hasAnyActiveFilters ? "Passe die getrennten SM- oder GM-Filter an, um wieder Ergebnisse zu sehen." : "Plane einen neuen Einsatz oder wähle einen anderen KW-Zeitraum."}</div>
+                    <div style={{ marginTop: 5, color: "rgba(0,0,0,.38)", fontSize: 10, lineHeight: 1.55 }}>{hasAnyActiveFilters ? "Passe die getrennten SM- oder GM-Filter an, um wieder Ergebnisse zu sehen." : "Plane einen neuen Einsatz oder wähle einen anderen Zeitraum."}</div>
                     <div style={{ marginTop: 18, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
                       {hasAnyActiveFilters ? <button type="button" onClick={() => { clearFilters(); clearGmFilters(); }} className="sm-plan-secondary-button">Filter zurücksetzen</button> : <>
-                        {!isCurrentSingleWeek ? <button type="button" onClick={resetToCurrentWeek} className="sm-plan-secondary-button">Zur aktuellen Woche</button> : null}
+                        {!isCurrentPeriod ? <button type="button" onClick={resetToCurrentPeriod} className="sm-plan-secondary-button">{period.mode === "month" ? "Zum aktuellen Monat" : period.mode === "days" ? "Zu heute" : "Zur aktuellen Woche"}</button> : null}
                         <button type="button" onClick={() => openDrawer("single")} className="sm-plan-primary-button">Einsatz planen</button>
                       </>}
                     </div>
@@ -1026,7 +1061,7 @@ export function SmVerplanungWorkspace() {
                 const dayDate = parseDate(date);
                 const daySmRows = dayRows.filter((entry): entry is Extract<PlanningListRow, { kind: "sm" }> => entry.kind === "sm");
                 const dayGmRows = dayRows.filter((entry): entry is Extract<PlanningListRow, { kind: "gm" }> => entry.kind === "gm");
-                const dayTotal = daySmRows.reduce((sum, entry) => sum + entry.row.effective.plannedMinutes, 0);
+                const dayTotal = smPlanningMinutes(daySmRows.map((entry) => entry.row));
                 return <div key={date}>
                   <button type="button" aria-expanded={!collapsed} onClick={() => toggleDate(date)} className={`sm-plan-day-toggle${holiday ? " is-holiday" : ""}`} style={{ width: "100%", height: 44, padding: "0 18px", display: "flex", alignItems: "center", justifyContent: "space-between", border: 0, borderBottom: "1px solid rgba(0,0,0,.05)", background: holiday ? "#fffbeb" : "rgba(0,0,0,.022)", fontFamily: "inherit", cursor: "pointer", transition: "background .12s" }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "rgba(0,0,0,.60)", fontSize: 10.5, fontWeight: 750, letterSpacing: ".045em", textTransform: "uppercase" }}><ChevronRight size={12.5} strokeWidth={2} style={{ transform: collapsed ? "rotate(0deg)" : "rotate(90deg)", transition: "transform .16s" }}/>{DAY_NAMES[dayDate.getDay()]} · {formatDate(date)}</span>
@@ -1054,7 +1089,7 @@ export function SmVerplanungWorkspace() {
                     const meta = statusMeta(row.status);
                     const rescheduled = Boolean(row.replacement.workDate);
                     const replaced = Boolean(row.replacement.smUserId);
-                    const displayMeta = rescheduled ? RESCHEDULED_META : replaced ? REPLACED_META : meta;
+                    const displayMeta = row.status === "cancelled" ? meta : rescheduled ? RESCHEDULED_META : replaced ? REPLACED_META : meta;
                     const isSelected = selectedAssignment?.id === row.id && drawerMode !== null;
                     const rescheduleAria = rescheduled ? `, verschoben von ${formatDate(row.original.workDate)} auf ${formatDate(row.effective.workDate)}` : "";
                     const replacementAria = replaced ? `, ursprünglich ${row.original.smName}` : "";
@@ -1082,7 +1117,7 @@ export function SmVerplanungWorkspace() {
         </div>
       </section>
 
-      {drawerMode ? <PlanningDrawer key={`${drawerMode}-${selectedAssignment?.id ?? "new"}-${weekStartKey}`} mode={drawerMode} assignment={selectedAssignment} defaultDate={weekStartKey} markets={markets} users={users} onClose={() => { setDrawerMode(null); setSelectedAssignment(null); }} onSubmit={persistPlanning} onSeriesSaved={handleSeriesSaved}/> : null}
+      {drawerMode ? <PlanningDrawer key={`${drawerMode}-${selectedAssignment?.id ?? "new"}-${rangeStartKey}`} mode={drawerMode} assignment={selectedAssignment} defaultDate={rangeStartKey} markets={markets} users={users} onClose={() => { setDrawerMode(null); setSelectedAssignment(null); }} onSubmit={persistPlanning} onSeriesSaved={handleSeriesSaved}/> : null}
       {selectedGmVisit ? <GmVisitDetailDrawer visit={selectedGmVisit} onClose={() => setSelectedGmVisit(null)}/> : null}
     </div>
   );

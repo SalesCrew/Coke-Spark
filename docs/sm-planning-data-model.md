@@ -236,15 +236,20 @@ This makes the new SM the current truth for future work while every occurrence s
 
 ## 9. Cancellation semantics
 
-`Einsatz absagen` is not deletion.
+`Einsatz entfernen` in the SM planning drawer means cancellation, not deletion of the assignment or market master.
 
 - A one-time Einsatz becomes `cancelled`.
 - One occurrence of a series becomes `cancelled`; the series and other assignments remain active.
 - Stopping a series is a separate implemented action under “Serie ändern oder stoppen”: an inclusive cutoff, required reason and exact impact preview precede an atomic cancellation of eligible future occurrences and the root status `ended`. No row is deleted.
 - A cancelled occurrence remains queryable and exportable.
+- The default admin view excludes cancelled occurrences. They remain reachable through “Status → Abgesagt / entfernt” or “Alle inkl. abgesagte Einsätze”, including the explicit single-occurrence restore action. This does not restart an ended series.
+- Weekly and daily planned-hour totals exclude cancelled rows even when a history filter displays them. Stored original/effective minutes remain unchanged for traceability. The cancellation badge takes precedence over a previous move/reassignment badge.
+- Removal/restoration is confirmed separately with a reason and never implicitly saves other unfinished edits from the drawer. It reuses the existing `cancel`/`restore` API with optimistic concurrency, transactional audit and execution-status protection. No additional deletion endpoint or schema change is introduced.
 - Technical soft deletion is reserved for administrative data correction and is not the default UI action.
 
 ## 10. API contract
+
+The SM planner's period selector supports whole ISO weeks, exact inclusive days/date ranges, and full calendar months. All modes use the same existing `from`/`to` endpoints (maximum 93 inclusive days); there is no implicit week expansion in day/month mode. This is a read/view filter only. See `sm-planning-period-living.md` for selection, navigation, export and stale-response rules.
 
 Admin endpoints are backend-authorized for `admin` and `sm_admin`:
 

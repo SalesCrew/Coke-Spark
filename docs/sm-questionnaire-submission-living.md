@@ -720,6 +720,8 @@ The personal SM Zeiterfassung page no longer uses hard-coded sample days. It loa
 
 The SM-admin Zeiterfassung uses the same read model and shows planned, visit, travel, and total time in a consistent grid. Pending employee requests appear on the affected row and can be approved or rejected without replacing the questionnaire/session record.
 
+2026-09-14: The SM-admin view now shares the KW/day/full-calendar-month selector with planning (current Vienna month by default). Exact inclusive effective-date bounds drive both the day view and the GM-style employee → day → visit drilldown. Saved time revisions drive actual totals; draft travel without a time entry is not recorded work. Visit timestamps are shown in Europe/Vienna, while legacy minute-only corrections remain separate and visibly versioned. See [SM time periods and employee view](sm-time-period-employee-view-living.md) for calculations, loading safety and verification. The employee phone page and GM behavior are unchanged.
+
 ### Durable time correction requests
 
 One additive production migration, `sm_zeiterfassung_requests`, created `sm_assignment_time_change_requests` with:

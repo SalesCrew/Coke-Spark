@@ -76,6 +76,28 @@ export function SmWeekCalendar({ month, start, end, pendingStart, today, error, 
   </>;
 }
 
+export function SmWeekCalendarStyles() {
+  return <style>{`
+      .sm-plan-week-trigger{height:30px!important;padding:0 12px!important;white-space:nowrap;gap:7px!important}
+      .sm-plan-week-trigger[aria-expanded=true]{border-color:rgba(220,38,38,.25);box-shadow:0 0 0 2px rgba(220,38,38,.04)}
+      .sm-plan-week-trigger svg{color:rgba(0,0,0,.35);transition:transform .15s}.sm-plan-week-trigger[aria-expanded=true] svg{transform:rotate(180deg)}
+      .sm-plan-week-columns{display:grid;grid-template-columns:34px repeat(7,minmax(0,1fr));align-items:center;text-align:center}
+      .sm-plan-week-headings{height:26px;color:#9ca3af;font-size:9px;font-weight:650}
+      .sm-plan-week-row{width:100%;height:32px;margin-bottom:3px;padding:0;border:0;border-radius:7px;background:transparent;color:#374151;font-family:inherit;font-size:10.5px;cursor:pointer;transition:background .12s,color .12s,box-shadow .12s;outline-offset:2px}
+      .sm-plan-week-row:hover,.sm-plan-week-row:focus-visible{background:#fef2f2;color:#b91c1c}.sm-plan-week-row.is-in-range{background:rgba(220,38,38,.075);color:rgba(153,27,27,.72)}
+      .sm-plan-week-row.is-range-start,.sm-plan-week-row.is-range-end,.sm-plan-week-row.is-pending{background:linear-gradient(to bottom,#DC2626,#b91c1c);color:#fff;box-shadow:inset 0 1px .6px rgba(255,255,255,.3),0 1px 3px rgba(180,20,20,.14)}
+      .sm-plan-week-number{font-size:10px;font-weight:700;border-right:1px solid rgba(0,0,0,.07)}
+      .sm-plan-week-row.is-range-start .sm-plan-week-number,.sm-plan-week-row.is-range-end .sm-plan-week-number,.sm-plan-week-row.is-pending .sm-plan-week-number{border-color:rgba(255,255,255,.22)}
+      .sm-plan-week-date{position:relative;line-height:32px;font-variant-numeric:tabular-nums}.sm-plan-week-date.is-outside{opacity:.38}.sm-plan-week-date.is-today{font-weight:750}
+      .sm-plan-week-date.is-today:after{content:"";position:absolute;bottom:3px;left:calc(50% - 1.5px);width:3px;height:3px;border-radius:50%;background:currentColor}
+      .sm-plan-week-row.is-range-start .is-outside,.sm-plan-week-row.is-range-end .is-outside,.sm-plan-week-row.is-pending .is-outside{opacity:.65}
+      .sm-plan-calendar-selection{min-height:35px;margin:5px 0 1px;padding:7px 9px;display:grid;gap:2px;border-radius:7px;background:rgba(0,0,0,.025);color:rgba(0,0,0,.48);font-size:9px;line-height:1.35}.sm-plan-calendar-selection strong{color:#b91c1c;font-weight:650}
+      .sm-plan-week-footer{justify-content:space-between;align-items:center;gap:8px}.sm-plan-week-footer>span{color:#9ca3af;font-size:9px}
+      .sm-plan-week-trigger:focus-visible,.sm-plan-week-row:focus-visible,.sm-plan-week-footer button:focus-visible{outline:2px solid rgba(220,38,38,.4)}
+      @media(prefers-reduced-motion:reduce){.sm-plan-week-row,.sm-plan-week-trigger svg{transition:none}}
+    `}</style>;
+}
+
 export function SmPlanningWeekPicker({ start, end, onChange }: { start: string; end: string; onChange: (start: string, end: string) => void }) {
   const panelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -141,25 +163,7 @@ export function SmPlanningWeekPicker({ start, end, onChange }: { start: string; 
   };
 
   return <>
-    <style>{`
-      .sm-plan-week-trigger{height:30px!important;padding:0 12px!important;white-space:nowrap;gap:7px!important}
-      .sm-plan-week-trigger[aria-expanded=true]{border-color:rgba(220,38,38,.25);box-shadow:0 0 0 2px rgba(220,38,38,.04)}
-      .sm-plan-week-trigger svg{color:rgba(0,0,0,.35);transition:transform .15s}.sm-plan-week-trigger[aria-expanded=true] svg{transform:rotate(180deg)}
-      .sm-plan-week-columns{display:grid;grid-template-columns:34px repeat(7,minmax(0,1fr));align-items:center;text-align:center}
-      .sm-plan-week-headings{height:26px;color:#9ca3af;font-size:9px;font-weight:650}
-      .sm-plan-week-row{width:100%;height:32px;margin-bottom:3px;padding:0;border:0;border-radius:7px;background:transparent;color:#374151;font-family:inherit;font-size:10.5px;cursor:pointer;transition:background .12s,color .12s,box-shadow .12s;outline-offset:2px}
-      .sm-plan-week-row:hover,.sm-plan-week-row:focus-visible{background:#fef2f2;color:#b91c1c}.sm-plan-week-row.is-in-range{background:rgba(220,38,38,.075);color:rgba(153,27,27,.72)}
-      .sm-plan-week-row.is-range-start,.sm-plan-week-row.is-range-end,.sm-plan-week-row.is-pending{background:linear-gradient(to bottom,#DC2626,#b91c1c);color:#fff;box-shadow:inset 0 1px .6px rgba(255,255,255,.3),0 1px 3px rgba(180,20,20,.14)}
-      .sm-plan-week-number{font-size:10px;font-weight:700;border-right:1px solid rgba(0,0,0,.07)}
-      .sm-plan-week-row.is-range-start .sm-plan-week-number,.sm-plan-week-row.is-range-end .sm-plan-week-number,.sm-plan-week-row.is-pending .sm-plan-week-number{border-color:rgba(255,255,255,.22)}
-      .sm-plan-week-date{position:relative;line-height:32px;font-variant-numeric:tabular-nums}.sm-plan-week-date.is-outside{opacity:.38}.sm-plan-week-date.is-today{font-weight:750}
-      .sm-plan-week-date.is-today:after{content:"";position:absolute;bottom:3px;left:calc(50% - 1.5px);width:3px;height:3px;border-radius:50%;background:currentColor}
-      .sm-plan-week-row.is-range-start .is-outside,.sm-plan-week-row.is-range-end .is-outside,.sm-plan-week-row.is-pending .is-outside{opacity:.65}
-      .sm-plan-calendar-selection{min-height:35px;margin:5px 0 1px;padding:7px 9px;display:grid;gap:2px;border-radius:7px;background:rgba(0,0,0,.025);color:rgba(0,0,0,.48);font-size:9px;line-height:1.35}.sm-plan-calendar-selection strong{color:#b91c1c;font-weight:650}
-      .sm-plan-week-footer{justify-content:space-between;align-items:center;gap:8px}.sm-plan-week-footer>span{color:#9ca3af;font-size:9px}
-      .sm-plan-week-trigger:focus-visible,.sm-plan-week-row:focus-visible,.sm-plan-week-footer button:focus-visible{outline:2px solid rgba(220,38,38,.4)}
-      @media(prefers-reduced-motion:reduce){.sm-plan-week-row,.sm-plan-week-trigger svg{transition:none}}
-    `}</style>
+    <SmWeekCalendarStyles/>
     <button
       ref={triggerRef}
       type="button"

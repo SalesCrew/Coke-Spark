@@ -1,7 +1,7 @@
 # SM Verplanung — Production Data Model and End-to-End Contract
 
 Status: implemented and applied to production
-Last updated: 2026-08-27
+Last updated: 2026-09-14
 Scope: SM planning only; no GM planning or campaign table is reused
 
 ## 1. Objective
@@ -24,7 +24,7 @@ This document is normative for the database, backend and admin UI.
 6. Setting a replacement back to the original value clears the replacement column; duplicate truth is not stored.
 7. The original Stammnummer is snapshotted on the assignment. Market-master edits never rewrite historical assignment identity.
 8. Every planning mutation writes an append-only event in the same database transaction.
-9. Completed, in-progress, cancelled and missed assignments are never changed by a series-wide edit.
+9. Completed, in-progress, manually cancelled, missed and historically used assignments are never changed by a series-wide edit. Only unused occurrences cancelled by the series editor itself can be restored if their dates become part of the schedule again.
 10. Normal UI actions never physically delete assignments, series, versions, time submissions or events.
 11. Ist-Zeit is versioned independently from Soll-Zeit. Corrections create a successor time submission.
 12. All business dates use `Europe/Vienna`; timestamps are stored as `timestamptz`.
@@ -240,7 +240,7 @@ This makes the new SM the current truth for future work while every occurrence s
 
 - A one-time Einsatz becomes `cancelled`.
 - One occurrence of a series becomes `cancelled`; the series and other assignments remain active.
-- Cancelling a series is a separate future operation and must present an impact preview.
+- Stopping a series is a separate implemented action under “Serie ändern oder stoppen”: an inclusive cutoff, required reason and exact impact preview precede an atomic cancellation of eligible future occurrences and the root status `ended`. No row is deleted.
 - A cancelled occurrence remains queryable and exportable.
 - Technical soft deletion is reserved for administrative data correction and is not the default UI action.
 
@@ -254,6 +254,9 @@ Admin endpoints are backend-authorized for `admin` and `sm_admin`:
 - `GET /admin/sm-planning/assignments/:id/reassign-preview?smUserId=UUID`
 - `POST /admin/sm-planning/assignments`
 - `POST /admin/sm-planning/series`
+- `GET /admin/sm-planning/series/:id`
+- `POST /admin/sm-planning/series/:id/preview` (read-only)
+- `POST /admin/sm-planning/series/:id/change` (preview token + reason)
 - `PATCH /admin/sm-planning/assignments/:id`
 - `POST /admin/sm-planning/assignments/:id/reschedule`
 - `POST /admin/sm-planning/assignments/:id/reassign`
@@ -263,7 +266,7 @@ Admin endpoints are backend-authorized for `admin` and `sm_admin`:
 
 Every response returns original, replacement and effective values. The client never has to guess which value is authoritative.
 
-Mutations require an `expectedUpdatedAt` concurrency token for existing assignments. A stale editor receives HTTP 409 and reloads instead of overwriting another admin’s change.
+Single-assignment mutations require an `expectedUpdatedAt` concurrency token. Full series edits/stops require a fingerprint of the previewed series, occurrences, history and requested changes; a stale preview receives HTTP 409 before any write. Series editing supports SM, market, duration, weekdays, frequency and end date with an inclusive future cutoff. See [SM series edit/stop living document](sm-series-edit-stop-living.md) for reconciliation, holiday boundaries and preservation of history.
 
 The series reassignment preview validates the target SM and returns the effective date plus exact affected/skipped occurrence counts before the permanent action is confirmed. Ist-Zeit submissions are independently versioned; changing an existing value requires a correction reason.
 

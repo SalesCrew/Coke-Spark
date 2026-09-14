@@ -47,6 +47,8 @@ import { austrianHoliday, austrianHolidays } from "@/lib/sm/austrianHolidays";
 import { SmHolidayCalendarCard } from "./SmHolidayCalendarCard";
 import { SmHolidayNote } from "@/components/sm/SmHolidayNote";
 import { SmPlanningWeekPicker } from "./SmPlanningWeekPicker";
+import { SmSeriesDrawer } from "./SmSeriesDrawer";
+import type { SmSeriesPreview } from "@/types/smPlanning";
 import { calendarWeek } from "@/lib/sm/calendarWeeks";
 import { filterAdminGmPlanningVisits, recommendedUserFirst } from "@/lib/sm/planningView";
 
@@ -209,6 +211,7 @@ function PlanningDrawer({
   users,
   onClose,
   onSubmit,
+  onSeriesSaved,
 }: {
   mode: Exclude<DrawerMode, null>;
   assignment: SmPlanningAssignment | null;
@@ -217,8 +220,10 @@ function PlanningDrawer({
   users: SMRecord[];
   onClose: () => void;
   onSubmit: (request: PlanningSubmitRequest) => Promise<void>;
+  onSeriesSaved: (result: SmSeriesPreview, action: "edit" | "stop") => Promise<void>;
 }) {
   const createsSeries = !assignment && mode === "series";
+  const [managingSeries, setManagingSeries] = useState(false);
   const currentDate = assignment?.effective.workDate ?? defaultDate;
   const currentWeekday = parseDate(currentDate).getDay() || 7;
   const [workDate, setWorkDate] = useState(currentDate);
@@ -360,6 +365,8 @@ function PlanningDrawer({
     }
   };
 
+  if (managingSeries && assignment?.seriesId) return <SmSeriesDrawer seriesId={assignment.seriesId} selectedDate={assignment.effective.workDate} markets={markets} users={users} onBack={() => setManagingSeries(false)} onClose={onClose} onSaved={onSeriesSaved}/>;
+
   return (
     <aside className="sm-plan-drawer" aria-label={assignment ? "Einsatz bearbeiten" : "Einsatz planen"} onKeyDown={(event) => { if (event.key === "Escape" && !saving) onClose(); }}>
       <style>{`@keyframes smPlanDrawerIn{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
@@ -372,6 +379,7 @@ function PlanningDrawer({
       </div>
 
       <div className="sm-plan-drawer-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px 24px" }}>
+        {assignment?.seriesId ? <button type="button" disabled={saving} onClick={() => setManagingSeries(true)} className="mb-4 flex w-full items-center justify-between rounded-lg border border-black/[.08] bg-white px-3 py-2.5 text-left"><span className="flex items-center gap-2 text-[11px] font-semibold"><RefreshCw size={13}/>{assignment.series?.status === "ended" ? "Gestoppte Serie ansehen" : "Serie ändern oder stoppen"}</span><ChevronRight size={13} className="text-black/35"/></button> : null}
         {assignment?.holidayAdjustment ? <div className="mb-4"><SmHolidayNote adjustment={assignment.holidayAdjustment} currentDate={assignment.effective.workDate} /></div> : null}
         {!assignment || rescheduling ? <p className={`mb-4 rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${austrianHoliday(workDate) ? "border-amber-200 bg-amber-50 text-amber-900" : "border-black/[.06] bg-white text-gray-500"}`}>{createsSeries ? "Feiertage werden je Einzeltermin auf einen benachbarten Werktag mit weniger Sollzeit verschoben. Die Serie behält ihren Rhythmus." : austrianHoliday(workDate) ? `${austrianHoliday(workDate)!.name}: ${assignment ? "Deine manuelle Datumswahl hat Vorrang und wird nicht automatisch überschrieben." : "Dieser Termin wird automatisch auf einen benachbarten Werktag mit weniger Sollzeit verschoben."}` : assignment ? "Die manuelle Datumswahl hat Vorrang vor der Feiertagsautomatik." : "Österreichische Feiertage werden automatisch berücksichtigt."}</p> : null}
         <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 15, borderBottom: "1px solid rgba(0,0,0,.06)" }}>
@@ -661,7 +669,7 @@ export function SmVerplanungWorkspace() {
   }, [filteredGmVisits, rows, weekStart, weekEnd, weekStartKey, weekEndKey]);
 
   const totalMinutes = rows.reduce((sum, row) => sum + row.effective.plannedMinutes, 0);
-  const activeSeries = new Set(rows.map((row) => row.seriesId).filter((value): value is string => Boolean(value))).size;
+  const activeSeries = new Set(rows.filter((row) => !row.series?.status || row.series.status === "active").map((row) => row.seriesId).filter((value): value is string => Boolean(value))).size;
   const hasActiveFilters = Boolean(normalizedSearch) || region !== "all" || smFilter !== "all" || typeFilter !== "all" || statusFilter !== "all";
   const hasActiveGmFilters = Boolean(normalizedGmSearch) || gmUserFilter !== "all" || gmRegionFilter !== "all" || gmSectionFilter !== "all";
   const hasAnyActiveFilters = hasActiveFilters || (showGmVisits && hasActiveGmFilters);
@@ -806,6 +814,12 @@ export function SmVerplanungWorkspace() {
       setNotice({ message: error instanceof Error ? error.message : "Die Änderung konnte nicht gespeichert werden", tone: "error" });
       throw error;
     }
+  }, [reloadAssignments]);
+
+  const handleSeriesSaved = useCallback(async (result: SmSeriesPreview, action: "edit" | "stop") => {
+    setNotice({ message: action === "stop" ? `Serie gestoppt · ${result.cancelCount} Einsätze abgesagt · ${result.protectedCount} geschützt` : `Serie aktualisiert · ${result.updateCount} geändert · ${result.createCount} neu · ${result.cancelCount} abgesagt · ${result.restoreCount} wieder eingeplant`, tone: "success" });
+    // A failed list refresh must not invite a second submission of a successful change.
+    await reloadAssignments().catch(() => undefined);
   }, [reloadAssignments]);
 
   useEffect(() => {
@@ -1068,7 +1082,7 @@ export function SmVerplanungWorkspace() {
         </div>
       </section>
 
-      {drawerMode ? <PlanningDrawer key={`${drawerMode}-${selectedAssignment?.id ?? "new"}-${weekStartKey}`} mode={drawerMode} assignment={selectedAssignment} defaultDate={weekStartKey} markets={markets} users={users} onClose={() => { setDrawerMode(null); setSelectedAssignment(null); }} onSubmit={persistPlanning}/> : null}
+      {drawerMode ? <PlanningDrawer key={`${drawerMode}-${selectedAssignment?.id ?? "new"}-${weekStartKey}`} mode={drawerMode} assignment={selectedAssignment} defaultDate={weekStartKey} markets={markets} users={users} onClose={() => { setDrawerMode(null); setSelectedAssignment(null); }} onSubmit={persistPlanning} onSeriesSaved={handleSeriesSaved}/> : null}
       {selectedGmVisit ? <GmVisitDetailDrawer visit={selectedGmVisit} onClose={() => setSelectedGmVisit(null)}/> : null}
     </div>
   );

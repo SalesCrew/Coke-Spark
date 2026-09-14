@@ -2696,6 +2696,16 @@ export async function fetchSmMarketDeactivationPreview(id: string): Promise<impo
   return authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}/deactivation-preview`, { method: "GET" }) as Promise<import("@/types/smMarkets").SmMarketDeactivationPreview>;
 }
 
+export async function fetchSmSeriesDetails(id: string): Promise<import("@/types/smPlanning").SmSeriesDetails> {
+  return await authedFetch(`/admin/sm-planning/series/${encodeURIComponent(id)}`, { cache: "no-store" }) as import("@/types/smPlanning").SmSeriesDetails;
+}
+export async function previewSmSeriesChange(id: string, change: import("@/types/smPlanning").SmSeriesChange): Promise<import("@/types/smPlanning").SmSeriesPreview> {
+  return await authedFetch(`/admin/sm-planning/series/${encodeURIComponent(id)}/preview`, { method: "POST", body: JSON.stringify(change) }) as import("@/types/smPlanning").SmSeriesPreview;
+}
+export async function changeSmSeries(id: string, input: { change: import("@/types/smPlanning").SmSeriesChange; previewToken: string; reason: string }): Promise<import("@/types/smPlanning").SmSeriesPreview> {
+  return await authedFetch(`/admin/sm-planning/series/${encodeURIComponent(id)}/change`, { method: "POST", body: JSON.stringify(input) }) as import("@/types/smPlanning").SmSeriesPreview;
+}
+
 export async function deactivateSmMarket(id: string, input: { previewToken: string; resolutions: import("@/types/smMarkets").SmDeactivationResolution[] }): Promise<import("@/types/smMarkets").SmMarketDeactivationResult> {
   const result = await authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}/deactivate`, { method: "POST", body: JSON.stringify(input) }) as import("@/types/smMarkets").SmMarketDeactivationResult;
   clearMySmPlanningAssignmentsCache();

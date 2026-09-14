@@ -128,6 +128,7 @@ export type SmPlanningAssignment = {
     region: string;
   };
   series: {
+    status?: "active" | "ended" | "cancelled";
     frequency: SmPlanningFrequency;
     weekdays: number[];
     validFrom: string;
@@ -195,4 +196,34 @@ export type UpdateSmPlanningAssignmentInput = {
 export type SmPlanningMutationResult = {
   assignmentId: string;
   updatedAt: string;
+};
+
+export type SmSeriesDetails = {
+  id: string;
+  status: "active" | "ended" | "cancelled";
+  versionNumber: number;
+  effectiveFromDate: string;
+  smMarketId: string;
+  smUserId: string;
+  plannedMinutes: number;
+  frequency: SmPlanningFrequency;
+  weekdays: number[];
+  validFrom: string;
+  validTo: string;
+  today: string;
+};
+export type SmSeriesChange = { action: "stop"; effectiveFromDate: string } | {
+  action: "edit"; effectiveFromDate: string; smMarketId: string; smUserId: string; plannedMinutes: number;
+  frequency: SmPlanningFrequency; weekdays: number[]; validTo: string;
+};
+export type SmSeriesPreview = {
+  previewToken: string;
+  effectiveFromDate: string;
+  updateCount: number;
+  cancelCount: number;
+  createCount: number;
+  restoreCount: number;
+  protectedCount: number;
+  preservedDateCount: number;
+  blockedDateCount: number;
 };

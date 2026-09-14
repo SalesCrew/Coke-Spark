@@ -16,7 +16,8 @@
     "test:sm-planning-week": "node --test tests/sm-planning-week-picker.test.mjs tests/sm-planning-view.test.mjs",
     "test:sm-oos": "node --test tests/sm-oos-option-mapping.test.mjs",
     "test:sm-subheadings": "node --test tests/sm-question-subheadings.test.mjs",
-    "test:sm-comments": "node backend/node_modules/tsx/dist/cli.mjs --test tests/sm-answer-comments.test.ts backend/src/sm-comment.shared.test.ts backend/src/sm-visit.shared.test.ts"
+    "test:sm-comments": "node backend/node_modules/tsx/dist/cli.mjs --test tests/sm-answer-comments.test.ts backend/src/sm-comment.shared.test.ts backend/src/sm-visit.shared.test.ts",
+    "test:sm-menu-browser": "node tests/sm-menu-browser.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

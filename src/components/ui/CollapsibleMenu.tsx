@@ -130,6 +130,9 @@ export function CollapsibleMenu({
   const holdActivated = useRef(false);
   const pointerMoved = useRef(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const activePointerId = useRef<number | null>(null);
+  const gestureStartedExpanded = useRef(false);
+  const pressedRowIndex = useRef<number | null>(null);
   const [sliderPressed, setSliderPressed] = useState(false);
   const {
     previewPercent: textScalePercent,
@@ -375,15 +378,20 @@ export function CollapsibleMenu({
     }
   }, []);
 
-  const getIndexFromY = useCallback(
-    (clientY: number) => {
+  const getIndexFromPoint = useCallback(
+    (clientX: number, clientY: number) => {
       if (utilityPanelOpen) return null;
       const container = containerRef.current;
       if (!container) return null;
       const rect = container.getBoundingClientRect();
-      const y = clientY - rect.top - CARD_PADDING;
-      const idx = Math.floor(y / ITEM_HEIGHT);
-      if (idx >= 0 && idx < rows.length) return idx;
+      if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+      // Read the visible rows, including their in-flight animation transforms.
+      for (const row of container.querySelectorAll<HTMLElement>("[data-menu-row]")) {
+        const bounds = row.getBoundingClientRect();
+        if (clientX >= bounds.left && clientX <= bounds.right && clientY >= bounds.top && clientY < bounds.bottom) {
+          return Number(row.dataset.menuRow);
+        }
+      }
       return null;
     },
     [rows.length, utilityPanelOpen]
@@ -444,131 +452,80 @@ export function CollapsibleMenu({
     [activeIndex, onLogout, onSelect, rows]
   );
 
-  // --- Mouse ---
-  const onMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (utilityPanelOpen) return;
+  // One pointer stream handles mouse, touch and pen. A phone's compatibility
+  // mouse/click events must never open or select this menu a second time.
+  const onPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (utilityPanelOpen || !event.isPrimary || event.button !== 0 || activePointerId.current !== null) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    activePointerId.current = event.pointerId;
+    gestureStartedExpanded.current = expanded;
+    pressedRowIndex.current = expanded ? getIndexFromPoint(event.clientX, event.clientY) : null;
     isHolding.current = true;
     holdActivated.current = false;
     pointerMoved.current = false;
     pointerStart.current = { x: event.clientX, y: event.clientY };
     clearHold();
-    holdTimer.current = setTimeout(() => {
-      if (isHolding.current) {
-        holdActivated.current = true;
-        setExpanded(true);
-      }
-    }, HOLD_DELAY);
-  }, [clearHold, utilityPanelOpen]);
+    if (!expanded) {
+      holdTimer.current = setTimeout(() => {
+        if (isHolding.current) {
+          holdActivated.current = true;
+          setExpanded(true);
+        }
+      }, HOLD_DELAY);
+    }
+  }, [clearHold, expanded, getIndexFromPoint, utilityPanelOpen]);
 
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isHolding.current) return;
-      const start = pointerStart.current;
-      if (
-        start
-        && Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_MOVE_TOLERANCE
-      ) {
-        pointerMoved.current = true;
-      }
-      const idx = getIndexFromY(e.clientY);
-      setHoveredIndex(idx);
-    };
+  const onPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerId.current !== event.pointerId || !isHolding.current) return;
+    const start = pointerStart.current;
+    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > CLICK_MOVE_TOLERANCE) {
+      pointerMoved.current = true;
+    }
+    if (gestureStartedExpanded.current || holdActivated.current) {
+      setHoveredIndex(getIndexFromPoint(event.clientX, event.clientY));
+    }
+  }, [getIndexFromPoint]);
 
-    const onMouseUp = (e: MouseEvent) => {
-      if (!isHolding.current) return;
-      const isShortClick = enableClickToggle && !holdActivated.current && !pointerMoved.current;
-      clearHold();
-      const idx = getIndexFromY(e.clientY);
-      pointerStart.current = null;
-
-      if (isShortClick && !expanded) {
-        isHolding.current = false;
-        setHoveredIndex(null);
-        setExpanded(true);
-        return;
-      }
-
-      select(idx);
-    };
-
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    };
-  }, [clearHold, enableClickToggle, expanded, getIndexFromY, select]);
-
-  // --- Touch ---
-  const onTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (utilityPanelOpen) return;
-    const touch = event.touches[0];
-    if (!touch) return;
-    isHolding.current = true;
-    holdActivated.current = false;
-    pointerMoved.current = false;
-    pointerStart.current = { x: touch.clientX, y: touch.clientY };
+  const onPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerId.current !== event.pointerId || !isHolding.current) return;
+    event.preventDefault();
     clearHold();
-    holdTimer.current = setTimeout(() => {
-      if (isHolding.current) {
-        holdActivated.current = true;
-        setExpanded(true);
-      }
-    }, HOLD_DELAY);
-  }, [clearHold, utilityPanelOpen]);
+    const startedExpanded = gestureStartedExpanded.current;
+    const moved = pointerMoved.current;
+    const held = holdActivated.current;
+    const releasedIndex = getIndexFromPoint(event.clientX, event.clientY);
+    // For a tap, keep the row that was pressed even while the menu animates.
+    const index = startedExpanded && !moved && releasedIndex !== null ? pressedRowIndex.current : releasedIndex;
+    // Clear ownership before capture is released or navigation unmounts us.
+    activePointerId.current = null;
+    isHolding.current = false;
+    pointerStart.current = null;
+    setHoveredIndex(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (!startedExpanded && !moved) {
+      // A stationary hold opens the menu; it must not select whichever row
+      // happened to animate underneath the finger (including Logout).
+      if (enableClickToggle || held) setExpanded(true);
+      else select(activeRowIndex);
+      return;
+    }
+    if (!startedExpanded && !held) return;
+    select(index);
+  }, [activeRowIndex, clearHold, enableClickToggle, getIndexFromPoint, select]);
 
-  const onTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      if (!isHolding.current) return;
-      const touch = e.touches[0];
-      if (!touch) return;
-      const start = pointerStart.current;
-      if (
-        start
-        && Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > CLICK_MOVE_TOLERANCE
-      ) {
-        pointerMoved.current = true;
-      }
-      const idx = getIndexFromY(touch.clientY);
-      setHoveredIndex(idx);
-    },
-    [getIndexFromY]
-  );
-
-  const onTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
-      if (!isHolding.current) return;
-      const isShortClick = enableClickToggle && !holdActivated.current && !pointerMoved.current;
-      clearHold();
-      const touch = e.changedTouches[0];
-      if (!touch) {
-        isHolding.current = false;
-        pointerStart.current = null;
-        return;
-      }
-      const idx = getIndexFromY(touch.clientY);
-      pointerStart.current = null;
-
-      if (isShortClick && !expanded) {
-        isHolding.current = false;
-        setHoveredIndex(null);
-        setExpanded(true);
-        return;
-      }
-
-      select(idx);
-    },
-    [clearHold, enableClickToggle, expanded, getIndexFromY, select]
-  );
-
-  const onTouchCancel = useCallback(() => {
+  const onPointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerId.current !== event.pointerId) return;
+    activePointerId.current = null;
     clearHold();
     isHolding.current = false;
     holdActivated.current = false;
     pointerMoved.current = false;
     pointerStart.current = null;
-    setHoveredIndex(null);
-  }, [clearHold]);
+    select(null);
+  }, [clearHold, select]);
 
   useEffect(() => clearHold, [clearHold]);
 
@@ -671,11 +628,12 @@ export function CollapsibleMenu({
       >
       <div
         ref={containerRef}
-        onMouseDown={onMouseDown}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchCancel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onLostPointerCapture={onPointerCancel}
+        data-menu-expanded={expanded}
         className={cn(
           "gm-menu-scrollbars-hidden relative w-full overflow-hidden select-none",
           "transition-all duration-[480ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
@@ -736,6 +694,7 @@ export function CollapsibleMenu({
               return (
                 <div
                   key={row.type === "chat" ? "gm-kurti-chat" : row.type === "settings" ? "gm-text-settings" : item.label}
+                  data-menu-row={i}
                   className={cn(
                     "relative grid cursor-pointer items-center",
                     "transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
@@ -818,8 +777,7 @@ export function CollapsibleMenu({
           </div>
 
           <div
-            onMouseDown={(event) => event.stopPropagation()}
-            onTouchStart={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
             style={{
               width: "50%",
               height: "100%",

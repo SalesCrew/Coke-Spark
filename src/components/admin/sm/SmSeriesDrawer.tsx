@@ -44,7 +44,7 @@ export function SmSeriesDrawer({ seriesId, selectedDate, markets, users, onBack,
 
   const patch = (value: Partial<NonNullable<typeof change>>) => { setChange((current) => current ? { ...current, ...value } : current); setPreview(null); setError(null); };
   const stopped = details?.status !== "active";
-  const invalid = !change || !details ? "" : change.effectiveFromDate < details.today ? "Das Datum darf nicht in der Vergangenheit liegen."
+  const invalid = !change || !details || stopped ? "" : change.effectiveFromDate < details.today ? "Das Datum darf nicht in der Vergangenheit liegen."
     : action === "edit" && change.effectiveFromDate < details.effectiveFromDate ? "Das Datum muss ab der neuesten Serienversion liegen."
     : action === "edit" && (!change.weekdays.length || change.validTo < change.effectiveFromDate || !change.smMarketId || !change.smUserId) ? "Bitte Markt, SM, Wochentage und Zeitraum vollständig wählen." : "";
   const selectedMarket = markets.find((market) => market.id === change?.smMarketId);

@@ -2000,6 +2000,17 @@ export async function fetchMySmPlanningAssignments(from: string, to: string): Pr
   } finally { guard.dispose(); }
 }
 
+export async function fetchMySmProfile(): Promise<import("@/types/smProfile").SmProfilePayload> {
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const data = (await authedFetch("/sm/planning/profile", { cache: "no-store" })) as import("@/types/smProfile").SmProfilePayload;
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return data;
+  } finally {
+    guard.dispose();
+  }
+}
+
 // Remember an intervening identity switch too (A → B → A), without treating token refresh as a new owner.
 function createSmRequestOwnerGuard() {
   const principal = getAuthPrincipalKey(readAuthSession());

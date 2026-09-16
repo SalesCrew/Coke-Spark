@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -17,8 +17,6 @@ import {
   Lock,
   LogOut,
   Mail,
-  MapPin,
-  Phone,
   ShieldCheck,
   Store,
   User,
@@ -26,27 +24,16 @@ import {
 import { CollapsibleMenu, type MenuItem } from "@/components/ui/CollapsibleMenu";
 import {
   BackendApiError,
-  fetchCurrentAuthUser,
+  fetchMySmProfile,
   logoutCurrentUser,
   updateOwnPasswordWithCurrent,
 } from "@/lib/api/backend";
+import type { SmProfilePayload } from "@/types/smProfile";
 
 const RED = "#dc2626";
 const GREEN = "#059669";
 
-type SmProfileUser = {
-  id: string;
-  role: "sm";
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone?: string | null;
-  address?: string | null;
-  city?: string | null;
-  postalCode?: string | null;
-  region?: string | null;
-  isActive?: boolean;
-};
+type SmProfileUser = SmProfilePayload["user"];
 
 const MENU_ITEMS: MenuItem[] = [
   { label: "Home", href: "/sm", icon: <Home size={11} strokeWidth={1.8} /> },
@@ -57,11 +44,17 @@ const MENU_ITEMS: MenuItem[] = [
 ];
 
 const PROFILE_METRICS = [
-  { label: "Stammmärkte", value: "3", helper: "aktuell zugeordnet", icon: Store, color: RED },
-  { label: "Einsätze", value: "4/6", helper: "diese Woche", icon: CalendarCheck2, color: GREEN },
-  { label: "Sollzeit", value: "10 h", helper: "diese Woche", icon: Clock, color: "#475569" },
-  { label: "Istzeit", value: "6 h 59 min", helper: "bereits erfasst", icon: Check, color: GREEN },
+  { label: "Stammmärkte", helper: "aktuell zugeordnet", icon: Store, color: RED },
+  { label: "Einsätze", helper: "diese Woche", icon: CalendarCheck2, color: GREEN },
+  { label: "Sollzeit", helper: "diese Woche", icon: Clock, color: "#475569" },
+  { label: "Istzeit", helper: "diese Woche erfasst", icon: Check, color: GREEN },
 ] as const;
+
+function formatMinutes(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours === 0 ? `${remainder} min` : remainder === 0 ? `${hours} h` : `${hours} h ${remainder} min`;
+}
 
 function initials(user: SmProfileUser | null) {
   if (!user) return "SM";
@@ -73,48 +66,23 @@ function fullName(user: SmProfileUser | null) {
   return `${user.firstName} ${user.lastName}`.trim() || "Shelf Merchandiser";
 }
 
-function compactLocation(user: SmProfileUser | null) {
-  if (!user) return "Nicht hinterlegt";
-  const location = [user.postalCode, user.city].filter(Boolean).join(" ");
-  return location || user.region || "Nicht hinterlegt";
-}
-
 function ProfileMetric({
   label,
-  value,
   helper,
   icon: Icon,
   color,
-}: (typeof PROFILE_METRICS)[number]) {
+  value,
+  loading,
+}: (typeof PROFILE_METRICS)[number] & { value?: string; loading: boolean }) {
   return (
     <article className="sm-profile-metric">
       <div className="sm-profile-metric-icon" style={{ color }}>
         <Icon size={13} strokeWidth={1.9} />
       </div>
       <span>{label}</span>
-      <strong style={{ color }}>{value}</strong>
+      {loading ? <div className="sm-profile-metric-skeleton" aria-hidden /> : <strong style={{ color }}>{value ?? "—"}</strong>}
       <small>{helper}</small>
     </article>
-  );
-}
-
-function ProfileRow({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon: typeof Mail;
-}) {
-  return (
-    <div className="sm-profile-data-row">
-      <span className="sm-profile-data-icon"><Icon size={13} strokeWidth={1.8} /></span>
-      <span className="sm-profile-data-copy">
-        <small>{label}</small>
-        <strong>{value}</strong>
-      </span>
-    </div>
   );
 }
 
@@ -242,28 +210,34 @@ function PasswordCard() {
 
 export default function SmProfilePage() {
   const router = useRouter();
-  const [user, setUser] = useState<SmProfileUser | null>(null);
+  const [profile, setProfile] = useState<SmProfilePayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let active = true;
-    fetchCurrentAuthUser()
+    fetchMySmProfile()
       .then((payload) => {
-        if (active) setUser(payload as SmProfileUser);
+        if (active) { setProfile(payload); setLoadError(null); }
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        if (active) setLoadError(error instanceof Error ? error.message : "Profil konnte nicht geladen werden.");
+      })
       .finally(() => {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, []);
+  }, [reloadKey]);
 
-  const contactRows = useMemo(() => [
-    { label: "E-Mail", value: user?.email || "Nicht hinterlegt", icon: Mail },
-    { label: "Telefon", value: user?.phone || "Nicht hinterlegt", icon: Phone },
-    { label: "Adresse", value: user?.address || "Nicht hinterlegt", icon: MapPin },
-    { label: "PLZ & Ort", value: compactLocation(user), icon: Store },
-  ], [user]);
+  const user = profile?.user ?? null;
+  const summary = profile?.summary;
+  const metricValues = summary ? [
+    String(summary.assignedMarketCount),
+    `${summary.completedAssignmentCount}/${summary.assignmentCount}`,
+    formatMinutes(summary.plannedMinutes),
+    formatMinutes(summary.actualMinutes),
+  ] : [];
 
   return (
     <main className="sm-profile-page">
@@ -279,34 +253,30 @@ export default function SmProfilePage() {
             <div className="sm-profile-avatar" aria-hidden>{loading ? "…" : initials(user)}</div>
             <div className="sm-profile-identity-copy">
               <span>Shelf Merchandiser</span>
-              <h2>{loading ? "Profil wird geladen" : fullName(user)}</h2>
-              <div className="sm-profile-status"><i /> Aktiv</div>
+              <h2>{loading ? "Profil wird geladen" : user ? fullName(user) : "Profil nicht verfügbar"}</h2>
+              {user ? <div className="sm-profile-status"><i /> {user.isActive ? "Aktiv" : "Inaktiv"}</div> : null}
             </div>
           </div>
           <div className="sm-profile-hero-contact">
             <Mail size={13} strokeWidth={1.8} />
-            <span>{user?.email || (loading ? "Wird geladen …" : "Nicht hinterlegt")}</span>
+            <span>{user?.email || (loading ? "Wird geladen …" : "—")}</span>
           </div>
         </section>
 
-        <section className="sm-profile-metric-grid" aria-label="Wochenübersicht">
-          {PROFILE_METRICS.map((metric) => <ProfileMetric key={metric.label} {...metric} />)}
-        </section>
+        {loadError && !profile ? (
+          <div className="sm-profile-load-error" role="alert">
+            <span>{loadError}</span>
+            <button type="button" onClick={() => { setLoading(true); setLoadError(null); setReloadKey((key) => key + 1); }}>Erneut laden</button>
+          </div>
+        ) : (
+          <section className="sm-profile-metric-grid" aria-label="Wochenübersicht" aria-busy={loading}>
+            {PROFILE_METRICS.map((metric, index) => (
+              <ProfileMetric key={metric.label} {...metric} value={metricValues[index]} loading={loading && !profile} />
+            ))}
+          </section>
+        )}
 
-        <section className="sm-profile-card">
-          <div className="sm-profile-section-heading">
-            <div>
-              <span className="sm-profile-section-icon"><User size={14} strokeWidth={1.8} /></span>
-              <div>
-                <h2>Persönliche Daten</h2>
-                <p>Deine aktuell hinterlegten Kontaktdaten.</p>
-              </div>
-            </div>
-          </div>
-          <div className="sm-profile-data-list">
-            {contactRows.map((row) => <ProfileRow key={row.label} {...row} />)}
-          </div>
-        </section>
+        <PasswordCard />
 
         <section className="sm-profile-card sm-profile-legal-card">
           <div className="sm-profile-section-heading">
@@ -324,7 +294,6 @@ export default function SmProfilePage() {
           </div>
         </section>
 
-        <PasswordCard />
       </div>
 
       <div className="sm-profile-menu">
@@ -413,7 +382,14 @@ export default function SmProfilePage() {
           display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
           margin-top: 3px; font-size: 17px; line-height: 1.12; letter-spacing: -.035em; font-weight: 790;
         }
+        .sm-profile-metric-skeleton {
+          width: 68%; height: 17px; margin-top: 5px; border-radius: 5px;
+          background: linear-gradient(90deg, #f0f1f3, #fafafa, #f0f1f3);
+          background-size: 200% 100%; animation: sm-profile-shimmer 1.2s linear infinite;
+        }
         .sm-profile-metric small { display: block; margin-top: 3px; color: #a1a6af; font-size: 8.5px; }
+        .sm-profile-load-error { margin-top: 9px; padding: 12px; border-radius: 13px; background: #fff8f8; border: 1px solid #fecaca; color: #b91c1c; font-size: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .sm-profile-load-error button { border: 1px solid #fca5a5; border-radius: 8px; background: #fff; color: #b91c1c; padding: 6px 8px; font-size: 9px; font-weight: 700; white-space: nowrap; }
         .sm-profile-card { border-radius: 17px; padding: 14px; margin-top: 9px; }
         .sm-profile-section-heading { margin-bottom: 12px; }
         .sm-profile-section-heading > div { display: flex; align-items: center; gap: 9px; }
@@ -423,7 +399,6 @@ export default function SmProfilePage() {
         }
         .sm-profile-section-heading h2 { margin: 0; font-size: 13px; line-height: 1.2; letter-spacing: -.02em; font-weight: 760; }
         .sm-profile-section-heading p { margin: 2px 0 0; color: #a0a5ae; font-size: 8.5px; line-height: 1.35; }
-        .sm-profile-data-list { border-top: 1px solid #f1f2f4; }
         .sm-profile-legal-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
         .sm-profile-legal-links a {
           height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -431,21 +406,6 @@ export default function SmProfilePage() {
           text-decoration: none; font-size: 9.5px; font-weight: 720;
         }
         .sm-profile-legal-links a:first-child { color: #b91c1c; background: #fff8f8; border-color: rgba(220, 38, 38, .13); }
-        .sm-profile-data-row { display: flex; align-items: center; gap: 9px; padding: 10px 0; border-bottom: 1px solid #f1f2f4; }
-        .sm-profile-data-row:last-child { border-bottom: 0; padding-bottom: 1px; }
-        .sm-profile-data-icon {
-          width: 28px; height: 28px; flex: 0 0 28px; border-radius: 9px;
-          display: grid; place-items: center; background: #f8f8f9; color: #9197a0;
-        }
-        .sm-profile-data-copy { min-width: 0; }
-        .sm-profile-data-copy small {
-          display: block; color: #a0a5ae; font-size: 7.5px; font-weight: 750;
-          letter-spacing: .08em; text-transform: uppercase; margin-bottom: 2px;
-        }
-        .sm-profile-data-copy strong {
-          display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          color: #303642; font-size: 10.5px; line-height: 1.25; font-weight: 620;
-        }
         .sm-profile-password-fields { display: grid; gap: 9px; }
         .sm-profile-password-field > span { display: block; margin: 0 0 4px 2px; color: #777e88; font-size: 8.5px; font-weight: 650; }
         .sm-profile-password-field > div {
@@ -478,6 +438,8 @@ export default function SmProfilePage() {
         .sm-profile-spinner { animation: sm-profile-spin .8s linear infinite; }
         .sm-profile-menu { position: fixed; z-index: 50; left: 0; right: 0; bottom: 24px; }
         @keyframes sm-profile-spin { to { transform: rotate(360deg); } }
+        @keyframes sm-profile-shimmer { to { background-position: -200% 0; } }
+        @media (prefers-reduced-motion: reduce) { .sm-profile-metric-skeleton { animation: none; } }
         @media (max-width: 360px) {
           .sm-profile-page { padding-inline: 10px; }
           .sm-profile-metric { padding-inline: 10px; }

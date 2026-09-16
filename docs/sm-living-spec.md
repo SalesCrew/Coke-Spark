@@ -1614,3 +1614,10 @@ The user requires SM administrators to access the GM sidebar workspace again, ad
 - Calendar: with Bis 31.08.2026, 01.09.2026 was disabled for Von. After choosing Von 26.08.2026, 25.08.2026 was disabled for Bis. Escape closed the calendar.
 - Planning page and drawer rendered the shared filter/date triggers. The additional drawer interaction check was interrupted by repeated page-state resets, so it is not counted as a completed dropdown/calendar interaction test; those same controls were exercised successfully on the dashboard. The temporary test tab was closed without saving. No browser console errors were observed in the verification tab.
 - Changes are local only. Deployment requires a separate user request; backend and frontend must be deployed together for production access to match.
+
+## 29. SM phone profile — live account and weekly summary
+
+- `/sm/profil` reads its own authenticated SM record through `GET /sm/planning/profile`; it never reads another employee's ID from a client parameter or touches GM tables. The response contains only name, email, active status, the current Vienna/ISO Monday–Sunday week and aggregate values.
+- `Stammmärkte` counts active, non-deleted SM markets currently assigned to that SM. `Einsätze` shows completed/current-week assignments over all non-cancelled current-week assignments. `Sollzeit` sums their effective planned minutes; `Istzeit` sums their current, non-deleted recorded time submissions. Reassignments and reschedules follow effective assignment ownership/date.
+- The SM account editor does not collect phone or postal-address fields. The profile therefore shows the saved name and email in its header, but no empty contact rows or invented contact data. Password change, SM privacy information and the employee agreement remain available as working actions.
+- Initial loading displays metric placeholders rather than invented numbers; a failed profile read displays a retry action, not zero values. The only zeroes shown are from a successful empty-week response.

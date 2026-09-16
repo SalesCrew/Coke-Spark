@@ -39,6 +39,7 @@ import {
   readLatestLocalDaySessionSnapshot,
 } from "@/lib/gm/daySessionPersistence";
 import { getMarketChainLabel } from "@/lib/marketDisplay";
+import { isRedMonthMarketComplete, sortRedMonthMarkets } from "@/lib/gm/redMonthMarketList";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import { DashboardGateOverlay } from "./DashboardLockOverlay";
 import { GmSkeletonMarketRows } from "./GmDashboardSkeleton";
@@ -802,7 +803,8 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
     let cancelled = false;
     setIsLoading(true);
     setLoadError(null);
-    void fetchGmAssignedStartMarkets()
+    // Returning from a submitted visit must show its new RED-month progress immediately.
+    void fetchGmAssignedStartMarkets({ force: true })
       .then((rows) => {
         if (cancelled) return;
         const mapped = rows
@@ -1020,14 +1022,13 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
   );
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return markets;
-    const q = search.toLowerCase();
-    return markets.filter(
+    const q = search.trim().toLowerCase();
+    return sortRedMonthMarkets(q ? markets.filter(
       (m) =>
         m.name.toLowerCase().includes(q) ||
         m.chain.toLowerCase().includes(q) ||
         m.address.toLowerCase().includes(q),
-    );
+    ) : markets);
   }, [search, markets]);
 
   return (
@@ -1104,6 +1105,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
                 borderBottom: i < filtered.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
                 transition: "background-color 0.12s ease",
                 cursor: "pointer",
+                opacity: isRedMonthMarketComplete(m.activeNowCampaigns) ? 0.52 : 1,
               }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.02)")}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}

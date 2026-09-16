@@ -3287,7 +3287,7 @@ async function readTimedApiCache<T>(
   return clone(await cache.promise);
 }
 
-export async function fetchGmAssignedStartMarkets(): Promise<GmStartMarket[]> {
+export async function fetchGmAssignedStartMarkets(options?: { force?: boolean }): Promise<GmStartMarket[]> {
   return readTimedApiCache(
     gmAssignedStartMarketsCache,
     GM_START_MARKETS_CACHE_TTL_MS,
@@ -3300,6 +3300,7 @@ export async function fetchGmAssignedStartMarkets(): Promise<GmStartMarket[]> {
       }));
     },
     cloneGmStartMarkets,
+    options,
   );
 }
 

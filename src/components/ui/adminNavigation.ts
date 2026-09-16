@@ -97,6 +97,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { label: "FB Management", icon: LayoutGrid, href: "/admin/fbmanagement", pageKey: "fbmanagement", color: cokeRed },
       { label: "Fotoarchiv", icon: Images, href: "/admin/fotoarchiv", pageKey: "fotoarchiv", color: cokeRed },
       { label: "Fragebögen", icon: ClipboardList, href: "/admin/sm/fragebogen", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
+      { label: "FB Management", icon: LayoutGrid, href: "/admin/sm/fbmanagement", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
     ],
   },
   {

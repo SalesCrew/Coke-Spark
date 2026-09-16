@@ -858,3 +858,7 @@ See [SM answer comments](sm-answer-comments-living.md) for the SM-only admin
 configuration, required-comment checks, offline answer persistence and compact
 modal UI. Comments are part of answer JSON, not a separate questionnaire question.
 Old visit snapshots remain unchanged.
+
+## Nachtrag 16.09.2026: abgeschlossene SM-Fragebögen verwalten
+
+Die neue lokale SM-Admin-Ansicht `/admin/sm/fbmanagement` liest nur abgeschlossene, nicht gelöschte Besuche und deren gespeicherte Fragen-/Options-/Regel-Snapshots. Korrekturen sind keine Wiederaufnahme und kein neuer Besuch: Sie erzeugen aktuelle Antwortversionen samt Audit/Grund, erhalten Originalantworten und Fotos im Verlauf und verändern weder ursprünglichen SM noch Markt, Start/Ende, Abschlussdatum oder Fahrtzeit. Die vorhandenen Pflicht-, Kommentar- und Bedingungsregeln werden für den vollständigen gemeinsamen Entwurf serverseitig neu geprüft. Nur aktuell gültige Antworten fließen nach Reload in Mitarbeiter-Aktivität und OOS; ein im Folgemonat korrigierter Besuch bleibt im ursprünglichen Berichtszeitraum. Administrative Korrekturen sind online-only und benutzen einen Konfliktstand sowie einen idempotenten Mutationstoken. Die getrennte Offline-/Pending-Answer-Warteschlange des Mitarbeiters wird davon nicht geleert. Isolierte DB-/HTTP- und Browsernachweise: [Management-Living-MD](sm-fb-management-living.md). Nicht produktiv ausgerollt.

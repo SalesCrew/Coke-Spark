@@ -417,6 +417,12 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       return next;
     } catch (loadError) {
       if (sequence !== loadSequence.current) return null;
+      if (loadError instanceof BackendApiError && loadError.code === "sm_visit_assignment_cancelled") {
+        // Keep unsynchronized answers in their separate queue; retire only the visible preload.
+        payloadRef.current = null;
+        setPayload(null);
+        setReceipt(null);
+      }
       setError(loadError instanceof Error ? loadError.message : "Der Marktbesuch konnte nicht geladen werden.");
       return null;
     } finally {
@@ -1097,6 +1103,10 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       setMissingRequiredIds(new Set());
       setReviewing(false);
     } catch (submitError) {
+      if (submitError instanceof BackendApiError && submitError.code === "sm_visit_travel_time_disabled") {
+        // Refresh only authoritative visit/profile data; keep the saved answers and pending queue.
+        await reload(false);
+      }
       if (submitError instanceof BackendApiError && submitError.code === "sm_visit_time_overlap") {
         const data = submitError.data as { details?: SmVisitTimeConflictDetails } | null;
         if (data?.details?.conflicts?.length) setTimeConflict(data.details);
@@ -1818,7 +1828,7 @@ function ReviewScreen({ payload, flat, error, timeConflict, busy, onBack, onSubm
         {!isTimer ? <p className="mt-2 text-[11px] leading-relaxed text-black/50">Trage den tatsächlichen Beginn und das Ende ein. Die Besuchszeit wird daraus berechnet.</p> : null}
       </section>
 
-      <section className="mt-3 rounded-[14px] border border-white/90 bg-white/75 p-4 shadow-[0_2px_16px_rgba(0,0,0,.05),0_1px_4px_rgba(0,0,0,.03)] backdrop-blur-2xl">
+      {payload.profile.travelTimeEnabled ? <section data-testid="sm-review-travel-time" className="mt-3 rounded-[14px] border border-white/90 bg-white/75 p-4 shadow-[0_2px_16px_rgba(0,0,0,.05),0_1px_4px_rgba(0,0,0,.03)] backdrop-blur-2xl">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-red-50 text-red-600"><Navigation size={13} strokeWidth={1.8} /></span>
@@ -1826,15 +1836,15 @@ function ReviewScreen({ payload, flat, error, timeConflict, busy, onBack, onSubm
           </div>
           <span className="shrink-0 rounded-full bg-black/[0.04] px-2 py-1 text-[8px] font-bold text-black/35">Optional</span>
         </div>
-        {payload.profile.travelTimeEnabled ? <label className="mt-3 flex items-center gap-2.5">
+        <label className="mt-3 flex items-center gap-2.5">
           <span className="w-12 shrink-0 text-[10px] font-semibold text-red-600">Dauer</span>
           <span className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[8px] bg-black/[0.03] px-3 focus-within:bg-white/80">
             <SmTravelTimeInput value={travelValue} onValueChange={setTravelValue} label="Fahrtzeit" className="h-full min-w-0 flex-1 bg-transparent text-[16px] font-bold tabular-nums outline-none placeholder:text-black/20" />
             <Clock3 size={12} strokeWidth={1.8} className="shrink-0 text-black/25" />
           </span>
-        </label> : <p className="mt-3 rounded-[8px] bg-black/[0.025] px-3 py-2.5 text-[9px] font-medium text-black/30">Für diesen Zugang ist keine Fahrtzeiterfassung aktiviert.</p>}
+        </label>
         {travelError ? <p role="alert" className="mt-2 text-[9px] font-semibold text-red-600">{travelError}</p> : null}
-      </section>
+      </section> : null}
 
       {timeConflict ? <SmVisitTimeConflict details={timeConflict} /> : error ? <p role="alert" className="mt-3 rounded-[10px] border border-red-100 bg-red-50/85 px-3 py-3 text-[12px] font-semibold leading-relaxed text-red-700">{error}</p> : null}
     </div>

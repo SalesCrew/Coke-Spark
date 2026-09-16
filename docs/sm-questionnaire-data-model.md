@@ -288,3 +288,7 @@ submission snapshots preserve it. Triggered comments are required at submission
 and saved in the existing answer `value_json.comment` (maximum 2,000 characters).
 No migration or GM table change. Full semantics and verification:
 [SM answer comments](sm-answer-comments-living.md).
+
+## Nachtrag 16.09.2026: versionierte Admin-Korrekturen
+
+Für das lokale SM-Fragebogen-Management ist **keine neue Tabelle oder Migration** erforderlich. Die vorhandenen `sm_question_answers`/Options-/Matrix-/Datei-Zuordnungen tragen neue aktuelle Versionen mit Vorgängerbezug; `sm_question_answer_events` dokumentiert Actor, Zeitpunkt, Mutationstoken und separaten Korrekturgrund. Der ursprüngliche Snapshot und historische Antwort-/Fotoreferenzen bleiben erhalten. Die Submission-Zeile dient als gemeinsamer Konflikt- und Transaktionsanker für direkte Admin-Korrekturen und vorhandene Anfragefreigaben. Nur aktuelle gültige Antwortversionen werden ausgewertet. Private neue Fotos benötigen einen an Admin, Besuch, Frage, Größe, MIME-Typ und Ablauf gebundenen Beleg; bestehende Objekte werden nicht überschrieben. Die tatsächlichen Integrationsnachweise und Release-Grenze stehen im [Management-Living-MD](sm-fb-management-living.md). Die ältere „Still deferred“-Liste oben ist ein früher Entwurfsstand, keine Aussage zum heutigen lokalen Funktionsumfang.

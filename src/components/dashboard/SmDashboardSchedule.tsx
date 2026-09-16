@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { AssignmentList, type DashboardAssignment } from "@/components/dashboard/AssignmentList";
 import { WeekStrip, type CalendarVisitPreview } from "@/components/dashboard/WeekStrip";
@@ -11,12 +11,18 @@ import {
   readSmVisitPreloadCache,
   setMySmPlanningAssignmentsCache,
   setSmVisitPreloadCache,
+  clearSmVisitPreloadCache,
+  readAuthSession,
+  subscribeAuthSession,
 } from "@/lib/api/backend";
 import type { SmPlanningAssignment } from "@/types/smPlanning";
 import { austrianHoliday } from "@/lib/sm/austrianHolidays";
+import { visibleSmAssignments } from "@/lib/sm/assignmentVisibility";
 
 type DateRange = { from: string; to: string };
 const smHolidayLabel = (date: string) => austrianHoliday(date)?.name;
+const readOwner = () => { const session = readAuthSession(); return session?.user.role === "sm" ? session.user.id : null; };
+const serverOwner = () => null;
 
 function toIsoDate(date: Date): string {
   const year = date.getFullYear();
@@ -74,20 +80,49 @@ function buildSmVisitHref(assignment: DashboardAssignment): string {
 
 export function SmDashboardSchedule() {
   const router = useRouter();
+  const owner = useSyncExternalStore(subscribeAuthSession, readOwner, serverOwner);
   const [selectedDate, setSelectedDate] = useState(() => toIsoDate(new Date()));
   const [range, setRange] = useState<DateRange>(() => buildRange(toIsoDate(new Date())));
   const [assignments, setAssignments] = useState<SmPlanningAssignment[]>([]);
+  const [loadedScope, setLoadedScope] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [startingAssignmentId, setStartingAssignmentId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const scope = `${owner}:${range.from}:${range.to}`;
+  const visibleAssignments = useMemo(() => loadedScope === scope ? visibleSmAssignments(assignments) : [], [assignments, loadedScope, scope]);
 
   useEffect(() => {
+    setStartingAssignmentId(null);
+    setLaunchError(null);
+    setError(null);
+  }, [owner]);
+
+  useEffect(() => {
+    let lastRefresh = 0;
+    const refresh = () => {
+      if (document.visibilityState !== "visible" || Date.now() - lastRefresh < 1000) return;
+      lastRefresh = Date.now();
+      setReloadKey((value) => value + 1);
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!owner) return;
     let cancelled = false;
     const cached = readMySmPlanningAssignmentsCache(range.from, range.to);
     if (cached) {
       setAssignments(cached);
+      setLoadedScope(scope);
       setLoading(false);
       setError(null);
     } else {
@@ -95,13 +130,18 @@ export function SmDashboardSchedule() {
     }
     fetchMySmPlanningAssignments(range.from, range.to)
       .then((rows) => {
-        if (cancelled) return;
+        if (cancelled || readOwner() !== owner) return;
+        // This response replaces this exact owner's complete requested range.
+        // Drop only stale preload entries, never unsynchronized answer queues.
+        const currentIds = new Set(rows.map((row) => row.id));
+        for (const previous of cached ?? []) if (!currentIds.has(previous.id)) clearSmVisitPreloadCache(previous.id);
         setAssignments(rows);
+        setLoadedScope(scope);
         setMySmPlanningAssignmentsCache(range.from, range.to, rows);
         setError(null);
       })
       .catch((loadError) => {
-        if (cancelled) return;
+        if (cancelled || readOwner() !== owner) return;
         if (!cached) setError(loadError instanceof Error ? loadError.message : "Einsätze konnten nicht geladen werden.");
       })
       .finally(() => {
@@ -110,11 +150,11 @@ export function SmDashboardSchedule() {
     return () => {
       cancelled = true;
     };
-  }, [range.from, range.to, reloadKey]);
+  }, [range.from, range.to, reloadKey, owner, scope]);
 
   const visitsByDate = useMemo(() => {
     const grouped: Record<string, CalendarVisitPreview[]> = {};
-    for (const assignment of assignments) {
+    for (const assignment of visibleAssignments) {
       const date = assignment.effective.workDate;
       (grouped[date] ??= []).push({
         id: assignment.id,
@@ -123,22 +163,22 @@ export function SmDashboardSchedule() {
       });
     }
     return grouped;
-  }, [assignments]);
+  }, [visibleAssignments]);
 
-  const selectedAssignments = useMemo<DashboardAssignment[]>(() => assignments
+  const selectedAssignments = useMemo<DashboardAssignment[]>(() => visibleAssignments
     .filter((assignment) => assignment.effective.workDate === selectedDate)
     .sort((left, right) => STATUS_PRIORITY[left.status] - STATUS_PRIORITY[right.status])
-    .map(toDashboardAssignment), [assignments, selectedDate]);
+    .map(toDashboardAssignment), [visibleAssignments, selectedDate]);
 
   useEffect(() => {
     if ((typeof navigator !== "undefined" && !navigator.onLine) || selectedAssignments.length === 0) return;
     let cancelled = false;
     void Promise.allSettled(selectedAssignments.map(async (assignment) => {
       const payload = await fetchSmVisit(assignment.id);
-      if (!cancelled) setSmVisitPreloadCache(assignment.id, payload);
+      if (!cancelled && readOwner() === owner) setSmVisitPreloadCache(assignment.id, payload);
     }));
     return () => { cancelled = true; };
-  }, [selectedAssignments]);
+  }, [selectedAssignments, owner]);
 
   const handleDateChange = useCallback((date: string) => {
     setSelectedDate(date);
@@ -158,13 +198,15 @@ export function SmDashboardSchedule() {
     }
     try {
       const payload = await fetchSmVisit(assignment.id);
+      if (readOwner() !== owner) return;
       setSmVisitPreloadCache(assignment.id, payload);
       router.push(buildSmVisitHref(assignment));
     } catch (launchFailure) {
+      if (readOwner() !== owner) return;
       setLaunchError(launchFailure instanceof Error ? launchFailure.message : "Der Einsatz konnte nicht vorbereitet werden.");
       setStartingAssignmentId(null);
     }
-  }, [router, startingAssignmentId]);
+  }, [router, startingAssignmentId, owner]);
 
   return (
     <>
@@ -172,7 +214,7 @@ export function SmDashboardSchedule() {
         {launchError ? <p role="alert" className="mb-2 rounded-lg border border-red-100 bg-red-50/70 px-3 py-2 text-[9px] font-medium leading-relaxed text-red-700">{launchError}</p> : null}
         <AssignmentList
           assignments={selectedAssignments}
-          loading={loading}
+          loading={loading || !owner || (loadedScope !== scope && !error)}
           error={error}
           onRetry={() => setReloadKey((value) => value + 1)}
           startingAssignmentId={startingAssignmentId}

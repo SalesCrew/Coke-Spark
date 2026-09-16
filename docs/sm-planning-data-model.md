@@ -350,3 +350,7 @@ Application verification on the same date:
 - Backend TypeScript build passed.
 - All 7 focused SM planning tests passed.
 - A real local HTTP login using the ignored SM-admin test account returned role `sm_admin`; the bounded assignment list returned HTTP 200, the oversized-range guard returned `sm_planning_range_too_large`, and an invalid no-write create returned `sm_market_invalid` before any insert.
+
+### Nachtrag 16.09.2026: Mitarbeiter-Sichtbarkeit von Absagen
+
+Der SM-Mitarbeiter-Endpunkt blendet nur `status=cancelled` aus. Admin-Verplanung und Verlauf behalten dieselben gespeicherten Einsätze für Prüfung und Wiederherstellung; `missed` wird nicht als Absage umgedeutet. Mitarbeiter-Tagesliste, Kalender und lokaler Planungscache wenden dieselbe Regel bereits vor dem Rendern an. Ein alter Direktlink darf den abgesagten Einsatz nicht erneut starten. Eine wiederhergestellte oder verschobene Zuordnung wird nach autoritativem Refresh wieder gemäß ihren tatsächlichen Werten sichtbar. Pending Answers und abgeschlossene Besuchsdaten werden dadurch nicht gelöscht. Offline kann ein Gerät eine erst danach serverseitig vorgenommene Absage erst beim nächsten erfolgreichen Sync erfahren. Der Nachweis erfolgt mit isolierten SM-Migrations-/HTTP- und Cachetests in [Mitarbeiter-Sichtbarkeit](sm-employee-visibility-living.md); keine Schemaänderung.

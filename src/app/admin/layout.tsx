@@ -129,6 +129,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isSmDashboard = pathname.startsWith("/admin/sm/dashboard");
   const isSmMaerkte = pathname.startsWith("/admin/sm/maerkte");
   const isSmFragebogen = pathname.startsWith("/admin/sm/fragebogen");
+  const isSmFbManagement = pathname.startsWith("/admin/sm/fbmanagement");
   const isSmVerplanung = pathname.startsWith("/admin/sm/verplanung");
   const isSmZeiterfassung = pathname.startsWith("/admin/sm/zeiterfassung");
   const isSmNachrichten = pathname.startsWith("/admin/sm/nachrichten");
@@ -793,7 +794,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmDashboard ? "SM Dashboard" : isSmFragebogen ? "Fragebögen" : isSmVerplanung ? "Verplanung" : isSmZeiterfassung ? "Zeiterfassung" : isSmNachrichten ? "Nachrichten" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
+  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmDashboard ? "SM Dashboard" : isSmFbManagement ? "Fragebogen-Management" : isSmFragebogen ? "Fragebögen" : isSmVerplanung ? "Verplanung" : isSmZeiterfassung ? "Zeiterfassung" : isSmNachrichten ? "Nachrichten" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
   const exportEventName =
     isDurcharbeit ? "admin:durcharbeit:export"
     : isMhd ? "admin:mhd:export"
@@ -949,7 +950,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Plus size={12} strokeWidth={2} />
                   Nachricht erstellen
                 </button> : null
-              ) : isSmZeiterfassung ? null
+              ) : isSmZeiterfassung || isSmFbManagement ? null
               : isDurcharbeit && canWriteCurrentPage ? (
                 <>
                   <button

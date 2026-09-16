@@ -107,3 +107,7 @@
 - Production persistence was not exercised with real employee submissions.
   Normal live-data review should use a newly started SM visit, not an older
   immutable questionnaire draft.
+
+## Nachtrag 16.09.2026: Pflichtkommentar bei Admin-Korrektur
+
+Eine SM-Admin-Korrektur wertet `commentTrigger` aus dem Snapshot des konkreten abgeschlossenen Besuchs aus, nicht aus der heute bearbeitbaren Vorlage. Auch eine ansonsten optionale Frage verlangt einen Kommentar, sobald die korrigierte Antwort den Trigger trifft. Der Antwortkommentar (`value_json.comment`) und der separat verlangte Änderungsgrund sind zwei verschiedene Werte. Unveränderte Kommentare bleiben erhalten; eine Kommentar-only-Korrektur wird als neue Antwortversion mit Audit gespeichert. Wird eine Antwort durch bedingte Logik ungültig, zählt sie nicht mehr als aktuelle Antwort, bleibt aber mit ihrem Kommentar historisch lesbar. Diese Pfade wurden in isolierten PGlite-/HTTP-Tests und im lokalen Browser geprüft; siehe [Management-Living-MD](sm-fb-management-living.md). Keine neue Spalte oder GM-Änderung.

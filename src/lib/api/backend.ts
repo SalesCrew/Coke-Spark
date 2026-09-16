@@ -1,5 +1,7 @@
 "use client";
 
+import { visibleSmAssignments } from "@/lib/sm/assignmentVisibility";
+import type { SmManagementApi, SmManagementList, SmManagementDetail, SmManagementHistory, SmAdminPhotoReceipt } from "@/types/smManagement";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { SMRecord } from "@/types/shelfmerchandiser";
 import type {
@@ -1986,12 +1988,24 @@ export async function updateSmGlobalQuestionnaireAssignment(questionnaireTemplat
 }
 
 export async function fetchMySmPlanningAssignments(from: string, to: string): Promise<SmPlanningAssignment[]> {
-  const data = (await authedFetch(
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const data = (await authedFetch(
     `/sm/planning/assignments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
     { cache: "no-store" },
     60_000,
   )) as { assignments?: SmPlanningAssignment[] };
-  return data.assignments ?? [];
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return visibleSmAssignments(data.assignments ?? []);
+  } finally { guard.dispose(); }
+}
+
+// Remember an intervening identity switch too (A → B → A), without treating token refresh as a new owner.
+function createSmRequestOwnerGuard() {
+  const principal = getAuthPrincipalKey(readAuthSession());
+  let changed = false;
+  const dispose = subscribeAuthSession(() => { if (getAuthPrincipalKey(readAuthSession()) !== principal) changed = true; });
+  return { isCurrent: () => !changed && getAuthPrincipalKey(readAuthSession()) === principal, dispose };
 }
 
 export async function fetchAdminGmPlanningVisits(from: string, to: string): Promise<AdminGmPlanningVisit[]> {
@@ -2037,7 +2051,17 @@ export async function rejectAdminSmPlanningTimeChangeRequest(requestId: string, 
 }
 
 export async function fetchSmVisit(assignmentId: string): Promise<SmVisitPayload> {
-  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}`, { cache: "no-store" })) as SmVisitPayload;
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const payload = (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}`, { cache: "no-store" })) as SmVisitPayload;
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return payload;
+  } catch (error) {
+    if (guard.isCurrent() && error instanceof BackendApiError && error.code === "sm_visit_assignment_cancelled") {
+      clearSmVisitPreloadCache(assignmentId);
+    }
+    throw error;
+  } finally { guard.dispose(); }
 }
 
 export async function fetchMySmCompletedActivities(limit = 80): Promise<SmCompletedActivitySummary[]> {
@@ -2109,7 +2133,8 @@ function getSmPlanningAssignmentsCacheKey(userId: string, from: string, to: stri
 export function setMySmPlanningAssignmentsCache(from: string, to: string, assignments: SmPlanningAssignment[]): void {
   const ownerUserId = getActiveAuthUserId();
   if (!ownerUserId || typeof window === "undefined") return;
-  const envelope: SmPlanningAssignmentsCacheEnvelope = { ownerUserId, from, to, createdAtMs: Date.now(), assignments };
+  for (const assignment of assignments) if (assignment.status === "cancelled") clearSmVisitPreloadCache(assignment.id);
+  const envelope: SmPlanningAssignmentsCacheEnvelope = { ownerUserId, from, to, createdAtMs: Date.now(), assignments: visibleSmAssignments(assignments) };
   try {
     window.localStorage.setItem(getSmPlanningAssignmentsCacheKey(ownerUserId, from, to), JSON.stringify(envelope));
   } catch {
@@ -2136,7 +2161,9 @@ export function readMySmPlanningAssignmentsCache(from: string, to: string): SmPl
       window.localStorage.removeItem(key);
       return null;
     }
-    return parsed.assignments as SmPlanningAssignment[];
+    const assignments = parsed.assignments as SmPlanningAssignment[];
+    for (const assignment of assignments) if (assignment.status === "cancelled") clearSmVisitPreloadCache(assignment.id);
+    return visibleSmAssignments(assignments);
   } catch {
     try { window.localStorage.removeItem(key); } catch { /* noop */ }
     return null;
@@ -2445,6 +2472,43 @@ export async function submitSmVisit(assignmentId: string, input: { actualMinutes
   if (typeof window !== "undefined") window.dispatchEvent(new Event(SM_HOME_DASHBOARD_CHANGED_EVENT));
   return data.receipt;
 }
+
+async function smManagementFetch(path: string, init: RequestInit = {}): Promise<unknown> {
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const result = await authedFetch(`/admin/sm-activity/completed${path}`, { cache: "no-store", ...init }, 30_000);
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return result;
+  } finally { guard.dispose(); }
+}
+
+export const smManagementApi: SmManagementApi = {
+  list: async query => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "") params.set(key, String(value));
+    return await smManagementFetch(`?${params}`) as SmManagementList;
+  },
+  detail: async id => await smManagementFetch(`/${encodeURIComponent(id)}`) as SmManagementDetail,
+  history: async (id, questionId, cursor) => await smManagementFetch(`/${encodeURIComponent(id)}/history?questionId=${encodeURIComponent(questionId)}${cursor ? `&cursorVersion=${cursor}` : ""}`) as SmManagementHistory,
+  correct: async (id, input) => await smManagementFetch(`/${encodeURIComponent(id)}/corrections`, { method: "POST", body: JSON.stringify(input) }) as Awaited<ReturnType<SmManagementApi["correct"]>>,
+  upload: async (id, questionId, file) => {
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size <= 0 || file.size > 20 * 1024 * 1024) {
+      throw new Error("Bitte wähle ein JPG-, PNG- oder WebP-Foto mit maximal 20 MB.");
+    }
+    const guard = createSmRequestOwnerGuard();
+    try {
+    const prepared = await smManagementFetch(`/${encodeURIComponent(id)}/photos/upload-url`, { method: "POST",
+      body: JSON.stringify({ questionId, originalFileName: file.name, mimeType: file.type, byteSize: file.size }) }) as {
+        receipt: SmAdminPhotoReceipt; upload: { signedUrl: string; path: string; token: string; bucket: string };
+      };
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    const response = await fetch(prepared.upload.signedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file, signal: AbortSignal.timeout(60_000) });
+    if (!response.ok) throw new Error("Das Foto konnte nicht vollständig hochgeladen werden. Bitte versuche es erneut.");
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return prepared.receipt;
+    } finally { guard.dispose(); }
+  },
+};
 
 export async function discardSmVisit(assignmentId: string): Promise<{ ok: true; assignmentId: string; status: "planned" | "confirmed" | "open" }> {
   return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}`, {

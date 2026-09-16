@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SmAnswerCommentDialog } from "@/components/sm/SmAnswerCommentDialog";
 import { smCommentMissing, smCommentTriggerKey } from "@/lib/sm/answerComments";
@@ -1294,6 +1294,8 @@ export default function SmActivityPage() {
   const [payload, setPayload] = useState<SmVisitPayload | null>(null);
   const [payloadLoading, setPayloadLoading] = useState(false);
   const [payloadError, setPayloadError] = useState<string | null>(null);
+  const payloadSequence = useRef(0);
+  useEffect(() => () => { payloadSequence.current += 1; }, []);
   const [selectedQuestion, setSelectedQuestion] =
     useState<SmVisitQuestion | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -1335,11 +1337,14 @@ export default function SmActivityPage() {
 
   const loadPayload = useCallback(
     async (activity: SmCompletedActivitySummary) => {
+      const sequence = ++payloadSequence.current;
       setPayloadLoading(true);
       setPayloadError(null);
       try {
-        setPayload(await fetchSmVisit(activity.assignmentId));
+        const next = await fetchSmVisit(activity.assignmentId);
+        if (sequence === payloadSequence.current) setPayload(next);
       } catch (cause) {
+        if (sequence !== payloadSequence.current) return;
         setPayload(null);
         setPayloadError(
           cause instanceof Error
@@ -1347,7 +1352,7 @@ export default function SmActivityPage() {
             : "Fragebogen konnte nicht geladen werden.",
         );
       } finally {
-        setPayloadLoading(false);
+        if (sequence === payloadSequence.current) setPayloadLoading(false);
       }
     },
     [],
@@ -1359,6 +1364,7 @@ export default function SmActivityPage() {
       ...(selected ? [loadPayload(selected)] : []),
     ]);
     if (selected && !nextActivities.some((activity) => activity.submissionId === selected.submissionId)) {
+      payloadSequence.current += 1;
       setSelected(null);
       setPayload(null);
       setSelectedQuestion(null);
@@ -1375,9 +1381,11 @@ export default function SmActivityPage() {
       if (document.visibilityState === "visible") refresh();
     };
     window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [refreshRequestsAndPayload]);
@@ -1826,6 +1834,7 @@ export default function SmActivityPage() {
           )}
           deleteRequest={selectedDeleteRequest}
           onClose={() => {
+            payloadSequence.current += 1;
             setSelected(null);
             setPayload(null);
             setSelectedQuestion(null);

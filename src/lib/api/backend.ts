@@ -2937,7 +2937,7 @@ export async function createGmUser(
   return next;
 }
 
-export async function updateGmUser(payload: GMRecord): Promise<GMRecord> {
+export async function updateGmUser(payload: GMRecord, options?: { updateStatus?: boolean }): Promise<GMRecord> {
   const data = (await authedFetch(`/admin/users/${payload.id}`, {
     method: "PATCH",
     body: JSON.stringify({
@@ -2950,6 +2950,7 @@ export async function updateGmUser(payload: GMRecord): Promise<GMRecord> {
       postalCode: payload.postalCode,
       region: payload.region,
       isBillaGm: Boolean(payload.isBillaGm ?? false),
+      ...(options?.updateStatus ? { isActive: payload.isActive } : {}),
       ipp: payload.ipp,
     }),
   })) as { user: BackendUser };

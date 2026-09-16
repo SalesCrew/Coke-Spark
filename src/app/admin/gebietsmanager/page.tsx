@@ -119,6 +119,28 @@ function RegionBadge({ region }: { region: string }) {
   );
 }
 
+function AccountStatusToggle({ value, onChange, disabled = false }: { value: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 3, borderRadius: 9, background: "rgba(0,0,0,0.045)", border: "1px solid rgba(0,0,0,0.06)" }} role="group" aria-label="Accountstatus">
+      {[true, false].map(option => {
+        const selected = value === option;
+        return (
+          <button
+            key={String(option)}
+            type="button"
+            onClick={() => onChange(option)}
+            disabled={disabled}
+            aria-pressed={selected}
+            style={{ height: 30, borderRadius: 6, border: selected ? "1px solid rgba(0,0,0,0.08)" : "1px solid transparent", background: selected ? "#fff" : "transparent", boxShadow: selected ? "0 1px 4px rgba(0,0,0,0.07)" : "none", color: selected ? (option ? "#15803d" : R) : "rgba(0,0,0,0.4)", fontSize: 11, fontWeight: selected ? 700 : 500, fontFamily: "inherit", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1, transition: "all 0.14s" }}
+          >
+            {option ? "Aktiv" : "Inaktiv"}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── GM Card ───────────────────────────────────────────────────
 function GMCard({
   gm,
@@ -175,6 +197,9 @@ function GMCard({
                 flexShrink: 0,
               }}
             />
+          )}
+          {gm.isActive === false && (
+            <span style={{ padding: "3px 8px", borderRadius: 999, background: "rgba(220,38,38,.08)", color: R, fontSize: 8.5, fontWeight: 750 }}>Inaktiv</span>
           )}
           <RegionBadge region={gm.region} />
         </div>
@@ -358,6 +383,7 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Password reveal state
   const [pwVisible, setPwVisible] = useState(false);
@@ -371,16 +397,27 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
     setDraft(d => ({ ...d, [k]: v }));
     setDirty(true);
     setSaved(false);
+    setSaveError(null);
+  };
+
+  const setAccountStatus = (value: boolean) => {
+    setDraft(d => ({ ...d, isActive: value }));
+    setDirty(true);
+    setSaved(false);
+    setSaveError(null);
   };
 
   const handleSave = async () => {
     if (saving || !dirty) return;
     setSaving(true);
+    setSaveError(null);
     try {
       await onSave(draft);
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "GM konnte nicht gespeichert werden.");
     } finally {
       setSaving(false);
     }
@@ -442,7 +479,7 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
               </div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", lineHeight: 1.2 }}>{draft.firstName} {draft.lastName}</div>
-                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>Gebietsmanager · {draft.region}</div>
+                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>Gebietsmanager · {draft.region}{draft.isActive === false ? " · Inaktiv" : ""}</div>
               </div>
             </div>
             <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.05)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(0,0,0,0.4)", transition: "all 0.12s", flexShrink: 0 }}
@@ -518,6 +555,14 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
 
           <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
 
+          <div>
+            <div style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 7 }}>Accountstatus</div>
+            <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", lineHeight: 1.5, marginBottom: 9 }}>Inaktive GMs können sich nicht anmelden. Ihre historischen Besuche, Zeiten und Auswertungen bleiben erhalten.</div>
+            <AccountStatusToggle value={draft.isActive !== false} onChange={setAccountStatus} disabled={Boolean(draft.deletedAt || draft.anonymizedAt)} />
+          </div>
+
+          <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
+
           {/* Section: Passwort */}
           <div>
             <div style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.09em", color: "rgba(0,0,0,0.28)", marginBottom: 10 }}>Passwort</div>
@@ -583,6 +628,7 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
         {/* Save footer */}
         {tab === "profil" && (
         <div style={{ background: "#fff", borderTop: "1px solid rgba(0,0,0,0.06)", padding: "12px 18px", flexShrink: 0 }}>
+          {saveError && <div role="alert" style={{ marginBottom: 8, color: R, fontSize: 10, fontWeight: 600 }}>{saveError}</div>}
           <button
             onClick={() => { void handleSave(); }}
             disabled={!dirty || saving}
@@ -1177,14 +1223,16 @@ export default function GebietsmanagerPage() {
 
   const handleSave = useCallback(async (updated: GMRecord) => {
     try {
-      const saved = await updateGmUser(updated);
+      const previous = gms.find((gm) => gm.id === updated.id);
+      const saved = await updateGmUser(updated, { updateStatus: previous?.isActive !== updated.isActive });
       setGms((prev) => prev.map((g) => (g.id === saved.id ? { ...saved, password: g.password } : g)));
       setBackendError(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "GM konnte nicht gespeichert werden.";
       setBackendError(msg);
+      throw err;
     }
-  }, []);
+  }, [gms]);
 
   const handleToggleBillaGm = useCallback(async (gm: GMRecord) => {
     if (billaToggleBusyId) return;

@@ -1,13 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const DAY_LABELS = ["SO", "MO", "DI", "MI", "DO", "FR", "SA"];
-const VISIBLE = 5;
-const BUFFER = 3;
-const TOTAL = VISIBLE + BUFFER * 2;
-const CENTER = Math.floor(TOTAL / 2);
-const SLOT_WIDTH = 62;
 
 export interface CalendarVisitPreview {
   id: string;
@@ -16,9 +12,9 @@ export interface CalendarVisitPreview {
 }
 
 function getDateOffset(center: Date, offset: number): Date {
-  const d = new Date(center);
-  d.setDate(d.getDate() + offset);
-  return d;
+  const date = new Date(center);
+  date.setDate(date.getDate() + offset);
+  return date;
 }
 
 function parseIsoDate(value: string): Date {
@@ -42,9 +38,9 @@ function formatDayMonth(date: Date): string {
 function isPast(date: Date): boolean {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d < now;
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  return day < now;
 }
 
 interface WeekStripProps {
@@ -55,168 +51,79 @@ interface WeekStripProps {
 }
 
 export function WeekStrip({ selectedDate, visitsByDate, onDateChange, holidayLabel }: WeekStripProps) {
-  const [centerDate, setCenterDate] = useState(() => parseIsoDate(selectedDate));
-  const [slideOffset, setSlideOffset] = useState(0);
-  const [animating, setAnimating] = useState(false);
-  const trackRef = useRef<HTMLDivElement>(null);
-
-  const days = useMemo(() => {
-    return Array.from({ length: TOTAL }, (_, i) => {
-      const date = getDateOffset(centerDate, i - CENTER);
+  const { days, weekStart, weekEnd } = useMemo(() => {
+    const selected = parseIsoDate(selectedDate);
+    const monday = getDateOffset(selected, -((selected.getDay() + 6) % 7));
+    const weekDays = Array.from({ length: 7 }, (_, index) => {
+      const date = getDateOffset(monday, index);
       const isoDate = toIsoDate(date);
-      const visits = visitsByDate[isoDate] ?? [];
       return {
         date,
         isoDate,
         label: DAY_LABELS[date.getDay()],
         dateLabel: formatDayMonth(date),
-        count: visits.length,
-        visits,
+        visits: visitsByDate[isoDate] ?? [],
         isPast: isPast(date),
+        holiday: holidayLabel?.(isoDate),
       };
     });
-  }, [centerDate, visitsByDate]);
+    return { days: weekDays, weekStart: monday, weekEnd: weekDays[6].date };
+  }, [selectedDate, visitsByDate, holidayLabel]);
 
-  const handleSelect = useCallback(
-    (i: number) => {
-      if (animating) return;
-      const offset = i - CENTER;
-      if (offset === 0) return;
-
-      setAnimating(true);
-      setSlideOffset(-offset * SLOT_WIDTH);
-    },
-    [animating]
-  );
-
-  const handleTransitionEnd = useCallback(() => {
-    const slotsShifted = Math.round(-slideOffset / SLOT_WIDTH);
-    const newCenter = getDateOffset(centerDate, slotsShifted);
-
-    setSlideOffset(0);
-    setAnimating(false);
-    setCenterDate(newCenter);
-    onDateChange(toIsoDate(newCenter));
-  }, [slideOffset, centerDate, onDateChange]);
-
-  const centerDay = days[CENTER];
-  const firstVisit = centerDay.visits[0];
-  const visibleStart = BUFFER;
-  const trackOffset = -BUFFER * SLOT_WIDTH;
+  const selectedVisits = visitsByDate[selectedDate] ?? [];
+  const selectedHoliday = holidayLabel?.(selectedDate);
 
   return (
-    <div>
-      <div
-        className="overflow-hidden"
-        style={{
-          width: VISIBLE * SLOT_WIDTH,
-          margin: "-9px auto -11px",
-          padding: "9px 0 11px",
-        }}
-      >
-        <div
-          ref={trackRef}
-          className="flex"
-          onTransitionEnd={handleTransitionEnd}
-          style={{
-            transform: `translateX(${trackOffset + slideOffset}px)`,
-            transition: animating
-              ? "transform 400ms cubic-bezier(0.32, 0.72, 0, 1)"
-              : "none",
-          }}
-        >
-          {days.map((day, i) => {
-            const distFromCenter = i - CENTER;
-            const isActiveCenter =
-              slideOffset === 0
-                ? distFromCenter === 0
-                : false;
-            const willBeCenter = animating
-              ? i === CENTER + Math.round(-slideOffset / SLOT_WIDTH)
-              : false;
-            const isHighlighted = isActiveCenter || willBeCenter;
-
-            const isVisible =
-              i >= visibleStart && i < visibleStart + VISIBLE;
-
-            return (
-              <div
-                key={day.isoDate}
-                title={holidayLabel?.(day.isoDate)}
-                className="flex flex-col items-center cursor-pointer shrink-0"
-                style={{
-                  width: SLOT_WIDTH,
-                  opacity: isVisible || animating ? 1 : 0,
-                }}
-                onClick={() => handleSelect(i)}
-              >
-                <span
-                  className="text-[10px] font-semibold uppercase tracking-[0.02em]"
-                  style={{
-                    color: isHighlighted ? "#DC2626" : "rgba(0,0,0,0.25)",
-                    transition: "color 350ms",
-                  }}
-                >
-                  {day.label}
-                </span>
-
-                <span
-                  className="mb-1.5 mt-0.5 text-[8px] font-medium tabular-nums"
-                  style={{
-                    color: isHighlighted ? "rgba(220,38,38,0.55)" : "rgba(0,0,0,0.22)",
-                    transition: "color 350ms",
-                  }}
-                >
-                  {day.dateLabel}
-                </span>
-
-                <div
-                  className="flex items-center justify-center"
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: isHighlighted
-                      ? "#DC2626"
-                      : holidayLabel?.(day.isoDate) ? "#fef3c7" : day.isPast
-                        ? "rgba(220,38,38,0.07)"
-                        : "rgba(0,0,0,0.04)",
-                    boxShadow: isHighlighted
-                      ? "0 0 0 1px rgba(185,28,28,0.10), 0 0 12px rgba(220,38,38,0.24), 0 4px 8px rgba(185,28,28,0.16)"
-                      : "none",
-                    transform: isHighlighted ? "scale(1)" : "scale(0.92)",
-                    transition: "all 350ms cubic-bezier(0.32, 0.72, 0, 1)",
-                  }}
-                >
-                  <span
-                    className="text-[13px] font-semibold"
-                    style={{
-                      color: isHighlighted
-                        ? "#ffffff"
-                        : holidayLabel?.(day.isoDate) ? "#b45309" : day.isPast
-                          ? "rgba(220,38,38,0.45)"
-                          : "rgba(0,0,0,0.22)",
-                      transition: "color 350ms",
-                    }}
-                  >
-                    {day.count}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+    <div data-testid="sm-week-strip" className="min-w-0">
+      <div className="mb-3 flex items-center justify-between gap-2 px-1">
+        <span className="text-[10px] font-semibold tabular-nums text-black/40">
+          {formatDayMonth(weekStart)} – {formatDayMonth(weekEnd)}{weekEnd.getFullYear()}
+        </span>
+        <div className="flex shrink-0 gap-1">
+          <button type="button" aria-label="Vorherige Woche" onClick={() => onDateChange(toIsoDate(getDateOffset(parseIsoDate(selectedDate), -7)))} className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/[0.04] text-black/45 active:bg-black/[0.08]">
+            <ChevronLeft size={14} strokeWidth={2} />
+          </button>
+          <button type="button" aria-label="Nächste Woche" onClick={() => onDateChange(toIsoDate(getDateOffset(parseIsoDate(selectedDate), 7)))} className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/[0.04] text-black/45 active:bg-black/[0.08]">
+            <ChevronRight size={14} strokeWidth={2} />
+          </button>
         </div>
       </div>
 
-      <div className="flex justify-center mt-1.5" style={{ minHeight: 16 }}>
-        {!animating && holidayLabel?.(toIsoDate(centerDate)) ? <span className="text-[9px] font-semibold text-amber-700">{holidayLabel(toIsoDate(centerDate))}</span> : !animating && firstVisit && (
-          <span
-            className="text-[9px] font-medium whitespace-nowrap"
-            style={{ color: "rgba(0,0,0,0.35)" }}
-          >
-            {firstVisit.name} · {firstVisit.detail}
-          </span>
-        )}
+      <div className="grid min-w-0 grid-cols-7">
+        {days.map((day) => {
+          const selected = day.isoDate === selectedDate;
+          return (
+            <button
+              key={day.isoDate}
+              type="button"
+              data-iso-date={day.isoDate}
+              aria-label={`${day.label} ${day.dateLabel}${day.holiday ? `, ${day.holiday}` : ""}`}
+              aria-pressed={selected}
+              title={day.holiday}
+              onClick={() => onDateChange(day.isoDate)}
+              className="flex min-w-0 flex-col items-center rounded-lg py-1"
+            >
+              <span className="text-[10px] font-semibold uppercase tracking-[0.02em]" style={{ color: selected ? "#DC2626" : "rgba(0,0,0,0.35)" }}>{day.label}</span>
+              <span className="mb-1.5 mt-0.5 text-[8px] font-medium tabular-nums" style={{ color: selected ? "rgba(220,38,38,0.55)" : "rgba(0,0,0,0.3)" }}>{day.dateLabel}</span>
+              <span
+                className="flex aspect-square w-[min(36px,100%)] items-center justify-center rounded-full text-[13px] font-semibold"
+                style={{
+                  backgroundColor: selected ? "#DC2626" : day.holiday ? "#fef3c7" : day.isPast ? "rgba(220,38,38,0.07)" : "rgba(0,0,0,0.04)",
+                  boxShadow: selected ? "0 0 0 1px rgba(185,28,28,0.10), 0 0 12px rgba(220,38,38,0.24), 0 4px 8px rgba(185,28,28,0.16)" : "none",
+                  color: selected ? "#fff" : day.holiday ? "#b45309" : day.isPast ? "rgba(220,38,38,0.45)" : "rgba(0,0,0,0.35)",
+                }}
+              >
+                {day.visits.length}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-1.5 flex min-h-4 min-w-0 justify-center px-1 text-center">
+        {selectedHoliday ? <span className="text-[9px] font-semibold text-amber-700">{selectedHoliday}</span> : selectedVisits[0] ? (
+          <span className="truncate text-[9px] font-medium text-black/35">{selectedVisits[0].name} · {selectedVisits[0].detail}</span>
+        ) : null}
       </div>
     </div>
   );

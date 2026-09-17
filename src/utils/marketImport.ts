@@ -118,23 +118,23 @@ export type MarketImportFieldKey =
   | "kuehlerModel"
   | "kuehlerMatchValue";
 
-export type ImportDatasetType = "universum" | "kuehler" | "kuehler_update" | "update";
+export type ImportDatasetType = "universum" | "kuehler" | "kuehler_update" | "kuehler_snapshot" | "update";
 export type KuehlerUpdateIdentifier =
   | "kuehlerInternalId"
   | "kuehlerSerialNumber"
   | "kuehlerTechnicalIdentNo";
 
 export const UNIVERSUM_FIELD_SPECS: FieldSpec[] = [
-  { key: "standardMarketNumber", label: "Standardmarkt Nr",    required: false, isIdentity: true  },
-  { key: "cokeMasterNumber",     label: "Stammnr. von Coke",   required: false, isIdentity: true  },
-  { key: "flexNumber",           label: "Flex-Nummer",         required: false, isIdentity: true  },
-  { key: "name",                 label: "Name",                required: true,  isIdentity: false },
-  { key: "address",              label: "Adresse",             required: true,  isIdentity: false },
-  { key: "postalCode",           label: "Postleitzahl",        required: true,  isIdentity: false },
-  { key: "city",                 label: "Ort",                 required: true,  isIdentity: false },
+  { key: "standardMarketNumber", label: "Standardmarkt Nr",    required: false, isIdentity: false },
+  { key: "cokeMasterNumber",     label: "Stammnr. von Coke",   required: false, isIdentity: false },
+  { key: "flexNumber",           label: "Flex-Nummer",         required: true,  isIdentity: true  },
+  { key: "name",                 label: "Name",                required: false, isIdentity: false },
+  { key: "address",              label: "Adresse",             required: false, isIdentity: false },
+  { key: "postalCode",           label: "Postleitzahl",        required: false, isIdentity: false },
+  { key: "city",                 label: "Ort",                 required: false, isIdentity: false },
   { key: "dbName",               label: "Name f. DB",          required: false, isIdentity: false },
   { key: "emEh",                 label: "EM/EH",               required: false, isIdentity: false },
-  { key: "region",               label: "Region",              required: true,  isIdentity: false },
+  { key: "region",               label: "Region",              required: false, isIdentity: false },
   { key: "employee",             label: "Mitarbeiter",         required: false, isIdentity: false },
   { key: "universeMarket",       label: "Universums-Markt",    required: false, isIdentity: false },
   { key: "visitFrequencyPerYear",label: "Besuchsrhythmus",     required: false, isIdentity: false },
@@ -157,6 +157,11 @@ export const KUEHLER_FIELD_SPECS: FieldSpec[] = [
   { key: "kuehlerModel",              label: "Model",                 required: false, isIdentity: false },
   { key: "employee",                  label: "Mitarbeiter",           required: false, isIdentity: false },
 ];
+
+export const KUEHLER_SNAPSHOT_FIELD_SPECS: FieldSpec[] = KUEHLER_FIELD_SPECS.map((spec) => ({
+  ...spec,
+  required: false,
+}));
 
 export function getKuehlerUpdateIdentifierLabel(identifier: KuehlerUpdateIdentifier | null | undefined): string {
   if (identifier === "kuehlerInternalId") return "internal_id";
@@ -208,6 +213,7 @@ export function getFieldSpecsForImportType(
   kuehlerUpdateIdentifier?: KuehlerUpdateIdentifier | null,
 ): FieldSpec[] {
   if (importType === "kuehler") return KUEHLER_FIELD_SPECS;
+  if (importType === "kuehler_snapshot") return KUEHLER_SNAPSHOT_FIELD_SPECS;
   if (importType === "kuehler_update") return getKuehlerUpdateFieldSpecs(kuehlerUpdateIdentifier);
   if (importType === "update") return UPDATE_FIELD_SPECS;
   return UNIVERSUM_FIELD_SPECS;
@@ -334,6 +340,13 @@ export interface ImportSummary {
   totalParsedRows: number;
   created: number;
   updated: number;
+  existingMatchesSkipped?: number;
+  duplicateInputRowsSkipped?: number;
+  deactivated?: number;
+  reactivated?: number;
+  sharedLeftActive?: number;
+  deactivatedMarkets?: { id: string; flexNumber: string; name: string }[];
+  createdMarkets?: { row: number; flexNumber: string; name: string }[];
   skipped: number;
   unchanged?: number;
   kuehlerUnitsCreated?: number;
@@ -349,6 +362,26 @@ export interface ImportSummary {
     missingFieldKeys?: MarketImportFieldKey[]; // machine keys for editable inputs
     fetchedFields?: { label: string; value: string }[];
   }[];
+}
+
+export interface MarketUpdateSnapshotPreview {
+  snapshotToken: string;
+  canApply: boolean;
+  issueCount: number;
+  issues: { row: number; reason: string }[];
+  sourceRows: number;
+  existingGmMarkets: number;
+  matched: number;
+  wouldUpdate: number;
+  unchanged: number;
+  wouldCreate: number;
+  wouldDeactivate: number;
+  wouldReactivate: number;
+  sharedLeftActive: number;
+  existingUnitsMatched?: number;
+  newUnits?: number;
+  deactivatedMarkets: { id: string; flexNumber: string; name: string }[];
+  createdMarkets: { row: number; flexNumber: string; name: string }[];
 }
 
 /** Build rich skip-reason metadata for a draft row */

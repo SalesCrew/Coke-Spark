@@ -23,7 +23,7 @@ import type {
   UpdateCampaignInput,
 } from "@/types/campaign";
 import type { PraemienGmBonusSummary, PraemienQuarter, PraemienSourceRef } from "@/types/praemien";
-import type { ColumnMapping, ImportDatasetType, ImportSummary, KuehlerUpdateIdentifier } from "@/utils/marketImport";
+import type { ColumnMapping, ImportDatasetType, ImportSummary, KuehlerUpdateIdentifier, MarketUpdateSnapshotPreview } from "@/utils/marketImport";
 import type { IppQuestionAuditRow } from "@/types/ipp";
 import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod, RedMonthYear } from "@/types/red-month";
@@ -3069,7 +3069,17 @@ type ImportMarketsInput = {
   sheetName: string;
   rows: string[][];
   mapping: ColumnMapping;
+  snapshotToken?: string;
+  confirmSnapshot?: boolean;
 };
+
+export async function previewMarketSnapshot(input: ImportMarketsInput): Promise<MarketUpdateSnapshotPreview> {
+  const data = (await authedFetch("/admin/markets/import/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }, 300000)) as { preview: MarketUpdateSnapshotPreview };
+  return data.preview;
+}
 
 export type NormalizeMarketRegionsResult = {
   ok: boolean;

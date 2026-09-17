@@ -9,10 +9,10 @@ import {
 } from "lucide-react";
 import type { KuehlerUnitRecord, MarketRecord, MarketVisitLog, MarketFilters, SectionType } from "@/types/markets";
 import {
-  readWorkbook, buildPreviewGrid, getColHeader, getColSample,
+  readWorkbook, buildPreviewGrid, getColHeader, getColSample, isValidColLetter,
   getFieldSpecsForImportType, getKuehlerUpdateIdentifierLabel, validateMapping, draftToMarketRecord,
   type ColumnMapping, type WorkbookResult, type ImportSummary, type FieldSpec, type ImportDatasetType,
-  type KuehlerUpdateIdentifier,
+  type KuehlerUpdateIdentifier, type MarketUpdateSnapshotPreview,
 } from "@/utils/marketImport";
 import {
   BackendApiError,
@@ -22,6 +22,7 @@ import {
   fetchMarketKuehlerUnits,
   hardDeleteMarket,
   importMarkets,
+  previewMarketSnapshot,
   normalizeAllMarketRegions,
   readAuthSession,
   softDeleteMarket,
@@ -484,18 +485,20 @@ function VirtualMarketList({
 
 // ── Import Modal ──────────────────────────────────────────────
 
-type ImportStep = "type" | "upload" | "review" | "summary";
+type ImportStep = "type" | "upload" | "review" | "confirm" | "summary";
 
 function getImportDatasetLabel(importType: ImportDatasetType | null | undefined): string {
   if (importType === "kuehler") return "Kühlermärkte";
-  if (importType === "kuehler_update") return "Kühler aktualisieren";
-  if (importType === "update") return "Bestehende Märkte";
+  if (importType === "kuehler_update") return "Kühler-Geräte aktualisieren";
+  if (importType === "kuehler_snapshot") return "Kühlermarktliste aktualisieren";
+  if (importType === "update") return "Universumsmarktliste aktualisieren";
   return "Universumsmärkte";
 }
 
 function getImportDatasetActionLabel(importType: ImportDatasetType | null | undefined): string {
-  if (importType === "kuehler_update") return "Kühler aktualisieren";
-  if (importType === "update") return "Bestehende Märkte aktualisieren";
+  if (importType === "kuehler_update") return "Kühler-Geräte aktualisieren";
+  if (importType === "kuehler_snapshot") return "Kühlermarktliste aktualisieren";
+  if (importType === "update") return "Universumsmarktliste aktualisieren";
   return `${getImportDatasetLabel(importType)} importieren`;
 }
 
@@ -512,6 +515,8 @@ function ImportModal({
     sheetName: string;
     rows: string[][];
     mapping: ColumnMapping;
+    snapshotToken?: string;
+    confirmSnapshot?: boolean;
   }) => Promise<{ markets: MarketRecord[]; summary: ImportSummary }>;
   onSaveFixedRow: (market: MarketRecord) => Promise<MarketRecord>;
   onClose: () => void;
@@ -527,6 +532,9 @@ function ImportModal({
   const [fileName, setFileName] = useState<string>("");
   const [mapping, setMapping] = useState<ColumnMapping>({});
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [snapshotPreview, setSnapshotPreview] = useState<MarketUpdateSnapshotPreview | null>(null);
+  const [snapshotAcknowledged, setSnapshotAcknowledged] = useState(false);
+  const [snapshotConfirmText, setSnapshotConfirmText] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [allowMissingCokeMasterNumber, setAllowMissingCokeMasterNumber] = useState(false);
@@ -553,6 +561,9 @@ function ImportModal({
       setFileName(f.name);
       setMapping({});
       setSubmitError(null);
+      setSnapshotPreview(null);
+      setSnapshotAcknowledged(false);
+      setSnapshotConfirmText("");
       setStep("review");
     } catch (err) {
       setParseError(String(err));
@@ -561,22 +572,35 @@ function ImportModal({
     }
   }, [kuehlerUpdateIdentifier, selectedImportType]);
 
+  const buildImportPayload = useCallback(() => {
+    if (!wb || !selectedImportType) return null;
+    return {
+      importType: selectedImportType,
+      ...(selectedImportType === "kuehler_update" && kuehlerUpdateIdentifier ? { kuehlerUpdateIdentifier } : {}),
+      allowMissingCokeMasterNumber: selectedImportType === "universum" ? allowMissingCokeMasterNumber : false,
+      fileName,
+      sheetName: wb.sheetName,
+      rows: wb.rows,
+      mapping,
+    };
+  }, [wb, selectedImportType, kuehlerUpdateIdentifier, allowMissingCokeMasterNumber, fileName, mapping]);
+
   const handleImportClick = useCallback(async () => {
     if (!wb || isSubmitting || !selectedImportType) return;
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const result = await onImport({
-        importType: selectedImportType,
-        ...(selectedImportType === "kuehler_update" && kuehlerUpdateIdentifier
-          ? { kuehlerUpdateIdentifier }
-          : {}),
-        allowMissingCokeMasterNumber: selectedImportType === "universum" ? allowMissingCokeMasterNumber : false,
-        fileName,
-        sheetName: wb.sheetName,
-        rows: wb.rows,
-        mapping,
-      });
+      const payload = buildImportPayload();
+      if (!payload) return;
+      if (selectedImportType === "update" || selectedImportType === "kuehler_snapshot") {
+        const nextPreview = await previewMarketSnapshot(payload);
+        setSnapshotPreview(nextPreview);
+        setSnapshotAcknowledged(false);
+        setSnapshotConfirmText("");
+        setStep("confirm");
+        return;
+      }
+      const result = await onImport(payload);
       setSummary(result.summary);
       setStep("summary");
     } catch (err) {
@@ -584,7 +608,28 @@ function ImportModal({
     } finally {
       setIsSubmitting(false);
     }
-  }, [wb, mapping, fileName, onImport, isSubmitting, selectedImportType, kuehlerUpdateIdentifier, allowMissingCokeMasterNumber]);
+  }, [wb, onImport, isSubmitting, selectedImportType, buildImportPayload]);
+
+  const handleConfirmSnapshot = useCallback(async () => {
+    const payload = buildImportPayload();
+    const needsTypedConfirmation = Boolean(snapshotPreview && (
+      snapshotPreview.wouldDeactivate > 100 ||
+      (snapshotPreview.existingGmMarkets > 0 && snapshotPreview.wouldDeactivate > snapshotPreview.existingGmMarkets * 0.3)
+    ));
+    if (!payload || !snapshotPreview?.canApply || !snapshotAcknowledged || isSubmitting ||
+      (needsTypedConfirmation && snapshotConfirmText.trim().toUpperCase() !== "INAKTIV")) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const result = await onImport({ ...payload, snapshotToken: snapshotPreview.snapshotToken, confirmSnapshot: true });
+      setSummary(result.summary);
+      setStep("summary");
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Import fehlgeschlagen. Bitte Vorschau erneut prüfen.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [buildImportPayload, snapshotPreview, snapshotAcknowledged, snapshotConfirmText, isSubmitting, onImport]);
 
   // Called from summary when user manually fills a skipped row and presses save
   const handleSaveFixedRow = useCallback(async (market: MarketRecord) => {
@@ -604,14 +649,21 @@ function ImportModal({
   const canImportMapping = validation.canImport && (
     selectedImportType !== "kuehler_update" ||
     Boolean(kuehlerUpdateIdentifier && hasKuehlerUpdatePatchMapping)
-  );
+  ) && (selectedImportType !== "kuehler_snapshot" || isValidColLetter(mapping.kuehlerStammnr ?? "") || isValidColLetter(mapping.flexNumber ?? ""));
   const preview = useMemo(() => wb ? buildPreviewGrid(wb.rows) : null, [wb]);
 
   if (!mounted || typeof document === "undefined") return null;
 
   // ── Shared modal shell ─────────────────────────────────────
-  const widths: Record<ImportStep, number> = { type: 520, upload: 520, review: 860, summary: 580 };
+  const widths: Record<ImportStep, number> = { type: 520, upload: 520, review: 860, confirm: 680, summary: 650 };
   const modalW = widths[step];
+  const stepOrder: ImportStep[] = selectedImportType === "update" || selectedImportType === "kuehler_snapshot"
+    ? ["type", "upload", "review", "confirm", "summary"]
+    : ["type", "upload", "review", "summary"];
+  const largeSnapshotChange = Boolean(snapshotPreview && (
+    snapshotPreview.wouldDeactivate > 100 ||
+    (snapshotPreview.existingGmMarkets > 0 && snapshotPreview.wouldDeactivate > snapshotPreview.existingGmMarkets * 0.3)
+  ));
 
   return createPortal(
     <div
@@ -644,20 +696,21 @@ function ImportModal({
               {step === "type"    && "Datensatz auswählen"}
               {step === "upload"  && getImportDatasetActionLabel(selectedImportType)}
               {step === "review"  && "Spalten zuweisen"}
+              {step === "confirm" && "Änderungen prüfen"}
               {step === "summary" && "Import abgeschlossen"}
             </div>
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500, marginTop: 1 }}>
               {step === "type"    && "Importart für neue oder bestehende Märkte wählen"}
               {step === "upload"  && "Excel-Datei ziehen oder auswählen"}
               {step === "review"  && `${getImportDatasetLabel(selectedImportType)} · ${fileName} · ${wb?.sheetName ?? ""} · ${(wb?.rows.length ?? 1) - 1} Datenzeilen`}
+              {step === "confirm" && `${fileName} · Vollständige ${selectedImportType === "kuehler_snapshot" ? "Kühler-" : "Universums"}marktliste`}
               {step === "summary" && `${getImportDatasetLabel(selectedImportType)} · ${fileName} · ${wb?.sheetName ?? ""}`}
             </div>
           </div>
           {/* Step indicator dots */}
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginRight: 8 }}>
-            {(["type", "upload", "review", "summary"] as ImportStep[]).map((s) => {
-              const orderedSteps: ImportStep[] = ["type", "upload", "review", "summary"];
-              const done = orderedSteps.indexOf(step) > orderedSteps.indexOf(s);
+            {stepOrder.map((s) => {
+              const done = stepOrder.indexOf(step) > stepOrder.indexOf(s);
               const active = step === s;
               return (
                 <div key={s} style={{ width: active ? 18 : 6, height: 6, borderRadius: 99, transition: "all 0.2s ease", background: done ? "#16a34a" : active ? R : "rgba(0,0,0,0.12)" }} />
@@ -700,7 +753,7 @@ function ImportModal({
                 >
                   <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Universumsmärkte</span>
-                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Standardimport mit vorhandener Feldstruktur</span>
+                    <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Per Flex-Nr. abgleichen: befüllte Felder aktualisieren, neue Märkte anlegen; fehlende bleiben aktiv.</span>
                   </span>
                   <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
                 </button>
@@ -747,8 +800,8 @@ function ImportModal({
                       <RotateCcw size={13} strokeWidth={2} color="#D97706" />
                     </span>
                     <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, minWidth: 0 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Kühler aktualisieren</span>
-                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Kühler per ID finden. Nur gemappte Kühlerfelder ändern.</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Kühler-Geräte aktualisieren</span>
+                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Einzelne Geräte per ID finden. Kein vollständiger Marktlisten-Abgleich.</span>
                     </span>
                   </span>
                   <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
@@ -772,8 +825,21 @@ function ImportModal({
                       <RotateCcw size={13} strokeWidth={2} color="#0891b2" />
                     </span>
                     <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, minWidth: 0 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Bestehende Märkte aktualisieren</span>
-                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Matching nur per Flex-Nr. Nur gemappte Felder werden geändert.</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Universumsmarktliste aktualisieren</span>
+                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Vollständige Universumsliste per Flex-Nr. abgleichen; fehlende Märkte inaktiv setzen.</span>
+                    </span>
+                  </span>
+                  <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
+                </button>
+                <button
+                  onClick={() => { setSelectedImportType("kuehler_snapshot"); setStep("upload"); }}
+                  style={{ padding: "14px 14px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.1)", background: "linear-gradient(to bottom,#fff,#f8f8f8)", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontFamily: "inherit" }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <span style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(8,145,178,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><RotateCcw size={13} strokeWidth={2} color="#0891b2" /></span>
+                    <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, minWidth: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>Kühlermarktliste aktualisieren</span>
+                      <span style={{ fontSize: 10, color: "rgba(0,0,0,0.42)" }}>Vollständige Kühlerliste per Stammnr abgleichen; Universum-only bleibt unberührt.</span>
                     </span>
                   </span>
                   <ArrowRight size={14} strokeWidth={2} color="rgba(0,0,0,0.32)" />
@@ -948,7 +1014,11 @@ function ImportModal({
                 {/* Helper note */}
                 <div style={{ fontSize: 9, color: "rgba(0,0,0,0.3)", marginTop: 8 }}>
                   {selectedImportType === "update"
-                    ? "Update-Modus: Flex-Nummer findet den Markt. Nur gemappte optionale Felder mit Werten werden aktualisiert."
+                    ? "Vollständige Universumsliste: Flex-Nr. gleicht ab. Leere Felder bleiben unverändert; abweichende Werte werden übernommen. Neue Märkte brauchen Name, Adresse, PLZ, Ort und Region. Fehlende Märkte werden inaktiv."
+                    : selectedImportType === "kuehler_snapshot"
+                      ? "Vollständige Kühlerliste: Leere Felder bleiben unverändert. Eine leere Stammnr ist nur mit Flex-Nr. eines bestehenden Kühlermarkts möglich. Neue Märkte brauchen eine Stammnr. Fehlende Kühler- und gemeinsame Märkte werden inaktiv."
+                      : selectedImportType === "universum"
+                        ? "Flex-Nr. gleicht ab. Leere oder nicht gemappte Felder bleiben unverändert; befüllte Werte werden übernommen. Neue Flex-Nr. legen Märkte an. Nicht enthaltene Märkte bleiben aktiv."
                     : selectedImportType === "kuehler_update"
                       ? `${getKuehlerUpdateIdentifierLabel(kuehlerUpdateIdentifier)} findet den Kühler. Leere oder nicht gemappte Felder bleiben unverändert.`
                       : "Spaltenangabe als Excel-Buchstaben"} · <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>A = 1. Spalte · Z = 26. · AA = 27.</span>
@@ -969,6 +1039,8 @@ function ImportModal({
                     <span style={{ fontSize: 10, color: "rgba(0,0,0,0.38)", fontWeight: 500 }}>
                       {selectedImportType === "kuehler_update" && !kuehlerUpdateIdentifier
                         ? "Identifikationsnummer auswählen"
+                        : selectedImportType === "kuehler_snapshot" && !isValidColLetter(mapping.kuehlerStammnr ?? "") && !isValidColLetter(mapping.flexNumber ?? "")
+                          ? "Stammnr- oder Flex-Spalte zuweisen"
                         : selectedImportType === "kuehler_update" && !hasKuehlerUpdatePatchMapping
                           ? "Mind. 1 Kühlerfeld zum Aktualisieren mappen"
                           : !Object.keys(validation.fieldErrors).length && !Object.keys(validation.duplicateErrors).length
@@ -982,16 +1054,87 @@ function ImportModal({
                     style={{ padding: "8px 18px", fontSize: 11, fontWeight: 700, borderRadius: 8, border: "none", cursor: canImportMapping && !isSubmitting ? "pointer" : "not-allowed", color: "#fff", background: canImportMapping && !isSubmitting ? `linear-gradient(to bottom, ${R}, ${RD})` : "rgba(0,0,0,0.15)", boxShadow: canImportMapping && !isSubmitting ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none", display: "flex", alignItems: "center", gap: 6, transition: "all 0.15s ease", opacity: canImportMapping && !isSubmitting ? 1 : 0.7 }}
                   >
                     <Upload size={11} strokeWidth={2} />
-                    {isSubmitting ? "Import läuft…" : "Importieren"}
+                    {isSubmitting ? "Vorschau wird berechnet…" : selectedImportType === "update" || selectedImportType === "kuehler_snapshot" ? "Vorschau prüfen" : "Importieren"}
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ── STEP 3: Summary ── */}
+          {/* ── STEP 3: Confirm full GM-market snapshot ── */}
+          {step === "confirm" && snapshotPreview && (
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fafafa" }}>
+              <div className="imp-scroll" style={{ overflowY: "auto", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ borderRadius: 10, border: "1px solid rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.04)", padding: "12px 14px", fontSize: 11, lineHeight: 1.5, color: "#6b2222" }}>
+                  Diese Excel-Datei gilt als <strong>vollständige {selectedImportType === "kuehler_snapshot" ? "Kühler-" : "Universums"}marktliste</strong>. Aktive Märkte dieser Liste, die fehlen, werden inaktiv; historische Besuche und Auswertungen bleiben gespeichert. Gemeinsame Universums-/Kühlermärkte werden dabei insgesamt inaktiv. Reine {selectedImportType === "kuehler_snapshot" ? "Universums" : "Kühler"}märkte bleiben unberührt.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 7 }}>
+                  {[
+                    { label: "Gefunden", value: snapshotPreview.matched, color: "#0891b2" },
+                    { label: selectedImportType === "kuehler_snapshot" ? "Bestehend" : "Aktualisieren", value: snapshotPreview.wouldUpdate, color: "#0891b2" },
+                    { label: "Neu anlegen", value: snapshotPreview.wouldCreate, color: "#15803d" },
+                    { label: "Inaktiv setzen", value: snapshotPreview.wouldDeactivate, color: "#b91c1c" },
+                  ].map((item) => (
+                    <div key={item.label} style={{ border: "1px solid rgba(0,0,0,0.08)", background: "#fff", borderRadius: 9, padding: "10px 11px" }}>
+                      <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "rgba(0,0,0,0.46)" }}>{item.label}</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: item.color, marginTop: 4 }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: "rgba(0,0,0,0.55)" }}>
+                  {snapshotPreview.sourceRows} Datei-Zeilen · {snapshotPreview.unchanged} {selectedImportType === "kuehler_snapshot" ? "Geräte unverändert" : "unverändert"} · {snapshotPreview.wouldReactivate} reaktiviert
+                  {selectedImportType === "kuehler_snapshot" && <> · {snapshotPreview.existingUnitsMatched ?? 0} Geräte gefunden · {snapshotPreview.newUnits ?? 0} Geräte neu</>}
+                </div>
+                {selectedImportType === "kuehler_snapshot" && <div style={{ fontSize: 10, color: "rgba(0,0,0,.48)" }}>Fehlende einzelne Kühler-Geräte werden nicht gelöscht; die Inaktiv-Regel gilt auf Marktebene.</div>}
+                {snapshotPreview.issueCount > 0 && (
+                  <div style={{ borderRadius: 9, border: "1px solid rgba(220,38,38,0.25)", background: "#fff", padding: "10px 12px", color: "#b91c1c" }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 6 }}>{snapshotPreview.issueCount} Fehler – Import gesperrt</div>
+                    {snapshotPreview.issues.map((issue, index) => (
+                      <div key={`${issue.row}-${index}`} style={{ fontSize: 10, lineHeight: 1.5 }}> {issue.row ? `Zeile ${issue.row}: ` : ""}{issue.reason}</div>
+                    ))}
+                    {snapshotPreview.issueCount > snapshotPreview.issues.length && <div style={{ fontSize: 9 }}>Weitere Fehler in der Datei vorhanden.</div>}
+                  </div>
+                )}
+                {snapshotPreview.createdMarkets.length > 0 && (
+                  <div style={{ borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", background: "#fff", padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: "#15803d", marginBottom: 5 }}>Neue Märkte · erste {snapshotPreview.createdMarkets.length}</div>
+                    {snapshotPreview.createdMarkets.map((market) => <div key={market.row} style={{ fontSize: 10, color: "#374151", lineHeight: 1.55 }}>Zeile {market.row} · {market.flexNumber} · {market.name}</div>)}
+                  </div>
+                )}
+                {snapshotPreview.deactivatedMarkets.length > 0 && (
+                  <div style={{ borderRadius: 9, border: "1px solid rgba(220,38,38,0.14)", background: "#fff", padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: "#b91c1c", marginBottom: 5 }}>Inaktive Märkte · erste {snapshotPreview.deactivatedMarkets.length}</div>
+                    {snapshotPreview.deactivatedMarkets.map((market) => <div key={market.id} style={{ fontSize: 10, color: "#374151", lineHeight: 1.55 }}>{market.flexNumber} · {market.name}</div>)}
+                  </div>
+                )}
+                {snapshotPreview.canApply && (
+                  <>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 9, fontSize: 10, lineHeight: 1.5, color: "#333", cursor: "pointer" }}>
+                      <input type="checkbox" checked={snapshotAcknowledged} onChange={(event) => setSnapshotAcknowledged(event.target.checked)} style={{ accentColor: R, marginTop: 2 }} />
+                      <span>Ich bestätige, dass diese Datei die vollständige {selectedImportType === "kuehler_snapshot" ? "Kühler-" : "Universums"}marktliste enthält und fehlende Märkte dieses Bereichs inaktiv gesetzt werden sollen.</span>
+                    </label>
+                    {largeSnapshotChange && (
+                      <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 10, color: "#9f1239", fontWeight: 700 }}>
+                        Viele Märkte werden inaktiv. Zur Bestätigung INAKTIV eingeben:
+                        <input value={snapshotConfirmText} onChange={(event) => setSnapshotConfirmText(event.target.value)} placeholder="INAKTIV" autoComplete="off" style={{ border: "1px solid rgba(159,18,57,.3)", borderRadius: 7, padding: "8px 10px", fontSize: 11, fontFamily: "inherit", width: 180 }} />
+                      </label>
+                    )}
+                  </>
+                )}
+              </div>
+              <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", padding: "12px 20px", background: "#fff", display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                {submitError && <span style={{ color: R, fontSize: 10, flex: 1 }}>{submitError}</span>}
+                <button onClick={() => { setStep("review"); setSnapshotPreview(null); setSnapshotAcknowledged(false); setSnapshotConfirmText(""); setSubmitError(null); }} style={{ padding: "8px 13px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", fontSize: 11, cursor: "pointer" }}>Zurück zur Zuweisung</button>
+                <button onClick={handleConfirmSnapshot} disabled={!snapshotPreview.canApply || !snapshotAcknowledged || isSubmitting || (largeSnapshotChange && snapshotConfirmText.trim().toUpperCase() !== "INAKTIV")} style={{ padding: "9px 15px", borderRadius: 8, border: "none", background: R, color: "#fff", opacity: !snapshotPreview.canApply || !snapshotAcknowledged || isSubmitting || (largeSnapshotChange && snapshotConfirmText.trim().toUpperCase() !== "INAKTIV") ? .4 : 1, cursor: "pointer", fontWeight: 700, fontSize: 11 }}>
+                  {isSubmitting ? "Import läuft…" : "Änderungen übernehmen"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 4: Summary ── */}
           {step === "summary" && summary && (
-            <ImportSummaryView summary={summary} fileName={fileName} onClose={onClose} onSaveFixedRow={handleSaveFixedRow} onRestart={() => { setStep("type"); setSelectedImportType(null); setKuehlerUpdateIdentifier(null); setWb(null); setMapping({}); setSummary(null); setFileName(""); }} />
+            <ImportSummaryView summary={summary} fileName={fileName} onClose={onClose} onSaveFixedRow={handleSaveFixedRow} onRestart={() => { setStep("type"); setSelectedImportType(null); setKuehlerUpdateIdentifier(null); setWb(null); setMapping({}); setSummary(null); setSnapshotPreview(null); setSnapshotAcknowledged(false); setSnapshotConfirmText(""); setFileName(""); }} />
           )}
         </div>
       </div>
@@ -1078,7 +1221,9 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
     [summary.importType, summary.kuehlerUpdateIdentifier],
   );
   const isKuehlerImport = summary.importType === "kuehler";
-  const isUpdateImport = summary.importType === "update" || summary.importType === "kuehler_update";
+  const isUniversumImport = summary.importType === "universum";
+  const isUpdateImport = summary.importType === "update" || summary.importType === "kuehler_update" || summary.importType === "kuehler_snapshot";
+  const isMarketSnapshot = summary.importType === "update" || summary.importType === "kuehler_snapshot";
 
   const toggleRow = (i: number) => setExpandedRows(prev => {
     const next = new Set(prev);
@@ -1131,6 +1276,13 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
         { label: "Einheiten aktualisiert", value: summary.kuehlerUnitsUpdated ?? 0, color: "#0891b2", bg: "rgba(8,145,178,0.06)", border: "rgba(8,145,178,0.16)" },
         { label: "Einheiten übersprungen", value: summary.kuehlerUnitsSkipped ?? 0, color: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "#d97706" : "rgba(0,0,0,0.35)", bg: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "rgba(217,119,6,0.06)" : "#fff", border: (summary.kuehlerUnitsSkipped ?? 0) > 0 ? "rgba(217,119,6,0.2)" : "rgba(0,0,0,0.08)" },
       ]
+    : isMarketSnapshot
+    ? [
+        { label: "Dateizeilen", value: summary.totalParsedRows, color: "rgba(0,0,0,0.5)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
+        { label: "Aktualisiert", value: summary.updated, color: "#0891b2", bg: "rgba(8,145,178,0.06)", border: "rgba(8,145,178,0.16)" },
+        { label: "Neu angelegt", value: summary.created, color: "#16a34a", bg: "rgba(22,163,74,0.06)", border: "rgba(22,163,74,0.16)" },
+        { label: "Inaktiv gesetzt", value: summary.deactivated ?? 0, color: "#b91c1c", bg: "rgba(220,38,38,0.05)", border: "rgba(220,38,38,0.16)" },
+      ]
     : isUpdateImport
     ? [
         { label: "Gesamt", value: summary.totalParsedRows, color: "rgba(0,0,0,0.5)", bg: "#fff", border: "rgba(0,0,0,0.08)" },
@@ -1170,6 +1322,18 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
           </div>
         </div>
 
+        {isMarketSnapshot && (
+          <div style={{ background: "#fff", borderRadius: 11, border: "1px solid rgba(0,0,0,0.06)", padding: "11px 16px", marginBottom: 10, fontSize: 10, color: "rgba(0,0,0,0.6)", lineHeight: 1.5 }}>
+            {summary.unchanged ?? 0} {summary.importType === "kuehler_snapshot" ? "Geräte unverändert" : "unverändert"} · {summary.reactivated ?? 0} reaktiviert
+            {summary.importType === "kuehler_snapshot" && <> · {summary.kuehlerUnitsUpdated ?? 0} Geräte aktualisiert · {summary.kuehlerUnitsCreated ?? 0} Geräte neu</>}
+          </div>
+        )}
+        {isUniversumImport && ((summary.duplicateInputRowsSkipped ?? 0) > 0 || (summary.unchanged ?? 0) > 0) && (
+          <div style={{ background: "#fff", borderRadius: 11, border: "1px solid rgba(0,0,0,0.06)", padding: "11px 16px", marginBottom: 10, fontSize: 10, color: "rgba(0,0,0,0.6)", lineHeight: 1.5 }}>
+            {summary.unchanged ?? 0} unverändert · {summary.duplicateInputRowsSkipped ?? 0} doppelte Dateizeile{summary.duplicateInputRowsSkipped === 1 ? "" : "n"} ausgelassen.
+          </div>
+        )}
+
         {/* Source info — white inner card */}
         <div style={{ background: "#fff", borderRadius: 11, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", padding: "12px 16px", marginBottom: 10, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
@@ -1190,11 +1354,28 @@ function ImportSummaryView({ summary, fileName, onClose, onRestart, onSaveFixedR
           )}
         </div>
 
+        {isMarketSnapshot && ((summary.createdMarkets?.length ?? 0) > 0 || (summary.deactivatedMarkets?.length ?? 0) > 0) && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 10 }}>
+            {[
+              { title: "Neu angelegt", count: summary.created, rows: summary.createdMarkets?.map((market) => `${market.flexNumber} · ${market.name}`) ?? [], color: "#15803d" },
+              { title: "Inaktiv gesetzt", count: summary.deactivated ?? 0, rows: summary.deactivatedMarkets?.map((market) => `${market.flexNumber} · ${market.name}`) ?? [], color: "#b91c1c" },
+            ].filter((group) => group.count > 0).map((group) => (
+              <div key={group.title} style={{ background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.07)", padding: "11px 13px", minWidth: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: group.color, marginBottom: 5 }}>{group.title} · {group.count}</div>
+                {group.rows.map((row, index) => <div key={`${row}-${index}`} style={{ fontSize: 9, color: "#374151", lineHeight: 1.5, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{row}</div>)}
+                {group.count > group.rows.length && <div style={{ fontSize: 9, color: "rgba(0,0,0,.4)", marginTop: 4 }}>und {group.count - group.rows.length} weitere</div>}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Success state */}
         {localSkipped.length === 0 && (
           <div style={{ background: "#fff", borderRadius: 11, border: "1px solid rgba(22,163,74,0.14)", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", padding: "12px 16px", display: "flex", alignItems: "center", gap: 8 }}>
             <CheckCircle2 size={14} strokeWidth={2} color="#16a34a" />
-            <span style={{ fontSize: 11, fontWeight: 600, color: "#16a34a" }}>Alle Zeilen erfolgreich verarbeitet — keine Probleme.</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#16a34a" }}>
+              {isUniversumImport ? "Universumsliste verarbeitet; nicht enthaltene Märkte bleiben aktiv." : "Alle Zeilen erfolgreich verarbeitet — keine Probleme."}
+            </span>
           </div>
         )}
 
@@ -2599,12 +2780,14 @@ export default function MaerktePage() {
     sheetName: string;
     rows: string[][];
     mapping: ColumnMapping;
+    snapshotToken?: string;
+    confirmSnapshot?: boolean;
   }) => {
     setImportError(null);
     try {
       const result = await importMarkets(payload);
       setMarkets(result.markets);
-      window.dispatchEvent(new CustomEvent("maerkte:imported", { detail: { count: result.summary.created + result.summary.updated } }));
+      window.dispatchEvent(new CustomEvent("maerkte:imported", { detail: { count: result.summary.created + result.summary.updated + (result.summary.deactivated ?? 0) } }));
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Import fehlgeschlagen.";

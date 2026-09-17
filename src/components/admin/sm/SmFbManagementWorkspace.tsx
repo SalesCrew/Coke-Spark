@@ -11,6 +11,7 @@ import type { SmAdminCorrection, SmAdminPhotoReceipt, SmManagedQuestion, SmManag
 import type { SmVisitAnswer } from "@/types/smVisit";
 import { SmPlanningPeriodPicker } from "./SmPlanningPeriodPicker";
 import { SmManagementAnswer, SmManagementPhotos } from "./SmManagementAnswer";
+import { SmVisitTimeEditor } from "./SmVisitTimeEditor";
 import styles from "./SmFbManagementWorkspace.module.css";
 
 const readOwner = () => { const user = readAuthSession()?.user; return user && ["admin", "sm_admin"].includes(user.role) ? user.id : null; };
@@ -44,6 +45,10 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
   const refreshAfterSave = useCallback(() => {
     setReload(value => value + 1);
     setNotice("Korrektur gespeichert. Originalantworten und Besuchszeiten bleiben erhalten.");
+  }, []);
+  const refreshAfterTimeSave = useCallback(() => {
+    setReload(value => value + 1);
+    setNotice("Start und Ende wurden korrigiert. Die ursprüngliche Zeit bleibt im Verlauf erhalten.");
   }, []);
   const query: SmManagementQuery = { from: period.from, to: period.to,
     ...(filters.smUserId !== "all" ? { smUserId: filters.smUserId } : {}), ...(filters.marketId !== "all" ? { marketId: filters.marketId } : {}),
@@ -86,13 +91,13 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
         <button className={styles.secondary} disabled={loading || !matching?.nextCursor} onClick={() => { if (matching?.nextCursor) { setPrevious(values => [...values, cursor]); setCursor(matching.nextCursor); } }}>Weiter</button>
       </div></div>
     </section>
-    {selected ? <SmManagementDrawer key={selected} id={selected} api={api} onClose={closeSelected} onSaved={refreshAfterSave} /> : null}
+    {selected ? <SmManagementDrawer key={selected} id={selected} api={api} onClose={closeSelected} onSaved={refreshAfterSave} onTimeSaved={refreshAfterTimeSave} /> : null}
   </div>;
 }
 
-function SmManagementDrawer({ id, api, onClose, onSaved }: { id: string; api: SmManagementApi; onClose: () => void; onSaved: () => void }) {
+function SmManagementDrawer({ id, api, onClose, onSaved, onTimeSaved }: { id: string; api: SmManagementApi; onClose: () => void; onSaved: () => void; onTimeSaved: () => void }) {
   const [detail, setDetail] = useState<SmManagementDetail | null>(null), [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true), [editing, setEditing] = useState(false), [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true), [editing, setEditing] = useState(false), [timeEditing, setTimeEditing] = useState(false), [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Record<string, SmVisitAnswer>>({}), [reason, setReason] = useState("");
   const [uploads, setUploads] = useState<Array<{ receipt: SmAdminPhotoReceipt; preview: string }>>([]);
   const [uploading, setUploading] = useState(false), [saved, setSaved] = useState(false), [needsReload, setNeedsReload] = useState(false);
@@ -103,7 +108,7 @@ function SmManagementDrawer({ id, api, onClose, onSaved }: { id: string; api: Sm
   const hidden = useMemo(() => smManagementHidden(questions, draft), [questions, draft]);
   const changes = questions.filter(question => !hidden.has(question.id) && draft[question.id] && JSON.stringify(draft[question.id]) !== JSON.stringify(question.answer)).map(question => ({ questionId: question.id, answer: draft[question.id] }));
   const dirty = editing && (Object.keys(draft).length > 0 || reason.trim().length > 0 || uploads.length > 0);
-  const dirtyRef = useRef(false); dirtyRef.current = dirty;
+  const dirtyRef = useRef(false); dirtyRef.current = dirty || timeEditing;
   const busyRef = useRef(false); busyRef.current = busy || uploading;
   const clearDraft = () => { setDraft({}); setReason(""); setUploads([]); pending.current = null; setUncertain(false); previews.current.forEach(URL.revokeObjectURL); previews.current = []; };
   const load = useCallback(async () => {
@@ -171,12 +176,16 @@ function SmManagementDrawer({ id, api, onClose, onSaved }: { id: string; api: Sm
     } catch (failure) { if (alive.current) setError(errorText(failure)); }
     finally { if (alive.current) setUploading(false); }
   };
-  const runConfirm = () => { const action = confirm; setConfirm(null); clearDraft(); setEditing(false); setError(null); if (action === "close") onClose(); else if (action === "reload") void load(); };
+  const runConfirm = () => { const action = confirm; setConfirm(null); clearDraft(); setEditing(false); setTimeEditing(false); setError(null); if (action === "close") onClose(); else if (action === "reload") void load(); };
   const visit = detail?.visit;
   return createPortal(<div className={styles.backdrop} onClick={event => { if (event.target === event.currentTarget) close(); }}>
     <div ref={dialog} className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="sm-management-title" tabIndex={-1}>
       <header className={styles.drawerHeader}><div className={styles.headerLine}><div><p className={styles.eyebrow}>Fragebogen · {editing ? "Korrektur" : "Abgeschlossen"}</p><h2 id="sm-management-title">{visit?.marketName ?? "Fragebogen laden"}</h2><p className={styles.hint}>{visit?.address}</p></div><button className={styles.iconButton} aria-label="Fragebogen schließen" disabled={busy || uploading} onClick={close}><X size={15} /></button></div>
-        {visit ? <div className={styles.meta}><div><small>SM</small><span>{visit.smName}</span></div><div><small>Besuch</small><span>{visit.startedAt ? dateLabel(visit.startedAt) : "Datum nicht erfasst"}</span></div><div><small>Start – Ende</small><span className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</span></div><div><small>Fragebogen</small><span>{visit.questionnaireName} · V{visit.questionnaireVersion}</span></div></div> : null}
+        {visit ? <div className={styles.meta}><div><small>SM</small><span>{visit.smName}</span></div><div><small>Besuch</small><span>{visit.startedAt ? dateLabel(visit.startedAt) : "Datum nicht erfasst"}</span></div><div><small>Start – Ende</small><span className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</span>{visit.assignmentId && visit.startedAt && visit.completedAt && !editing ? <button type="button" className={styles.timeEditButton} onClick={() => setTimeEditing(value => !value)} disabled={busy || uploading} aria-label="Start und Endzeit bearbeiten"><Pencil size={11} /> Bearbeiten</button> : null}</div><div><small>Fragebogen</small><span>{visit.questionnaireName} · V{visit.questionnaireVersion}</span></div></div> : null}
+        {timeEditing && visit?.assignmentId && visit.startedAt && visit.completedAt ? <div className={styles.timeEditor}>
+          <SmVisitTimeEditor assignmentId={visit.assignmentId} visitId={visit.id} startedAt={visit.startedAt} completedAt={visit.completedAt}
+            onCancel={() => setTimeEditing(false)} onSaved={async () => { setTimeEditing(false); onTimeSaved(); await load(); }} />
+        </div> : null}
       </header>
       <div className={styles.drawerContent}>
         {saved ? <p className={styles.notice} role="status"><Check size={13} /> Korrektur gespeichert. Original und Besuchszeiten bleiben erhalten.</p> : null}
@@ -200,7 +209,7 @@ function SmManagementDrawer({ id, api, onClose, onSaved }: { id: string; api: Sm
         {editing ? <><label className={styles.field}>Änderungsgrund · nicht der Antwortkommentar<textarea aria-label="Änderungsgrund" rows={2} maxLength={2000} disabled={busy || uploading || uncertain} value={reason} onChange={event => setReason(event.target.value)} placeholder="Warum wird die Antwort korrigiert?" /></label><div className={styles.actions}>
           <button className={styles.secondary} disabled={busy || uploading || uncertain} onClick={() => dirty ? setConfirm("cancel") : setEditing(false)}>Abbrechen</button>
           <button className={styles.primary} disabled={busy || uploading || (!uncertain && (!changes.length || reason.trim().length < 3))} onClick={() => void save()}>{busy || uploading ? <LoaderCircle size={13} className="animate-spin" /> : <Check size={13} />}{uploading ? "Fotos laden …" : uncertain ? "Speichern prüfen" : "Korrektur speichern"}</button>
-        </div></> : <div className={styles.actions}><span className={styles.hint}>Originaldaten bleiben im Verlauf erhalten.</span><button className={styles.primary} disabled={!detail || loading || needsReload} onClick={() => { setEditing(true); setSaved(false); setError(null); }}><Pencil size={12} />Antworten bearbeiten</button></div>}
+        </div></> : <div className={styles.actions}><span className={styles.hint}>Originaldaten bleiben im Verlauf erhalten.</span><button className={styles.primary} disabled={!detail || loading || needsReload || timeEditing} onClick={() => { setEditing(true); setSaved(false); setError(null); }}><Pencil size={12} />Antworten bearbeiten</button></div>}
       </footer>
     </div>
   </div>, document.body);

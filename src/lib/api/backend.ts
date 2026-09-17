@@ -2771,6 +2771,16 @@ export async function fetchSmMarketDeactivationPreview(id: string): Promise<impo
   return authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}/deactivation-preview`, { method: "GET" }) as Promise<import("@/types/smMarkets").SmMarketDeactivationPreview>;
 }
 
+export async function correctAdminSmVisitTime(id: string, input: {
+  expectedVisitId: string; expectedStartedAt: string; expectedCompletedAt: string;
+  visitStartedAt: string; visitCompletedAt: string; reason: string;
+}): Promise<{ replayed: boolean; actualMinutes: number; revisionNumber: number }> {
+  return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/visit-time`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  })) as { replayed: boolean; actualMinutes: number; revisionNumber: number };
+}
+
 export async function fetchSmSeriesDetails(id: string): Promise<import("@/types/smPlanning").SmSeriesDetails> {
   return await authedFetch(`/admin/sm-planning/series/${encodeURIComponent(id)}`, { cache: "no-store" }) as import("@/types/smPlanning").SmSeriesDetails;
 }

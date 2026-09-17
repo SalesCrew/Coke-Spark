@@ -39,6 +39,8 @@
 .meta { display:flex; flex-wrap:wrap; gap:10px 24px; margin-top:16px; padding-top:14px; border-top:1px solid #f0f1f3; }
 .meta div { display:flex; flex-direction:column; gap:4px; font-size:11px; }
 .meta small { color:#959ba5; font-size:9px; text-transform:uppercase; letter-spacing:.04em; }
+.timeEditButton { display:inline-flex; align-items:center; gap:4px; align-self:flex-start; padding:3px 0; border:0; background:transparent; color:#b91c1c; font:inherit; font-size:10px; cursor:pointer; }
+.timeEditor { margin-top:12px; }
 .drawerContent { overflow-y:auto; overscroll-behavior:contain; flex:1; padding:20px 24px; }
 .sectionTitle { font-size:12px; font-weight:650; margin:6px 0 12px; }
 .question { margin-bottom:12px; padding:18px; border:1px solid #e8eaf0; border-radius:11px; background:white; }

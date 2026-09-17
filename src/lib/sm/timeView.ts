@@ -8,7 +8,7 @@ export function mapSmTimeAssignment(row: SmPlanningAssignment) {
     internalMarketId: row.effective.marketInternalId, plannedMinutes: row.effective.plannedMinutes,
     actualMinutes: row.actualMinutes, travelMinutes: row.visit?.travelMinutes ?? 0,
     totalMinutes: row.actualMinutes === null ? null : row.actualMinutes + (row.visit?.travelMinutes ?? 0),
-    visitStartedAt: row.visit?.visitStartedAt ?? null, visitCompletedAt: row.visit?.visitCompletedAt ?? null,
+    visitId: row.visit?.id ?? null, visitStartedAt: row.visit?.visitStartedAt ?? null, visitCompletedAt: row.visit?.visitCompletedAt ?? null,
     submittedAt: row.visit?.submittedAt ?? null, timeRevisionNumber: row.timeEntry?.revisionNumber ?? null,
     pendingTimeChangeRequest: row.pendingTimeChangeRequest, questionnaireComplete: row.questionnaireComplete,
     status: row.status,

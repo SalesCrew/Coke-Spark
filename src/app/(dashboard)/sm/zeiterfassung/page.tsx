@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { CollapsibleMenu, type MenuItem } from "@/components/ui/CollapsibleMenu";
 import { fetchMySmPlanningAssignments, logoutCurrentUser, requestMySmPlanningTimeChange } from "@/lib/api/backend";
+import { smWorkweekProgress } from "@/lib/sm/weekProgress";
 import type { SmPlanningAssignment, SmPlanningStatus, SmTimeChangeRequest } from "@/types/smPlanning";
 
 const RED = "#DC2626";
@@ -422,6 +423,13 @@ export default function SmZeiterfassungPage() {
   const completion = allAssignments.length ? Math.round((completed / allAssignments.length) * 100) : 0;
   const timeProgress = planned ? Math.min(100, Math.round((actual / planned) * 100)) : 0;
   const week = calendarWeek(new Date());
+  const workweekProgress = smWorkweekProgress();
+  const workweekEntryDates = new Set(rows.filter((row) => row.actualMinutes !== null).map((row) => row.effective.workDate));
+  const workweekDays = ['Mo','Di','Mi','Do','Fr'].map((label, index) => ({
+    label,
+    hasEntry: workweekEntryDates.has(workweekProgress.dates[index]),
+    elapsed: index <= workweekProgress.currentDayIndex,
+  }));
 
   const submitTimeRequest = useCallback(async (request: { assignmentId: string; kind: "time_change" | "deletion"; requestedStartedAt: string | null; requestedCompletedAt: string | null; reason: string; clientRequestToken: string }) => {
     await requestMySmPlanningTimeChange(request.assignmentId, {
@@ -479,12 +487,13 @@ export default function SmZeiterfassungPage() {
         .sm-zeit-legend { display: flex; justify-content: center; gap: 10px; font-size: 9px; font-weight: 700; color: rgba(15,23,42,.32); }
         .sm-zeit-week-days { position: relative; display: grid; grid-template-columns: repeat(5,1fr); height: 28px; }
         .sm-zeit-week-days::before { content: ''; position: absolute; left: 10%; right: 10%; top: 12px; height: 2px; border-radius: 99px; background: rgba(15,23,42,.06); }
-        .sm-zeit-week-days::after { content: ''; position: absolute; left: 10%; width: 60%; top: 12px; height: 2px; border-radius: 99px; background: rgba(220,38,38,.6); }
+        .sm-zeit-week-progress { position: absolute; left: 10%; top: 12px; height: 2px; border-radius: 99px; background: rgba(220,38,38,.6); }
         .sm-zeit-week-day { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
-        .sm-zeit-week-day i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(220,38,38,.78); background: ${RED}; }
-        .sm-zeit-week-day.future i { border-color: rgba(15,23,42,.1); background: #fff; }
-        .sm-zeit-week-day span { font-size: 9px; font-style: normal; font-weight: 750; color: rgba(15,23,42,.7); }
-        .sm-zeit-week-day.future span { color: rgba(15,23,42,.26); }
+        .sm-zeit-week-day i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(15,23,42,.1); background: #fff; }
+        .sm-zeit-week-day.elapsed i, .sm-zeit-week-day.has-entry i { border-color: rgba(220,38,38,.78); }
+        .sm-zeit-week-day.has-entry i { background: ${RED}; }
+        .sm-zeit-week-day span { font-size: 9px; font-style: normal; font-weight: 750; color: rgba(15,23,42,.26); }
+        .sm-zeit-week-day.elapsed span, .sm-zeit-week-day.has-entry span { color: rgba(15,23,42,.7); }
         .sm-zeit-main { margin-top: 16px; overflow: hidden; }
         .sm-zeit-main-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px 13px; border-bottom: 1px solid rgba(15,23,42,.055); }
         .sm-zeit-main-header h2 { margin: 4px 0 0; font-size: 15px; font-weight: 700; }
@@ -620,7 +629,7 @@ export default function SmZeiterfassungPage() {
           .sm-zeit-week-copy strong { margin-top: 2px; font-size: 9px; }
           .sm-zeit-legend { display: none; }
           .sm-zeit-week-days { width: 100%; min-width: 0; height: 24px; }
-          .sm-zeit-week-days::before, .sm-zeit-week-days::after { top: 10px; }
+          .sm-zeit-week-days::before, .sm-zeit-week-progress { top: 10px; }
           .sm-zeit-week-day { gap: 3px; }
           .sm-zeit-week-day i { width: 8px; height: 8px; }
           .sm-zeit-week-day span { font-size: 7px; }
@@ -703,9 +712,10 @@ export default function SmZeiterfassungPage() {
         <section className="sm-zeit-card sm-zeit-week">
           <div className="sm-zeit-week-grid">
             <div className="sm-zeit-week-copy"><span className="sm-zeit-eyebrow">KW {week}</span><strong>Aktuelle Woche</strong></div>
-            <div className="sm-zeit-legend"><span>● erledigt</span><span style={{ color: RED }}>○ offen</span></div>
+            <div className="sm-zeit-legend"><span>○ vorbei</span><span style={{ color: RED }}>● Eintrag</span><span>─ Stand</span></div>
             <div className="sm-zeit-week-days">
-              {['Mo','Di','Mi','Do','Fr'].map((label, index) => <div key={label} className={`sm-zeit-week-day${index === 4 ? ' future' : ''}`}><i /><span>{label}</span></div>)}
+              <b className="sm-zeit-week-progress" aria-hidden="true" style={{ width: `${workweekProgress.progress * 0.8}%` }} />
+              {workweekDays.map((day) => <div key={day.label} className={`sm-zeit-week-day${day.elapsed ? ' elapsed' : ''}${day.hasEntry ? ' has-entry' : ''}`}><i /><span>{day.label}</span></div>)}
             </div>
           </div>
         </section>

@@ -3,6 +3,8 @@ import test from "node:test";
 import { fromViennaDateTimeInput, toViennaDateTimeInput } from "../src/lib/sm/visitTimeCorrection";
 
 test("SM admin visit editor uses Vienna wall time regardless of browser timezone", () => {
+  assert.equal(toViennaDateTimeInput(null), "");
+  assert.equal(toViennaDateTimeInput(undefined), "");
   assert.equal(toViennaDateTimeInput("2026-09-17T04:05:00Z"), "2026-09-17T06:05");
   assert.equal(fromViennaDateTimeInput("2026-09-17T08:07"), "2026-09-17T06:07:00.000Z");
   assert.equal(toViennaDateTimeInput("2026-01-17T05:05:00Z"), "2026-01-17T06:05");

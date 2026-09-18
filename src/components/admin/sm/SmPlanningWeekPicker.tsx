@@ -78,6 +78,13 @@ export function SmWeekCalendar({ month, start, end, pendingStart, today, error, 
 
 export function SmWeekCalendarStyles() {
   return <style>{`
+      .sm-plan-calendar-panel{padding:12px 12px 9px;border:1px solid rgba(0,0,0,.07);border-radius:12px;background:rgba(255,255,255,.995);box-shadow:0 10px 32px rgba(0,0,0,.14),0 2px 8px rgba(0,0,0,.06);user-select:none;animation:smPlanDropdownIn .14s ease both}
+      .sm-plan-calendar-header{height:26px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;color:#1a1a1a;font-size:11.5px;font-weight:650;letter-spacing:-.01em}
+      .sm-plan-calendar-nav{width:27px;height:27px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:rgba(0,0,0,.42);cursor:pointer;transition:background .12s,color .12s}
+      .sm-plan-calendar-nav:hover{background:rgba(0,0,0,.05);color:#1a1a1a}
+      .sm-plan-calendar-footer{margin-top:8px;padding-top:8px;display:flex;justify-content:flex-end;border-top:1px solid rgba(0,0,0,.05)}
+      .sm-plan-calendar-footer button{padding:2px 4px;border:0;background:transparent;color:#DC2626;font-family:inherit;font-size:9.5px;font-weight:650;cursor:pointer}
+      .sm-plan-calendar-footer button:disabled{color:rgba(0,0,0,.20);cursor:not-allowed}
       .sm-plan-week-trigger{height:30px!important;padding:0 12px!important;white-space:nowrap;gap:7px!important}
       .sm-plan-week-trigger[aria-expanded=true]{border-color:rgba(220,38,38,.25);box-shadow:0 0 0 2px rgba(220,38,38,.04)}
       .sm-plan-week-trigger svg{color:rgba(0,0,0,.35);transition:transform .15s}.sm-plan-week-trigger[aria-expanded=true] svg{transform:rotate(180deg)}
@@ -93,8 +100,9 @@ export function SmWeekCalendarStyles() {
       .sm-plan-week-row.is-range-start .is-outside,.sm-plan-week-row.is-range-end .is-outside,.sm-plan-week-row.is-pending .is-outside{opacity:.65}
       .sm-plan-calendar-selection{min-height:35px;margin:5px 0 1px;padding:7px 9px;display:grid;gap:2px;border-radius:7px;background:rgba(0,0,0,.025);color:rgba(0,0,0,.48);font-size:9px;line-height:1.35}.sm-plan-calendar-selection strong{color:#b91c1c;font-weight:650}
       .sm-plan-week-footer{justify-content:space-between;align-items:center;gap:8px}.sm-plan-week-footer>span{color:#9ca3af;font-size:9px}
-      .sm-plan-week-trigger:focus-visible,.sm-plan-week-row:focus-visible,.sm-plan-week-footer button:focus-visible{outline:2px solid rgba(220,38,38,.4)}
-      @media(prefers-reduced-motion:reduce){.sm-plan-week-row,.sm-plan-week-trigger svg{transition:none}}
+      @keyframes smPlanDropdownIn{from{opacity:0}to{opacity:1}}
+      .sm-plan-week-trigger:focus-visible,.sm-plan-week-row:focus-visible,.sm-plan-week-footer button:focus-visible,.sm-plan-calendar-nav:focus-visible{outline:2px solid rgba(220,38,38,.4)}
+      @media(prefers-reduced-motion:reduce){.sm-plan-calendar-panel{animation:none}.sm-plan-calendar-nav,.sm-plan-week-row,.sm-plan-week-trigger svg{transition:none}}
     `}</style>;
 }
 

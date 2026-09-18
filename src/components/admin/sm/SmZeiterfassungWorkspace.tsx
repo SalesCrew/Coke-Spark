@@ -1,9 +1,9 @@
 "use client";
 
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Calendar, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock, LoaderCircle, Pencil, Search, Store, X, XCircle } from "lucide-react";
+import { Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock, LoaderCircle, Pencil, Search, Store, XCircle } from "lucide-react";
 
-import { approveAdminSmPlanningTimeChangeRequest, correctAdminSmVisitTime, fetchSmPlanningAssignments, rejectAdminSmPlanningTimeChangeRequest, submitSmPlanningActualTime } from "@/lib/api/backend";
+import { approveAdminSmPlanningTimeChangeRequest, correctAdminSmVisitTime, fetchSmPlanningAssignments, rejectAdminSmPlanningTimeChangeRequest } from "@/lib/api/backend";
 import type { SmPlanningStatus } from "@/types/smPlanning";
 import { SmPlanningPeriodPicker } from "./SmPlanningPeriodPicker";
 import { currentSmPeriod, shiftSmPeriod, smPeriodLabel, viennaToday, type SmPlanningPeriod } from "@/lib/sm/planningPeriod";
@@ -16,14 +16,12 @@ const ROW_GAP = 14;
 
 export type SmTimeApi = {
   load: typeof fetchSmPlanningAssignments;
-  save: typeof submitSmPlanningActualTime;
   correctVisit: typeof correctAdminSmVisitTime;
   approve: typeof approveAdminSmPlanningTimeChangeRequest;
   reject: typeof rejectAdminSmPlanningTimeChangeRequest;
 };
-const TIME_API: SmTimeApi = { load: fetchSmPlanningAssignments, save: submitSmPlanningActualTime, correctVisit: correctAdminSmVisitTime, approve: approveAdminSmPlanningTimeChangeRequest, reject: rejectAdminSmPlanningTimeChangeRequest };
+const TIME_API: SmTimeApi = { load: fetchSmPlanningAssignments, correctVisit: correctAdminSmVisitTime, approve: approveAdminSmPlanningTimeChangeRequest, reject: rejectAdminSmPlanningTimeChangeRequest };
 type TimeActions = {
-  onSave: (assignment: SmTimeAssignment, actualMinutes: number, correctionReason?: string) => Promise<void>;
   correctVisit: typeof correctAdminSmVisitTime;
   onVisitSaved: () => Promise<void>;
   onReviewRequest: (assignment: SmTimeAssignment, decision: "approve" | "reject") => Promise<void>;
@@ -82,42 +80,18 @@ const MetricCell = memo(function MetricCell({ label, value, color = "#374151" }:
   );
 });
 
-const AssignmentRow = memo(function AssignmentRow({ assignment, onSave, correctVisit, onVisitSaved, onReviewRequest }: { assignment: SmTimeAssignment } & TimeActions) {
+const AssignmentRow = memo(function AssignmentRow({ assignment, correctVisit, onVisitSaved, onReviewRequest }: { assignment: SmTimeAssignment } & TimeActions) {
   const meta = statusMeta(assignment.status);
   const dateLabel = formatDateLabel(assignment.date).date;
   const [editing, setEditing] = useState(false);
-  const [actualValue, setActualValue] = useState(assignment.actualMinutes === null ? "" : String(assignment.actualMinutes));
-  const [correctionReason, setCorrectionReason] = useState("");
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<"approve" | "reject" | null>(null);
   const busy = useRef(false);
-  const parsedActual = Number(actualValue);
-  const correctionRequired = assignment.actualMinutes !== null && parsedActual !== assignment.actualMinutes;
-  const invalid = !Number.isInteger(parsedActual) || parsedActual < 1 || parsedActual > 1440 || (correctionRequired && correctionReason.trim().length < 3);
-  const hasVisitTimes = Boolean(assignment.visitId && assignment.visitStartedAt && assignment.visitCompletedAt);
+  const hasEditableVisit = Boolean(assignment.visitId && assignment.status === "completed" && assignment.questionnaireComplete);
 
   const closeEditor = () => {
     setEditing(false);
-    setActualValue(assignment.actualMinutes === null ? "" : String(assignment.actualMinutes));
-    setCorrectionReason("");
     setError(null);
-  };
-
-  const save = async () => {
-    if (invalid || busy.current) return;
-    busy.current = true;
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(assignment, parsedActual, correctionRequired ? correctionReason.trim() : undefined);
-      setEditing(false);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Die Ist-Zeit konnte nicht gespeichert werden.");
-    } finally {
-      busy.current = false;
-      setSaving(false);
-    }
   };
   const reviewRequest = async (decision: "approve" | "reject") => {
     if (busy.current) return;
@@ -156,44 +130,30 @@ const AssignmentRow = memo(function AssignmentRow({ assignment, onSave, correctV
             Fragebogen {assignment.questionnaireComplete ? "fertig" : "offen"}
           </span>
         </div>
-        <button type="button" aria-label={hasVisitTimes ? "Start und Endzeit bearbeiten" : "Ist-Zeit bearbeiten"} disabled={saving || Boolean(reviewing) || Boolean(assignment.pendingTimeChangeRequest && hasVisitTimes)} onClick={() => {
-          if (!editing) { setActualValue(assignment.actualMinutes === null ? "" : String(assignment.actualMinutes)); setCorrectionReason(""); setError(null); }
+        {hasEditableVisit ? <button type="button" aria-label="Start und Endzeit bearbeiten" title="Start und Endzeit bearbeiten" disabled={Boolean(reviewing) || Boolean(assignment.pendingTimeChangeRequest)} onClick={() => {
+          if (!editing) setError(null);
           setEditing((current) => !current);
-        }} className="sm-time-edit-button"><Pencil size={11}/></button>
+        }} className="sm-time-edit-button"><Pencil size={11}/></button> : <span />}
       </div>
-      {editing && hasVisitTimes ? <div style={{ padding: "10px 18px 12px 54px", borderTop: "1px solid rgba(0,0,0,.04)" }}>
-        <SmVisitTimeEditor assignmentId={assignment.id} visitId={assignment.visitId!} startedAt={assignment.visitStartedAt!} completedAt={assignment.visitCompletedAt!}
+      {editing && hasEditableVisit ? <div style={{ padding: "10px 18px 12px 54px", borderTop: "1px solid rgba(0,0,0,.04)" }}>
+        <SmVisitTimeEditor assignmentId={assignment.id} visitId={assignment.visitId!} startedAt={assignment.visitStartedAt} completedAt={assignment.visitCompletedAt}
           save={correctVisit} onCancel={closeEditor} onSaved={async () => { setEditing(false); await onVisitSaved(); }} />
       </div> : null}
-      {editing && !hasVisitTimes ? <fieldset disabled={saving || Boolean(reviewing)} style={{ margin: 0, border: 0, minWidth: 0, padding: "10px 18px 12px 54px", display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 10, borderTop: "1px solid rgba(0,0,0,.04)", background: "rgba(0,0,0,.015)" }}>
-        <label style={{ width: 118 }}><span className="sm-time-edit-label">Ist-Zeit in Minuten</span><input type="number" min={1} max={1440} step={1} value={actualValue} onChange={(event) => setActualValue(event.target.value)} className="sm-time-edit-input" placeholder="z. B. 90"/></label>
-        {correctionRequired ? (
-          <label style={{ minWidth: 180, flex: 1 }}>
-            <span className="sm-time-edit-label">Korrekturgrund *</span>
-            <input value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} className="sm-time-edit-input" placeholder="Warum wird die Ist-Zeit korrigiert?"/>
-          </label>
-        ) : (
-          <div style={{ flex: 1 }}/>
-        )}
-        <button type="button" aria-label="Abbrechen" disabled={saving} onClick={closeEditor} className="sm-time-edit-button"><X size={11}/></button>
-        <button type="button" aria-label="Ist-Zeit speichern" disabled={invalid || saving} onClick={() => { void save(); }} className="sm-time-save-button">{saving ? <LoaderCircle className="sm-time-spinner" size={11}/> : <Check size={11}/>}Speichern</button>
-        {error ? <span role="alert" style={{ flexBasis: "100%", color: RED, fontSize: 9 }}>{error}</span> : null}
-      </fieldset> : null}
       {assignment.pendingTimeChangeRequest ? <div className="sm-time-request-review">
         <div className="sm-time-request-copy">
           <span>Korrekturanfrage</span>
           <strong>{assignment.pendingTimeChangeRequest.kind === "deletion" ? "Ist-Zeit löschen" : `${formatTimestampRange(assignment.pendingTimeChangeRequest.originalStartedAt, assignment.pendingTimeChangeRequest.originalCompletedAt, assignment.pendingTimeChangeRequest.originalMinutes)} → ${formatTimestampRange(assignment.pendingTimeChangeRequest.requestedStartedAt, assignment.pendingTimeChangeRequest.requestedCompletedAt, assignment.pendingTimeChangeRequest.requestedMinutes)}`}</strong>
           <small>{assignment.pendingTimeChangeRequest.reason}</small>
         </div>
-        <button type="button" className="reject" disabled={saving || Boolean(reviewing)} onClick={() => { void reviewRequest("reject"); }}>{reviewing === "reject" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <XCircle size={11} />}Ablehnen</button>
-        <button type="button" className="approve" disabled={saving || Boolean(reviewing)} onClick={() => { void reviewRequest("approve"); }}>{reviewing === "approve" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <CheckCircle2 size={11} />}Freigeben</button>
+        <button type="button" className="reject" disabled={Boolean(reviewing)} onClick={() => { void reviewRequest("reject"); }}>{reviewing === "reject" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <XCircle size={11} />}Ablehnen</button>
+        <button type="button" className="approve" disabled={Boolean(reviewing)} onClick={() => { void reviewRequest("approve"); }}>{reviewing === "approve" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <CheckCircle2 size={11} />}Freigeben</button>
         {error ? <span className="sm-time-request-error" role="alert">{error}</span> : null}
       </div> : null}
     </div>
   );
 });
 
-const SmDayRow = memo(function SmDayRow({ day, history = false, onSave, correctVisit, onVisitSaved, onReviewRequest }: { day: SmDay; history?: boolean } & TimeActions) {
+const SmDayRow = memo(function SmDayRow({ day, history = false, correctVisit, onVisitSaved, onReviewRequest }: { day: SmDay; history?: boolean } & TimeActions) {
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const { planned, actual, travel, total, completed: completedCount } = summarizeSmTime(day.assignments);
@@ -221,13 +181,13 @@ const SmDayRow = memo(function SmDayRow({ day, history = false, onSave, correctV
         <span style={{ display: "flex", justifyContent: "center" }}><ChevronDown size={14} strokeWidth={2} color="rgba(0,0,0,0.28)" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0)", transition: "transform .26s cubic-bezier(.4,0,.2,1)" }} /></span>
       </button>
       {expanded ? <div id={panelId} className="sm-time-body">
-        {day.assignments.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} onSave={onSave} correctVisit={correctVisit} onVisitSaved={onVisitSaved} onReviewRequest={onReviewRequest} />)}
+        {day.assignments.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} correctVisit={correctVisit} onVisitSaved={onVisitSaved} onReviewRequest={onReviewRequest} />)}
       </div> : null}
     </div>
   );
 });
 
-const DateGroup = memo(function DateGroup({ date, days, onSave, correctVisit, onVisitSaved, onReviewRequest }: { date: string; days: SmDay[] } & TimeActions) {
+const DateGroup = memo(function DateGroup({ date, days, correctVisit, onVisitSaved, onReviewRequest }: { date: string; days: SmDay[] } & TimeActions) {
   const label = formatDateLabel(date);
   const assignmentCount = days.reduce((sum, day) => sum + day.assignments.length, 0);
   const today = date === viennaToday();
@@ -243,14 +203,14 @@ const DateGroup = memo(function DateGroup({ date, days, onSave, correctVisit, on
       </div>
       <div style={{ margin: "0 10px 16px", overflow: "hidden", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 12, background: "rgba(0,0,0,0.022)" }}>
         <div style={{ margin: 8, overflow: "hidden", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 9, background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-          {days.map((day) => <SmDayRow key={`${day.date}-${day.smId}`} day={day} onSave={onSave} correctVisit={correctVisit} onVisitSaved={onVisitSaved} onReviewRequest={onReviewRequest} />)}
+          {days.map((day) => <SmDayRow key={`${day.date}-${day.smId}`} day={day} correctVisit={correctVisit} onVisitSaved={onVisitSaved} onReviewRequest={onReviewRequest} />)}
         </div>
       </div>
     </section>
   );
 });
 
-export const SmEmployeeTimeRow = memo(function SmEmployeeTimeRow({ employee, onSave, correctVisit, onVisitSaved, onReviewRequest }: { employee: ReturnType<typeof groupSmTimeEmployees>[number] } & TimeActions) {
+export const SmEmployeeTimeRow = memo(function SmEmployeeTimeRow({ employee, correctVisit, onVisitSaved, onReviewRequest }: { employee: ReturnType<typeof groupSmTimeEmployees>[number] } & TimeActions) {
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const avatar = avatarColors(employee.name), stats = employee.summary;
@@ -270,7 +230,7 @@ export const SmEmployeeTimeRow = memo(function SmEmployeeTimeRow({ employee, onS
         <MetricCell label="Ø erfasster Tag" value={formatDuration(stats.averageDay)}/><MetricCell label="Tage erfasst" value={String(stats.recordedDays)}/><MetricCell label="Einsätze erledigt" value={`${stats.completed}/${stats.count}`}/>
       </div>
       <div className="sm-time-history-caption">Tagesverlauf · ausgewählter Zeitraum</div>
-      {employee.days.map((day) => <SmDayRow key={day.date} day={day} history onSave={onSave} correctVisit={correctVisit} onVisitSaved={onVisitSaved} onReviewRequest={onReviewRequest}/>)}
+      {employee.days.map((day) => <SmDayRow key={day.date} day={day} history correctVisit={correctVisit} onVisitSaved={onVisitSaved} onReviewRequest={onReviewRequest}/>)}
     </div> : null}
   </section>;
 });
@@ -318,15 +278,6 @@ export function SmZeiterfassungWorkspace({ api = TIME_API, initialPeriod }: { ap
     const timeout = window.setTimeout(() => setNotice(null), 2600);
     return () => window.clearTimeout(timeout);
   }, [notice]);
-
-  const saveActualTime = useCallback(async (assignment: SmTimeAssignment, actualMinutes: number, correctionReason?: string) => {
-    await api.save(assignment.id, {
-      actualMinutes,
-      ...(correctionReason ? { correctionReason } : {}),
-    });
-    await reloadCurrentRange.current();
-    setNotice(assignment.actualMinutes === null ? "Ist-Zeit wurde gespeichert" : "Ist-Zeit wurde versioniert korrigiert");
-  }, [api]);
 
   const visitSaved = useCallback(async () => {
     await reloadCurrentRange.current();
@@ -437,9 +388,9 @@ export function SmZeiterfassungWorkspace({ api = TIME_API, initialPeriod }: { ap
                 {normalizedSearch ? <button type="button" className="sm-plan-secondary-button" onClick={() => setSearch("")}>Suche zurücksetzen</button> : null}
               </div>
             ) : view === "days" ? (
-              <div className="sm-time-table-scroll"><div className="sm-time-table-content" style={{ paddingTop: 4 }}>{dateGroups.map((group) => <DateGroup key={group.date} date={group.date} days={group.days} onSave={saveActualTime} correctVisit={api.correctVisit} onVisitSaved={visitSaved} onReviewRequest={reviewTimeRequest} />)}</div></div>
+              <div className="sm-time-table-scroll"><div className="sm-time-table-content" style={{ paddingTop: 4 }}>{dateGroups.map((group) => <DateGroup key={group.date} date={group.date} days={group.days} correctVisit={api.correctVisit} onVisitSaved={visitSaved} onReviewRequest={reviewTimeRequest} />)}</div></div>
             ) : (
-              <div className="sm-time-table-scroll"><div className="sm-time-table-content">{smGroups.map((employee) => <SmEmployeeTimeRow key={employee.id} employee={employee} onSave={saveActualTime} correctVisit={api.correctVisit} onVisitSaved={visitSaved} onReviewRequest={reviewTimeRequest}/>)}</div></div>
+              <div className="sm-time-table-scroll"><div className="sm-time-table-content">{smGroups.map((employee) => <SmEmployeeTimeRow key={employee.id} employee={employee} correctVisit={api.correctVisit} onVisitSaved={visitSaved} onReviewRequest={reviewTimeRequest}/>)}</div></div>
             )}
           </div>
         </div>

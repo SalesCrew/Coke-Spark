@@ -21,16 +21,6 @@ export default function Preview() {
       // Deliberately return boundary rows too: the real view must filter defensively.
       return structuredClone(rows.current);
     },
-    async save(id, input) {
-      setCalls((current) => [...current, `SAVE ${id} ${JSON.stringify(input)}`]);
-      if (mode.current === "save-error") throw new Error("Lokaler Test: Änderung abgelehnt.");
-      const row = rows.current.find((entry) => entry.id === id)!;
-      const revision = (row.timeEntry?.revisionNumber ?? 0) + 1;
-      row.actualMinutes = input.actualMinutes;
-      row.timeEntry = { id: `local-time-${revision}`, revisionNumber: revision, actualMinutes: input.actualMinutes, submittedByUserId: "local-admin", submittedAt: new Date().toISOString(), correctionReason: input.correctionReason ?? null };
-      if (mode.current === "reload-error") mode.current = "error";
-      return { submissionId: row.timeEntry.id, actualMinutes: input.actualMinutes, revisionNumber: revision, replayed: false };
-    },
     async correctVisit(id, input) {
       setCalls((current) => [...current, `CORRECT VISIT ${id} ${JSON.stringify(input)}`]);
       if (mode.current === "save-error") throw new Error("Lokaler Test: Änderung abgelehnt.");
@@ -40,6 +30,7 @@ export default function Preview() {
       row.visit!.visitStartedAt = input.visitStartedAt; row.visit!.visitCompletedAt = input.visitCompletedAt;
       row.actualMinutes = actualMinutes;
       row.timeEntry = { id: `local-time-${revision}`, revisionNumber: revision, actualMinutes, submittedByUserId: "local-admin", submittedAt: new Date().toISOString(), correctionReason: input.reason };
+      if (mode.current === "reload-error") mode.current = "error";
       return { replayed: false, actualMinutes, revisionNumber: revision };
     },
     async approve(id) {

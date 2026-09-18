@@ -49,7 +49,7 @@ test("Vienna visit timestamps handle DST, overnight and absent historical values
 
 test("employee overview is accessible and does not mount concealed editors", () => {
   const employee = groupSmTimeEmployees(buildSmTimeDays(selectSmTimeAssignments(smTimeFixtures(), "2026-09-01", "2026-09-30")))[0];
-  const html = renderToStaticMarkup(createElement(SmEmployeeTimeRow, { employee, onSave: async () => {}, correctVisit: async () => ({ replayed: false, actualMinutes: 60, revisionNumber: 2 }), onVisitSaved: async () => {}, onReviewRequest: async () => {} }));
+  const html = renderToStaticMarkup(createElement(SmEmployeeTimeRow, { employee, correctVisit: async () => ({ replayed: false, actualMinutes: 60, revisionNumber: 2 }), onVisitSaved: async () => {}, onReviewRequest: async () => {} }));
   assert.match(html, /Zeiten von Ada Beispiel/); assert.match(html, /aria-expanded="false"/);
   assert.match(html, /3h 20min/); assert.doesNotMatch(html, /Ist-Zeit bearbeiten/);
   const loading = renderToStaticMarkup(createElement(SmZeiterfassungWorkspace, { initialPeriod: smMonthPeriod("2026-09-14") }));
@@ -62,7 +62,9 @@ test("existing authenticated API and corrections stay wired; stale responses are
   const ui = await readFile(new URL("../src/components/admin/sm/SmZeiterfassungWorkspace.tsx", import.meta.url), "utf8");
   assert.match(ui, /load: fetchSmPlanningAssignments/); assert.match(ui, /api.load\(period.from, period.to\)/);
   assert.match(ui, /generation.current !== request \|\| activeRange.current !== requestedRange/);
-  assert.match(ui, /save: submitSmPlanningActualTime/); assert.match(ui, /approve: approveAdminSmPlanningTimeChangeRequest/);
+  assert.doesNotMatch(ui, /submitSmPlanningActualTime|Ist-Zeit in Minuten/);
+  assert.match(ui, /startedAt=\{assignment\.visitStartedAt\}/); assert.match(ui, /completedAt=\{assignment\.visitCompletedAt\}/);
+  assert.match(ui, /approve: approveAdminSmPlanningTimeChangeRequest/);
   assert.match(ui, /correctVisit: correctAdminSmVisitTime/);
   assert.match(ui, /reject: rejectAdminSmPlanningTimeChangeRequest/);
   assert.doesNotMatch(ui, /maxHeight: expanded \? 700/);

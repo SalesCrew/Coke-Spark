@@ -114,6 +114,8 @@ test("trigger announces a KW range and planner integration stores both endpoints
   assert.match(source, /if \(!pendingStart\)/); assert.match(source, /onChange\(range\.start, range\.end\)/);
   assert.match(source, /MAX_RANGE_WEEKS = 13/); assert.match(source, /is-in-range/);
   assert.match(source, /rect.bottom \+ 6/); assert.match(source, /createPortal/);
+  assert.match(source, /\.sm-plan-calendar-panel\{padding:12px 12px 9px/);
+  assert.match(source, /background:rgba\(255,255,255,\.995\)/);
   assert.match(source, /event.key !== "Escape"/); assert.match(source, /handleOutside/);
   const planner = await readFile(new URL("../src/components/admin/sm/SmVerplanungWorkspace.tsx", import.meta.url), "utf8");
   assert.match(planner, /<SmPlanningPeriodPicker value=\{period\} onChange=\{setPeriod\}/);

@@ -8,7 +8,7 @@ import { fromViennaDateTimeInput, toViennaDateTimeInput } from "@/lib/sm/visitTi
 type Save = typeof correctAdminSmVisitTime;
 
 export function SmVisitTimeEditor({ assignmentId, visitId, startedAt, completedAt, onSaved, onCancel, save = correctAdminSmVisitTime }: {
-  assignmentId: string; visitId: string; startedAt: string; completedAt: string;
+  assignmentId: string; visitId: string; startedAt: string | null; completedAt: string | null;
   onSaved: () => Promise<void> | void; onCancel: () => void; save?: Save;
 }) {
   const [start, setStart] = useState(() => toViennaDateTimeInput(startedAt));
@@ -16,15 +16,18 @@ export function SmVisitTimeEditor({ assignmentId, visitId, startedAt, completedA
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const nextStart = fromViennaDateTimeInput(start, startedAt);
-  const nextEnd = fromViennaDateTimeInput(end, completedAt);
+  const nextStart = fromViennaDateTimeInput(start, startedAt ?? undefined);
+  const nextEnd = fromViennaDateTimeInput(end, completedAt ?? undefined);
   const elapsed = nextStart && nextEnd ? new Date(nextEnd).getTime() - new Date(nextStart).getTime() : 0;
-  const unchanged = nextStart === new Date(startedAt).toISOString() && nextEnd === new Date(completedAt).toISOString();
+  const unchanged = Boolean(startedAt && completedAt)
+    && nextStart === new Date(startedAt!).toISOString()
+    && nextEnd === new Date(completedAt!).toISOString();
   const timeError = !nextStart || !nextEnd ? "Bitte gültige Start- und Endzeit eingeben."
     : elapsed < 60_000 || elapsed > 86_400_000 ? "Ende muss mindestens 1 Minute nach Start und höchstens 24 Stunden später liegen."
       : unchanged ? "Start und Ende sind unverändert." : null;
   const canSave = !busy && !timeError && reason.trim().length >= 3;
   const duration = elapsed > 0 ? Math.max(1, Math.round(elapsed / 60_000)) : null;
+  const durationLabel = duration === null ? "—" : duration < 60 ? `${duration} Min` : `${Math.floor(duration / 60)}h${duration % 60 ? ` ${duration % 60}min` : ""}`;
 
   const submit = async () => {
     if (!canSave || !nextStart || !nextEnd) return;
@@ -61,7 +64,7 @@ export function SmVisitTimeEditor({ assignmentId, visitId, startedAt, completedA
     <div className="sm-visit-time-fields">
       <label><span>Start</span><input type="datetime-local" value={start} onChange={event => setStart(event.target.value)} disabled={busy} /></label>
       <label><span>Ende</span><input type="datetime-local" value={end} onChange={event => setEnd(event.target.value)} disabled={busy} /></label>
-      <div className="sm-visit-time-duration"><span>Neue Besuchszeit</span><strong>{duration === null ? "—" : `${duration} Min`}</strong></div>
+      <div className="sm-visit-time-duration"><span>Besuchsdauer</span><strong>{durationLabel}</strong></div>
     </div>
     <label><span>Grund für die Korrektur *</span><input value={reason} onChange={event => setReason(event.target.value)} maxLength={2000} disabled={busy} placeholder="Warum werden Start oder Ende geändert?" /></label>
     {timeError ? <p className="sm-visit-time-hint">{timeError}</p> : null}

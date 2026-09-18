@@ -3,7 +3,8 @@ const viennaFormatter = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
 
-export function toViennaDateTimeInput(iso: string): string {
+export function toViennaDateTimeInput(iso: string | null | undefined): string {
+  if (!iso || !Number.isFinite(new Date(iso).getTime())) return "";
   const parts = Object.fromEntries(viennaFormatter.formatToParts(new Date(iso)).map(part => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }

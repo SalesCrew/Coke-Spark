@@ -2772,7 +2772,7 @@ export async function fetchSmMarketDeactivationPreview(id: string): Promise<impo
 }
 
 export async function correctAdminSmVisitTime(id: string, input: {
-  expectedVisitId: string; expectedStartedAt: string; expectedCompletedAt: string;
+  expectedVisitId: string; expectedStartedAt: string | null; expectedCompletedAt: string | null;
   visitStartedAt: string; visitCompletedAt: string; reason: string;
 }): Promise<{ replayed: boolean; actualMinutes: number; revisionNumber: number }> {
   return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/visit-time`, {

@@ -18,6 +18,7 @@ export type CampaignMarketAssignmentInput = {
 };
 
 export type CampaignMarketAssignment = {
+  id: string;
   marketId: string;
   gmUserId: string | null;
   gmName: string | null;

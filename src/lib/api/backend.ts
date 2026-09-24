@@ -209,6 +209,7 @@ type BackendCampaign = {
   endDate: string | null;
   marketIds: string[];
   assignments?: Array<{
+    id: string;
     marketId: string;
     gmUserId: string | null;
     gmName: string | null;
@@ -5519,6 +5520,7 @@ function normalizeCampaign(input: BackendCampaign): Campaign {
     endDate,
     marketIds: Array.from(new Set(input.marketIds ?? [])),
     assignments: (input.assignments ?? []).map((assignment) => ({
+      id: assignment.id,
       marketId: assignment.marketId,
       gmUserId: assignment.gmUserId ?? null,
       gmName: assignment.gmName ?? null,
@@ -6122,6 +6124,32 @@ export async function reassignCampaignGms(
     body: JSON.stringify({ reassignments }),
   })) as { campaign: BackendCampaign };
   return normalizeCampaign(data.campaign);
+}
+
+export async function reassignCampaignVisit(
+  campaignId: string,
+  assignmentId: string,
+  input: { toGmUserId: string; expectedGmUserId: string | null; expectedVisitTargetCount: number; visitNumber: number },
+): Promise<Campaign> {
+  const data = (await authedFetch(
+    `/admin/campaigns/${encodeURIComponent(campaignId)}/assignment-visits/${encodeURIComponent(assignmentId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  )) as { campaign: BackendCampaign };
+  return normalizeCampaign(data.campaign);
+}
+
+export async function fetchCampaignVisitProgress(campaignId: string): Promise<{
+  completedByAssignmentId: Record<string, number>;
+  startedByAssignmentId: Record<string, number>;
+}> {
+  const data = (await authedFetch(`/admin/campaigns/${encodeURIComponent(campaignId)}/assignment-visits`)) as {
+    completedByAssignmentId?: Record<string, number>;
+    startedByAssignmentId?: Record<string, number>;
+  };
+  return {
+    completedByAssignmentId: data.completedByAssignmentId ?? {},
+    startedByAssignmentId: data.startedByAssignmentId ?? {},
+  };
 }
 
 export async function setFlexCampaignAudience(

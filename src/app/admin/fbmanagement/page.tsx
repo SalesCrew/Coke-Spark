@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { ArrowRightLeft, Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle, ListPlus } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
+import { CampaignVisitAssignmentsDialog } from "@/components/admin/campaigns/CampaignVisitAssignmentsDialog";
 import type { Campaign, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { ConditionalRule, Fragebogen, Module, Question } from "@/types/fragebogen";
 import type { GMRecord } from "@/types/gebietsmanager";
@@ -19,6 +20,7 @@ import {
   fetchCampaignMarketVisitExportDetails,
   fetchCampaignMarketVisitExportIndex,
   fetchCampaignMarketVisitStatuses,
+  fetchCampaignVisitProgress,
   fetchCampaigns,
   fetchAdminZeiterfassungDays,
   fetchFragebogen,
@@ -31,6 +33,7 @@ import {
   migrateCampaignMarkets,
   patchCampaignVisitAnswer,
   reassignCampaignGms,
+  reassignCampaignVisit,
   setFlexCampaignAudience,
   readAuthSession,
   removeCampaignMarket,
@@ -106,6 +109,7 @@ interface MarketCatalogItem {
   name: string;
   chain: string;
   city: string;
+  postalCode?: string;
   region: string;
   address: string;
   stammnr?: string;
@@ -113,6 +117,19 @@ interface MarketCatalogItem {
   cokeMasterNumber?: string;
   flexNumber?: string;
   kuehlerStammnr?: string;
+  dbName?: string;
+  emEh?: string;
+  employee?: string;
+  currentGmName?: string;
+  visitFrequencyPerYear?: number;
+  marketType?: string;
+  universeMarket?: boolean;
+  isActive?: boolean;
+  infoFlag?: boolean;
+  infoNote?: string;
+  ipp?: number | null;
+  importSourceFileName?: string;
+  importedAt?: string;
   gm: string;
   finished: boolean;
   isKuehlerUnitRow?: boolean;
@@ -708,6 +725,17 @@ function toMarketCatalogItem(market: {
   standardMarketNumber?: string | null;
   flexNumber?: string | null;
   infoFlag?: boolean | null;
+  emEh?: string | null;
+  employee?: string | null;
+  currentGmName?: string | null;
+  visitFrequencyPerYear?: number | null;
+  marketType?: string | null;
+  universeMarket?: boolean | null;
+  isActive?: boolean | null;
+  infoNote?: string | null;
+  ipp?: number | null;
+  importSourceFileName?: string | null;
+  importedAt?: string | null;
 }): MarketCatalogItem {
   const chainSource = (market.dbName || market.name || "").trim();
   const chain = chainSource ? chainSource.split(/\s+/)[0] : "Unbekannt";
@@ -716,6 +744,7 @@ function toMarketCatalogItem(market: {
     name: getMarketDisplayName(market),
     chain,
     city: market.city ?? "",
+    postalCode: market.postalCode ?? "",
     region: market.region ?? "",
     address: market.address ?? "",
     stammnr: String(market.kuehlerStammnr || market.cokeMasterNumber || market.standardMarketNumber || "").trim(),
@@ -723,6 +752,19 @@ function toMarketCatalogItem(market: {
     cokeMasterNumber: String(market.cokeMasterNumber ?? "").trim(),
     flexNumber: String(market.flexNumber ?? "").trim(),
     kuehlerStammnr: String(market.kuehlerStammnr ?? "").trim(),
+    dbName: market.dbName ?? "",
+    emEh: market.emEh ?? "",
+    employee: market.employee ?? "",
+    currentGmName: market.currentGmName ?? "",
+    visitFrequencyPerYear: market.visitFrequencyPerYear ?? 0,
+    marketType: market.marketType ?? "",
+    universeMarket: market.universeMarket ?? false,
+    isActive: market.isActive ?? false,
+    infoFlag: market.infoFlag ?? false,
+    infoNote: market.infoNote ?? "",
+    ipp: market.ipp ?? null,
+    importSourceFileName: market.importSourceFileName ?? "",
+    importedAt: market.importedAt ?? "",
     gm: "",
     finished: Boolean(market.infoFlag),
   };
@@ -7704,6 +7746,8 @@ export default function FbManagementPage() {
   const [campaignContextMenu, setCampaignContextMenu] = useState<CampaignContextMenuState | null>(null);
   const [campaignDeleteDialog, setCampaignDeleteDialog] = useState<CampaignDeleteDialogState | null>(null);
   const [campaignReassignDialog, setCampaignReassignDialog] = useState<CampaignReassignDialogState | null>(null);
+  const [visitAssignmentsOpen, setVisitAssignmentsOpen] = useState(false);
+  const [visitAssignmentMarketsError, setVisitAssignmentMarketsError] = useState<string | null>(null);
   const [gmUsers, setGmUsers] = useState<GMRecord[]>([]);
   const [gmUsersLoading, setGmUsersLoading] = useState(false);
   const [gmUsersError, setGmUsersError] = useState<string | null>(null);
@@ -8400,9 +8444,10 @@ export default function FbManagementPage() {
 
   useEffect(() => {
     if (
-      (!campaignReassignDialog && !addPanelNeedsGmUsers && !campaignAudienceNeedsGmUsers)
+      (!campaignReassignDialog && !visitAssignmentsOpen && !addPanelNeedsGmUsers && !campaignAudienceNeedsGmUsers)
       || gmUsers.length > 0
       || gmUsersLoading
+      || gmUsersError
     ) return;
     setGmUsersLoading(true);
     setGmUsersError(null);
@@ -8416,7 +8461,7 @@ export default function FbManagementPage() {
       .finally(() => {
         setGmUsersLoading(false);
       });
-  }, [addPanelNeedsGmUsers, campaignAudienceNeedsGmUsers, campaignReassignDialog, gmUsers.length, gmUsersLoading]);
+  }, [addPanelNeedsGmUsers, campaignAudienceNeedsGmUsers, campaignReassignDialog, visitAssignmentsOpen, gmUsers.length, gmUsersLoading, gmUsersError]);
 
   useEffect(() => {
     if (!campaignReassignDialog) return;
@@ -10971,6 +11016,22 @@ export default function FbManagementPage() {
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setVisitAssignmentsOpen(true);
+                setGmUsersError(null);
+                setVisitAssignmentMarketsError(null);
+                if (campaignId) void refreshCampaignAssignedMarkets([campaignId]).catch((cause) => {
+                  setVisitAssignmentMarketsError(cause instanceof Error ? cause.message : "Marktdaten konnten nicht geladen werden.");
+                });
+              }}
+              disabled={!campaignId || campaign.assignments.length === 0 || campaignBusy}
+              title={campaign.section === "flex" ? "Flex-Besuche und globale GM-Zuordnung anzeigen" : "Alle geplanten Besuche anzeigen und den GM je Besuch ändern"}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, border: "1px solid rgba(220,38,38,0.18)", background: "rgba(220,38,38,0.045)", color: "#b91c1c", fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: campaign.assignments.length === 0 ? 0.45 : 1 }}
+            >
+              <ArrowRightLeft size={12} /> Besuche &amp; GM
+            </button>
             {/* Status tabs */}
             {marketEditMode !== "remove" && (
               <div style={{ display: "flex", gap: 3, background: "rgba(0,0,0,0.06)", borderRadius: 8, padding: 3 }}>
@@ -11182,6 +11243,31 @@ export default function FbManagementPage() {
       </div>{/* end grey outer */}
 
       {/* Portals */}
+      {visitAssignmentsOpen && campaign && createPortal(
+        <CampaignVisitAssignmentsDialog
+          campaign={campaign}
+          markets={marketsData}
+          gmUsers={gmUsers}
+          gmUsersLoading={gmUsersLoading}
+          gmUsersError={gmUsersError}
+          marketsLoading={isSelectedCampaignMarketMetaLoading}
+          marketsError={visitAssignmentMarketsError}
+          onRetryMarkets={() => {
+            setVisitAssignmentMarketsError(null);
+            void refreshCampaignAssignedMarkets([campaign.id]).catch((cause) => {
+              setVisitAssignmentMarketsError(cause instanceof Error ? cause.message : "Marktdaten konnten nicht geladen werden.");
+            });
+          }}
+          loadVisitProgress={fetchCampaignVisitProgress}
+          onClose={() => setVisitAssignmentsOpen(false)}
+          onSaveVisit={(assignmentId, input) => reassignCampaignVisit(campaign.id, assignmentId, input)}
+          onReassigned={(updated) => {
+            setCampaignsData((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+            invalidateCampaignVisitStatus(updated.id);
+            void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
+          }}
+        />, document.body
+      )}
       {editMenuOpen && (
         <MarketEditMenu
           pos={editMenuPos}

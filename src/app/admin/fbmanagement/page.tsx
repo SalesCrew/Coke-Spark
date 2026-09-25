@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { ArrowRightLeft, Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle, ListPlus } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
 import { CampaignVisitAssignmentsDialog } from "@/components/admin/campaigns/CampaignVisitAssignmentsDialog";
-import type { Campaign, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
+import type { Campaign, CampaignMarketAssignment, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { ConditionalRule, Fragebogen, Module, Question } from "@/types/fragebogen";
 import type { GMRecord } from "@/types/gebietsmanager";
 import {
@@ -7198,6 +7198,7 @@ function MarketAddPanel({
   pos,
   availableMarkets,
   assignedMarkets = [],
+  assignedAssignments = [],
   allMarkets = [],
   assignedMarketIds = [],
   onAdd,
@@ -7214,9 +7215,10 @@ function MarketAddPanel({
   pos: { x: number; y: number };
   availableMarkets: MarketCatalogItem[];
   assignedMarkets?: MarketCatalogItem[];
+  assignedAssignments?: CampaignMarketAssignment[];
   allMarkets?: MarketCatalogItem[];
   assignedMarketIds?: string[];
-  onAdd: (id: string, gmUserId?: string | null) => Promise<MarketAdditionReceipt | null>;
+  onAdd: (id: string, gmUserId?: string | null, repeat?: boolean) => Promise<MarketAdditionReceipt | null>;
   onUndoAdd: (addition: MarketAdditionReceipt) => Promise<boolean>;
   onClose: () => void;
   isPending?: boolean;
@@ -7234,6 +7236,7 @@ function MarketAddPanel({
   const operationInFlight = useRef(false);
   const allowsRepeatVisits = campaignSection === "kuehler";
   const [gmSelectionByMarketId, setGmSelectionByMarketId] = useState<Record<string, string>>({});
+  const [repeatGmSelectionByMarketId, setRepeatGmSelectionByMarketId] = useState<Record<string, string>>({});
   const [expandedAdded, setExpandedAdded] = useState(false);
   const [undoMenu, setUndoMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [candidateLimit, setCandidateLimit] = useState(ADD_PANEL_INITIAL_LIMIT);
@@ -7351,13 +7354,13 @@ function MarketAddPanel({
     setCandidateLimit(ADD_PANEL_INITIAL_LIMIT);
   }, [search, filters.chain, filters.gm, filters.city, filters.region, addedIds.length, directoryMarkets.length]);
 
-  const handleAdd = async (id: string) => {
+  const handleAdd = async (id: string, gmUserId?: string | null, repeat = false) => {
     if (isPending || operationInFlight.current) return;
-    const selectedGmUserId = gmSelectionByMarketId[id] ?? "";
+    const selectedGmUserId = gmUserId ?? gmSelectionByMarketId[id] ?? "";
     if (requiresGmAssignment && !selectedGmUserId) return;
     operationInFlight.current = true;
     try {
-      const addition = await onAdd(id, requiresGmAssignment ? selectedGmUserId : null);
+      const addition = await onAdd(id, requiresGmAssignment ? selectedGmUserId : null, repeat);
       if (addition) setAdditions((current) => [...current, addition]);
     } finally {
       operationInFlight.current = false;
@@ -7545,8 +7548,17 @@ function MarketAddPanel({
                 <div style={{ padding: "8px 16px 5px", fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   Bereits in der Kampagne
                 </div>
-                {assignedSearchResults.map((m) => (
-                  <div
+                {assignedSearchResults.map((m) => {
+                  const marketAssignments = assignedAssignments.filter((assignment) => assignment.marketId === m.id);
+                  const gmChoices = Array.from(new Map(marketAssignments.map((assignment) => [assignment.gmUserId ?? "", {
+                    id: assignment.gmUserId ?? "",
+                    name: assignment.gmName ?? "GM",
+                  }])).values());
+                  const selectedRepeatGmId = repeatGmSelectionByMarketId[m.id] ?? (gmChoices.length === 1 ? gmChoices[0].id : "");
+                  const visitTargetCount = marketAssignments.reduce((sum, assignment) => sum + assignment.visitTargetCount, 0);
+                  const canRepeat = requiresGmAssignment && marketAssignments.length > 0 && Boolean(selectedRepeatGmId);
+                  return (
+                    <div
                     key={`assigned-${m.id}`}
                     style={{ display: "flex", alignItems: "center", width: "100%", padding: "10px 16px", gap: 10, borderTop: "1px solid rgba(0,0,0,0.035)", background: "rgba(22,163,74,0.025)", textAlign: "left" }}
                   >
@@ -7556,11 +7568,43 @@ function MarketAddPanel({
                         {[m.flexNumber, m.address].filter(Boolean).join(" · ")}
                       </div>
                     </div>
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 7px", borderRadius: 6, color: "#15803d", background: "rgba(22,163,74,0.09)", whiteSpace: "nowrap" }}>
-                      Bereits zugewiesen
-                    </span>
-                  </div>
-                ))}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "#15803d", whiteSpace: "nowrap" }}>
+                        {visitTargetCount > 0 ? `${visitTargetCount} ${visitTargetCount === 1 ? "Besuch" : "Besuche"} geplant` : "Bereits zugewiesen"}
+                      </span>
+                      {requiresGmAssignment && gmChoices.length === 1 && gmChoices[0].id && (
+                        <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 9, color: "#6b7280" }}>
+                          {gmChoices[0].name}
+                        </span>
+                      )}
+                      {requiresGmAssignment && gmChoices.length > 1 && (
+                        <select
+                          aria-label={`GM für weiteren Besuch: ${m.name}, ${m.address}`}
+                          value={selectedRepeatGmId}
+                          disabled={isPending}
+                          onChange={(event) => setRepeatGmSelectionByMarketId((current) => ({ ...current, [m.id]: event.target.value }))}
+                          style={{ maxWidth: 130, height: 25, borderRadius: 6, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", fontSize: 10, color: "#374151" }}
+                        >
+                          <option value="">GM wählen</option>
+                          {gmChoices.filter((gm) => gm.id).map((gm) => <option key={gm.id} value={gm.id}>{gm.name}</option>)}
+                        </select>
+                      )}
+                      {requiresGmAssignment && (
+                        <button
+                        type="button"
+                        disabled={isPending || !canRepeat}
+                        onClick={() => handleAdd(m.id, selectedRepeatGmId || null, true)}
+                        title={canRepeat ? "Einen weiteren Besuch für diesen Markt hinzufügen" : "Keine bestehende GM-Zuweisung gefunden"}
+                        aria-label={`Weiteren Besuch hinzufügen: ${m.name}, ${m.address}`}
+                        style={{ display: "flex", alignItems: "center", gap: 3, padding: "4px 6px", border: "1px solid rgba(22,163,74,0.18)", borderRadius: 6, background: canRepeat ? "#fff" : "rgba(0,0,0,0.035)", color: canRepeat ? "#15803d" : "#9ca3af", fontSize: 10, fontWeight: 700, cursor: canRepeat ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}
+                      >
+                        <Plus size={11} strokeWidth={2.5} /> Weiterer Besuch
+                        </button>
+                      )}
+                    </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {visibleCandidates.map((m) => {
@@ -9110,20 +9154,26 @@ export default function FbManagementPage() {
     }, 320);
   }, [campaignId, campaignMarketIds, campaignPendingOps, invalidateCampaignVisitStatus, refreshCampaignVisitStatuses]);
 
-  const handleAddMarket = useCallback(async (id: string, gmUserId?: string | null): Promise<MarketAdditionReceipt | null> => {
+  const pendingAdditionIdsRef = useRef<Map<string, string>>(new Map());
+  const handleAddMarket = useCallback(async (id: string, gmUserId?: string | null, repeat = false): Promise<MarketAdditionReceipt | null> => {
     if (!campaignId || isCampaignBusy(campaignId)) return null;
     const requiresGmAssignment = campaign?.section !== "flex";
     if (requiresGmAssignment && !gmUserId) {
       setMutationError("Bitte einen GM auswählen. Ohne GM ist der Markt für die GM-App nicht sichtbar.");
       return null;
     }
-    const additionId = campaign?.section === "kuehler" ? crypto.randomUUID() : undefined;
+    const additionKey = `${campaignId}:${id}:${gmUserId ?? "unassigned"}`;
+    const additionId = campaign?.section === "kuehler" || repeat
+      ? pendingAdditionIdsRef.current.get(additionKey) ?? crypto.randomUUID()
+      : undefined;
+    if (additionId) pendingAdditionIdsRef.current.set(additionKey, additionId);
     setMutationError(null);
     setCampaignPendingOps((current) => ({ ...current, [campaignId]: (current[campaignId] ?? 0) + 1 }));
     try {
       const updated = requiresGmAssignment
         ? await assignCampaignMarketAssignments(campaignId, [{ marketId: id, gmUserId: gmUserId ?? null }], additionId)
         : await assignCampaignMarkets(campaignId, [id]);
+      if (additionId) pendingAdditionIdsRef.current.delete(additionKey);
       setCampaignsData((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
       invalidateCampaignVisitStatus(updated.id);
       void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
@@ -11281,6 +11331,7 @@ export default function FbManagementPage() {
           pos={addPanelPos}
           availableMarkets={availableMarkets}
           assignedMarkets={assignedMarkets}
+          assignedAssignments={campaign?.assignments}
           allMarkets={marketsData}
           assignedMarketIds={assignedIds}
           onAdd={handleAddMarket}

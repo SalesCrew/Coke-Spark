@@ -5,10 +5,13 @@ import { IppAuswertungCard } from "@/components/admin/gm-dashboard/IppAuswertung
 import { FuellstandCard } from "@/components/admin/gm-dashboard/FuellstandCard";
 import { PlatzierungenCard } from "@/components/admin/gm-dashboard/PlatzierungenCard";
 import { PlaceholderCardNine } from "@/components/admin/gm-dashboard/PlaceholderCardNine";
+import { BonusOverviewCard } from "@/components/admin/gm-dashboard/BonusOverviewCard";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportGmDashboardExcel } from "@/lib/exports/planningExports";
+import { useAdminAccess } from "@/context/AdminAccessContext";
 
 export default function GmDashboardPage() {
+  const { isAdmin } = useAdminAccess();
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -51,6 +54,8 @@ export default function GmDashboardPage() {
         <IppAuswertungCard />
         <FuellstandCard />
       </div>
+
+      {isAdmin && <BonusOverviewCard />}
 
       <div
         style={{

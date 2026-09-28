@@ -13,16 +13,18 @@ type ResolveCompareIntervalInput = {
   customCompareIntervalId: string | null;
 };
 
-export function resolveCompareIntervalId(input: ResolveCompareIntervalInput): string | null {
+export function resolveCompareIntervalId(
+  input: ResolveCompareIntervalInput,
+): string | null {
   if (!input.baseIntervalId) return null;
   if (input.preset === "previous") {
     return findPreviousIntervalId(input.intervals, input.baseIntervalId);
   }
   if (input.preset === "previous_year") {
-    return findPreviousYearIntervalId(input.intervals, input.baseIntervalId) ?? findPreviousIntervalId(input.intervals, input.baseIntervalId);
+    return findPreviousYearIntervalId(input.intervals, input.baseIntervalId);
   }
   if (input.preset === "q4_vs_q2") {
-    return findQuarterPairIntervalId(input.intervals, input.baseIntervalId) ?? findPreviousIntervalId(input.intervals, input.baseIntervalId);
+    return findQuarterPairIntervalId(input.intervals, input.baseIntervalId);
   }
   return input.customCompareIntervalId;
 }

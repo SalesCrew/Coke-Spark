@@ -101,7 +101,7 @@ function buildRedMonthIntervals(input: BuildIntervalsInput): IppInterval[] {
         startMs: start.getTime(),
         meta: {
           year: period.year,
-          redPeriodIndex: period.periodIndexFromAnchor,
+          redPeriodIndex: period.periodIndex,
         },
       };
     })
@@ -140,9 +140,9 @@ function buildWeekIntervals(input: BuildIntervalsInput): IppInterval[] {
   const intervals: IppInterval[] = [];
   for (let idx = 0; idx < count; idx += 1) {
     const start = addUtcDays(currentWeekStart, -7 * idx);
-    const end = addUtcDays(start, 4); // Mo-Fr
+    const end = addUtcDays(start, 6); // Mo-So: include completed weekend visits.
     const isoWeek = getIsoWeek(start);
-    const year = start.getUTCFullYear();
+    const year = addUtcDays(start, 3).getUTCFullYear(); // ISO week-year is the Thursday's year.
     intervals.push({
       id: `week-${year}-${pad2(isoWeek)}`,
       mode: "week",
@@ -249,7 +249,7 @@ export function findPreviousYearIntervalId(intervals: IppInterval[], selectedInt
   const redIndex = selected.meta.redPeriodIndex;
   if (redIndex != null) {
     return (
-      intervals.find((interval) => interval.mode === "redmonth" && interval.meta.redPeriodIndex === redIndex - 12)?.id
+      intervals.find((interval) => interval.mode === "redmonth" && interval.meta.year === selected.meta.year - 1 && interval.meta.redPeriodIndex === redIndex)?.id
       ?? null
     );
   }

@@ -13,7 +13,7 @@ type IppIntervalToolbarProps = {
 
 const MODES: Array<{ id: IntervalMode; label: string }> = [
   { id: "redmonth", label: "RedMonth" },
-  { id: "week", label: "Woche (Mo-Fr)" },
+  { id: "week", label: "Woche (Mo–So)" },
   { id: "month", label: "Monat" },
   { id: "quarter", label: "Quartal" },
 ];

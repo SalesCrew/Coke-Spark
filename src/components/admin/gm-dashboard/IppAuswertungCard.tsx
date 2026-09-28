@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchGmUsers, fetchMarkets } from "@/lib/api/backend";
+import { useDashboardData, useDashboardFacets } from "./RealGmDashboard";
 import { useRedMonth } from "@/context/RedMonthContext";
 import { IppChartPanel } from "@/components/admin/gm-dashboard/IppChartPanel";
 import { IppOverlapModal } from "@/components/admin/gm-dashboard/IppOverlapModal";
@@ -11,10 +11,7 @@ import {
   type IntervalMode,
 } from "@/lib/ipp-dashboard/intervals";
 import {
-  buildMockPieCumulativeData,
-  buildCompareResult,
-  buildMockLineSeries,
-  buildMockPieData,
+  type IppLinePoint,
   type IppFilterScope,
 } from "@/lib/ipp-dashboard/mock-data";
 import {
@@ -25,61 +22,18 @@ import {
 } from "@/components/admin/gm-dashboard/IppFilterBar";
 import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalToolbar";
 import type { ComparePreset } from "@/components/admin/gm-dashboard/IppOverlapControls";
+import { averageIppYtd, calendarToday } from "@/lib/gm-dashboard/data";
+import { placementPie } from "@/lib/gm-dashboard/chart-adapters";
 import { resolveCompareIntervalId } from "@/components/admin/gm-dashboard/overlap-utils";
 
-function getRangeAroundToday(): { from: string; to: string } {
-  const now = new Date();
-  const from = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), 1));
-  const to = new Date(Date.UTC(now.getUTCFullYear() + 1, now.getUTCMonth() + 2, 0));
-  const ymd = (date: Date) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-  return { from: ymd(from), to: ymd(to) };
-}
-
-function deriveChainFromMarketName(name: string): string {
-  const token = name.trim().split(/\s+/)[0] ?? "";
-  return token.toUpperCase();
-}
-
-function formatMarketLabel(name: string, address?: string | null, postalCode?: string | null, city?: string | null): string {
-  const displayName = address?.trim() || name.trim();
-  const plzOrt = [postalCode?.trim(), city?.trim()].filter((part): part is string => Boolean(part && part.length > 0)).join(" ");
-  if (displayName && plzOrt) return `${displayName} · ${plzOrt}`;
-  return displayName || plzOrt || "Unbekannter Markt";
-}
-
-function buildMarketSearchText(market: {
-  name?: string | null;
-  dbName?: string | null;
-  address?: string | null;
-  postalCode?: string | null;
-  city?: string | null;
-  region?: string | null;
-  emEh?: string | null;
-  currentGmName?: string | null;
-}): string {
-  return [
-    market.name,
-    market.dbName,
-    market.address,
-    market.postalCode,
-    market.city,
-    market.region,
-    market.emEh,
-    market.currentGmName,
-  ]
-    .filter((part): part is string => Boolean(part && part.trim().length > 0))
-    .join(" ");
-}
-
 export function IppAuswertungCard() {
-  const { calendar, loadCalendar } = useRedMonth();
-  const [markets, setMarkets] = useState<IppMarketOption[]>([]);
-  const [gms, setGms] = useState<IppGmOption[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
+  const { calendar, error: calendarError } = useRedMonth();
+  const facets = useDashboardFacets();
+  const { markets, gms } = facets;
   const [intervalMode, setIntervalMode] = useState<IntervalMode>("redmonth");
-  const [selectedIntervalId, setSelectedIntervalId] = useState<string | null>(null);
+  const [selectedIntervalId, setSelectedIntervalId] = useState<string | null>(
+    null,
+  );
 
   const [filters, setFilters] = useState<IppFilterState>({
     region: null,
@@ -92,64 +46,30 @@ export function IppAuswertungCard() {
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [baseIntervalId, setBaseIntervalId] = useState<string | null>(null);
   const [comparePreset, setComparePreset] = useState<ComparePreset>("previous");
-  const [customCompareIntervalId, setCustomCompareIntervalId] = useState<string | null>(null);
+  const [customCompareIntervalId, setCustomCompareIntervalId] = useState<
+    string | null
+  >(null);
   const [isOverlapModalOpen, setIsOverlapModalOpen] = useState(false);
-  const [revertOverlapOnModalCancel, setRevertOverlapOnModalCancel] = useState(false);
-
-  useEffect(() => {
-    const { from, to } = getRangeAroundToday();
-    void loadCalendar({ from, to });
-  }, [loadCalendar]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
-    void Promise.all([fetchMarkets(), fetchGmUsers()])
-      .then(([marketRows, gmRows]) => {
-        if (cancelled) return;
-        setMarkets(
-          marketRows
-            .filter((market) => !market.isDeleted)
-            .map((market) => ({
-              id: market.id,
-              label: formatMarketLabel(market.name, market.address, market.postalCode, market.city),
-              region: market.region || "Unbekannt",
-              gmName: market.currentGmName || "",
-              chain: deriveChainFromMarketName(market.name),
-              searchText: buildMarketSearchText(market),
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label, "de")),
-        );
-        setGms(
-          gmRows
-            .map((gm) => ({
-              id: gm.id,
-              label: `${gm.firstName} ${gm.lastName}`.trim(),
-              region: gm.region || "Unbekannt",
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label, "de")),
-        );
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setLoadError(error instanceof Error ? error.message : "Filterdaten konnten nicht geladen werden.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const [revertOverlapOnModalCancel, setRevertOverlapOnModalCancel] =
+    useState(false);
 
   const intervals = useMemo(
     () =>
-      buildIntervals({
-        mode: intervalMode,
-        count: intervalMode === "week" ? 36 : 28,
-        redMonthCalendar: calendar,
-      }),
+      intervalMode === "redmonth" && !calendar.length
+        ? []
+        : buildIntervals({
+            mode: intervalMode,
+            count:
+              intervalMode === "week"
+                ? 36
+                : intervalMode === "quarter"
+                  ? 12
+                  : 28,
+            redMonthCalendar: calendar.filter(
+              (period) => period.start <= calendarToday(),
+            ),
+            now: new Date(calendarToday() + "T12:00:00Z"),
+          }),
     [calendar, intervalMode],
   );
 
@@ -158,7 +78,10 @@ export function IppAuswertungCard() {
       setSelectedIntervalId(null);
       return;
     }
-    if (!selectedIntervalId || !intervals.some((interval) => interval.id === selectedIntervalId)) {
+    if (
+      !selectedIntervalId ||
+      !intervals.some((interval) => interval.id === selectedIntervalId)
+    ) {
       setSelectedIntervalId(intervals[0]!.id);
     }
   }, [intervals, selectedIntervalId]);
@@ -168,7 +91,10 @@ export function IppAuswertungCard() {
       setBaseIntervalId(null);
       return;
     }
-    if (!baseIntervalId || !intervals.some((interval) => interval.id === baseIntervalId)) {
+    if (
+      !baseIntervalId ||
+      !intervals.some((interval) => interval.id === baseIntervalId)
+    ) {
       setBaseIntervalId(selectedIntervalId ?? intervals[0]!.id);
     }
   }, [baseIntervalId, intervals, selectedIntervalId]);
@@ -176,13 +102,17 @@ export function IppAuswertungCard() {
   useEffect(() => {
     if (comparePreset !== "custom") return;
     if (!customCompareIntervalId) return;
-    if (!intervals.some((interval) => interval.id === customCompareIntervalId)) {
+    if (
+      !intervals.some((interval) => interval.id === customCompareIntervalId)
+    ) {
       setCustomCompareIntervalId(null);
     }
   }, [comparePreset, customCompareIntervalId, intervals]);
 
   const activeBaseIntervalId = baseIntervalId ?? selectedIntervalId;
-  const customCandidateIntervals = intervals.filter((interval) => interval.id !== activeBaseIntervalId);
+  const customCandidateIntervals = intervals.filter(
+    (interval) => interval.id !== activeBaseIntervalId,
+  );
 
   const compareIntervalId = useMemo(() => {
     if (!compareEnabled) return null;
@@ -192,7 +122,13 @@ export function IppAuswertungCard() {
       preset: comparePreset,
       customCompareIntervalId,
     });
-  }, [activeBaseIntervalId, compareEnabled, comparePreset, customCompareIntervalId, intervals]);
+  }, [
+    activeBaseIntervalId,
+    compareEnabled,
+    comparePreset,
+    customCompareIntervalId,
+    intervals,
+  ]);
 
   const compareInterval = findIntervalById(intervals, compareIntervalId);
   const filterScope: IppFilterScope = {
@@ -203,41 +139,81 @@ export function IppAuswertungCard() {
     stc: filters.stc,
   };
 
-  const linePoints = useMemo(
+  const result = useDashboardData(
+    "IPP",
+    intervals,
+    filterScope,
+    selectedIntervalId,
+    null,
+    compareEnabled ? comparePreset : "off",
+    compareIntervalId,
+  );
+  const loading = facets.loading || result.loading;
+  const loadError =
+    facets.error ??
+    result.error ??
+    (intervalMode === "redmonth" ? calendarError : null);
+  const linePoints = useMemo<IppLinePoint[]>(
     () =>
-      buildMockLineSeries({
-        intervals,
-        filters: filterScope,
-        compareIntervalId: compareEnabled ? compareIntervalId : null,
-      }),
-    [compareEnabled, compareIntervalId, filterScope, intervals],
+      [...(result.data?.points ?? [])]
+        .sort((a, b) => a.start.localeCompare(b.start))
+        .map((point) => {
+          const target = compareEnabled
+            ? resolveCompareIntervalId({
+                intervals,
+                baseIntervalId: point.id,
+                preset: comparePreset,
+                customCompareIntervalId,
+              })
+            : null;
+          return {
+            intervalId: point.id,
+            label: point.label,
+            shortLabel: point.shortLabel,
+            value: point.ipp ?? NaN,
+            compareValue:
+              result.data?.points.find((p) => p.id === target)?.ipp ?? null,
+          };
+        }),
+    [
+      result.data,
+      compareEnabled,
+      comparePreset,
+      customCompareIntervalId,
+      intervals,
+    ],
   );
-
-  const compareResult = useMemo(
-    () => (compareEnabled ? buildCompareResult(linePoints, activeBaseIntervalId) : null),
-    [activeBaseIntervalId, compareEnabled, linePoints],
+  const current = linePoints.find((p) => p.intervalId === activeBaseIntervalId);
+  const compareResult =
+    compareEnabled &&
+    current &&
+    Number.isFinite(current.value) &&
+    current.compareValue != null
+      ? {
+          deltaAbs: current.value - current.compareValue,
+          deltaPct: current.compareValue
+            ? (100 * (current.value - current.compareValue)) /
+              current.compareValue
+            : null,
+        }
+      : null;
+  const ytdAverage = averageIppYtd(result.data?.points ?? [], calendarToday());
+  const pieData = placementPie(
+    (result.data?.points ?? []).filter((p) => p.id === selectedIntervalId),
   );
-  const ytdAverage = useMemo(
-    () => (linePoints.length > 0 ? linePoints.reduce((sum, point) => sum + point.value, 0) / linePoints.length : null),
-    [linePoints],
-  );
-
-  const pieData = useMemo(
-    () => buildMockPieData({ selectedIntervalId, filters: filterScope }),
-    [filterScope, selectedIntervalId],
-  );
-  const pieDataCumulative = useMemo(
-    () =>
-      buildMockPieCumulativeData({
-        intervalIds: intervals.map((interval) => interval.id),
-        filters: filterScope,
-      }),
-    [filterScope, intervals],
+  const pieDataCumulative = placementPie(
+    (result.data?.points ?? []).filter(
+      (p) => p.start.slice(0, 4) === calendarToday().slice(0, 4),
+    ),
   );
 
   const regionOptions = useMemo(() => {
-    const unique = new Set(markets.map((market) => market.region).filter(Boolean));
-    return Array.from(unique).sort((left, right) => left.localeCompare(right, "de"));
+    const unique = new Set(
+      markets.map((market) => market.region).filter(Boolean),
+    );
+    return Array.from(unique).sort((left, right) =>
+      left.localeCompare(right, "de"),
+    );
   }, [markets]);
 
   const compareLabel = compareInterval
@@ -274,21 +250,55 @@ export function IppAuswertungCard() {
         }}
       >
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "rgba(0,0,0,0.36)",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
             IPP und Platzierungs Auswertung
           </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
+          <div
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              color: "#111827",
+              letterSpacing: "-0.02em",
+            }}
+          >
             IPP Auswertung
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.38)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          <div
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "rgba(0,0,0,0.38)",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
             YTD average IPP
           </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", lineHeight: 1.05 }}>
+          <div
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              color: "#059669",
+              lineHeight: 1.05,
+            }}
+          >
             {ytdAverage != null ? ytdAverage.toFixed(1) : "—"}
           </div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}>Alle Intervalle</div>
+          <div
+            style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)" }}
+          >
+            Aktuelles Jahr
+          </div>
         </div>
       </header>
 
@@ -307,7 +317,17 @@ export function IppAuswertungCard() {
         }}
       >
         {loadError && (
-          <div style={{ borderRadius: 9, border: "1px solid rgba(185,28,28,0.26)", background: "rgba(185,28,28,0.08)", color: "#991b1b", padding: "8px 10px", fontSize: 11, fontWeight: 700 }}>
+          <div
+            style={{
+              borderRadius: 9,
+              border: "1px solid rgba(185,28,28,0.26)",
+              background: "rgba(185,28,28,0.08)",
+              color: "#991b1b",
+              padding: "8px 10px",
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
             {loadError}
           </div>
         )}
@@ -366,7 +386,15 @@ export function IppAuswertungCard() {
         />
 
         {loading && (
-          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(0,0,0,0.4)", textAlign: "center", paddingBottom: 4 }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "rgba(0,0,0,0.4)",
+              textAlign: "center",
+              paddingBottom: 4,
+            }}
+          >
             Filterquellen werden geladen...
           </div>
         )}

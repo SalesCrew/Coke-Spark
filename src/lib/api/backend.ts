@@ -2522,6 +2522,14 @@ export const smManagementApi: SmManagementApi = {
   },
 };
 
+export async function requestPraemienWorkspace<T>(path: string, body?: unknown, method = 'GET'): Promise<T> {
+  return await authedFetch(`/admin/praemien/workspace${path}`, body === undefined ? undefined : { method, body: JSON.stringify(body) }) as T;
+}
+
+export async function requestGmDashboard<T>(path: string, body?: unknown): Promise<T> {
+  return await authedFetch(`/admin/gm-dashboard${path}`,body===undefined?undefined:{method:'POST',body:JSON.stringify(body)}) as T;
+}
+
 export async function discardSmVisit(assignmentId: string): Promise<{ ok: true; assignmentId: string; status: "planned" | "confirmed" | "open" }> {
   return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}`, {
     method: "DELETE",

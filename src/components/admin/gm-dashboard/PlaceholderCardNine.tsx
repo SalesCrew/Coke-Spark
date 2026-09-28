@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
-import { fetchGmUsers, fetchMarkets } from "@/lib/api/backend";
+import { useDashboardData, useDashboardFacets } from "./RealGmDashboard";
+import { calendarToday } from "@/lib/gm-dashboard/data";
 import {
   IppFilterBar,
   type IppFilterState,
@@ -41,9 +42,16 @@ function deriveChainFromMarketName(name: string): string {
   return token.toUpperCase();
 }
 
-function formatMarketLabel(name: string, address?: string | null, postalCode?: string | null, city?: string | null): string {
+function formatMarketLabel(
+  name: string,
+  address?: string | null,
+  postalCode?: string | null,
+  city?: string | null,
+): string {
   const displayName = address?.trim() || name.trim();
-  const plzOrt = [postalCode?.trim(), city?.trim()].filter((part): part is string => Boolean(part && part.length > 0)).join(" ");
+  const plzOrt = [postalCode?.trim(), city?.trim()]
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join(" ");
   if (displayName && plzOrt) return `${displayName} · ${plzOrt}`;
   return displayName || plzOrt || "Unbekannter Markt";
 }
@@ -107,7 +115,8 @@ function formatMonthLabel(value: string): string {
 
 function formatDateRangeLabel(range: DateRangeFilter): string {
   if (!range.start) return "";
-  if (!range.end || range.end === range.start) return formatDateShort(range.start);
+  if (!range.end || range.end === range.start)
+    return formatDateShort(range.start);
   return `${formatDateShort(range.start)} - ${formatDateShort(range.end)}`;
 }
 
@@ -117,7 +126,9 @@ function moveMonth(value: string, delta: number): string {
   return formatMonthKey(date);
 }
 
-function buildCalendarDays(monthKey: string): Array<{ key: string; label: number; inMonth: boolean }> {
+function buildCalendarDays(
+  monthKey: string,
+): Array<{ key: string; label: number; inMonth: boolean }> {
   const monthDate = parseMonthKey(monthKey);
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -136,7 +147,12 @@ function buildCalendarDays(monthKey: string): Array<{ key: string; label: number
   });
 }
 
-function polarToCartesian(cx: number, cy: number, radius: number, angleDeg: number): { x: number; y: number } {
+function polarToCartesian(
+  cx: number,
+  cy: number,
+  radius: number,
+  angleDeg: number,
+): { x: number; y: number } {
   const angleRad = (angleDeg * Math.PI) / 180;
   return {
     x: cx + radius * Math.cos(angleRad),
@@ -144,7 +160,14 @@ function polarToCartesian(cx: number, cy: number, radius: number, angleDeg: numb
   };
 }
 
-function describeDonutSegment(cx: number, cy: number, outerRadius: number, innerRadius: number, startAngle: number, endAngle: number): string {
+function describeDonutSegment(
+  cx: number,
+  cy: number,
+  outerRadius: number,
+  innerRadius: number,
+  startAngle: number,
+  endAngle: number,
+): string {
   const outerStart = polarToCartesian(cx, cy, outerRadius, startAngle);
   const outerEnd = polarToCartesian(cx, cy, outerRadius, endAngle);
   const innerStart = polarToCartesian(cx, cy, innerRadius, startAngle);
@@ -173,16 +196,23 @@ function DateRangeDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const [draftRange, setDraftRange] = useState<DateRangeFilter>(value);
-  const [draftMonth, setDraftMonth] = useState(() => formatMonthKey(value.start ? parseDateKey(value.start) : new Date()));
+  const [draftMonth, setDraftMonth] = useState(() =>
+    formatMonthKey(value.start ? parseDateKey(value.start) : new Date()),
+  );
   const containerRef = useRef<HTMLDivElement | null>(null);
   const applied = Boolean(value.start && value.end);
   const draftComplete = Boolean(draftRange.start && draftRange.end);
-  const calendarDays = useMemo(() => buildCalendarDays(draftMonth), [draftMonth]);
+  const calendarDays = useMemo(
+    () => buildCalendarDays(draftMonth),
+    [draftMonth],
+  );
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(value);
-    setDraftMonth(formatMonthKey(value.start ? parseDateKey(value.start) : new Date()));
+    setDraftMonth(
+      formatMonthKey(value.start ? parseDateKey(value.start) : new Date()),
+    );
   }, [open, value]);
 
   useEffect(() => {
@@ -207,7 +237,9 @@ function DateRangeDropdown({
     setDraftRange((current) => {
       if (!current.start || current.end) return { start: dateKey, end: null };
       if (dateKey === current.start) return current;
-      return dateKey < current.start ? { start: dateKey, end: current.start } : { start: current.start, end: dateKey };
+      return dateKey < current.start
+        ? { start: dateKey, end: current.start }
+        : { start: current.start, end: dateKey };
     });
   };
 
@@ -225,7 +257,16 @@ function DateRangeDropdown({
           color: #111827 !important;
         }
       `}</style>
-      <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.35)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 3 }}>
+      <div
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          color: "rgba(0,0,0,0.35)",
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          marginBottom: 3,
+        }}
+      >
         Zeitraum
       </div>
       <button
@@ -253,10 +294,27 @@ function DateRangeDropdown({
           transition: "all 0.14s ease",
         }}
       >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: applied ? "#111827" : "rgba(0,0,0,0.42)" }}>
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: applied ? "#111827" : "rgba(0,0,0,0.42)",
+          }}
+        >
           {triggerLabel}
         </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "rgba(0,0,0,0.45)", fontSize: 11, fontWeight: 900, lineHeight: 1 }}>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            color: "rgba(0,0,0,0.45)",
+            fontSize: 11,
+            fontWeight: 900,
+            lineHeight: 1,
+          }}
+        >
           <Calendar size={11} strokeWidth={1.9} />
           {open ? "▴" : "▾"}
         </span>
@@ -277,7 +335,15 @@ function DateRangeDropdown({
             padding: 8,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
             <button
               type="button"
               aria-label="Vorheriger Monat"
@@ -297,7 +363,14 @@ function DateRangeDropdown({
             >
               <ChevronLeft size={13} strokeWidth={2.2} />
             </button>
-            <div style={{ fontSize: 12, fontWeight: 850, color: "#111827", textTransform: "capitalize" }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 850,
+                color: "#111827",
+                textTransform: "capitalize",
+              }}
+            >
               {formatMonthLabel(draftMonth)}
             </div>
             <button
@@ -321,16 +394,36 @@ function DateRangeDropdown({
             </button>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0,1fr))", gap: 3 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(7, minmax(0,1fr))",
+              gap: 3,
+            }}
+          >
             {CALENDAR_WEEKDAYS.map((weekday) => (
-              <div key={weekday} style={{ textAlign: "center", fontSize: 9, fontWeight: 800, color: "rgba(100,116,139,0.58)", padding: "2px 0 4px" }}>
+              <div
+                key={weekday}
+                style={{
+                  textAlign: "center",
+                  fontSize: 9,
+                  fontWeight: 800,
+                  color: "rgba(100,116,139,0.58)",
+                  padding: "2px 0 4px",
+                }}
+              >
                 {weekday}
               </div>
             ))}
             {calendarDays.map((day) => {
               const isStart = day.key === draftRange.start;
               const isEnd = day.key === draftRange.end;
-              const inRange = Boolean(draftRange.start && draftRange.end && day.key >= draftRange.start && day.key <= draftRange.end);
+              const inRange = Boolean(
+                draftRange.start &&
+                draftRange.end &&
+                day.key >= draftRange.start &&
+                day.key <= draftRange.end,
+              );
               const active = isStart || isEnd;
               return (
                 <button
@@ -340,18 +433,26 @@ function DateRangeDropdown({
                   onClick={() => handleDateClick(day.key)}
                   style={{
                     height: 28,
-                    border: active ? "1px solid rgba(220,38,38,0.24)" : "1px solid transparent",
+                    border: active
+                      ? "1px solid rgba(220,38,38,0.24)"
+                      : "1px solid transparent",
                     borderRadius: active ? 8 : 7,
                     background: active
                       ? "linear-gradient(to bottom,rgba(254,242,242,0.96),rgba(255,255,255,0.92))"
                       : inRange
                         ? "rgba(220,38,38,0.035)"
                         : "transparent",
-                    color: active ? "#B91C1C" : day.inMonth ? "#111827" : "rgba(100,116,139,0.30)",
+                    color: active
+                      ? "#B91C1C"
+                      : day.inMonth
+                        ? "#111827"
+                        : "rgba(100,116,139,0.30)",
                     fontSize: 10,
                     fontWeight: active ? 850 : inRange ? 800 : 700,
                     cursor: "pointer",
-                    boxShadow: active ? "inset 0 1px 0.6px rgba(255,255,255,0.92), 0 1px 4px rgba(220,38,38,0.08)" : "none",
+                    boxShadow: active
+                      ? "inset 0 1px 0.6px rgba(255,255,255,0.92), 0 1px 4px rgba(220,38,38,0.08)"
+                      : "none",
                     boxSizing: "border-box",
                   }}
                 >
@@ -361,7 +462,14 @@ function DateRangeDropdown({
             })}
           </div>
 
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 8,
+              marginTop: 8,
+            }}
+          >
             <button
               type="button"
               onClick={() => {
@@ -378,7 +486,8 @@ function DateRangeDropdown({
                 fontSize: 10,
                 fontWeight: 800,
                 padding: "7px 10px",
-                cursor: value.start || draftRange.start ? "pointer" : "not-allowed",
+                cursor:
+                  value.start || draftRange.start ? "pointer" : "not-allowed",
                 opacity: value.start || draftRange.start ? 1 : 0.55,
               }}
             >
@@ -395,14 +504,18 @@ function DateRangeDropdown({
               style={{
                 border: "none",
                 borderRadius: 8,
-                background: draftComplete ? "linear-gradient(to bottom,#DC2626,#b91c1c)" : "rgba(220,38,38,0.28)",
+                background: draftComplete
+                  ? "linear-gradient(to bottom,#DC2626,#b91c1c)"
+                  : "rgba(220,38,38,0.28)",
                 color: "#fff",
                 fontSize: 10,
                 fontWeight: 850,
                 padding: "7px 10px",
                 cursor: draftComplete ? "pointer" : "not-allowed",
                 opacity: draftComplete ? 1 : 0.55,
-                boxShadow: draftComplete ? "inset 0 1px 0.6px rgba(255,255,255,0.30), 0 6px 14px rgba(220,38,38,0.14)" : "none",
+                boxShadow: draftComplete
+                  ? "inset 0 1px 0.6px rgba(255,255,255,0.30), 0 6px 14px rgba(220,38,38,0.14)"
+                  : "none",
               }}
             >
               Übernehmen
@@ -419,109 +532,89 @@ export function PlaceholderCardNine() {
   const [dateRange, setDateRange] = useState<DateRangeFilter>(EMPTY_DATE_RANGE);
   const [filters, setFilters] = useState<IppFilterState>(EMPTY_FILTERS);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
-  const [markets, setMarkets] = useState<IppMarketOption[]>([]);
-  const [gms, setGms] = useState<IppGmOption[]>([]);
-  const [filterSourcesLoaded, setFilterSourcesLoaded] = useState(false);
-  const [filterSourcesLoading, setFilterSourcesLoading] = useState(false);
-  const [filterLoadError, setFilterLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!filterModalOpen || filterSourcesLoaded) return;
-    let cancelled = false;
-    setFilterSourcesLoading(true);
-    setFilterLoadError(null);
-    void Promise.all([fetchMarkets(), fetchGmUsers()])
-      .then(([marketRows, gmRows]) => {
-        if (cancelled) return;
-        setMarkets(
-          marketRows
-            .filter((market) => !market.isDeleted)
-            .map((market) => ({
-              id: market.id,
-              label: formatMarketLabel(market.name, market.address, market.postalCode, market.city),
-              region: market.region || "Unbekannt",
-              gmName: market.currentGmName || "",
-              chain: deriveChainFromMarketName(market.name),
-              searchText: buildMarketSearchText(market),
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label, "de")),
-        );
-        setGms(
-          gmRows
-            .map((gm) => ({
-              id: gm.id,
-              label: `${gm.firstName} ${gm.lastName}`.trim(),
-              region: gm.region || "Unbekannt",
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label, "de")),
-        );
-        setFilterSourcesLoaded(true);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setFilterLoadError(error instanceof Error ? error.message : "Filterdaten konnten nicht geladen werden.");
-      })
-      .finally(() => {
-        if (!cancelled) setFilterSourcesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [filterModalOpen, filterSourcesLoaded]);
+  const facets = useDashboardFacets();
+  const { markets, gms } = facets;
+  const filterSourcesLoading = facets.loading;
+  const filterLoadError = facets.error;
 
   const regionOptions = useMemo(() => {
-    const unique = new Set(markets.map((market) => market.region).filter(Boolean));
-    return Array.from(unique).sort((left, right) => left.localeCompare(right, "de"));
+    const unique = new Set(
+      markets.map((market) => market.region).filter(Boolean),
+    );
+    return Array.from(unique).sort((left, right) =>
+      left.localeCompare(right, "de"),
+    );
   }, [markets]);
 
   const dateRangeActive = Boolean(dateRange.start && dateRange.end);
-  const selectedDateRangeLabel = dateRangeActive ? formatDateRangeLabel(dateRange) : "";
-  const dateRangeDays =
-    dateRange.start && dateRange.end
-      ? Math.max(1, Math.round((parseDateKey(dateRange.end).getTime() - parseDateKey(dateRange.start).getTime()) / 86_400_000) + 1)
-      : null;
-  const dateWindowScale = dateRangeActive && dateRangeDays ? clamp(dateRangeDays / 365, 0.08, 1) : 1;
-  const standardFilterCount = [filters.region, filters.gmId, filters.chain, filters.marketId, filters.stc].filter((value) => value != null).length;
+  const selectedDateRangeLabel = dateRangeActive
+    ? formatDateRangeLabel(dateRange)
+    : "";
+  const standardFilterCount = [
+    filters.region,
+    filters.gmId,
+    filters.chain,
+    filters.marketId,
+    filters.stc,
+  ].filter((value) => value != null).length;
   const activeFilterCount = standardFilterCount + (dateRangeActive ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
-  const filterScale = hasActiveFilters ? clamp((1 - standardFilterCount * 0.13 - (filters.marketId ? 0.08 : 0)) * dateWindowScale, dateRangeActive ? 0.08 : 0.32, 1) : 1;
-  const stcBias = filters.stc === "gold" ? 4 : filters.stc === "silver" ? 1 : filters.stc === "bronze" ? -3 : 0;
-  const standardShare = clamp(63 + activeFilterCount * 1.8 + stcBias - (dateRangeActive ? 1 : 0), 42, 88);
-  const flexShare = 100 - standardShare;
-  const totalVisits = Math.max(hasActiveFilters ? 8 : 0, Math.round(138 * filterScale));
-  const standardVisits = Math.round(totalVisits * (standardShare / 100));
-  const flexVisits = Math.max(0, totalVisits - standardVisits);
-  const activityMetricsByPeriod = {
-    year: {
-      redSurveyCount: 54,
-      redSurveyShare: 39,
-      visitCount: 138,
-      visitBarShare: 84,
-      averageVisitDuration: "38 min",
-    },
-    month: {
-      redSurveyCount: 12,
-      redSurveyShare: 48,
-      visitCount: 28,
-      visitBarShare: 62,
-      averageVisitDuration: "34 min",
-    },
-  };
-  const baseActivityMetrics = dateRangeActive ? activityMetricsByPeriod.year : activityMetricsByPeriod[activityPeriod];
+  const today = calendarToday();
+  const startDate =
+    dateRange.start ??
+    (activityPeriod === "year"
+      ? today.slice(0, 4) + "-01-01"
+      : today.slice(0, 7) + "-01");
+  const endDate =
+    dateRange.end && dateRange.end < today ? dateRange.end : today;
+  const intervals =
+    startDate <= endDate
+      ? [
+          {
+            id: "activity",
+            label: dateRangeActive
+              ? selectedDateRangeLabel
+              : activityPeriod === "year"
+                ? "Aktuelles Jahr"
+                : "Aktueller Monat",
+            shortLabel: "Aktivität",
+            start: startDate,
+            end: endDate,
+          },
+        ]
+      : [];
+  const result = useDashboardData("Aktivitaet", intervals, filters, "activity");
+  const point = result.data?.points[0];
+  const totalVisits = point?.visits ?? 0,
+    standardVisits = point?.standardOnly ?? 0,
+    flexVisits = point?.flexOnly ?? 0;
+  const standardShare = totalVisits ? (100 * standardVisits) / totalVisits : 0,
+    flexShare = totalVisits ? (100 * flexVisits) / totalVisits : 0;
+  const classifiedShare = totalVisits
+    ? (100 * (standardVisits + flexVisits)) / totalVisits
+    : 0;
   const activityMetrics = {
-    redSurveyCount: Math.max(hasActiveFilters ? 2 : 0, Math.round(baseActivityMetrics.redSurveyCount * filterScale)),
-    redSurveyShare: clamp(baseActivityMetrics.redSurveyShare + activeFilterCount * 2.2 + stcBias, 8, 92),
+    redSurveyCount: point?.redSurveys ?? 0,
+    redSurveyShare: totalVisits
+      ? (100 * (point?.redSurveys ?? 0)) / totalVisits
+      : 0,
     visitCount: totalVisits,
-    visitBarShare: clamp(baseActivityMetrics.visitBarShare - activeFilterCount * 5 + stcBias, 16, 94),
-    averageVisitDuration: `${Math.max(18, Number.parseInt(baseActivityMetrics.averageVisitDuration, 10) - activeFilterCount * 2 + (filters.marketId ? 1 : 0))} min`,
+    visitBarShare: totalVisits ? 100 : 0,
+    averageVisitDuration:
+      point?.averageMinutes != null
+        ? `${point.averageMinutes.toFixed(1).replace(".", ",")} min`
+        : "—",
   };
   const activityDotPatternId = "placeholder-nine-activity-dot-pattern";
   const gaugeStart = 180;
   const gaugeEnd = 360;
-  const splitAngle = gaugeStart + (gaugeEnd - gaugeStart) * (standardShare / 100);
+  const splitAngle =
+    gaugeStart + (gaugeEnd - gaugeStart) * (standardShare / 100);
   const segmentGap = 4;
   const leftEnd = Math.max(gaugeStart, splitAngle - segmentGap / 2);
   const rightStart = Math.min(gaugeEnd, splitAngle + segmentGap / 2);
+  const classifiedEnd =
+    gaugeStart + (gaugeEnd - gaugeStart) * (classifiedShare / 100);
 
   return (
     <section
@@ -559,7 +652,15 @@ export function PlaceholderCardNine() {
             gap: 8,
           }}
         >
-          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.75)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "rgba(100,116,139,0.75)",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+            }}
+          >
             Verteilung
           </div>
           <button
@@ -571,8 +672,12 @@ export function PlaceholderCardNine() {
               width: 26,
               height: 26,
               borderRadius: 8,
-              border: hasActiveFilters ? "1px solid rgba(220,38,38,0.28)" : "1px solid rgba(0,0,0,0.08)",
-              background: hasActiveFilters ? "linear-gradient(to bottom,#fff7f7,#fff)" : "linear-gradient(to bottom,#fff,#f6f6f7)",
+              border: hasActiveFilters
+                ? "1px solid rgba(220,38,38,0.28)"
+                : "1px solid rgba(0,0,0,0.08)",
+              background: hasActiveFilters
+                ? "linear-gradient(to bottom,#fff7f7,#fff)"
+                : "linear-gradient(to bottom,#fff,#f6f6f7)",
               color: hasActiveFilters ? "#DC2626" : "rgba(15,23,42,0.48)",
               display: "inline-flex",
               alignItems: "center",
@@ -614,7 +719,18 @@ export function PlaceholderCardNine() {
             maxWidth: 360,
           }}
         >
-          <svg viewBox="0 0 360 160" width="100%" height={160} style={{ display: "block" }}>
+          <svg
+            viewBox="0 0 360 160"
+            width="100%"
+            height={160}
+            style={{ display: "block" }}
+          >
+            <path
+              d={describeDonutSegment(180, 146, 123, 93, gaugeStart, gaugeEnd)}
+              fill="rgba(100,116,139,.05)"
+              stroke="rgba(100,116,139,.25)"
+              strokeWidth={2}
+            />
             <path
               d={describeDonutSegment(180, 146, 123, 93, gaugeStart, leftEnd)}
               fill="rgba(239,68,68,0.14)"
@@ -622,7 +738,14 @@ export function PlaceholderCardNine() {
               strokeWidth={2}
             />
             <path
-              d={describeDonutSegment(180, 146, 123, 93, rightStart, gaugeEnd)}
+              d={describeDonutSegment(
+                180,
+                146,
+                123,
+                93,
+                rightStart,
+                Math.max(rightStart, classifiedEnd),
+              )}
               fill="rgba(239,68,68,0.08)"
               stroke="#ef4444"
               strokeWidth={2}
@@ -646,21 +769,35 @@ export function PlaceholderCardNine() {
                 fontSize: 34,
                 fontWeight: 800,
                 lineHeight: 1,
-                background: "linear-gradient(135deg, #B91C1C 0%, #DC2626 62%, #EF4444 100%)",
+                background:
+                  "linear-gradient(135deg, #B91C1C 0%, #DC2626 62%, #EF4444 100%)",
                 WebkitBackgroundClip: "text",
                 backgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 color: "transparent",
               }}
             >
-              {totalVisits}
+              {result.loading ? "…" : totalVisits}
             </span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "rgba(0,0,0,0.34)",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+              }}
+            >
               Gesamt
             </span>
           </div>
         </div>
 
+        {(result.error || filterLoadError) && (
+          <div role="alert" style={{ fontSize: 11, color: "#991b1b" }}>
+            {result.error ?? filterLoadError}
+          </div>
+        )}
         <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", marginTop: 0 }}>
           <div
             style={{
@@ -673,12 +810,40 @@ export function PlaceholderCardNine() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: "#ef4444", display: "inline-block" }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>Standard Visit</span>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 3,
+                  background: "#ef4444",
+                  display: "inline-block",
+                }}
+              />
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>
+                Standard Visit
+              </span>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{standardShare.toFixed(1).replace(".", ",")}%</div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 2 }}>{standardVisits} Fälle</div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: "#111111",
+                  lineHeight: 1,
+                }}
+              >
+                {standardShare.toFixed(1).replace(".", ",")}%
+              </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "rgba(100,116,139,0.62)",
+                  marginTop: 2,
+                }}
+              >
+                {standardVisits} Fälle
+              </div>
             </div>
           </div>
 
@@ -692,16 +857,56 @@ export function PlaceholderCardNine() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: "rgba(220,38,38,0.45)", display: "inline-block" }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>Flex Visit</span>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 3,
+                  background: "rgba(220,38,38,0.45)",
+                  display: "inline-block",
+                }}
+              />
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>
+                Flex Visit
+              </span>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{flexShare.toFixed(1).replace(".", ",")}%</div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 2 }}>{flexVisits} Fälle</div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: "#111111",
+                  lineHeight: 1,
+                }}
+              >
+                {flexShare.toFixed(1).replace(".", ",")}%
+              </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "rgba(100,116,139,0.62)",
+                  marginTop: 2,
+                }}
+              >
+                {flexVisits} Fälle
+              </div>
             </div>
           </div>
         </div>
 
+        {Boolean(point?.mixed || point?.other) && (
+          <div
+            style={{
+              fontSize: 10,
+              color: "rgba(100,116,139,.7)",
+              paddingTop: 6,
+            }}
+          >
+            Beide Bereiche: {point?.mixed ?? 0} · Andere Bereiche:{" "}
+            {point?.other ?? 0}
+          </div>
+        )}
         <div
           style={{
             marginTop: "auto",
@@ -724,7 +929,15 @@ export function PlaceholderCardNine() {
                 marginBottom: 18,
               }}
             >
-              <div style={{ fontSize: 10, fontWeight: 750, color: "rgba(100,116,139,0.72)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 750,
+                  color: "rgba(100,116,139,0.72)",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
                 Aktivität
               </div>
               <div
@@ -753,47 +966,77 @@ export function PlaceholderCardNine() {
                       lineHeight: 1,
                       color: "#111827",
                       background: "linear-gradient(to bottom,#fff,#f4f4f5)",
-                      boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), 0 0 0 1px rgba(0,0,0,0.08)",
+                      boxShadow:
+                        "inset 0 1px 0.6px rgba(255,255,255,0.9), 0 0 0 1px rgba(0,0,0,0.08)",
                       whiteSpace: "nowrap",
                     }}
                   >
                     {selectedDateRangeLabel}
                   </span>
-                ) : ([
-                  { id: "year" as const, label: "Jährl.", ariaLabel: "Jährlich anzeigen" },
-                  { id: "month" as const, label: "Monatl.", ariaLabel: "Monatlich anzeigen" },
-                ].map((option) => {
-                  const active = activityPeriod === option.id;
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      aria-label={option.ariaLabel}
-                      onClick={() => setActivityPeriod(option.id)}
-                      style={{
-                        border: "none",
-                        borderRadius: 6,
-                        padding: "4px 7px",
-                        fontFamily: "inherit",
-                        fontSize: 10,
-                        fontWeight: 800,
-                        lineHeight: 1,
-                        color: active ? "#1f2937" : "rgba(0,0,0,0.56)",
-                        background: active ? "linear-gradient(to bottom,#fff,#f4f4f5)" : "transparent",
-                        boxShadow: active ? "inset 0 1px 0.6px rgba(255,255,255,0.9), 0 0 0 1px rgba(0,0,0,0.08)" : "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                }))}
+                ) : (
+                  [
+                    {
+                      id: "year" as const,
+                      label: "Jährl.",
+                      ariaLabel: "Jährlich anzeigen",
+                    },
+                    {
+                      id: "month" as const,
+                      label: "Monatl.",
+                      ariaLabel: "Monatlich anzeigen",
+                    },
+                  ].map((option) => {
+                    const active = activityPeriod === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        aria-label={option.ariaLabel}
+                        onClick={() => setActivityPeriod(option.id)}
+                        style={{
+                          border: "none",
+                          borderRadius: 6,
+                          padding: "4px 7px",
+                          fontFamily: "inherit",
+                          fontSize: 10,
+                          fontWeight: 800,
+                          lineHeight: 1,
+                          color: active ? "#1f2937" : "rgba(0,0,0,0.56)",
+                          background: active
+                            ? "linear-gradient(to bottom,#fff,#f4f4f5)"
+                            : "transparent",
+                          boxShadow: active
+                            ? "inset 0 1px 0.6px rgba(255,255,255,0.9), 0 0 0 1px rgba(0,0,0,0.08)"
+                            : "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })
+                )}
               </div>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.58)", lineHeight: 1 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: "rgba(100,116,139,0.58)",
+                    lineHeight: 1,
+                  }}
+                >
                   Ø Besuchsdauer
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 850, color: "#111827", lineHeight: 1.15, marginTop: 3 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 850,
+                    color: "#111827",
+                    lineHeight: 1.15,
+                    marginTop: 3,
+                  }}
+                >
                   {activityMetrics.averageVisitDuration}
                 </div>
               </div>
@@ -824,13 +1067,41 @@ export function PlaceholderCardNine() {
                 }}
               >
                 <defs>
-                  <pattern id={activityDotPatternId} x="0" y="0" width="16" height="16" patternUnits="userSpaceOnUse">
-                    <circle cx="1.8" cy="1.8" r="0.72" fill="rgba(0,0,0,0.22)" />
+                  <pattern
+                    id={activityDotPatternId}
+                    x="0"
+                    y="0"
+                    width="16"
+                    height="16"
+                    patternUnits="userSpaceOnUse"
+                  >
+                    <circle
+                      cx="1.8"
+                      cy="1.8"
+                      r="0.72"
+                      fill="rgba(0,0,0,0.22)"
+                    />
                   </pattern>
                 </defs>
-                <rect x="0" y="0" width="100%" height="100%" fill={`url(#${activityDotPatternId})`} opacity={0.46} />
+                <rect
+                  x="0"
+                  y="0"
+                  width="100%"
+                  height="100%"
+                  fill={`url(#${activityDotPatternId})`}
+                  opacity={0.46}
+                />
               </svg>
-              <div style={{ position: "relative", zIndex: 1, display: "grid", gridTemplateColumns: "66px minmax(0,1fr)", alignItems: "end", gap: 14 }}>
+              <div
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  display: "grid",
+                  gridTemplateColumns: "66px minmax(0,1fr)",
+                  alignItems: "end",
+                  gap: 14,
+                }}
+              >
                 <div
                   style={{
                     height: 152,
@@ -856,29 +1127,93 @@ export function PlaceholderCardNine() {
                   />
                 </div>
                 <div style={{ paddingBottom: 2 }}>
-                  <div style={{ fontSize: 20, fontWeight: 850, color: "#DC2626", lineHeight: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 850,
+                      color: "#DC2626",
+                      lineHeight: 1,
+                    }}
+                  >
                     {activityMetrics.redSurveyCount}
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: "#111827", marginTop: 6, lineHeight: 1.2 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      color: "#111827",
+                      marginTop: 6,
+                      lineHeight: 1.2,
+                    }}
+                  >
                     RedSurvey
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 3 }}>
-                    {activityMetrics.redSurveyShare.toFixed(1).replace(".", ",")}% Anteil
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "rgba(100,116,139,0.62)",
+                      marginTop: 3,
+                    }}
+                  >
+                    {activityMetrics.redSurveyShare
+                      .toFixed(1)
+                      .replace(".", ",")}
+                    % Anteil
                   </div>
                 </div>
               </div>
 
-              <div style={{ position: "relative", zIndex: 1, width: 1, background: "linear-gradient(180deg, transparent, rgba(0,0,0,0.08), transparent)" }} />
+              <div
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  width: 1,
+                  background:
+                    "linear-gradient(180deg, transparent, rgba(0,0,0,0.08), transparent)",
+                }}
+              />
 
-              <div style={{ position: "relative", zIndex: 1, display: "grid", gridTemplateColumns: "minmax(0,1fr) 66px", alignItems: "end", gap: 14 }}>
+              <div
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0,1fr) 66px",
+                  alignItems: "end",
+                  gap: 14,
+                }}
+              >
                 <div style={{ paddingBottom: 2, textAlign: "right" }}>
-                  <div style={{ fontSize: 20, fontWeight: 850, color: "#2563EB", lineHeight: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 850,
+                      color: "#2563EB",
+                      lineHeight: 1,
+                    }}
+                  >
                     {activityMetrics.visitCount}
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: "#111827", marginTop: 6, lineHeight: 1.2 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      color: "#111827",
+                      marginTop: 6,
+                      lineHeight: 1.2,
+                    }}
+                  >
                     Visits
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 3 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "rgba(100,116,139,0.62)",
+                      marginTop: 3,
+                    }}
+                  >
                     Gesamtfälle
                   </div>
                 </div>
@@ -940,35 +1275,74 @@ export function PlaceholderCardNine() {
               borderRadius: 16,
               border: "1px solid rgba(0,0,0,0.08)",
               background: "linear-gradient(180deg,#ffffff 0%,#fbfbfc 100%)",
-              boxShadow: "0 24px 70px rgba(15,23,42,0.24), inset 0 1px 0.6px rgba(255,255,255,0.95)",
+              boxShadow:
+                "0 24px 70px rgba(15,23,42,0.24), inset 0 1px 0.6px rgba(255,255,255,0.95)",
               padding: 14,
               display: "flex",
               flexDirection: "column",
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 14,
+              }}
+            >
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: "rgba(100,116,139,0.70)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    color: "rgba(100,116,139,0.70)",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
                   Verteilung filtern
                 </div>
-                <div style={{ marginTop: 5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 18, fontWeight: 850, color: "#111827", lineHeight: 1 }}>
+                <div
+                  style={{
+                    marginTop: 5,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 18,
+                      fontWeight: 850,
+                      color: "#111827",
+                      lineHeight: 1,
+                    }}
+                  >
                     Aktivität & Visits
                   </span>
                   <span
                     style={{
                       borderRadius: 999,
-                      border: hasActiveFilters ? "1px solid rgba(220,38,38,0.20)" : "1px solid rgba(0,0,0,0.07)",
-                      background: hasActiveFilters ? "rgba(220,38,38,0.07)" : "rgba(0,0,0,0.035)",
-                      color: hasActiveFilters ? "#DC2626" : "rgba(100,116,139,0.72)",
+                      border: hasActiveFilters
+                        ? "1px solid rgba(220,38,38,0.20)"
+                        : "1px solid rgba(0,0,0,0.07)",
+                      background: hasActiveFilters
+                        ? "rgba(220,38,38,0.07)"
+                        : "rgba(0,0,0,0.035)",
+                      color: hasActiveFilters
+                        ? "#DC2626"
+                        : "rgba(100,116,139,0.72)",
                       padding: "4px 8px",
                       fontSize: 10,
                       fontWeight: 800,
                       lineHeight: 1,
                     }}
                   >
-                    {hasActiveFilters ? `${activeFilterCount} aktiv` : "Alle Daten"}
+                    {hasActiveFilters
+                      ? `${activeFilterCount} aktiv`
+                      : "Alle Daten"}
                   </span>
                 </div>
               </div>
@@ -987,7 +1361,8 @@ export function PlaceholderCardNine() {
                   alignItems: "center",
                   justifyContent: "center",
                   cursor: "pointer",
-                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9), 0 1px 4px rgba(0,0,0,0.06)",
+                  boxShadow:
+                    "inset 0 1px 0.6px rgba(255,255,255,0.9), 0 1px 4px rgba(0,0,0,0.06)",
                 }}
               >
                 <X size={14} strokeWidth={2.2} />
@@ -1005,11 +1380,31 @@ export function PlaceholderCardNine() {
               }}
             >
               {filterLoadError && (
-                <div style={{ borderRadius: 9, border: "1px solid rgba(185,28,28,0.24)", background: "rgba(185,28,28,0.07)", color: "#991b1b", padding: "8px 10px", fontSize: 11, fontWeight: 750, marginBottom: 10 }}>
+                <div
+                  style={{
+                    borderRadius: 9,
+                    border: "1px solid rgba(185,28,28,0.24)",
+                    background: "rgba(185,28,28,0.07)",
+                    color: "#991b1b",
+                    padding: "8px 10px",
+                    fontSize: 11,
+                    fontWeight: 750,
+                    marginBottom: 10,
+                  }}
+                >
                   {filterLoadError}
                 </div>
               )}
-              <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-end",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  marginBottom: 10,
+                }}
+              >
                 <DateRangeDropdown value={dateRange} onChange={setDateRange} />
                 <button
                   className="ipp-reset-filters-btn"
@@ -1022,7 +1417,9 @@ export function PlaceholderCardNine() {
                   style={{
                     borderRadius: 7,
                     border: "none",
-                    background: hasActiveFilters ? "linear-gradient(to bottom,#DC2626,#b91c1c)" : "rgba(220,38,38,0.28)",
+                    background: hasActiveFilters
+                      ? "linear-gradient(to bottom,#DC2626,#b91c1c)"
+                      : "rgba(220,38,38,0.28)",
                     color: "#fff",
                     fontSize: 10,
                     fontWeight: 800,
@@ -1049,7 +1446,14 @@ export function PlaceholderCardNine() {
                 showReset={false}
               />
               {filterSourcesLoading && (
-                <div style={{ marginTop: 9, fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)" }}>
+                <div
+                  style={{
+                    marginTop: 9,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: "rgba(100,116,139,0.62)",
+                  }}
+                >
                   Filterquellen werden geladen...
                 </div>
               )}
@@ -1068,7 +1472,8 @@ export function PlaceholderCardNine() {
                   fontWeight: 850,
                   padding: "8px 13px",
                   cursor: "pointer",
-                  boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.24), inset 0 -1px 0 rgba(255,255,255,0.10), 0 0 0 1px rgba(2,6,23,0.72), 0 1px 6px rgba(15,23,42,0.28)",
+                  boxShadow:
+                    "inset 0 1px 0.6px rgba(255,255,255,0.24), inset 0 -1px 0 rgba(255,255,255,0.10), 0 0 0 1px rgba(2,6,23,0.72), 0 1px 6px rgba(15,23,42,0.28)",
                 }}
               >
                 Schließen

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchGmUsers, fetchMarkets } from "@/lib/api/backend";
+import { useDashboardData, useDashboardFacets } from "./RealGmDashboard";
+import { calendarToday } from "@/lib/gm-dashboard/data";
 import { useRedMonth } from "@/context/RedMonthContext";
 import {
   buildIntervals,
@@ -15,64 +16,18 @@ import {
   type IppMarketOption,
 } from "@/components/admin/gm-dashboard/IppFilterBar";
 import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalToolbar";
+import { placementSeries } from "@/lib/gm-dashboard/chart-adapters";
 import { PlatzierungenBarChart } from "@/components/admin/gm-dashboard/charts/PlatzierungenBarChart";
-import {
-  buildPlatzierungenSeries,
-  type PlatzierungenFilterScope,
-} from "@/lib/platzierungen-dashboard/mock-data";
-
-function getRangeAroundToday(): { from: string; to: string } {
-  const now = new Date();
-  const from = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), 1));
-  const to = new Date(Date.UTC(now.getUTCFullYear() + 1, now.getUTCMonth() + 2, 0));
-  const ymd = (date: Date) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-  return { from: ymd(from), to: ymd(to) };
-}
-
-function deriveChainFromMarketName(name: string): string {
-  const token = name.trim().split(/\s+/)[0] ?? "";
-  return token.toUpperCase();
-}
-
-function formatMarketLabel(name: string, address?: string | null, postalCode?: string | null, city?: string | null): string {
-  const displayName = address?.trim() || name.trim();
-  const plzOrt = [postalCode?.trim(), city?.trim()].filter((part): part is string => Boolean(part && part.length > 0)).join(" ");
-  if (displayName && plzOrt) return `${displayName} · ${plzOrt}`;
-  return displayName || plzOrt || "Unbekannter Markt";
-}
-
-function buildMarketSearchText(market: {
-  name?: string | null;
-  dbName?: string | null;
-  address?: string | null;
-  postalCode?: string | null;
-  city?: string | null;
-  region?: string | null;
-  emEh?: string | null;
-  currentGmName?: string | null;
-}): string {
-  return [
-    market.name,
-    market.dbName,
-    market.address,
-    market.postalCode,
-    market.city,
-    market.region,
-    market.emEh,
-    market.currentGmName,
-  ]
-    .filter((part): part is string => Boolean(part && part.trim().length > 0))
-    .join(" ");
-}
+import { type PlatzierungenFilterScope } from "@/lib/platzierungen-dashboard/mock-data";
 
 export function PlatzierungenCard() {
-  const { calendar, loadCalendar } = useRedMonth();
-  const [markets, setMarkets] = useState<IppMarketOption[]>([]);
-  const [gms, setGms] = useState<IppGmOption[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const { calendar, error: calendarError } = useRedMonth();
+  const facets = useDashboardFacets();
+  const { markets, gms } = facets;
   const [intervalMode, setIntervalMode] = useState<IntervalMode>("redmonth");
-  const [selectedIntervalId, setSelectedIntervalId] = useState<string | null>(null);
+  const [selectedIntervalId, setSelectedIntervalId] = useState<string | null>(
+    null,
+  );
   const [filters, setFilters] = useState<IppFilterState>({
     region: null,
     gmId: null,
@@ -81,60 +36,23 @@ export function PlatzierungenCard() {
     stc: null,
   });
 
-  useEffect(() => {
-    const { from, to } = getRangeAroundToday();
-    void loadCalendar({ from, to });
-  }, [loadCalendar]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
-    void Promise.all([fetchMarkets(), fetchGmUsers()])
-      .then(([marketRows, gmRows]) => {
-        if (cancelled) return;
-        setMarkets(
-          marketRows
-            .filter((market) => !market.isDeleted)
-            .map((market) => ({
-              id: market.id,
-              label: formatMarketLabel(market.name, market.address, market.postalCode, market.city),
-              region: market.region || "Unbekannt",
-              gmName: market.currentGmName || "",
-              chain: deriveChainFromMarketName(market.name),
-              searchText: buildMarketSearchText(market),
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label, "de")),
-        );
-        setGms(
-          gmRows
-            .map((gm) => ({
-              id: gm.id,
-              label: `${gm.firstName} ${gm.lastName}`.trim(),
-              region: gm.region || "Unbekannt",
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label, "de")),
-        );
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setLoadError(error instanceof Error ? error.message : "Filterdaten konnten nicht geladen werden.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const intervals = useMemo(
     () =>
-      buildIntervals({
-        mode: intervalMode,
-        count: intervalMode === "week" ? 36 : 28,
-        redMonthCalendar: calendar,
-      }),
+      intervalMode === "redmonth" && !calendar.length
+        ? []
+        : buildIntervals({
+            mode: intervalMode,
+            count:
+              intervalMode === "week"
+                ? 36
+                : intervalMode === "quarter"
+                  ? 12
+                  : 28,
+            redMonthCalendar: calendar.filter(
+              (period) => period.start <= calendarToday(),
+            ),
+            now: new Date(calendarToday() + "T12:00:00Z"),
+          }),
     [calendar, intervalMode],
   );
 
@@ -143,15 +61,22 @@ export function PlatzierungenCard() {
       setSelectedIntervalId(null);
       return;
     }
-    if (!selectedIntervalId || !intervals.some((interval) => interval.id === selectedIntervalId)) {
+    if (
+      !selectedIntervalId ||
+      !intervals.some((interval) => interval.id === selectedIntervalId)
+    ) {
       setSelectedIntervalId(intervals[0]!.id);
     }
   }, [intervals, selectedIntervalId]);
 
   const selectedInterval = findIntervalById(intervals, selectedIntervalId);
   const regionOptions = useMemo(() => {
-    const unique = new Set(markets.map((market) => market.region).filter(Boolean));
-    return Array.from(unique).sort((left, right) => left.localeCompare(right, "de"));
+    const unique = new Set(
+      markets.map((market) => market.region).filter(Boolean),
+    );
+    return Array.from(unique).sort((left, right) =>
+      left.localeCompare(right, "de"),
+    );
   }, [markets]);
 
   const filterScope: PlatzierungenFilterScope = {
@@ -162,17 +87,27 @@ export function PlatzierungenCard() {
     stc: filters.stc,
   };
 
+  const result = useDashboardData(
+    "Platzierungen",
+    intervals,
+    filterScope,
+    selectedIntervalId,
+  );
+  const loading = facets.loading || result.loading;
+  const loadError =
+    facets.error ??
+    result.error ??
+    (intervalMode === "redmonth" ? calendarError : null);
   const series = useMemo(
-    () =>
-      buildPlatzierungenSeries({
-        intervals,
-        filters: filterScope,
-      }),
-    [filterScope, intervals],
+    () => placementSeries(result.data?.points ?? []),
+    [result.data],
   );
 
   const selectedPoint = useMemo(
-    () => series.find((point) => point.intervalId === selectedIntervalId) ?? series[series.length - 1] ?? null,
+    () =>
+      series.find((point) => point.intervalId === selectedIntervalId) ??
+      series[series.length - 1] ??
+      null,
     [selectedIntervalId, series],
   );
 
@@ -204,23 +139,64 @@ export function PlatzierungenCard() {
         }}
       >
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.36)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "rgba(0,0,0,0.36)",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
             Platzierungen
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
+          <div
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              color: "#111827",
+              letterSpacing: "-0.02em",
+            }}
+          >
             Coke Platzierungen vs Mitbewerber Platzierungen
           </div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.42)", marginTop: 2 }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "rgba(0,0,0,0.42)",
+              marginTop: 2,
+            }}
+          >
             Kompakter Vergleich pro Intervall
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "rgba(0,0,0,0.34)",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
             Fokus Intervall
           </div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>{selectedInterval?.label ?? "—"}</div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.46)", marginTop: 1 }}>
-            {selectedPoint ? `Coke ${selectedPoint.coke.toFixed(1)}% · Mitbewerber ${selectedPoint.competitor.toFixed(1)}%` : "—"}
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
+            {selectedInterval?.label ?? "—"}
+          </div>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "rgba(0,0,0,0.46)",
+              marginTop: 1,
+            }}
+          >
+            {selectedPoint
+              ? `Coke ${Number.isFinite(selectedPoint.coke) ? selectedPoint.coke.toFixed(1) : "—"} · Mitbewerber ${Number.isFinite(selectedPoint.competitor) ? selectedPoint.competitor.toFixed(1) : "—"}`
+              : "—"}
           </div>
         </div>
       </header>
@@ -238,7 +214,17 @@ export function PlatzierungenCard() {
         }}
       >
         {loadError && (
-          <div style={{ borderRadius: 9, border: "1px solid rgba(185,28,28,0.26)", background: "rgba(185,28,28,0.08)", color: "#991b1b", padding: "8px 10px", fontSize: 11, fontWeight: 700 }}>
+          <div
+            style={{
+              borderRadius: 9,
+              border: "1px solid rgba(185,28,28,0.26)",
+              background: "rgba(185,28,28,0.08)",
+              color: "#991b1b",
+              padding: "8px 10px",
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
             {loadError}
           </div>
         )}
@@ -281,18 +267,61 @@ export function PlatzierungenCard() {
             }}
           >
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "rgba(0,0,0,0.35)", textTransform: "uppercase" }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  color: "rgba(0,0,0,0.35)",
+                  textTransform: "uppercase",
+                }}
+              >
                 Chart
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
                 Platzierungen Vergleich
               </div>
             </div>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 3, background: "linear-gradient(to bottom,#ef4444,#dc2626,#b91c1c)", display: "inline-block" }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.55)" }}>Coke</span>
-              <span style={{ width: 9, height: 9, borderRadius: 3, background: "#9CA3AF", display: "inline-block" }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.55)" }}>Mitbewerber</span>
+            <div
+              style={{ display: "inline-flex", alignItems: "center", gap: 10 }}
+            >
+              <span
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: 3,
+                  background:
+                    "linear-gradient(to bottom,#ef4444,#dc2626,#b91c1c)",
+                  display: "inline-block",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "rgba(0,0,0,0.55)",
+                }}
+              >
+                Coke
+              </span>
+              <span
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: 3,
+                  background: "#9CA3AF",
+                  display: "inline-block",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "rgba(0,0,0,0.55)",
+                }}
+              >
+                Mitbewerber
+              </span>
             </div>
           </div>
           <div style={{ padding: "10px 10px 8px" }}>
@@ -305,7 +334,15 @@ export function PlatzierungenCard() {
         </section>
 
         {loading && (
-          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(0,0,0,0.4)", textAlign: "center", paddingBottom: 4 }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "rgba(0,0,0,0.4)",
+              textAlign: "center",
+              paddingBottom: 4,
+            }}
+          >
             Filterquellen werden geladen...
           </div>
         )}

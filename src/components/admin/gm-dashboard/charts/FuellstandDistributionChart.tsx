@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  chartContentWidth,
+  populatedChartRange,
+} from "@/lib/gm-dashboard/chart-layout";
+import { useChartViewportWidth } from "./useChartViewportWidth";
 import type { FuellstandTypeKey } from "@/lib/fuellstand-dashboard/mock-data";
 import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 
@@ -36,7 +41,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function linePaletteForType(highlightedTypeKey: FuellstandTypeKey | null): { voll: string; mittel: string; leer: string } {
+function linePaletteForType(highlightedTypeKey: FuellstandTypeKey | null): {
+  voll: string;
+  mittel: string;
+  leer: string;
+} {
   if (!highlightedTypeKey) {
     return { voll: "#0B0B0B", mittel: "#4B5563", leer: "#9CA3AF" };
   }
@@ -48,6 +57,19 @@ function linePaletteForType(highlightedTypeKey: FuellstandTypeKey | null): { vol
 }
 
 function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
+  if (points.some((p) => !Number.isFinite(p.y))) {
+    const segments: Array<Array<{ x: number; y: number }>> = [];
+    let segment: Array<{ x: number; y: number }> = [];
+    for (const p of points) {
+      if (Number.isFinite(p.y)) segment.push(p);
+      else if (segment.length) {
+        segments.push(segment);
+        segment = [];
+      }
+    }
+    if (segment.length) segments.push(segment);
+    return segments.map(buildSmoothPath).join(" ");
+  }
   if (points.length === 0) return "";
   if (points.length === 1) return `M ${points[0]!.x} ${points[0]!.y}`;
   let path = `M ${points[0]!.x} ${points[0]!.y}`;
@@ -65,32 +87,57 @@ function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
   return path;
 }
 
-export function FuellstandDistributionChart({ points, selectedIntervalId, onSelectInterval, highlightedTypeKey }: FuellstandDistributionChartProps) {
-  const [hoveredIntervalId, setHoveredIntervalId] = useState<string | null>(null);
+export function FuellstandDistributionChart({
+  points,
+  selectedIntervalId,
+  onSelectInterval,
+  highlightedTypeKey,
+}: FuellstandDistributionChartProps) {
+  const [hoveredIntervalId, setHoveredIntervalId] = useState<string | null>(
+    null,
+  );
   const [scrollLeft, setScrollLeft] = useState(0);
   const scrollWrapRef = useRef<HTMLDivElement | null>(null);
+  const viewportWidth = useChartViewportWidth(scrollWrapRef);
+  const visiblePoints = useMemo(
+    () =>
+      populatedChartRange(points, (point) =>
+        [point.vollPct, point.mittelPct, point.leerPct].some(Number.isFinite),
+      ),
+    [points],
+  );
   const hoverSurfaceRef = useRef<SVGRectElement | null>(null);
   const lastPointerClientXRef = useRef<number | null>(null);
   const lastAutoCenteredIntervalIdRef = useRef<string | null>(null);
   const idBase = useId().replaceAll(":", "");
   const dotPatternId = `${idBase}-dotPattern`;
-  const baseWidth = 920;
   const height = 298;
   const paddingLeft = 30;
   const paddingRight = 12;
   const paddingTop = 14;
   const paddingBottom = 46;
   const minPointGap = 56;
-  const width = Math.max(baseWidth, paddingLeft + paddingRight + Math.max(0, points.length - 1) * minPointGap);
+  const width = chartContentWidth(
+    viewportWidth,
+    visiblePoints.length,
+    paddingLeft,
+    paddingRight,
+    minPointGap,
+  );
   const chartWidth = width - paddingLeft - paddingRight;
   const chartHeight = height - paddingTop - paddingBottom;
   const activeIntervalId = hoveredIntervalId ?? selectedIntervalId;
 
   const plotted = useMemo(() => {
-    if (points.length === 0) return [] as PlotPoint[];
-    const yFor = (value: number) => paddingTop + (1 - value / 100) * chartHeight;
-    return points.map((entry, index) => {
-      const x = paddingLeft + (points.length <= 1 ? chartWidth / 2 : (index / (points.length - 1)) * chartWidth);
+    if (visiblePoints.length === 0) return [] as PlotPoint[];
+    const yFor = (value: number) =>
+      paddingTop + (1 - value / 100) * chartHeight;
+    return visiblePoints.map((entry, index) => {
+      const x =
+        paddingLeft +
+        (visiblePoints.length <= 1
+          ? chartWidth / 2
+          : (index / (visiblePoints.length - 1)) * chartWidth);
       return {
         x,
         vollY: yFor(entry.vollPct),
@@ -99,7 +146,7 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
         raw: entry,
       };
     });
-  }, [chartHeight, chartWidth, points]);
+  }, [chartHeight, chartWidth, visiblePoints]);
 
   const findNearestIntervalId = (x: number): string | null => {
     if (plotted.length === 0) return null;
@@ -126,37 +173,68 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
     }
   };
 
-  const hoveredPoint = hoveredIntervalId ? (plotted.find((entry) => entry.raw.intervalId === hoveredIntervalId) ?? null) : null;
+  const hoveredPoint = hoveredIntervalId
+    ? (plotted.find((entry) => entry.raw.intervalId === hoveredIntervalId) ??
+      null)
+    : null;
   const tooltipWidth = 184;
   const tooltipHeight = 86;
   const tooltipX = hoveredPoint ? hoveredPoint.x : 0;
-  const highestY = hoveredPoint ? Math.min(hoveredPoint.vollY, hoveredPoint.mittelY, hoveredPoint.leerY) : 0;
+  const highestY = hoveredPoint
+    ? Math.min(
+        height - paddingBottom,
+        ...[
+          hoveredPoint.vollY,
+          hoveredPoint.mittelY,
+          hoveredPoint.leerY,
+        ].filter(Number.isFinite),
+      )
+    : 0;
   const railOffsetLeft = scrollWrapRef.current?.offsetLeft ?? 0;
   const railClientWidth = scrollWrapRef.current?.clientWidth ?? width;
-  const tooltipRawLeft = railOffsetLeft + tooltipX - tooltipWidth / 2 - scrollLeft;
-  const tooltipMaxLeft = Math.max(4, railOffsetLeft + railClientWidth - tooltipWidth - 4);
+  const tooltipRawLeft =
+    railOffsetLeft + tooltipX - tooltipWidth / 2 - scrollLeft;
+  const tooltipMaxLeft = Math.max(
+    4,
+    railOffsetLeft + railClientWidth - tooltipWidth - 4,
+  );
   const tooltipOverlayLeft = clamp(tooltipRawLeft, 4, tooltipMaxLeft);
   const tooltipOverlayTop = Math.max(-92, highestY - tooltipHeight - 14);
 
-  const vollPath = buildSmoothPath(plotted.map((entry) => ({ x: entry.x, y: entry.vollY })));
-  const mittelPath = buildSmoothPath(plotted.map((entry) => ({ x: entry.x, y: entry.mittelY })));
-  const leerPath = buildSmoothPath(plotted.map((entry) => ({ x: entry.x, y: entry.leerY })));
-  const linePalette = useMemo(() => linePaletteForType(highlightedTypeKey), [highlightedTypeKey]);
+  const vollPath = buildSmoothPath(
+    plotted.map((entry) => ({ x: entry.x, y: entry.vollY })),
+  );
+  const mittelPath = buildSmoothPath(
+    plotted.map((entry) => ({ x: entry.x, y: entry.mittelY })),
+  );
+  const leerPath = buildSmoothPath(
+    plotted.map((entry) => ({ x: entry.x, y: entry.leerY })),
+  );
+  const linePalette = useMemo(
+    () => linePaletteForType(highlightedTypeKey),
+    [highlightedTypeKey],
+  );
 
   useEffect(() => {
     const rail = scrollWrapRef.current;
     if (!rail || plotted.length === 0) return;
-    const selectedPoint = plotted.find((point) => point.raw.intervalId === selectedIntervalId) ?? plotted[plotted.length - 1];
+    const selectedPoint =
+      plotted.find((point) => point.raw.intervalId === selectedIntervalId) ??
+      plotted[plotted.length - 1];
     if (!selectedPoint) return;
-    const targetIntervalId = selectedPoint.raw.intervalId;
+    const targetIntervalId = `${selectedPoint.raw.intervalId}:${width}:${plotted[0]?.raw.intervalId}:${plotted[plotted.length - 1]?.raw.intervalId}`;
     if (lastAutoCenteredIntervalIdRef.current === targetIntervalId) return;
     const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
     if (maxLeft <= 0) return;
-    const targetLeft = clamp(selectedPoint.x - rail.clientWidth * 0.58, 0, maxLeft);
+    const targetLeft = clamp(
+      selectedPoint.x - rail.clientWidth * 0.58,
+      0,
+      maxLeft,
+    );
     rail.scrollTo({ left: targetLeft, behavior: "auto" });
     setScrollLeft(targetLeft);
     lastAutoCenteredIntervalIdRef.current = targetIntervalId;
-  }, [plotted, selectedIntervalId]);
+  }, [plotted, selectedIntervalId, width]);
 
   useEffect(() => {
     const rail = scrollWrapRef.current;
@@ -166,13 +244,19 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
       if (lastPointerClientXRef.current == null) return;
       const hoverSurface = hoverSurfaceRef.current;
       if (!hoverSurface) return;
-      updateHoveredFromClientX(lastPointerClientXRef.current, hoverSurface.getBoundingClientRect());
+      updateHoveredFromClientX(
+        lastPointerClientXRef.current,
+        hoverSurface.getBoundingClientRect(),
+      );
     };
 
     const handleWheel = (event: WheelEvent) => {
       const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
       if (maxLeft <= 0) return;
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      const delta =
+        Math.abs(event.deltaX) > Math.abs(event.deltaY)
+          ? event.deltaX
+          : event.deltaY;
       if (delta === 0) return;
       event.preventDefault();
       rail.scrollLeft = clamp(rail.scrollLeft + delta, 0, maxLeft);
@@ -186,7 +270,14 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
   }, [chartWidth, hoveredIntervalId, paddingLeft, plotted]);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: 298, overflow: "visible" }}>
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        height: 298,
+        overflow: "visible",
+      }}
+    >
       <style>{`
         .ipp-line-scroll-wrap::-webkit-scrollbar {
           height: 7px;
@@ -213,15 +304,46 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
           if (lastPointerClientXRef.current == null) return;
           const hoverSurface = hoverSurfaceRef.current;
           if (!hoverSurface) return;
-          updateHoveredFromClientX(lastPointerClientXRef.current, hoverSurface.getBoundingClientRect());
+          updateHoveredFromClientX(
+            lastPointerClientXRef.current,
+            hoverSurface.getBoundingClientRect(),
+          );
         }}
         className="ipp-line-scroll-wrap"
-        style={{ width: "calc(100% - 18px)", margin: "0 9px", overflowX: "scroll", overflowY: "hidden", overscrollBehavior: "contain", scrollbarGutter: "stable", paddingBottom: 1 }}
+        style={{
+          width: "calc(100% - 18px)",
+          margin: "0 9px",
+          overflowX: "scroll",
+          overflowY: "hidden",
+          overscrollBehavior: "contain",
+          scrollbarGutter: "stable",
+          paddingBottom: 1,
+        }}
       >
-        <div style={{ position: "relative", width, minWidth: "100%", height: 298, overflow: "visible" }}>
-          <svg viewBox={`0 0 ${width} ${height}`} width={width} height="100%" style={{ display: "block", overflow: "visible" }}>
+        <div
+          style={{
+            position: "relative",
+            width,
+            minWidth: "100%",
+            height: 298,
+            overflow: "visible",
+          }}
+        >
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            width={width}
+            height="100%"
+            style={{ display: "block", overflow: "visible" }}
+          >
             <defs>
-              <pattern id={dotPatternId} x="0" y="0" width="16" height="16" patternUnits="userSpaceOnUse">
+              <pattern
+                id={dotPatternId}
+                x="0"
+                y="0"
+                width="16"
+                height="16"
+                patternUnits="userSpaceOnUse"
+              >
                 <circle cx="1.8" cy="1.8" r="0.72" fill="rgba(0,0,0,0.22)" />
               </pattern>
             </defs>
@@ -237,16 +359,44 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
               const y = paddingTop + (1 - tick / 100) * chartHeight;
               return (
                 <g key={tick}>
-                  <text x={4} y={y + 3} fontFamily="inherit" fontSize={10} fontWeight={700} fill="rgba(0,0,0,0.34)">
+                  <text
+                    x={4}
+                    y={y + 3}
+                    fontFamily="inherit"
+                    fontSize={10}
+                    fontWeight={700}
+                    fill="rgba(0,0,0,0.34)"
+                  >
                     {tick}%
                   </text>
                 </g>
               );
             })}
 
-            <path d={vollPath} fill="none" stroke={linePalette.voll} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-            <path d={mittelPath} fill="none" stroke={linePalette.mittel} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
-            <path d={leerPath} fill="none" stroke={linePalette.leer} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d={vollPath}
+              fill="none"
+              stroke={linePalette.voll}
+              strokeWidth={1.8}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d={mittelPath}
+              fill="none"
+              stroke={linePalette.mittel}
+              strokeWidth={1.7}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d={leerPath}
+              fill="none"
+              stroke={linePalette.leer}
+              strokeWidth={1.6}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
 
             {hoveredPoint && (
               <line
@@ -264,9 +414,30 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
               const active = entry.raw.intervalId === activeIntervalId;
               return (
                 <g key={entry.raw.intervalId}>
-                  <circle cx={entry.x} cy={entry.vollY} r={active ? 3.1 : 2.2} fill={linePalette.voll} />
-                  <circle cx={entry.x} cy={entry.mittelY} r={active ? 3.1 : 2.2} fill={linePalette.mittel} />
-                  <circle cx={entry.x} cy={entry.leerY} r={active ? 3.1 : 2.2} fill={linePalette.leer} />
+                  {Number.isFinite(entry.vollY) && (
+                    <circle
+                      cx={entry.x}
+                      cy={entry.vollY}
+                      r={active ? 3.1 : 2.2}
+                      fill={linePalette.voll}
+                    />
+                  )}
+                  {Number.isFinite(entry.mittelY) && (
+                    <circle
+                      cx={entry.x}
+                      cy={entry.mittelY}
+                      r={active ? 3.1 : 2.2}
+                      fill={linePalette.mittel}
+                    />
+                  )}
+                  {Number.isFinite(entry.leerY) && (
+                    <circle
+                      cx={entry.x}
+                      cy={entry.leerY}
+                      r={active ? 3.1 : 2.2}
+                      fill={linePalette.leer}
+                    />
+                  )}
                 </g>
               );
             })}
@@ -280,7 +451,10 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
               fill="transparent"
               onMouseMove={(event) => {
                 lastPointerClientXRef.current = event.clientX;
-                updateHoveredFromClientX(event.clientX, event.currentTarget.getBoundingClientRect());
+                updateHoveredFromClientX(
+                  event.clientX,
+                  event.currentTarget.getBoundingClientRect(),
+                );
               }}
               onMouseLeave={() => {
                 lastPointerClientXRef.current = null;
@@ -289,7 +463,11 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
                 if (rect.width <= 0) return;
-                const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+                const ratio = clamp(
+                  (event.clientX - rect.left) / rect.width,
+                  0,
+                  1,
+                );
                 const x = paddingLeft + ratio * chartWidth;
                 const nearestId = findNearestIntervalId(x);
                 if (nearestId) onSelectInterval(nearestId);
@@ -298,17 +476,36 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
             />
 
             {plotted.map((entry, index) => {
-              if (index % 2 !== 0 && plotted.length > 10) return null;
+              if (
+                index % 2 !== 0 &&
+                plotted.length > 10 &&
+                index !== plotted.length - 1
+              )
+                return null;
               return (
                 <text
                   key={`label-${entry.raw.intervalId}`}
                   x={entry.x}
                   y={height - 14}
-                  textAnchor="middle"
+                  textAnchor={
+                    plotted.length === 1
+                      ? "middle"
+                      : index === 0
+                        ? "start"
+                        : index === plotted.length - 1
+                          ? "end"
+                          : "middle"
+                  }
                   fontFamily="inherit"
                   fontSize={10}
-                  fontWeight={entry.raw.intervalId === activeIntervalId ? 700 : 500}
-                  fill={entry.raw.intervalId === activeIntervalId ? "#1f2937" : "rgba(0,0,0,0.38)"}
+                  fontWeight={
+                    entry.raw.intervalId === activeIntervalId ? 700 : 500
+                  }
+                  fill={
+                    entry.raw.intervalId === activeIntervalId
+                      ? "#1f2937"
+                      : "rgba(0,0,0,0.38)"
+                  }
                 >
                   {entry.raw.shortLabel}
                 </text>
@@ -350,20 +547,107 @@ export function FuellstandDistributionChart({ points, selectedIntervalId, onSele
           >
             {hoveredPoint.raw.label}
           </div>
-          <div style={{ height: tooltipHeight - 19, padding: "7px 10px 6px", display: "grid", gap: 3 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>{formatAvailabilityLabel("Voll")}</span>
-              <span style={{ fontSize: 11, fontWeight: 800, color: linePalette.voll }}>{hoveredPoint.raw.vollPct.toFixed(1)}%</span>
+          <div
+            style={{
+              height: tooltipHeight - 19,
+              padding: "7px 10px 6px",
+              display: "grid",
+              gap: 3,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 9.2,
+                  fontWeight: 700,
+                  color: "rgba(15,23,42,0.7)",
+                }}
+              >
+                {formatAvailabilityLabel("Voll")}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: linePalette.voll,
+                }}
+              >
+                {Number.isFinite(hoveredPoint.raw.vollPct)
+                  ? hoveredPoint.raw.vollPct.toFixed(1) + "%"
+                  : "—"}
+              </span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>{formatAvailabilityLabel("Mittel")}</span>
-              <span style={{ fontSize: 11, fontWeight: 800, color: linePalette.mittel }}>{hoveredPoint.raw.mittelPct.toFixed(1)}%</span>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 9.2,
+                  fontWeight: 700,
+                  color: "rgba(15,23,42,0.7)",
+                }}
+              >
+                {formatAvailabilityLabel("Mittel")}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: linePalette.mittel,
+                }}
+              >
+                {Number.isFinite(hoveredPoint.raw.mittelPct)
+                  ? hoveredPoint.raw.mittelPct.toFixed(1) + "%"
+                  : "—"}
+              </span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ fontSize: 9.2, fontWeight: 700, color: "rgba(15,23,42,0.7)" }}>{formatAvailabilityLabel("Leer")}</span>
-              <span style={{ fontSize: 11, fontWeight: 800, color: linePalette.leer }}>{hoveredPoint.raw.leerPct.toFixed(1)}%</span>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 9.2,
+                  fontWeight: 700,
+                  color: "rgba(15,23,42,0.7)",
+                }}
+              >
+                {formatAvailabilityLabel("Leer")}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: linePalette.leer,
+                }}
+              >
+                {Number.isFinite(hoveredPoint.raw.leerPct)
+                  ? hoveredPoint.raw.leerPct.toFixed(1) + "%"
+                  : "—"}
+              </span>
             </div>
-            <div style={{ marginTop: 1, fontSize: 8.3, fontWeight: 700, color: "rgba(15,23,42,0.42)", textAlign: "right" }}>
+            <div
+              style={{
+                marginTop: 1,
+                fontSize: 8.3,
+                fontWeight: 700,
+                color: "rgba(15,23,42,0.42)",
+                textAlign: "right",
+              }}
+            >
               n{hoveredPoint.raw.totalCount}
             </div>
           </div>

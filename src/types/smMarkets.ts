@@ -1,4 +1,5 @@
 export type SmMarketWeekdayKey = "mo" | "di" | "mi" | "do" | "fr";
+export type SmMarketWeekdayHours = Record<SmMarketWeekdayKey, number | null>;
 
 export type SmMarketRecord = {
   id: string;
@@ -94,7 +95,11 @@ export type CreateSmMarketInput = {
   isActive?: boolean;
 };
 
-export type UpdateSmMarketInput = Partial<CreateSmMarketInput>;
+export type UpdateSmMarketInput = Partial<CreateSmMarketInput> & {
+  /** Complete weekly plan; null removes a day without changing scheduled visits. */
+  weekdayHours?: SmMarketWeekdayHours;
+  expectedUpdatedAt?: string;
+};
 
 export type SmDeactivationOccurrence = { id: string; workDate: string; smUserId: string; smName: string; plannedMinutes: number; status: string };
 export type SmMarketDeactivationPreview = {

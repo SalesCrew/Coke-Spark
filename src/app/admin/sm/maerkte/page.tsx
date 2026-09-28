@@ -11,10 +11,12 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  AlertCircle,
   CalendarDays,
   Check,
   ChevronDown,
   Clock3,
+  Info,
   LockKeyhole,
   MapPin,
   Pencil,
@@ -30,7 +32,8 @@ import { SmMarketImportModal } from "@/components/admin/sm/SmMarketImportModal";
 import { SmMarketUserSyncModal } from "@/components/admin/sm/SmMarketUserSyncModal";
 import { SmMarketDeactivationModal } from "@/components/admin/sm/SmMarketDeactivationModal";
 import { createSmMarket, fetchGmUsers, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket } from "@/lib/api/backend";
-import type { ImportSmMarketsInput, SmMarketImportSummary, SmMarketRecord } from "@/types/smMarkets";
+import type { ImportSmMarketsInput, SmMarketImportSummary, SmMarketRecord, SmMarketWeekdayHours } from "@/types/smMarkets";
+import { createSmWeeklyPlanDraft, readSmWeeklyPlanDraft, SM_PLANNING_DAYS, type SmWeeklyPlanDraft } from "@/lib/sm-market-weekly-planning";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { SMRecord } from "@/types/shelfmerchandiser";
 
@@ -127,7 +130,7 @@ function marketFieldServiceDisplayName(market: SmMarketPreview, assignedGm: GMRe
 
 function formatPlanningHours(value: number | undefined): string {
   if (value === undefined) return "—";
-  return `${value.toLocaleString("de-AT", { minimumFractionDigits: value % 1 === 0 ? 0 : 1, maximumFractionDigits: 1 })} h`;
+  return `${value.toLocaleString("de-AT", { minimumFractionDigits: value % 1 === 0 ? 0 : 1, maximumFractionDigits: 2 })} h`;
 }
 
 function planningInitials(value: string | undefined): string {
@@ -646,6 +649,7 @@ function MarketDetailDrawer({
   users,
   gmUsers,
   onSave,
+  onPlanningSave,
   onDeactivated,
   onDelete,
   onClose,
@@ -654,6 +658,7 @@ function MarketDetailDrawer({
   users: SMRecord[];
   gmUsers: GMRecord[];
   onSave: (fields: MarketEditDraft) => Promise<void>;
+  onPlanningSave: (hours: SmMarketWeekdayHours, expectedUpdatedAt?: string) => Promise<void>;
   onDeactivated: (market: SmMarketRecord) => void;
   onDelete: () => Promise<void>;
   onClose: () => void;
@@ -666,6 +671,11 @@ function MarketDetailDrawer({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showDeactivation, setShowDeactivation] = useState(false);
+  const [planningEditing, setPlanningEditing] = useState(false);
+  const [planningDraft, setPlanningDraft] = useState<SmWeeklyPlanDraft>(() => createSmWeeklyPlanDraft(market.weekdayHours));
+  const [planningVersion, setPlanningVersion] = useState(market.updatedAt);
+  const [planningSaving, setPlanningSaving] = useState(false);
+  const [planningError, setPlanningError] = useState<string | null>(null);
   const chain = marketChain(market);
   const colors = chainColors(chain);
   const linkedSmUser = market.assignedSmUserId ? users.find((user) => user.id === market.assignedSmUserId) : undefined;
@@ -689,6 +699,33 @@ function MarketDetailDrawer({
   const derivedWeeklyHours = WEEKDAYS.reduce((sum, { key }) => sum + (weekdayHours[key] ?? 0), 0);
   const serviceDaysPerWeek = market.serviceDaysPerWeek ?? (derivedServiceDays || undefined);
   const weeklyHours = market.weeklyHours ?? (derivedWeeklyHours || undefined);
+  const planningResult = readSmWeeklyPlanDraft(planningDraft);
+  const displayedServiceDays = planningEditing ? planningResult.serviceDaysPerWeek : serviceDaysPerWeek;
+  const displayedWeeklyHours = planningEditing ? planningResult.weeklyHours : weeklyHours;
+  const beginPlanningEdit = () => {
+    setPlanningDraft(createSmWeeklyPlanDraft(market.weekdayHours));
+    setPlanningVersion(market.updatedAt);
+    setPlanningError(null);
+    setPlanningEditing(true);
+  };
+  const cancelPlanningEdit = () => {
+    setPlanningDraft(createSmWeeklyPlanDraft(market.weekdayHours));
+    setPlanningError(null);
+    setPlanningEditing(false);
+  };
+  const savePlanning = async () => {
+    if (planningSaving || planningResult.error) return;
+    setPlanningSaving(true);
+    setPlanningError(null);
+    try {
+      await onPlanningSave(planningResult.weekdayHours, planningVersion);
+      setPlanningEditing(false);
+    } catch (reason) {
+      setPlanningError(reason instanceof Error ? reason.message : "Wochenplanung konnte nicht gespeichert werden.");
+    } finally {
+      setPlanningSaving(false);
+    }
+  };
   const updateDraft = <K extends keyof MarketEditDraft>(field: K, value: MarketEditDraft[K]) => {
     setDraft((current) => ({ ...current, [field]: value }));
   };
@@ -731,8 +768,8 @@ function MarketDetailDrawer({
             <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: 750, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{market.name}</div>
             <div style={{ marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 9.5, color: "rgba(0,0,0,0.38)", textTransform: "uppercase", letterSpacing: "0.02em" }}>{market.address} · {market.postalCode} {market.city}</div>
           </div>
-          {tab === "info" ? <button type="button" onClick={() => { if (editing) setDraft(editableMarketFields(market)); setEditing((current) => !current); }} aria-label={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} title={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} className="sm-icon-button" style={editing ? { background: "rgba(220,38,38,.07)", color: COKE_RED } : undefined}><Pencil size={12.5} strokeWidth={1.9} /></button> : null}
-          <button type="button" onClick={onClose} aria-label="Detailansicht schließen" className="sm-icon-button"><X size={13} strokeWidth={2} /></button>
+          {tab === "info" ? <button type="button" disabled={saving} onClick={() => { if (editing) setDraft(editableMarketFields(market)); setEditing((current) => !current); }} aria-label={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} title={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} className="sm-icon-button" style={editing ? { background: "rgba(220,38,38,.07)", color: COKE_RED } : undefined}><Pencil size={12.5} strokeWidth={1.9} /></button> : null}
+          <button type="button" disabled={saving || planningSaving} onClick={onClose} aria-label="Detailansicht schließen" className="sm-icon-button"><X size={13} strokeWidth={2} /></button>
         </div>
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ padding: "3px 7px", borderRadius: 999, background: "rgba(220,38,38,0.06)", color: COKE_RED, fontSize: 8.5, fontWeight: 750 }}>SM Markt</span>
@@ -746,7 +783,7 @@ function MarketDetailDrawer({
           ["info", "Marktinfo"],
           ["assignments", "Einsätze"],
         ] as const).map(([value, label]) => (
-          <button key={value} type="button" onClick={() => setTab(value)} style={{ position: "relative", height: 42, padding: 0, border: "none", background: "transparent", color: tab === value ? COKE_RED : "rgba(0,0,0,0.42)", fontFamily: "inherit", fontSize: 10.5, fontWeight: tab === value ? 700 : 550, cursor: "pointer" }}>
+          <button key={value} type="button" disabled={saving || planningSaving || (planningEditing && value !== tab) || (editing && value !== tab)} onClick={() => setTab(value)} style={{ position: "relative", height: 42, padding: 0, border: "none", background: "transparent", color: tab === value ? COKE_RED : "rgba(0,0,0,0.42)", fontFamily: "inherit", fontSize: 10.5, fontWeight: tab === value ? 700 : 550, cursor: "pointer" }}>
             {label}
             {tab === value ? <span style={{ position: "absolute", right: 0, bottom: -1, left: 0, height: 2, borderRadius: 999, background: COKE_RED }} /> : null}
           </button>
@@ -786,25 +823,49 @@ function MarketDetailDrawer({
                 <span className="sm-planning-heading-icon"><CalendarDays size={14} strokeWidth={1.9} /></span>
                 <div><strong>Wochenplanung</strong><span>Regelmäßige Marktbetreuung</span></div>
               </div>
-              <span className="sm-planning-status"><i /> Plan hinterlegt</span>
+              <div className="sm-planning-actions">
+                <span className={`sm-planning-status${planningEditing ? " is-draft" : !serviceDaysPerWeek ? " is-empty" : ""}`}><i />{planningEditing ? "Bearbeitung" : serviceDaysPerWeek ? "Plan hinterlegt" : "Kein Plan"}</span>
+                {!planningEditing ? <button type="button" onClick={beginPlanningEdit} className="sm-icon-button" aria-label="Wochenplanung bearbeiten" title="Wochenplanung bearbeiten"><Pencil size={12.5} strokeWidth={1.9} /></button> : null}
+              </div>
             </div>
 
             <div className="sm-planning-metrics">
               <div className="sm-planning-metric">
                 <span className="sm-planning-metric-icon"><CalendarDays size={13} strokeWidth={1.8} /></span>
-                <div><span>Betreuungstage</span><strong>{serviceDaysPerWeek ?? "—"}<small> / Woche</small></strong></div>
+                <div><span>Betreuungstage</span><strong>{displayedServiceDays ?? "—"}<small> / Woche</small></strong></div>
               </div>
               <div className="sm-planning-metric">
                 <span className="sm-planning-metric-icon"><Clock3 size={13} strokeWidth={1.8} /></span>
-                <div><span>Wochenstunden</span><strong>{formatPlanningHours(weeklyHours)}</strong></div>
+                <div><span>Wochenstunden</span><strong>{formatPlanningHours(displayedWeeklyHours)}</strong></div>
               </div>
             </div>
 
             <div className="sm-planning-section">
-              <div className="sm-planning-section-heading"><span>Einsatztage</span><small>{serviceDaysPerWeek ?? 0} von 5 Tagen</small></div>
+              <div className="sm-planning-section-heading"><span>Einsatztage</span><small>{displayedServiceDays ?? 0} von 5 Tagen</small></div>
+              {planningEditing ? <p className="sm-planning-edit-intro">Tage auswählen, Stunden pro Tag eintragen.</p> : null}
               <div className="sm-weekday-grid">
                 {WEEKDAYS.map(({ key, label }) => {
                   const hours = weekdayHours[key];
+                  if (planningEditing) {
+                    const selected = planningDraft[key] !== null;
+                    const dayName = SM_PLANNING_DAYS.find((day) => day.key === key)!.label;
+                    return (
+                      <div key={key} className={`sm-weekday-editor${selected ? " is-selected" : ""}`}>
+                        <button type="button" disabled={planningSaving} className={`sm-weekday${selected ? " is-active" : " is-empty"}`} aria-label={`${dayName} als Betreuungstag`} aria-pressed={selected} onClick={() => {
+                          setPlanningDraft((current) => ({ ...current, [key]: current[key] === null ? "" : null }));
+                          setPlanningError(null);
+                        }}>
+                          <span>{label}</span><span className="sm-weekday-selection" aria-hidden="true">{selected ? <Check size={9} strokeWidth={2.5} /> : null}</span>
+                        </button>
+                        <div className="sm-weekday-hours">
+                        <input type="text" inputMode="decimal" autoComplete="off" disabled={!selected || planningSaving} value={planningDraft[key] ?? ""} placeholder="—"
+                          aria-label={`Stunden am ${dayName}`} aria-describedby={`weekly-plan-hint-${market.id}`} aria-invalid={selected && planningResult.weekdayHours[key] === null}
+                          onChange={(event) => { setPlanningDraft((current) => ({ ...current, [key]: event.target.value })); setPlanningError(null); }} />
+                          <span aria-hidden="true">h</span>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={key} className={`sm-weekday${hours === undefined ? " is-empty" : " is-active"}`}>
                       <span>{label}</span>
@@ -814,6 +875,11 @@ function MarketDetailDrawer({
                   );
                 })}
               </div>
+              {planningEditing ? <div className="sm-planning-edit-hint" id={`weekly-plan-hint-${market.id}`}>
+                <Info size={12} strokeWidth={1.8} aria-hidden="true" />
+                <p>Ändert nur die Markt-Wochenplanung. Bereits verplante Einsätze bleiben unverändert.</p>
+              </div> : null}
+              {planningEditing && (planningError || planningResult.error) ? <div role="alert" className="sm-planning-edit-error"><AlertCircle size={12} aria-hidden="true" /><span>{planningError || planningResult.error}</span></div> : null}
             </div>
 
             <div className="sm-planning-section is-people">
@@ -845,6 +911,10 @@ function MarketDetailDrawer({
           <button type="button" disabled={saving} onClick={() => { setDraft(editableMarketFields(market)); setEditing(false); setActionError(null); }} className="sm-market-edit-button is-secondary">Abbrechen</button>
           <button type="button" disabled={saving} onClick={() => void save()} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2}/> {saving ? "Speichert…" : "Speichern"}</button>
         </div> : actionError ? <button type="button" onClick={() => setActionError(null)} className="sm-market-edit-button is-secondary">Schließen</button> : null}
+      </div> : null}
+      {tab === "assignments" && planningEditing ? <div className="sm-planning-edit-footer">
+        <button type="button" disabled={planningSaving} onClick={cancelPlanningEdit} className="sm-market-edit-button is-secondary">Abbrechen</button>
+        <button type="button" aria-label="Wochenplanung speichern" disabled={planningSaving || !!planningResult.error} onClick={() => void savePlanning()} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2} />{planningSaving ? "Speichert…" : "Speichern"}</button>
       </div> : null}
       {showDeactivation ? <SmMarketDeactivationModal marketId={market.id} onClose={() => setShowDeactivation(false)} onConfirmed={(result) => { updateDraft("isActive", false); onDeactivated(result.market); setShowDeactivation(false); }} /> : null}
     </aside>,
@@ -1145,6 +1215,11 @@ export default function SmMaerktePage() {
     }
   }, []);
 
+  const handlePlanningSave = useCallback(async (marketId: string, weekdayHours: SmMarketWeekdayHours, expectedUpdatedAt?: string) => {
+    const updated = await updateSmMarket(marketId, { weekdayHours, expectedUpdatedAt });
+    setMarkets((current) => current.map((market) => market.id === marketId ? updated : market));
+  }, []);
+
   const handleCreateMarket = useCallback(async (input: NewSmMarketInput) => {
     const { assignedSmUserId, ...fields } = input;
     setMutationError(null);
@@ -1257,6 +1332,11 @@ export default function SmMaerktePage() {
         .sm-planning-heading span:not(.sm-planning-heading-icon) { color:rgba(15,23,42,.36); font-size:8.5px; font-weight:550; }
         .sm-planning-status { flex-shrink:0; padding:4px 7px; display:inline-flex; align-items:center; gap:5px; border-radius:999px; background:rgba(22,163,74,.065); color:#15803d; font-size:8px; font-weight:750; }
         .sm-planning-status i { width:5px; height:5px; border-radius:50%; background:#22a75a; box-shadow:0 0 0 3px rgba(34,167,90,.08); }
+        .sm-planning-actions { display:flex; align-items:center; gap:5px; }
+        .sm-planning-status.is-draft { background:rgba(220,38,38,.055); color:${COKE_RED}; }
+        .sm-planning-status.is-draft i { background:${COKE_RED}; box-shadow:none; }
+        .sm-planning-status.is-empty { background:rgba(15,23,42,.035); color:rgba(15,23,42,.42); }
+        .sm-planning-status.is-empty i { background:#9ca3af; box-shadow:none; }
         .sm-planning-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); background:linear-gradient(180deg,rgba(248,250,252,.72),rgba(248,250,252,.34)); border-bottom:1px solid rgba(15,23,42,.055); }
         .sm-planning-metric { min-width:0; min-height:72px; padding:0 15px; display:flex; align-items:center; gap:10px; }
         .sm-planning-metric + .sm-planning-metric { border-left:1px solid rgba(15,23,42,.06); }
@@ -1276,6 +1356,35 @@ export default function SmMaerktePage() {
         .sm-weekday > i { position:absolute; right:8px; bottom:5px; left:8px; height:2px; border-radius:999px; background:rgba(15,23,42,.06); }
         .sm-weekday.is-active { border-color:#b91c1c; background:linear-gradient(180deg,#e33a3a,#c91f28); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.3),inset 0 -1px 0 rgba(255,255,255,.12),0 2px 6px rgba(185,28,28,.14); }
         .sm-weekday.is-active > i { background:rgba(255,255,255,.48); }
+        .sm-weekday-editor { min-width:0; padding:4px; display:flex; flex-direction:column; gap:4px; border:1px solid rgba(15,23,42,.08); border-radius:10px; background:linear-gradient(180deg,#fff,#fafafb); box-shadow:0 1px 2px rgba(15,23,42,.02); transition:border-color .14s,background .14s; }
+        .sm-weekday-editor.is-selected { border-color:rgba(220,38,38,.22); background:rgba(220,38,38,.025); }
+        .sm-weekday-editor .sm-weekday { width:100%; height:35px; padding:0 6px; flex-direction:row; justify-content:space-between; gap:3px; border:0; border-radius:6px; background:transparent; box-shadow:none; color:rgba(15,23,42,.42); font-family:inherit; cursor:pointer; }
+        .sm-weekday-editor .sm-weekday > span:first-child { font-size:9px; font-weight:750; letter-spacing:.02em; }
+        .sm-weekday-editor .sm-weekday.is-active { background:linear-gradient(180deg,${COKE_RED},#b91c1c); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.25),0 1px 3px rgba(185,28,28,.13); }
+        .sm-weekday-editor .sm-weekday-selection { width:12px; height:12px; flex:0 0 12px; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; border:1px solid rgba(15,23,42,.16); border-radius:4px; }
+        .sm-weekday-editor .is-active .sm-weekday-selection { background:rgba(255,255,255,.13); border-color:rgba(255,255,255,.4); }
+        .sm-weekday-editor button:focus-visible { outline:2px solid ${COKE_RED}; outline-offset:2px; }
+        .sm-weekday-hours { min-width:0; position:relative; }
+        .sm-weekday-hours > span { position:absolute; top:0; right:5px; height:29px; display:flex; align-items:center; pointer-events:none; color:rgba(15,23,42,.32); font-size:8.5px; font-weight:550; }
+        .sm-weekday-editor input { width:100%; min-width:0; height:29px; box-sizing:border-box; border:1px solid transparent; border-radius:6px; padding:0 13px 0 3px; background:transparent; color:#17191d; font-family:inherit; font-size:11px; font-weight:650; text-align:center; font-variant-numeric:tabular-nums; transition:background .14s,border-color .14s; }
+        .sm-weekday-editor.is-selected input { background:#fff; border-color:rgba(15,23,42,.065); }
+        .sm-weekday-editor input:focus { outline:none; border-color:rgba(220,38,38,.36); box-shadow:0 0 0 2px rgba(220,38,38,.055); }
+        .sm-weekday-editor input:disabled, .sm-weekday-editor input:disabled + span { color:rgba(15,23,42,.2); }
+        .sm-weekday-editor input::placeholder { color:rgba(15,23,42,.25); }
+        .sm-weekday-editor input[aria-invalid="true"] { border-color:rgba(220,38,38,.4); }
+        .sm-planning-edit-intro { margin:0 0 12px; color:rgba(15,23,42,.45); font-size:9.5px; line-height:1.5; }
+        .sm-planning-edit-hint { margin-top:14px; padding:10px; display:flex; align-items:flex-start; gap:7px; border:1px solid rgba(15,23,42,.055); border-radius:8px; background:rgba(248,250,252,.7); color:rgba(15,23,42,.45); font-size:9px; line-height:1.5; }
+        .sm-planning-edit-hint svg { flex-shrink:0; margin-top:1px; color:rgba(15,23,42,.35); }
+        .sm-planning-edit-hint p { margin:0; }
+        .sm-planning-edit-error { margin-top:10px; padding:9px 10px; display:flex; align-items:flex-start; gap:7px; border:1px solid rgba(220,38,38,.15); border-radius:8px; background:rgba(220,38,38,.035); color:#b91c1c; font-size:9.5px; font-weight:550; line-height:1.5; }
+        .sm-planning-edit-error svg { flex-shrink:0; margin-top:1px; }
+        .sm-planning-edit-footer { min-height:64px; box-sizing:border-box; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-top:1px solid rgba(0,0,0,.06); background:#fff; }
+        .sm-planning-edit-footer .sm-market-edit-button { height:32px; padding:0 15px; gap:6px; font-size:10.5px; font-weight:650; }
+        .sm-planning-edit-footer .is-secondary { background:linear-gradient(180deg,#fff,#f5f5f5); box-shadow:inset 0 1px .6px rgba(255,255,255,.9),inset 0 -1px 0 rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.10),0 1px 4px rgba(0,0,0,.05); }
+        .sm-planning-edit-footer .is-primary { background:linear-gradient(180deg,${COKE_RED},#b91c1c); box-shadow:inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,.14); }
+        .sm-planning-edit-footer button:focus-visible { outline:2px solid ${COKE_RED}; outline-offset:3px; }
+        .sm-planning-edit-footer button:disabled, .sm-weekday-editor button:disabled { opacity:.45; cursor:not-allowed; }
+        @media (max-width:480px) { .sm-planning-metric { padding:0 12px; } .sm-planning-metric-icon { display:none; } .sm-planning-metric div > span { white-space:normal; overflow:visible; font-size:7.5px; } .sm-weekday-grid { gap:5px; } .sm-weekday-editor .sm-weekday { padding:0 4px; } .sm-weekday-editor input { padding-right:10px; padding-left:1px; font-size:10px; } }
         .sm-planning-section.is-people { padding-bottom:8px; }
         .sm-planning-people { display:flex; flex-direction:column; }
         .sm-planning-person { min-width:0; min-height:48px; display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:10px; }
@@ -1378,6 +1487,7 @@ export default function SmMaerktePage() {
           users={users}
           gmUsers={gmUsers}
           onSave={(fields) => handleMarketSave(selectedMarket.id, fields)}
+          onPlanningSave={(hours, expectedUpdatedAt) => handlePlanningSave(selectedMarket.id, hours, expectedUpdatedAt)}
           onDeactivated={(updated) => setMarkets((current) => current.map((market) => market.id === updated.id ? updated : market))}
           onDelete={() => handleDeleteMarket(selectedMarket.id)}
           onClose={() => setSelectedId(null)}

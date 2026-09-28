@@ -1634,6 +1634,10 @@ export async function fetchGmBonusSummary(): Promise<PraemienGmBonusSummary> {
     startDate: data.startDate ?? null,
     endDate: data.endDate ?? null,
     rewardModel: data.rewardModel ?? null,
+    managedModel: Boolean(data.managedModel),
+    revision: data.revision,
+    calculatedAt: data.calculatedAt,
+    pending: Boolean(data.pending),
     totalPoints: Number(data.totalPoints ?? 0),
     totalMaxPoints: Number(data.totalMaxPoints ?? 0),
     currentRewardEur: Number(data.currentRewardEur ?? 0),
@@ -1651,6 +1655,7 @@ export async function fetchGmBonusSummary(): Promise<PraemienGmBonusSummary> {
           earnedRewardEur: Number(goal.earnedRewardEur ?? 0),
           maxRewardEur: Number(goal.maxRewardEur ?? 0),
           metricValues: goal.metricValues ?? {},
+          metricDetails: Array.isArray(goal.metricDetails) ? goal.metricDetails : undefined,
           achievedTierLabels: Array.isArray(goal.achievedTierLabels) ? goal.achievedTierLabels.map(String) : [],
           nextTierLabel: goal.nextTierLabel ?? null,
         }))

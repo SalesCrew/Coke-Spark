@@ -1,5 +1,14 @@
 # GM-Dashboard: Echtdaten
 
+## Vollständige Produktionsfreigabe und Buildkorrektur (28.09.2026)
+
+- Nutzer stellt klar: die vollständige gebaute Boni-Funktion und das Echtdaten-Dashboard sollen in Produktion verfügbar sein, nicht nur ein Git-Push oder ein lesender Teilumfang.
+- Tatsächlicher voriger Deploymentstatus: Railway `5f5b9d5` erfolgreich, Vercel `95ba710` fehlgeschlagen. Buildlog: Backend-Submodule nicht geladen; danach fehlende Workspace-Typinformation/implizites `any` in `BonusOverviewCard`. Frühere lokale Prüfung enthielt den Backend-Checkout und reproduzierte diese Deploymentbedingung nicht.
+- Frontend-eigene Dashboard-/Workspace-Typverträge entfernen die Backend-Checkout-Abhängigkeit. Ein Regressionstest vergleicht sie mit den Backend-Verträgen. Produktionsprüfung zusätzlich auf exakt gestagten Dateien ohne Backend-Checkout, ohne `.env`, separat vom laufenden localhost.
+- Vollständiger Prämien-Editor, Fragequellenanzeige, Workspace-API, GM-Ergebnisse/Kumulierung und Quartalsbindung werden jetzt mit veröffentlicht. Keine automatische Übernahme/Umdeutung der bestehenden Prämienwelle, keine erfundenen Ziele oder Demonstrationsbeträge.
+- Additive vorbereitete Migration `praemien_wave_workspace` auf dem verifizierten Coke-Spark-Projekt `quqefecmqeienxmeueqa` erfolgreich angewendet: vier neue Tabellen, eingeschränkte Zugriffe/RLS und Empfangszeit-Trigger für künftige Abgaben. Kein Backfill, keine Änderung vorhandener Antworten, Besuche, Wellen oder Auszahlungsbeträge. Kurze Sperr-/Statement-Timeouts für die Migration verwendet.
+- Backend-Build und isolierte PostgreSQL-/HTTP-Prüfung erfolgreich (22 Tests im exportierten Backend-Prüfstand). Frontend-Zustands-/Layouttests und Vertragsprüfung erfolgreich. Authentifizierte Live-Browserprüfung ist derzeit durch eine geöffnete Chrome-Erweiterungsoberfläche blockiert; keine Browserprüfung fälschlich behaupten.
+
 ## Freigegebener Push-Umfang (28.09.2026)
 
 - Nutzerfreigabe: „ok push that“. Die bisherigen Echtdaten-/Darstellungsänderungen des Dashboards werden gemeinsam veröffentlicht, da die letzten UI-Anpassungen darauf aufbauen. Separate Prämien-Editor-, Fragebogen-, Besuchs- und Exportplanungsänderungen bleiben im Arbeitsverzeichnis.

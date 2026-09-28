@@ -147,11 +147,16 @@ export interface PraemienGmGoalProgress {
   earnedRewardEur?: number;
   maxRewardEur?: number;
   metricValues?: Record<string, number>;
+  metricDetails?: import('./praemien-workspace').MetricResult[];
   achievedTierLabels?: string[];
   nextTierLabel?: string | null;
 }
 
 export interface PraemienGmBonusSummary {
+  managedModel?: boolean;
+  revision?: number;
+  calculatedAt?: string;
+  pending?: boolean;
   hasActiveWave: boolean;
   waveId: string | null;
   waveName: string | null;

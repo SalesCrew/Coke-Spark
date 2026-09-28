@@ -1,4 +1,5 @@
 "use client";
+import { PraemienQuestionUsage } from './praemien/PraemienQuestionUsage';
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { CSSProperties } from "react";
@@ -2077,6 +2078,7 @@ function QuestionCard({
 
             {/* Scoring (IPP / Boni) — only for single, multiple, numeric */}
             <ScoringEditor question={question} onUpdate={onUpdate} />
+            <PraemienQuestionUsage questionId={question.id} scoring={question.scoring ?? {}} />
 
             {/* Handelsketten selector */}
             <HandelskettenSelector question={question} onUpdate={onUpdate} availableChains={availableChains} />

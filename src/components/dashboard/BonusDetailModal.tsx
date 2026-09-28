@@ -16,6 +16,7 @@ interface Goal {
   earnedRewardEur?: number;
   maxRewardEur?: number;
   metricValues?: Record<string, number>;
+  metricDetails?: import('@/types/praemien-workspace').MetricResult[];
   achievedTierLabels?: string[];
   nextTierLabel?: string | null;
 }
@@ -452,6 +453,7 @@ function TieredBonusContent({ goals, summary }: { goals: Goal[]; summary?: Praem
               <div style={{ height: 4, borderRadius: 99, background: "rgba(0,0,0,0.06)", overflow: "hidden", marginTop: 9 }}>
                 <div style={{ width: `${rewardPercent}%`, height: "100%", borderRadius: 99, background: goal.color || "#DC2626", transition: "width 0.35s ease" }} />
               </div>
+              {goal.metricDetails?.map(metric => <div key={metric.key} style={{display:'flex',justifyContent:'space-between',gap:10,fontSize:10,marginTop:8,color:'#64748b'}}><span>{metric.label} · {metric.origin === 'manual' ? 'manuell bewertet' : metric.origin === 'pending' ? 'Bewertung offen' : 'automatisch'}</span><strong>{metric.value === null ? 'offen' : metric.value.toLocaleString('de-AT',{maximumFractionDigits:2})}{metric.value === null ? '' : metric.unit === 'percent' ? ' %' : metric.unit === 'count' ? ' Stück' : ' P'}</strong></div>)}
             </div>
           );
         })}

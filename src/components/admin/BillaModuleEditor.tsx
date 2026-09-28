@@ -1,4 +1,5 @@
 "use client";
+import { PraemienQuestionUsage } from './praemien/PraemienQuestionUsage';
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
@@ -914,6 +915,7 @@ function BillaQuestionCard({ question, index, isExpanded, onToggle, onUpdate, on
             <BillaTypeConfig question={question} onUpdate={onUpdate} />
 
             <BillaScoringEditor question={question} onUpdate={onUpdate} />
+            <PraemienQuestionUsage questionId={question.id} scoring={question.scoring ?? {}} />
 
             <HandelskettenSelector
               question={question}

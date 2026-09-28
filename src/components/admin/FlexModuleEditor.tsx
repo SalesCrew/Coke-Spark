@@ -1,4 +1,5 @@
 "use client";
+import { PraemienQuestionUsage } from './praemien/PraemienQuestionUsage';
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
@@ -940,6 +941,7 @@ function FlexQuestionCard({ question, index, isExpanded, onToggle, onUpdate, onD
 
             {/* Scoring (IPP / Boni) — only for single, multiple, numeric */}
             <FlexScoringEditor question={question} onUpdate={onUpdate} />
+            <PraemienQuestionUsage questionId={question.id} scoring={question.scoring ?? {}} />
 
             <HandelskettenSelector
               question={question}

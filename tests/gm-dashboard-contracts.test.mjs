@@ -17,3 +17,16 @@ test('frontend deployment contracts do not depend on the backend checkout', asyn
   const workspaceTypes = backendWorkspace.slice(backendWorkspace.indexOf('export type WaveInfo'), backendWorkspace.indexOf('type Setting ='));
   assert.equal(normalize(workspace), normalize(modelTypes + workspaceTypes));
 });
+
+test('production typecheck excludes backend-dependent tests and route modules expose only route exports', async () => {
+  const [config, mhd, durcharbeit, catalog] = await Promise.all([
+    readFile(new URL('../tsconfig.json', import.meta.url), 'utf8'),
+    readFile(new URL('../src/app/admin/mhd/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/app/admin/durcharbeit/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/admin/ScopedQuestionnaireCatalog.tsx', import.meta.url), 'utf8'),
+  ]);
+  assert.ok(JSON.parse(config).exclude.includes('tests'));
+  assert.match(mhd, /export \{ default \} from "@\/components\/admin\/ScopedQuestionnaireCatalog"/);
+  assert.doesNotMatch(durcharbeit, /from "@\/app\/admin\/mhd\/page"/);
+  assert.match(catalog, /export function ScopedQuestionnaireCatalog/);
+});

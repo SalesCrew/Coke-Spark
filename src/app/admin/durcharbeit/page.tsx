@@ -1,7 +1,7 @@
 "use client";
 
 import { useDurcharbeitModules } from "@/app/admin/adminContexts";
-import { ScopedQuestionnaireCatalog } from "@/app/admin/mhd/page";
+import { ScopedQuestionnaireCatalog } from "@/components/admin/ScopedQuestionnaireCatalog";
 
 export default function DurcharbeitPage() {
   return (

@@ -22,6 +22,7 @@ import {
   Tag,
 } from "lucide-react";
 import { useModules } from "@/context/ModuleContext";
+import { useCatalogModules, ModuleCatalogStatusAction, ModuleCatalogStatusBadge } from "@/components/admin/ModuleCatalogStatus";
 import { useFragebogen } from "@/context/FragebogenContext";
 import {
   useBillaModules,
@@ -372,9 +373,10 @@ function QuestionConfigSummary({ question }: { question: Question }) {
 // ── Module Card ─────────────────────────────────────────────
 
 function ModuleContextMenu({
-  x, y, onDuplicate, onDuplicateToFlex, onDuplicateToBilla, onDelete, onClose,
+  x, y, onDuplicate, onDuplicateToFlex, onDuplicateToBilla, onDelete, onClose, catalogAction,
 }: {
   x: number; y: number;
+  catalogAction?: React.ReactNode;
   onDuplicate: () => Promise<void> | void;
   onDuplicateToFlex: () => Promise<void> | void;
   onDuplicateToBilla: () => Promise<void> | void;
@@ -412,7 +414,8 @@ function ModuleContextMenu({
   };
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: "4px", minWidth: 190 }}>
+    <div ref={ref} data-module-overlay style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: "4px", minWidth: 190 }}>
+      {catalogAction}
       <div style={{ position: "relative" }}>
         <button
           onMouseEnter={() => { if (!isActing) setDupOpen(true); }}
@@ -749,6 +752,7 @@ function ModuleCard({ module, onEdit, onDuplicate, onDuplicateToFlex, onDuplicat
 
   return (
     <div
+      className="module-catalog-card" data-catalog-inactive={Boolean(module.catalogInactive)}
       onContextMenu={(e) => {
         e.preventDefault();
         setCtxMenu({ x: e.clientX, y: e.clientY });
@@ -764,6 +768,7 @@ function ModuleCard({ module, onEdit, onDuplicate, onDuplicateToFlex, onDuplicat
     >
       {ctxMenu && (
         <ModuleContextMenu
+          catalogAction={<ModuleCatalogStatusAction module={module} scope="main" onClose={() => setCtxMenu(null)} />}
           x={ctxMenu.x}
           y={ctxMenu.y}
           onDuplicate={onDuplicate}
@@ -774,6 +779,7 @@ function ModuleCard({ module, onEdit, onDuplicate, onDuplicateToFlex, onDuplicat
         />
       )}
       {deleteDialog && (
+        <div data-module-overlay>
         <ModuleDeleteDialog
           module={module}
           usedInCount={usedInFragebogen.count}
@@ -781,6 +787,7 @@ function ModuleCard({ module, onEdit, onDuplicate, onDuplicateToFlex, onDuplicat
           onDeleteModule={onDelete}
           onClose={() => setDeleteDialog(false)}
         />
+        </div>
       )}
       {/* Header row */}
       <div
@@ -805,6 +812,7 @@ function ModuleCard({ module, onEdit, onDuplicate, onDuplicateToFlex, onDuplicat
             }}>
               {module.name}
             </span>
+            <ModuleCatalogStatusBadge module={module} />
           </div>
           {module.description && (
             <div style={{
@@ -2304,14 +2312,15 @@ export default function FragebogenPage() {
       typeLabel(question.type).toLowerCase().includes(q)
     );
   });
+  const catalogModules = useCatalogModules(modules, "main");
   const filteredModules = (q
-    ? modules.filter(
+    ? catalogModules.filter(
         (m) =>
           m.name.toLowerCase().includes(q) ||
           m.description.toLowerCase().includes(q) ||
           m.questions.some((qst) => qst.text.toLowerCase().includes(q))
       )
-    : modules).filter((m) => m.id !== "__unassigned__");
+    : catalogModules).filter((m) => m.id !== "__unassigned__");
   const filteredFragebogen = q
     ? fragebogenList.filter(
         (fb) =>

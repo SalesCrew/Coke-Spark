@@ -5691,6 +5691,14 @@ export async function deleteModuleBackend(scope: FragebogenScope, moduleId: stri
   await authedFetch(`/admin/modules/${scope}/${moduleId}/delete`, { method: "PATCH" });
 }
 
+export async function setModuleCatalogInactive(scope: FragebogenScope, moduleId: string, inactive: boolean): Promise<{ id: string; catalogInactive: boolean }> {
+  const data = (await authedFetch(`/admin/modules/${scope}/${moduleId}/catalog-state`, {
+    method: "PATCH",
+    body: JSON.stringify({ inactive }),
+  })) as { module: { id: string; catalogInactive: boolean } };
+  return data.module;
+}
+
 export async function duplicateModuleBackend(
   sourceScope: FragebogenScope,
   moduleId: string,

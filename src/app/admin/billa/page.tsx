@@ -1,4 +1,5 @@
 "use client";
+import { useCatalogModules, ModuleCatalogStatusAction, ModuleCatalogStatusBadge } from "@/components/admin/ModuleCatalogStatus";
 
 import { useState, useRef, useEffect } from "react";
 import {
@@ -171,7 +172,8 @@ function BillaContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToFl
 }
 
 // ── Module context menu (cross-dup flyout) ─────────────────────
-function BillaModuleContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToFlex, onDelete, onClose }: {
+function BillaModuleContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToFlex, onDelete, onClose, catalogAction }: {
+  catalogAction?: React.ReactNode;
   x: number;
   y: number;
   onDuplicate: () => Promise<void> | void;
@@ -191,7 +193,8 @@ function BillaModuleContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplica
   }, [onClose]);
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 180 }}>
+    <div ref={ref} data-module-overlay style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 180 }}>
+      {catalogAction}
       <div style={{ position: "relative" }}>
         <button
           onMouseEnter={() => setDupOpen(true)}
@@ -405,11 +408,13 @@ function BillaModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDupl
 
   return (
     <div
+      className="module-catalog-card" data-catalog-inactive={Boolean(module.catalogInactive)}
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       style={{ backgroundColor: "#fff", borderRadius: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden", position: "relative" }}
     >
       {ctxMenu && (
         <BillaModuleContextMenu x={ctxMenu.x} y={ctxMenu.y}
+          catalogAction={<ModuleCatalogStatusAction module={module} scope="main" onClose={() => setCtxMenu(null)} />}
           onDuplicate={onDuplicate}
           onDuplicateToStd={onDuplicateToStd}
           onDuplicateToFlex={onDuplicateToFlex}
@@ -418,6 +423,7 @@ function BillaModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDupl
         />
       )}
       {deleteDialog && (
+        <div data-module-overlay>
         <BillaModuleDeleteDialog
           module={module}
           usedInCount={usedInFragebogen.count}
@@ -425,12 +431,14 @@ function BillaModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDupl
           onDeleteModule={onDelete}
           onClose={() => setDeleteDialog(false)}
         />
+        </div>
       )}
 
       <div onClick={() => setExpanded(!expanded)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", cursor: "pointer", userSelect: "none" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{module.name}</span>
+            <ModuleCatalogStatusBadge module={module} />
           </div>
           {module.description && (
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -829,9 +837,10 @@ export default function BillaPage() {
     return question.text.toLowerCase().includes(q) || moduleName.toLowerCase().includes(q) || typeLabel(question.type).toLowerCase().includes(q);
   });
 
+  const catalogModules = useCatalogModules(modules, "main");
   const filteredModules = (q
-    ? modules.filter((m) => m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q) || m.questions.some((qst) => qst.text.toLowerCase().includes(q)))
-    : modules).filter((m) => m.id !== "__billa_unassigned__");
+    ? catalogModules.filter((m) => m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q) || m.questions.some((qst) => qst.text.toLowerCase().includes(q)))
+    : catalogModules).filter((m) => m.id !== "__billa_unassigned__");
 
   const filteredFragebogen = q
     ? fragebogenList.filter((fb) => fb.name.toLowerCase().includes(q) || fb.description.toLowerCase().includes(q))

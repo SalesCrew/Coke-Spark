@@ -1,4 +1,5 @@
 "use client";
+import { useCatalogModules, ModuleCatalogStatusAction, ModuleCatalogStatusBadge } from "@/components/admin/ModuleCatalogStatus";
 
 // Shared catalog lives outside page.tsx so route modules export only route APIs.
 
@@ -153,7 +154,8 @@ function QuestionConfigSummary({ question }: { question: Question }) {
 
 // ── Context Menu (shared) ──────────────────────────────────────
 
-function MhdContextMenu({ x, y, onDuplicate, onDuplicateToDurcharbeit, onDelete, onClose }: {
+function MhdContextMenu({ x, y, onDuplicate, onDuplicateToDurcharbeit, onDelete, onClose, catalogAction }: {
+  catalogAction?: React.ReactNode;
   x: number; y: number;
   onDuplicate: () => void;
   onDuplicateToDurcharbeit?: () => Promise<void>;
@@ -186,7 +188,8 @@ function MhdContextMenu({ x, y, onDuplicate, onDuplicateToDurcharbeit, onDelete,
   };
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 160, pointerEvents: isCopyingToDurcharbeit ? "none" : "auto" }}>
+    <div ref={ref} data-module-overlay style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 160, pointerEvents: isCopyingToDurcharbeit ? "none" : "auto" }}>
+      {catalogAction}
       <button
         onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
         style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
@@ -463,7 +466,8 @@ function MhdFragenListItem({ question, moduleName, onDelete }: {
 
 // ── Module Card ────────────────────────────────────────────────
 
-function MhdModuleCard({ module, usedInCount, usedInNames, onEdit, onDuplicate, onDelete }: {
+function MhdModuleCard({ module, scope, usedInCount, usedInNames, onEdit, onDuplicate, onDelete }: {
+  scope: FragebogenScope;
   module: Module;
   usedInCount: number;
   usedInNames: string[];
@@ -479,11 +483,13 @@ function MhdModuleCard({ module, usedInCount, usedInNames, onEdit, onDuplicate, 
 
   return (
     <div
+      className="module-catalog-card" data-catalog-inactive={Boolean(module.catalogInactive)}
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       style={{ backgroundColor: "#fff", borderRadius: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden", transition: "box-shadow 0.15s ease", position: "relative" }}
     >
       {ctxMenu && (
         <MhdContextMenu
+          catalogAction={<ModuleCatalogStatusAction module={module} scope={scope} onClose={() => setCtxMenu(null)} />}
           x={ctxMenu.x} y={ctxMenu.y}
           onDuplicate={onDuplicate}
           onDelete={() => { setDeleteDialog(true); setCtxMenu(null); }}
@@ -491,6 +497,7 @@ function MhdModuleCard({ module, usedInCount, usedInNames, onEdit, onDuplicate, 
         />
       )}
       {deleteDialog && (
+        <div data-module-overlay>
         <ModuleDeleteDialog
           module={module}
           usedInCount={usedInCount}
@@ -498,12 +505,14 @@ function MhdModuleCard({ module, usedInCount, usedInNames, onEdit, onDuplicate, 
           onDeleteModule={onDelete}
           onClose={() => setDeleteDialog(false)}
         />
+        </div>
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", cursor: "pointer", userSelect: "none" }} onClick={() => setExpanded(!expanded)}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{module.name}</span>
+            <ModuleCatalogStatusBadge module={module} />
           </div>
           {module.description && (
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{module.description}</div>
@@ -947,7 +956,8 @@ export function ScopedQuestionnaireCatalog({
     return question.text.toLowerCase().includes(q) || moduleName.toLowerCase().includes(q) || typeLabel(question.type).toLowerCase().includes(q);
   });
 
-  const visibleModules = modules.filter((m) => m.id !== "__mhd_unassigned__");
+  const catalogModules = useCatalogModules(modules, scope);
+  const visibleModules = catalogModules.filter((m) => m.id !== "__mhd_unassigned__");
   const filteredModules = q
     ? visibleModules.filter((m) => m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q) || m.questions.some((qst) => qst.text.toLowerCase().includes(q)))
     : visibleModules;
@@ -1097,6 +1107,7 @@ export function ScopedQuestionnaireCatalog({
                 const usedIn = fragebogenList.filter((fb) => fb.moduleIds.includes(m.id));
                 return (
                   <MhdModuleCard
+                    scope={scope}
                     key={m.id}
                     module={m}
                     usedInCount={usedIn.length}

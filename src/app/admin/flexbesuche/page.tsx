@@ -1,4 +1,5 @@
 "use client";
+import { useCatalogModules, ModuleCatalogStatusAction, ModuleCatalogStatusBadge } from "@/components/admin/ModuleCatalogStatus";
 
 import { useState, useRef, useEffect } from "react";
 import {
@@ -52,7 +53,8 @@ function daysUntil(iso?: string): number | null {
 
 // ── Context menu (shared) ────────────────────────────────────
 
-function FlexContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDelete, onClose }: {
+function FlexContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToBilla, onDelete, onClose, catalogAction }: {
+  catalogAction?: React.ReactNode;
   x: number; y: number;
   onDuplicate: () => Promise<void> | void;
   onDuplicateToStd: () => Promise<void> | void;
@@ -71,7 +73,8 @@ function FlexContextMenu({ x, y, onDuplicate, onDuplicateToStd, onDuplicateToBil
   }, [onClose]);
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 175 }}>
+    <div ref={ref} data-module-overlay style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 175 }}>
+      {catalogAction}
       <div
         style={{ position: "relative" }}
         onMouseEnter={() => setDupOpen(true)}
@@ -398,11 +401,13 @@ function FlexModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDupli
 
   return (
     <div
+      className="module-catalog-card" data-catalog-inactive={Boolean(module.catalogInactive)}
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       style={{ backgroundColor: "#fff", borderRadius: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden", position: "relative" }}
     >
       {ctxMenu && (
         <FlexContextMenu x={ctxMenu.x} y={ctxMenu.y}
+          catalogAction={<ModuleCatalogStatusAction module={module} scope="main" onClose={() => setCtxMenu(null)} />}
           onDuplicate={onDuplicate}
           onDuplicateToStd={onDuplicateToStd}
           onDuplicateToBilla={onDuplicateToBilla}
@@ -411,6 +416,7 @@ function FlexModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDupli
         />
       )}
       {deleteDialog && (
+        <div data-module-overlay>
         <FlexModuleDeleteDialog
           module={module}
           usedInCount={usedInFragebogen.count}
@@ -418,6 +424,7 @@ function FlexModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDupli
           onDeleteModule={onDelete}
           onClose={() => setDeleteDialog(false)}
         />
+        </div>
       )}
 
       {/* Header row */}
@@ -425,6 +432,7 @@ function FlexModuleCard({ module, onEdit, onDuplicate, onDuplicateToStd, onDupli
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{module.name}</span>
+            <ModuleCatalogStatusBadge module={module} />
           </div>
           {module.description && (
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -828,9 +836,10 @@ export default function FlexbesuchePage() {
     return question.text.toLowerCase().includes(q) || moduleName.toLowerCase().includes(q) || typeLabel(question.type).toLowerCase().includes(q);
   });
 
+  const catalogModules = useCatalogModules(modules, "main");
   const filteredModules = (q
-    ? modules.filter((m) => m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q) || m.questions.some((qst) => qst.text.toLowerCase().includes(q)))
-    : modules).filter((m) => m.id !== "__flex_unassigned__");
+    ? catalogModules.filter((m) => m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q) || m.questions.some((qst) => qst.text.toLowerCase().includes(q)))
+    : catalogModules).filter((m) => m.id !== "__flex_unassigned__");
 
   const filteredFragebogen = q
     ? fragebogenList.filter((fb) => fb.name.toLowerCase().includes(q) || fb.description.toLowerCase().includes(q))

@@ -59,6 +59,8 @@ export interface Module {
   createdAt: string;
   usedInCount: number;
   revision?: number;
+  /** Catalog indicator only; does not disable questionnaires or visits. */
+  catalogInactive?: boolean;
 }
 
 export interface MarketAssignment {

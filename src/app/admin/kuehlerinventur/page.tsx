@@ -1,4 +1,5 @@
 "use client";
+import { useCatalogModules, ModuleCatalogStatusAction, ModuleCatalogStatusBadge } from "@/components/admin/ModuleCatalogStatus";
 
 import { useState, useRef, useEffect } from "react";
 import {
@@ -151,7 +152,8 @@ function QuestionConfigSummary({ question }: { question: Question }) {
 
 // ── Context Menu (shared) ──────────────────────────────────────
 
-function KuehlerContextMenu({ x, y, onDuplicate, onDuplicateToDurcharbeit, onDelete, onClose }: {
+function KuehlerContextMenu({ x, y, onDuplicate, onDuplicateToDurcharbeit, onDelete, onClose, catalogAction }: {
+  catalogAction?: React.ReactNode;
   x: number; y: number;
   onDuplicate: () => void;
   onDuplicateToDurcharbeit?: () => Promise<void>;
@@ -184,7 +186,8 @@ function KuehlerContextMenu({ x, y, onDuplicate, onDuplicateToDurcharbeit, onDel
   };
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 160, pointerEvents: isCopyingToDurcharbeit ? "none" : "auto" }}>
+    <div ref={ref} data-module-overlay style={{ position: "fixed", left: x, top: y, zIndex: 9999, backgroundColor: "#fff", borderRadius: 9, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.05)", padding: 4, minWidth: 160, pointerEvents: isCopyingToDurcharbeit ? "none" : "auto" }}>
+      {catalogAction}
       <button
         onClick={(e) => { e.stopPropagation(); onDuplicate(); onClose(); }}
         style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#374151", textAlign: "left", transition: "background-color 0.1s ease" }}
@@ -483,11 +486,13 @@ function KuehlerModuleCard({ module, usedInCount, usedInNames, onEdit, onDuplica
 
   return (
     <div
+      className="module-catalog-card" data-catalog-inactive={Boolean(module.catalogInactive)}
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       style={{ backgroundColor: "#fff", borderRadius: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden", transition: "box-shadow 0.15s ease", position: "relative" }}
     >
       {ctxMenu && (
         <KuehlerContextMenu
+          catalogAction={<ModuleCatalogStatusAction module={module} scope="kuehler" onClose={() => setCtxMenu(null)} />}
           x={ctxMenu.x} y={ctxMenu.y}
           onDuplicate={onDuplicate}
           onDelete={() => { setDeleteDialog(true); setCtxMenu(null); }}
@@ -495,6 +500,7 @@ function KuehlerModuleCard({ module, usedInCount, usedInNames, onEdit, onDuplica
         />
       )}
       {deleteDialog && (
+        <div data-module-overlay>
         <ModuleDeleteDialog
           module={module}
           usedInCount={usedInCount}
@@ -502,6 +508,7 @@ function KuehlerModuleCard({ module, usedInCount, usedInNames, onEdit, onDuplica
           onDeleteModule={onDelete}
           onClose={() => setDeleteDialog(false)}
         />
+        </div>
       )}
 
       {/* Header row */}
@@ -509,6 +516,7 @@ function KuehlerModuleCard({ module, usedInCount, usedInNames, onEdit, onDuplica
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{module.name}</span>
+            <ModuleCatalogStatusBadge module={module} />
           </div>
           {module.description && (
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{module.description}</div>
@@ -950,7 +958,8 @@ export default function KuehlerinventurPage() {
     return question.text.toLowerCase().includes(q) || moduleName.toLowerCase().includes(q) || typeLabel(question.type).toLowerCase().includes(q);
   });
 
-  const visibleModules = modules.filter((m) => m.id !== "__kuehler_unassigned__");
+  const catalogModules = useCatalogModules(modules, "kuehler");
+  const visibleModules = catalogModules.filter((m) => m.id !== "__kuehler_unassigned__");
   const filteredModules = q
     ? visibleModules.filter((m) => m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q) || m.questions.some((qst) => qst.text.toLowerCase().includes(q)))
     : visibleModules;

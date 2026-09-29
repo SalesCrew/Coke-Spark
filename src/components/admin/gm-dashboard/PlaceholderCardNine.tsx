@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
 import { useDashboardData, useDashboardFacets } from "./RealGmDashboard";
 import { calendarToday } from "@/lib/gm-dashboard/data";
+import { limitDashboardIntervals } from "@/lib/gm-dashboard/date-range";
 import {
   IppFilterBar,
   type IppFilterState,
@@ -188,10 +189,14 @@ function describeDonutSegment(
 function DateRangeDropdown({
   value,
   onChange,
+  minDate,
+  maxDate,
   minWidth = 186,
 }: {
   value: DateRangeFilter;
   onChange: (next: DateRangeFilter) => void;
+  minDate: string | null;
+  maxDate: string;
   minWidth?: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -201,7 +206,13 @@ function DateRangeDropdown({
   );
   const containerRef = useRef<HTMLDivElement | null>(null);
   const applied = Boolean(value.start && value.end);
-  const draftComplete = Boolean(draftRange.start && draftRange.end);
+  const draftComplete = Boolean(
+    minDate &&
+    draftRange.start &&
+    draftRange.end &&
+    draftRange.start >= minDate &&
+    draftRange.end <= maxDate,
+  );
   const calendarDays = useMemo(
     () => buildCalendarDays(draftMonth),
     [draftMonth],
@@ -234,6 +245,7 @@ function DateRangeDropdown({
   }, [open]);
 
   const handleDateClick = (dateKey: string) => {
+    if (!minDate || dateKey < minDate || dateKey > maxDate) return;
     setDraftRange((current) => {
       if (!current.start || current.end) return { start: dateKey, end: null };
       if (dateKey === current.start) return current;
@@ -272,6 +284,7 @@ function DateRangeDropdown({
       <button
         className="distribution-date-trigger"
         type="button"
+        disabled={!minDate}
         onClick={() => setOpen((current) => !current)}
         style={{
           width: "100%",
@@ -347,6 +360,7 @@ function DateRangeDropdown({
             <button
               type="button"
               aria-label="Vorheriger Monat"
+              disabled={!minDate || draftMonth <= minDate.slice(0, 7)}
               onClick={() => setDraftMonth((current) => moveMonth(current, -1))}
               style={{
                 width: 25,
@@ -376,6 +390,7 @@ function DateRangeDropdown({
             <button
               type="button"
               aria-label="Nächster Monat"
+              disabled={draftMonth >= maxDate.slice(0, 7)}
               onClick={() => setDraftMonth((current) => moveMonth(current, 1))}
               style={{
                 width: 25,
@@ -416,6 +431,7 @@ function DateRangeDropdown({
               </div>
             ))}
             {calendarDays.map((day) => {
+              const disabled = !minDate || day.key < minDate || day.key > maxDate;
               const isStart = day.key === draftRange.start;
               const isEnd = day.key === draftRange.end;
               const inRange = Boolean(
@@ -430,6 +446,7 @@ function DateRangeDropdown({
                   key={day.key}
                   className="distribution-date-day"
                   type="button"
+                  disabled={disabled}
                   onClick={() => handleDateClick(day.key)}
                   style={{
                     height: 28,
@@ -449,7 +466,8 @@ function DateRangeDropdown({
                         : "rgba(100,116,139,0.30)",
                     fontSize: 10,
                     fontWeight: active ? 850 : inRange ? 800 : 700,
-                    cursor: "pointer",
+                    cursor: disabled ? "default" : "pointer",
+                    opacity: disabled ? 0.3 : 1,
                     boxShadow: active
                       ? "inset 0 1px 0.6px rgba(255,255,255,0.92), 0 1px 4px rgba(220,38,38,0.08)"
                       : "none",
@@ -496,7 +514,7 @@ function DateRangeDropdown({
             <button
               type="button"
               onClick={() => {
-                if (!draftRange.start || !draftRange.end) return;
+                if (!draftComplete || !draftRange.start || !draftRange.end) return;
                 onChange(draftRange);
                 setOpen(false);
               }}
@@ -546,9 +564,17 @@ export function PlaceholderCardNine() {
     );
   }, [markets]);
 
-  const dateRangeActive = Boolean(dateRange.start && dateRange.end);
+  const effectiveDateRange =
+    dateRange.end && facets.startDate && dateRange.end < facets.startDate
+      ? EMPTY_DATE_RANGE
+      : dateRange.start && facets.startDate && dateRange.start < facets.startDate
+        ? { ...dateRange, start: facets.startDate }
+        : dateRange;
+  const dateRangeActive = Boolean(
+    effectiveDateRange.start && effectiveDateRange.end,
+  );
   const selectedDateRangeLabel = dateRangeActive
-    ? formatDateRangeLabel(dateRange)
+    ? formatDateRangeLabel(effectiveDateRange)
     : "";
   const standardFilterCount = [
     filters.region,
@@ -561,13 +587,15 @@ export function PlaceholderCardNine() {
   const hasActiveFilters = activeFilterCount > 0;
   const today = calendarToday();
   const startDate =
-    dateRange.start ??
+    effectiveDateRange.start ??
     (activityPeriod === "year"
       ? today.slice(0, 4) + "-01-01"
       : today.slice(0, 7) + "-01");
   const endDate =
-    dateRange.end && dateRange.end < today ? dateRange.end : today;
-  const intervals =
+    effectiveDateRange.end && effectiveDateRange.end < today
+      ? effectiveDateRange.end
+      : today;
+  const intervals = limitDashboardIntervals(
     startDate <= endDate
       ? [
           {
@@ -582,7 +610,9 @@ export function PlaceholderCardNine() {
             end: endDate,
           },
         ]
-      : [];
+      : [],
+    facets.startDate,
+  );
   const result = useDashboardData("Aktivitaet", intervals, filters, "activity");
   const point = result.data?.points[0];
   const totalVisits = point?.visits ?? 0,
@@ -1405,7 +1435,12 @@ export function PlaceholderCardNine() {
                   marginBottom: 10,
                 }}
               >
-                <DateRangeDropdown value={dateRange} onChange={setDateRange} />
+                <DateRangeDropdown
+                  value={effectiveDateRange}
+                  onChange={setDateRange}
+                  minDate={facets.startDate}
+                  maxDate={today}
+                />
                 <button
                   className="ipp-reset-filters-btn"
                   type="button"

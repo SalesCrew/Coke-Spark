@@ -13,6 +13,7 @@ import {
 import { requestGmDashboard, readAuthSession } from "@/lib/api/backend";
 import { useRedMonth } from "@/context/RedMonthContext";
 import { calendarToday } from "@/lib/gm-dashboard/data";
+import { dashboardStartDate } from "@/lib/gm-dashboard/date-range";
 import type {
   AvailabilityType,
   DashboardData,
@@ -195,6 +196,7 @@ export function useDashboardFacets() {
   return {
     markets: shared.facets?.markets ?? [],
     gms: shared.facets?.gms ?? [],
+    startDate: dashboardStartDate(shared.facets?.firstEntryDate),
     loading: !shared.facets && !shared.error,
     error: shared.error,
   };

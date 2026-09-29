@@ -55,6 +55,7 @@ export type DashboardData = {
   stcApplied: false;
 };
 export type DashboardFacets = {
+  firstEntryDate: string | null;
   markets: {
     id: string;
     label: string;

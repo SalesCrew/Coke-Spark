@@ -5,10 +5,10 @@ import { useDashboardData, useDashboardFacets } from "./RealGmDashboard";
 import { calendarToday } from "@/lib/gm-dashboard/data";
 import { useRedMonth } from "@/context/RedMonthContext";
 import {
-  buildIntervals,
   findIntervalById,
   type IntervalMode,
 } from "@/lib/ipp-dashboard/intervals";
+import { buildDashboardIntervals } from "@/lib/gm-dashboard/date-range";
 import {
   IppFilterBar,
   type IppFilterState,
@@ -40,8 +40,9 @@ export function PlatzierungenCard() {
     () =>
       intervalMode === "redmonth" && !calendar.length
         ? []
-        : buildIntervals({
+        : buildDashboardIntervals({
             mode: intervalMode,
+            minStartDate: facets.startDate,
             count:
               intervalMode === "week"
                 ? 36
@@ -53,11 +54,12 @@ export function PlatzierungenCard() {
             ),
             now: new Date(calendarToday() + "T12:00:00Z"),
           }),
-    [calendar, intervalMode],
+    [calendar, intervalMode, facets.startDate],
   );
 
   useEffect(() => {
     if (intervals.length === 0) {
+      if (facets.loading) return;
       setSelectedIntervalId(null);
       return;
     }
@@ -67,7 +69,7 @@ export function PlatzierungenCard() {
     ) {
       setSelectedIntervalId(intervals[0]!.id);
     }
-  }, [intervals, selectedIntervalId]);
+  }, [intervals, selectedIntervalId, facets.loading]);
 
   const selectedInterval = findIntervalById(intervals, selectedIntervalId);
   const regionOptions = useMemo(() => {

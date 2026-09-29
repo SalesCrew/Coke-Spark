@@ -6,10 +6,10 @@ import { useRedMonth } from "@/context/RedMonthContext";
 import { IppChartPanel } from "@/components/admin/gm-dashboard/IppChartPanel";
 import { IppOverlapModal } from "@/components/admin/gm-dashboard/IppOverlapModal";
 import {
-  buildIntervals,
   findIntervalById,
   type IntervalMode,
 } from "@/lib/ipp-dashboard/intervals";
+import { buildDashboardIntervals } from "@/lib/gm-dashboard/date-range";
 import {
   type IppLinePoint,
   type IppFilterScope,
@@ -57,8 +57,9 @@ export function IppAuswertungCard() {
     () =>
       intervalMode === "redmonth" && !calendar.length
         ? []
-        : buildIntervals({
+        : buildDashboardIntervals({
             mode: intervalMode,
+            minStartDate: facets.startDate,
             count:
               intervalMode === "week"
                 ? 36
@@ -70,11 +71,12 @@ export function IppAuswertungCard() {
             ),
             now: new Date(calendarToday() + "T12:00:00Z"),
           }),
-    [calendar, intervalMode],
+    [calendar, intervalMode, facets.startDate],
   );
 
   useEffect(() => {
     if (intervals.length === 0) {
+      if (facets.loading) return;
       setSelectedIntervalId(null);
       return;
     }
@@ -84,10 +86,11 @@ export function IppAuswertungCard() {
     ) {
       setSelectedIntervalId(intervals[0]!.id);
     }
-  }, [intervals, selectedIntervalId]);
+  }, [intervals, selectedIntervalId, facets.loading]);
 
   useEffect(() => {
     if (intervals.length === 0) {
+      if (facets.loading) return;
       setBaseIntervalId(null);
       return;
     }
@@ -97,9 +100,10 @@ export function IppAuswertungCard() {
     ) {
       setBaseIntervalId(selectedIntervalId ?? intervals[0]!.id);
     }
-  }, [baseIntervalId, intervals, selectedIntervalId]);
+  }, [baseIntervalId, intervals, selectedIntervalId, facets.loading]);
 
   useEffect(() => {
+    if (facets.loading) return;
     if (comparePreset !== "custom") return;
     if (!customCompareIntervalId) return;
     if (
@@ -107,7 +111,7 @@ export function IppAuswertungCard() {
     ) {
       setCustomCompareIntervalId(null);
     }
-  }, [comparePreset, customCompareIntervalId, intervals]);
+  }, [comparePreset, customCompareIntervalId, intervals, facets.loading]);
 
   const activeBaseIntervalId = baseIntervalId ?? selectedIntervalId;
   const customCandidateIntervals = intervals.filter(

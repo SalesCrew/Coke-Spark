@@ -40,7 +40,7 @@ Die Welle dient nur zur Bestimmung, welche konkreten Frage-IDs dem `Distribution
 
 Die Welle wird dabei weder aktiviert noch inhaltlich verändert. Bonusberechnung, Auszahlungsstatus und Wellenstatus bleiben unverändert. Das verhindert insbesondere, dass eine noch in Arbeit befindliche Prämienwelle nur für die Fragebogen-Vorbelegung aktiviert werden müsste.
 
-Die verlängerte Quartalslogik gilt nur für die exakt normalisierte Säule `Distributionsziel`. `Schütten / Displays`, Flex, Qualität und alle anderen Fragen behalten die bestehende Vorbelegung innerhalb des aktuellen RED-Monats.
+Die ursprüngliche Quartalslogik galt nur für die exakt normalisierte Säule `Distributionsziel`. Erweiterung vom 29.09.2026: Auch explizit als Flexziel-Quelle verknüpfte Fragen werden quartalsweit übernommen; siehe [Flexziel-LivingMD](gm-flex-quarter-answer-persistence-living.md). `Schütten / Displays`, Qualität und nicht verknüpfte Fragen behalten die bestehende RED-Monatslogik.
 
 ## Technischer Ablauf
 

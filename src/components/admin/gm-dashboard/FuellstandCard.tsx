@@ -488,7 +488,7 @@ export function FuellstandCard() {
                   <div
                     style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}
                   >
-                    Füllstand Trends
+                    Verfügbarkeit
                   </div>
                 </div>
                 <div

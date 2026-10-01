@@ -1,12 +1,7 @@
+import type { DashboardScope } from "@/types/gm-dashboard";
 import type { IppInterval } from "@/lib/ipp-dashboard/intervals";
 
-export type PlatzierungenFilterScope = {
-  region: string | null;
-  gmId: string | null;
-  chain: string | null;
-  marketId: string | null;
-  stc: "gold" | "silver" | "bronze" | null;
-};
+export type PlatzierungenFilterScope = DashboardScope;
 
 export type PlatzierungenBarPoint = {
   intervalId: string;

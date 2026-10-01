@@ -1,6 +1,7 @@
 import type { DashboardExport } from "@/types/gm-dashboard";
 import type { Workspace } from "@/types/praemien-workspace";
 import { availabilitySummary } from "./data";
+import { chainGroupLabel } from "./chain-groups";
 import {
   appendMetaSheet,
   appendTableSheet,
@@ -43,6 +44,7 @@ export async function exportRealGmDashboard(input: {
           title: `${entry.title} – Filter und Auswahl`,
           rows: Object.entries({
             ...entry.data.scope,
+            chainGroups: chainGroupLabel(entry.data.scope.chainGroups),
             selectedIntervalId: entry.selectedIntervalId,
             highlightedType: entry.highlightedType ?? "",
             comparisonPreset: entry.comparisonPreset ?? "",

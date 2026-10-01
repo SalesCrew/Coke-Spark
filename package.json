@@ -22,7 +22,8 @@
     "test:sm-subheadings": "node --test tests/sm-question-subheadings.test.mjs",
     "test:sm-comments": "node backend/node_modules/tsx/dist/cli.mjs --test tests/sm-answer-comments.test.ts backend/src/sm-comment.shared.test.ts backend/src/sm-visit.shared.test.ts",
     "test:sm-menu-browser": "node tests/sm-menu-browser.mjs",
-    "test:sm-management": "node --test tests/sm-management.test.mjs tests/sm-employee-visibility.test.mjs tests/sm-planning-cache.test.mjs"
+    "test:sm-management": "node --test tests/sm-management.test.mjs tests/sm-employee-visibility.test.mjs tests/sm-planning-cache.test.mjs",
+    "test:gm-dashboard": "node --import ./backend/node_modules/tsx/dist/loader.mjs --import ./tests/gm-dashboard-react-setup.mjs --test tests/gm-dashboard-*.test.ts tests/gm-dashboard-*.test.tsx tests/gm-dashboard-contracts.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

@@ -579,7 +579,7 @@ export function PlaceholderCardNine() {
   const standardFilterCount = [
     filters.region,
     filters.gmId,
-    filters.chainGroups?.length ? filters.chainGroups : filters.chain,
+    filters.chains?.length ? filters.chains : filters.chainGroups?.length ? filters.chainGroups : filters.chain,
     filters.marketIds?.length ? "markets" : filters.marketId,
     filters.stc,
   ].filter((value) => value != null).length;

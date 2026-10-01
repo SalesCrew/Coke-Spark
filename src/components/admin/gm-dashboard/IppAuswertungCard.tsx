@@ -139,6 +139,7 @@ export function IppAuswertungCard() {
     region: filters.region,
     gmId: filters.gmId,
     chain: filters.chain,
+    chains: filters.chains,
     chainGroups: filters.chainGroups,
     marketId: filters.marketId,
     marketIds: filters.marketIds,

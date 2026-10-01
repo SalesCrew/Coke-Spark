@@ -107,6 +107,7 @@ export function FuellstandCard() {
       region: inventoryFilters.region,
       gmId: inventoryFilters.gmId,
       chain: inventoryFilters.chain,
+      chains: inventoryFilters.chains,
       chainGroups: inventoryFilters.chainGroups,
       marketId: inventoryFilters.marketId,
       marketIds: inventoryFilters.marketIds,
@@ -114,6 +115,7 @@ export function FuellstandCard() {
     }),
     [
       inventoryFilters.chain,
+      inventoryFilters.chains,
       inventoryFilters.chainGroups,
       inventoryFilters.gmId,
       inventoryFilters.marketId,
@@ -128,6 +130,7 @@ export function FuellstandCard() {
       region: chartFilters.region,
       gmId: chartFilters.gmId,
       chain: chartFilters.chain,
+      chains: chartFilters.chains,
       chainGroups: chartFilters.chainGroups,
       marketId: chartFilters.marketId,
       marketIds: chartFilters.marketIds,
@@ -135,6 +138,7 @@ export function FuellstandCard() {
     }),
     [
       chartFilters.chain,
+      chartFilters.chains,
       chartFilters.chainGroups,
       chartFilters.gmId,
       chartFilters.marketId,

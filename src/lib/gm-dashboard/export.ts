@@ -45,7 +45,8 @@ export async function exportRealGmDashboard(input: {
           rows: Object.entries({
             ...entry.data.scope,
             marketIds: entry.data.scope.marketIds?.length ? entry.data.scope.marketIds.join(", ") : "Alle Märkte",
-            chainGroups: chainGroupLabel(entry.data.scope.chainGroups),
+            chainGroups: entry.data.scope.chainGroups?.length ? chainGroupLabel(entry.data.scope.chainGroups) : "",
+            chains: entry.data.scope.chains?.length ? entry.data.scope.chains.map((chain) => chain || "Ohne Handelskette").join(", ") : "Alle Chains",
             selectedIntervalId: entry.selectedIntervalId,
             highlightedType: entry.highlightedType ?? "",
             comparisonPreset: entry.comparisonPreset ?? "",

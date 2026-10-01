@@ -1,10 +1,13 @@
 // Frontend API contract: no dependency on fetching the backend Git checkout.
 // Shared read-only dashboard contract. No production credentials or fixtures here.
+export type DashboardChainGroup = "rewe" | "spar" | "other";
 export type DashboardScope = {
   region: string | null;
   gmId: string | null;
   chain: string | null;
+  chainGroups?: DashboardChainGroup[] | undefined;
   marketId: string | null;
+  marketIds?: string[] | undefined;
   stc: "gold" | "silver" | "bronze" | null;
 };
 export type DashboardInterval = {

@@ -8,4 +8,4 @@ The database configured by the local environment files is production and critica
 - A request to implement, test, deploy, or roll back code does not authorize changing production data.
 - Keep all environment values private and out of source control, logs, and test artifacts.
 
-Keep the GM Dashboard’s original per-card filter controls and existing UI. The user rejected the experimental shared/global filter redesign and replacement multiselect controls.
+Keep the GM Dashboard’s original per-card filter controls and existing UI. The user rejected the experimental shared/global filter redesign. Chain and Market must allow multiple selections within the existing dropdowns on each card; preserve their labels, styling, dimensions, and the dashboard layout.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type IppMiniDropdownOption = {
   value: string;
@@ -17,7 +17,6 @@ type IppMiniDropdownProps = {
   searchable?: boolean;
   searchPlaceholder?: string;
   onChange: (value: string | null) => void;
-  multiple?: { values: string[]; onChange: (values: string[]) => void };
 };
 
 const OPTION_ROW_H = 34;
@@ -32,16 +31,13 @@ export function IppMiniDropdown({
   searchable = false,
   searchPlaceholder = "Suchen...",
   onChange,
-  multiple,
 }: IppMiniDropdownProps) {
-  const popupId = useId();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [scrollTop, setScrollTop] = useState(0);
   const [optionsViewportHeight, setOptionsViewportHeight] = useState(176);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const optionsViewportRef = useRef<HTMLDivElement | null>(null);
   const isStcDropdown = label?.trim().toLowerCase() === "stc";
 
@@ -88,10 +84,7 @@ export function IppMiniDropdown({
       setOpen(false);
     };
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
+      if (event.key === "Escape") setOpen(false);
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onEscape);
@@ -102,10 +95,6 @@ export function IppMiniDropdown({
   }, [open]);
 
   const selected = useMemo(() => options.find((option) => option.value === value) ?? null, [options, value]);
-  const selectedLabel = multiple
-    ? options.filter((option) => multiple.values.includes(option.value)).map((option) => option.label).join(", ")
-    : selected?.label;
-  const isEmpty = multiple ? multiple.values.length === 0 : value == null;
   const indexedOptions = useMemo(
     () =>
       options.map((option) => ({
@@ -165,13 +154,8 @@ export function IppMiniDropdown({
         </div>
       )}
       <button
-        ref={triggerRef}
         className="ipp-mini-dropdown-trigger"
         type="button"
-        aria-label={label ? `${label}: ${selectedLabel || placeholder}` : undefined}
-        aria-expanded={open}
-        aria-controls={open ? popupId : undefined}
-        title={selectedLabel || placeholder}
         onClick={() => {
           setOpen((current) => {
             const next = !current;
@@ -203,8 +187,8 @@ export function IppMiniDropdown({
           transition: "all 0.14s ease",
         }}
       >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selectedLabel ? "#111827" : "rgba(0,0,0,0.42)" }}>
-          {selectedLabel || placeholder}
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selected ? "#111827" : "rgba(0,0,0,0.42)" }}>
+          {selected?.label ?? placeholder}
         </span>
         <span style={{ color: "rgba(0,0,0,0.45)", fontSize: 11, fontWeight: 900, lineHeight: 1 }}>
           {open ? "▴" : "▾"}
@@ -213,9 +197,6 @@ export function IppMiniDropdown({
 
       {open && (
         <div
-          id={popupId}
-          role={multiple ? "group" : undefined}
-          aria-label={multiple ? `${label} Mehrfachauswahl` : undefined}
           style={{
             position: "absolute",
             left: 0,
@@ -258,19 +239,16 @@ export function IppMiniDropdown({
             className={`ipp-mini-dropdown-option ${optionToneClass(null)}`.trim()}
             type="button"
             onClick={() => {
-              if (multiple) multiple.onChange([]);
-              else {
-                onChange(null);
-                setOpen(false);
-              }
+              onChange(null);
+              setOpen(false);
             }}
             style={{
               width: "100%",
               minHeight: OPTION_ROW_H,
               border: "none",
               borderRadius: 7,
-              background: isEmpty ? "rgba(0,0,0,0.08)" : "transparent",
-              color: isEmpty ? "#111827" : "rgba(0,0,0,0.66)",
+              background: value == null ? "rgba(0,0,0,0.08)" : "transparent",
+              color: value == null ? "#111827" : "rgba(0,0,0,0.66)",
               fontSize: 11,
               fontWeight: 700,
               textAlign: "left",
@@ -294,7 +272,7 @@ export function IppMiniDropdown({
           >
             <div style={{ paddingTop: virtualPaddingTop, paddingBottom: virtualPaddingBottom }}>
               {virtualOptions.map((option) => {
-                const active = multiple ? multiple.values.includes(option.value) : option.value === value;
+                const active = option.value === value;
                 return (
                   <div
                     key={option.value}
@@ -309,17 +287,9 @@ export function IppMiniDropdown({
                     <button
                       className={`ipp-mini-dropdown-option ${optionToneClass(option.value)}`.trim()}
                       type="button"
-                      role={multiple ? "checkbox" : undefined}
-                      aria-checked={multiple ? active : undefined}
                       onClick={() => {
-                        if (multiple) {
-                          multiple.onChange(active
-                            ? multiple.values.filter((v) => v !== option.value)
-                            : [...multiple.values, option.value]);
-                        } else {
-                          onChange(option.value);
-                          setOpen(false);
-                        }
+                        onChange(option.value);
+                        setOpen(false);
                       }}
                       style={{
                         width: "100%",
@@ -337,7 +307,6 @@ export function IppMiniDropdown({
                         alignItems: "center",
                       }}
                     >
-                      {multiple && <span aria-hidden="true" style={{ width: 16, marginRight: 6 }}>{active ? "☑" : "☐"}</span>}
                       {option.label}
                     </button>
                   </div>

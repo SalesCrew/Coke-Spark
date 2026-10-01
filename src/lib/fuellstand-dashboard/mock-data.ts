@@ -1,7 +1,12 @@
-import type { DashboardScope } from "@/types/gm-dashboard";
 import type { IppInterval } from "@/lib/ipp-dashboard/intervals";
 
-export type FuellstandFilterScope = DashboardScope;
+export type FuellstandFilterScope = {
+  region: string | null;
+  gmId: string | null;
+  chain: string | null;
+  marketId: string | null;
+  stc: "gold" | "silver" | "bronze" | null;
+};
 
 export type FuellstandTypeKey = "cooler" | "singleServe" | "multiServe" | "promos" | "warehouse";
 

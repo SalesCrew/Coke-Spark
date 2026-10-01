@@ -2,10 +2,14 @@
 
 import { IppMiniDropdown, type IppMiniDropdownOption } from "@/components/admin/gm-dashboard/IppMiniDropdown";
 
-import type { DashboardScope, DashboardChainGroup } from "@/types/gm-dashboard";
-import { chainGroupOptions, marketChainGroup } from "@/lib/gm-dashboard/chain-groups";
+export type IppFilterState = {
+  region: string | null;
+  gmId: string | null;
+  chain: string | null;
+  marketId: string | null;
+  stc: "gold" | "silver" | "bronze" | null;
+};
 
-export type IppFilterState = DashboardScope;
 export type IppGmOption = {
   id: string;
   label: string;
@@ -40,17 +44,17 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
     }
     return true;
   });
-  const chainGroups = filters.chainGroups ?? [];
-  const marketOptions = baseMarketOptions.filter((market) =>
-    (!filters.chain || market.chain === filters.chain) &&
-    (!chainGroups.length || chainGroups.includes(marketChainGroup(market.chain))),
-  );
+  const marketOptions = baseMarketOptions.filter((market) => !filters.chain || market.chain === filters.chain);
 
-  const hasActiveFilters = Boolean(filters.region || filters.gmId || filters.chain || chainGroups.length || filters.marketId || filters.stc);
+  const hasActiveFilters = Boolean(filters.region || filters.gmId || filters.chain || filters.marketId || filters.stc);
   const regionOptions: IppMiniDropdownOption[] = regions.map((region) => ({ value: region, label: region }));
   const gmOptions: IppMiniDropdownOption[] = gms
     .filter((gm) => !filters.region || gm.region === filters.region)
     .map((gm) => ({ value: gm.id, label: gm.label }));
+  const chainOptionsMapped: IppMiniDropdownOption[] = Array.from(new Set(baseMarketOptions.map((market) => market.chain)))
+    .filter((chain) => chain.length > 0)
+    .sort((left, right) => left.localeCompare(right, "de"))
+    .map((chain) => ({ value: chain, label: chain }));
   const marketOptionsMapped: IppMiniDropdownOption[] = marketOptions
     .map((market) => ({
       value: market.id,
@@ -112,16 +116,12 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
             onChange={(gmId) => onChange({ ...filters, gmId, marketId: null })}
           />
           <IppMiniDropdown
-            label="Marktketten"
-            value={null}
-            placeholder="Alle Marktketten"
-            options={chainGroupOptions}
+            label="Chain"
+            value={filters.chain}
+            placeholder="Alle Chains"
+            options={chainOptionsMapped}
             minWidth={compact ? 152 : 250}
-            onChange={() => {}}
-            multiple={{
-              values: chainGroups,
-              onChange: (values) => onChange({ ...filters, chain: null, chainGroups: values as DashboardChainGroup[], marketId: null }),
-            }}
+            onChange={(chain) => onChange({ ...filters, chain, marketId: null })}
           />
           <IppMiniDropdown
             label="Market"
@@ -152,7 +152,7 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
         <button
           className="ipp-reset-filters-btn"
           type="button"
-          onClick={() => onChange({ region: null, gmId: null, chain: null, chainGroups: [], marketId: null, stc: null })}
+          onClick={() => onChange({ region: null, gmId: null, chain: null, marketId: null, stc: null })}
           disabled={!hasActiveFilters}
           style={{
             alignSelf: "center",

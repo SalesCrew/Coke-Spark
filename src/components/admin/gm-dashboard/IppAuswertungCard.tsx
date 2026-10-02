@@ -365,6 +365,7 @@ export function IppAuswertungCard() {
         />
 
         <IppChartPanel
+          loading={loading}
           linePoints={linePoints}
           ytdAverage={ytdAverage}
           selectedIntervalId={selectedIntervalId}
@@ -392,20 +393,6 @@ export function IppAuswertungCard() {
           pieCumulativeSlices={pieDataCumulative.slices}
           pieCumulativeTotal={pieDataCumulative.total}
         />
-
-        {loading && (
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "rgba(0,0,0,0.4)",
-              textAlign: "center",
-              paddingBottom: 4,
-            }}
-          >
-            Filterquellen werden geladen...
-          </div>
-        )}
       </div>
 
       <IppOverlapModal

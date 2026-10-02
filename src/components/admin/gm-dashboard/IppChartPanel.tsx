@@ -5,6 +5,7 @@ import { IppLineChart } from "@/components/admin/gm-dashboard/charts/IppLineChar
 import { IppPieChart } from "@/components/admin/gm-dashboard/charts/IppPieChart";
 
 type IppChartPanelProps = {
+  loading?: boolean;
   linePoints: IppLinePoint[];
   ytdAverage: number | null;
   selectedIntervalId: string | null;
@@ -21,6 +22,7 @@ type IppChartPanelProps = {
 };
 
 export function IppChartPanel({
+  loading = false,
   linePoints,
   ytdAverage,
   selectedIntervalId,
@@ -145,6 +147,7 @@ export function IppChartPanel({
       >
         <div style={{ minWidth: 0 }}>
           <IppLineChart
+            loading={loading}
             points={linePoints}
             ytdAverage={ytdAverage}
             selectedIntervalId={selectedIntervalId}
@@ -163,6 +166,7 @@ export function IppChartPanel({
           }}
         >
           <IppPieChart
+            loading={loading}
             slices={pieSlices}
             total={pieTotal}
             cumulativeSlices={pieCumulativeSlices}

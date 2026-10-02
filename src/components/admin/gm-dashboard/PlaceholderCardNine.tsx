@@ -1,5 +1,6 @@
 "use client";
 
+import { ChartSkeleton, ChartSkeletonValue } from "./charts/ChartSkeleton";
 import { activitySegments } from "@/lib/gm-dashboard/activity-segments";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
@@ -731,6 +732,7 @@ export function PlaceholderCardNine() {
         </div>
 
         <div
+          className={result.loading ? "gm-chart-loading" : undefined}
           style={{
             position: "relative",
             display: "flex",
@@ -783,7 +785,7 @@ export function PlaceholderCardNine() {
                 color: "transparent",
               }}
             >
-              {result.loading ? "…" : totalVisits}
+              {totalVisits}
             </span>
             <span
               style={{
@@ -797,6 +799,7 @@ export function PlaceholderCardNine() {
               Gesamt
             </span>
           </div>
+          {result.loading && <ChartSkeleton kind="semicircle" label="Besuchsauswertung wird geladen …" />}
         </div>
 
         {(result.error || filterLoadError) && (
@@ -838,7 +841,7 @@ export function PlaceholderCardNine() {
                   lineHeight: 1,
                 }}
               >
-                {standardShare.toFixed(1).replace(".", ",")}%
+                {result.loading ? <ChartSkeletonValue style={{ width: 44 }} /> : <>{standardShare.toFixed(1).replace(".", ",")}%</>}
               </div>
               <div
                 style={{
@@ -848,7 +851,7 @@ export function PlaceholderCardNine() {
                   marginTop: 2,
                 }}
               >
-                {standardVisits} Fälle
+                {result.loading ? <ChartSkeletonValue style={{ width: 34 }} /> : <>{standardVisits} Fälle</>}
               </div>
             </div>
           </div>
@@ -885,7 +888,7 @@ export function PlaceholderCardNine() {
                   lineHeight: 1,
                 }}
               >
-                {flexShare.toFixed(1).replace(".", ",")}%
+                {result.loading ? <ChartSkeletonValue style={{ width: 44 }} /> : <>{flexShare.toFixed(1).replace(".", ",")}%</>}
               </div>
               <div
                 style={{
@@ -895,7 +898,7 @@ export function PlaceholderCardNine() {
                   marginTop: 2,
                 }}
               >
-                {flexVisits} Fälle
+                {result.loading ? <ChartSkeletonValue style={{ width: 34 }} /> : <>{flexVisits} Fälle</>}
               </div>
             </div>
           </div>
@@ -1043,7 +1046,7 @@ export function PlaceholderCardNine() {
                     marginTop: 3,
                   }}
                 >
-                  {activityMetrics.averageVisitDuration}
+                  {result.loading ? <ChartSkeletonValue /> : activityMetrics.averageVisitDuration}
                 </div>
               </div>
             </div>
@@ -1109,7 +1112,9 @@ export function PlaceholderCardNine() {
                 }}
               >
                 <div
+                  className={result.loading ? "gm-chart-loading" : undefined}
                   style={{
+                    position: "relative",
                     height: 152,
                     borderRadius: 7,
                     border: "1.5px solid rgba(220,38,38,0.32)",
@@ -1131,6 +1136,7 @@ export function PlaceholderCardNine() {
                       boxSizing: "border-box",
                     }}
                   />
+                  {result.loading && <ChartSkeleton kind="column" label="Aktivität wird geladen …" />}
                 </div>
                 <div style={{ paddingBottom: 2 }}>
                   <div
@@ -1141,7 +1147,7 @@ export function PlaceholderCardNine() {
                       lineHeight: 1,
                     }}
                   >
-                    {activityMetrics.redSurveyCount}
+                    {result.loading ? <ChartSkeletonValue /> : activityMetrics.redSurveyCount}
                   </div>
                   <div
                     style={{
@@ -1162,10 +1168,7 @@ export function PlaceholderCardNine() {
                       marginTop: 3,
                     }}
                   >
-                    {activityMetrics.redSurveyShare
-                      .toFixed(1)
-                      .replace(".", ",")}
-                    % Anteil
+                    {result.loading ? <ChartSkeletonValue style={{ width: 48 }} /> : <>{activityMetrics.redSurveyShare.toFixed(1).replace(".", ",")}% Anteil</>}
                   </div>
                 </div>
               </div>
@@ -1199,7 +1202,7 @@ export function PlaceholderCardNine() {
                       lineHeight: 1,
                     }}
                   >
-                    {activityMetrics.visitCount}
+                    {result.loading ? <ChartSkeletonValue /> : activityMetrics.visitCount}
                   </div>
                   <div
                     style={{
@@ -1224,7 +1227,9 @@ export function PlaceholderCardNine() {
                   </div>
                 </div>
                 <div
+                  className={result.loading ? "gm-chart-loading" : undefined}
                   style={{
+                    position: "relative",
                     height: 152,
                     borderRadius: 7,
                     border: "1.5px solid rgba(37,99,235,0.30)",
@@ -1246,6 +1251,7 @@ export function PlaceholderCardNine() {
                       boxSizing: "border-box",
                     }}
                   />
+                  {result.loading && <ChartSkeleton kind="column" label="Aktivität wird geladen …" />}
                 </div>
               </div>
             </div>

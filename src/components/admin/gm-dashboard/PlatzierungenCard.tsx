@@ -336,6 +336,7 @@ export function PlatzierungenCard() {
           </div>
           <div style={{ padding: "10px 10px 8px" }}>
             <PlatzierungenBarChart
+              loading={loading}
               points={series}
               selectedIntervalId={selectedIntervalId}
               onSelectInterval={setSelectedIntervalId}
@@ -347,20 +348,6 @@ export function PlatzierungenCard() {
           questions={result.data?.points.find((point) => point.id === selectedIntervalId)?.competitorQuestions ?? []}
           loading={loading}
         />
-
-        {loading && (
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "rgba(0,0,0,0.4)",
-              textAlign: "center",
-              paddingBottom: 4,
-            }}
-          >
-            Filterquellen werden geladen...
-          </div>
-        )}
       </div>
     </section>
   );

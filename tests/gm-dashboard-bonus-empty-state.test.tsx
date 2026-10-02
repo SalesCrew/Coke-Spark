@@ -82,7 +82,7 @@ test("empty bonus panels have a clear accessible message and no pretend chart, a
   assert.doesNotMatch(retry, /Failed to fetch/);
 });
 
-test("actual bonus card renders two loading panels, not placeholder bars/ring, before data arrives", () => {
+test("actual bonus card renders accessible loading skeletons without pretend values before data arrives", () => {
   const html = renderToStaticMarkup(
     <RedMonthProvider>
       <RealDashboardProvider register={noop}>
@@ -93,6 +93,7 @@ test("actual bonus card renders two loading panels, not placeholder bars/ring, b
   assert.match(html, /Bonus nach Kategorie/);
   assert.match(html, /Bonusziel/);
   assert.equal((html.match(/Prämien werden geladen/g) ?? []).length, 2);
+  assert.equal((html.match(/data-chart-skeleton=/g) ?? []).length, 2);
   assert.doesNotMatch(
     html,
     /role="img"|Aktueller Bonus|von —|Erreicht|Produktivdaten/,

@@ -5,10 +5,12 @@ import {
   compactBarLayout,
   populatedChartRange,
 } from "@/lib/gm-dashboard/chart-layout";
+import { ChartSkeleton } from "./ChartSkeleton";
 import { useChartViewportWidth } from "./useChartViewportWidth";
 import type { PlatzierungenBarPoint } from "@/lib/platzierungen-dashboard/mock-data";
 
 type PlatzierungenBarChartProps = {
+  loading?: boolean;
   points: PlatzierungenBarPoint[];
   selectedIntervalId: string | null;
   onSelectInterval: (intervalId: string) => void;
@@ -19,6 +21,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export function PlatzierungenBarChart({
+  loading = false,
   points,
   selectedIntervalId,
   onSelectInterval,
@@ -198,6 +201,7 @@ export function PlatzierungenBarChart({
 
   return (
     <div
+      className={loading ? "gm-chart-loading" : undefined}
       style={{
         position: "relative",
         width: "100%",
@@ -512,6 +516,7 @@ export function PlatzierungenBarChart({
           </div>
         </div>
       )}
+      {loading && <ChartSkeleton kind="bars" />}
     </div>
   );
 }

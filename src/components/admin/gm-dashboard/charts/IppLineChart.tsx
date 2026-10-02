@@ -5,6 +5,7 @@ import {
   chartContentWidth,
   populatedChartRange,
 } from "@/lib/gm-dashboard/chart-layout";
+import { ChartSkeleton } from "./ChartSkeleton";
 import { useChartViewportWidth } from "./useChartViewportWidth";
 import type {
   IppCompareResult,
@@ -12,6 +13,7 @@ import type {
 } from "@/lib/ipp-dashboard/mock-data";
 
 type IppLineChartProps = {
+  loading?: boolean;
   points: IppLinePoint[];
   ytdAverage: number | null;
   selectedIntervalId: string | null;
@@ -77,6 +79,7 @@ function formatDelta(delta: IppCompareResult | null): {
 }
 
 export function IppLineChart({
+  loading = false,
   points,
   ytdAverage,
   selectedIntervalId,
@@ -431,7 +434,7 @@ export function IppLineChart({
   }, [chartWidth, hoveredIntervalId, paddingLeft, plotted]);
 
   return (
-    <div style={{ position: "relative", width: "100%", overflow: "visible" }}>
+    <div className={loading ? "gm-chart-loading" : undefined} style={{ position: "relative", width: "100%", overflow: "visible" }}>
       <div
         ref={scrollWrapRef}
         onScroll={(event) => {
@@ -810,6 +813,7 @@ export function IppLineChart({
           </div>
         </div>
       )}
+      {loading && <ChartSkeleton kind="line" />}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   percentageChartScale,
   populatedChartRange,
 } from "@/lib/gm-dashboard/chart-layout";
+import { ChartSkeleton } from "./ChartSkeleton";
 import { useChartViewportWidth } from "./useChartViewportWidth";
 import type {
   FuellstandLinePoint,
@@ -15,6 +16,7 @@ import type {
 import { FUELLSTAND_TYPE_CONFIG } from "@/components/admin/gm-dashboard/fuellstand-type-config";
 
 type FuellstandLineChartProps = {
+  loading?: boolean;
   points: FuellstandLinePoint[];
   selectedIntervalId: string | null;
   onSelectInterval: (intervalId: string) => void;
@@ -63,6 +65,7 @@ function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
 }
 
 export function FuellstandLineChart({
+  loading = false,
   points,
   selectedIntervalId,
   onSelectInterval,
@@ -257,6 +260,7 @@ export function FuellstandLineChart({
 
   return (
     <div
+      className={loading ? "gm-chart-loading" : undefined}
       style={{
         position: "relative",
         width: "100%",
@@ -642,6 +646,7 @@ export function FuellstandLineChart({
           </div>
         </div>
       )}
+      {loading && <ChartSkeleton kind="line" />}
     </div>
   );
 }

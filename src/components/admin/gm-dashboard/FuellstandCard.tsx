@@ -17,6 +17,7 @@ import {
   type IppMarketOption,
 } from "@/components/admin/gm-dashboard/IppFilterBar";
 import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalToolbar";
+import { ChartSkeletonValue } from "./charts/ChartSkeleton";
 import { FuellstandLineChart } from "@/components/admin/gm-dashboard/charts/FuellstandLineChart";
 import { FuellstandDistributionChart } from "@/components/admin/gm-dashboard/charts/FuellstandDistributionChart";
 import { FUELLSTAND_TYPE_CONFIG } from "@/components/admin/gm-dashboard/fuellstand-type-config";
@@ -161,8 +162,7 @@ export function FuellstandCard() {
     inventoryFilterScope,
     selectedIntervalId,
   );
-  const loading =
-    facets.metadataLoading || chartResult.loading || inventoryResult.loading;
+  const inventoryLoading = facets.metadataLoading || inventoryResult.loading;
   const loadError =
     facets.error ??
     facets.metadataError ??
@@ -343,7 +343,7 @@ export function FuellstandCard() {
                   color: "rgba(0,0,0,0.48)",
                 }}
               >
-                {doneProgress.doneCount}/{doneProgress.totalCount} erledigt
+                {inventoryLoading ? <ChartSkeletonValue style={{ width: 80 }} /> : <>{doneProgress.doneCount}/{doneProgress.totalCount} erledigt</>}
               </span>
             </div>
             <div
@@ -354,7 +354,7 @@ export function FuellstandCard() {
                 overflow: "hidden",
               }}
             >
-              <div
+              {inventoryLoading ? <ChartSkeletonValue style={{ display: "block", width: "100%", height: 7 }} /> : <div
                 style={{
                   width: `${doneProgress.donePercent}%`,
                   height: "100%",
@@ -363,7 +363,7 @@ export function FuellstandCard() {
                   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35)",
                   transition: "width 0.18s ease",
                 }}
-              />
+              />}
             </div>
             <div
               style={{
@@ -373,7 +373,7 @@ export function FuellstandCard() {
                 color: "rgba(0,0,0,0.45)",
               }}
             >
-              {doneProgress.donePercent}% done · {doneProgress.openCount} offen
+              {inventoryLoading ? <ChartSkeletonValue style={{ width: 115 }} /> : <>{doneProgress.donePercent}% done · {doneProgress.openCount} offen</>}
             </div>
           </div>
         </div>
@@ -592,6 +592,7 @@ export function FuellstandCard() {
             >
               <div style={{ minWidth: 0 }}>
                 <FuellstandLineChart
+                  loading={facets.metadataLoading || chartResult.loading}
                   points={series}
                   selectedIntervalId={selectedIntervalId}
                   onSelectInterval={setSelectedIntervalId}
@@ -606,6 +607,7 @@ export function FuellstandCard() {
                 }}
               >
                 <FuellstandDistributionChart
+                  loading={facets.metadataLoading || chartResult.loading}
                   points={distributionSeries}
                   selectedIntervalId={selectedIntervalId}
                   onSelectInterval={setSelectedIntervalId}
@@ -614,20 +616,6 @@ export function FuellstandCard() {
               </div>
             </div>
           </section>
-
-          {loading && (
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: "rgba(0,0,0,0.4)",
-                textAlign: "center",
-                paddingBottom: 4,
-              }}
-            >
-              Filterquellen werden geladen...
-            </div>
-          )}
         </div>
       </section>
     </div>

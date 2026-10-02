@@ -21,6 +21,46 @@ input[type="number"] {
 .map-scroll::-webkit-scrollbar { display: none; }
 .map-scroll { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* Plot-only loading: retain the mounted chart's measurements and controls. */
+.gm-chart-loading > :not(.gm-chart-skeleton) { visibility: hidden; }
+.gm-chart-skeleton {
+  --gm-skeleton-fill: #e3e6eb;
+  --gm-skeleton-soft: #f0f2f5;
+  --gm-skeleton-grid: #edf0f3;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  pointer-events: none;
+  border-radius: 8px;
+}
+.gm-chart-skeleton-art { width: 100%; height: 100%; animation: gm-chart-breathe 3.4s ease-in-out infinite; }
+.gm-chart-skeleton-value {
+  position: relative;
+  display: inline-block;
+  width: 2.5em;
+  height: .72em;
+  vertical-align: baseline;
+  border-radius: 4px;
+  background: #e3e6eb;
+  overflow: hidden;
+}
+.gm-chart-skeleton::after,
+.gm-chart-skeleton-value::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.68) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: gm-chart-sweep 2.8s ease-in-out infinite;
+}
+@keyframes gm-chart-sweep { to { transform: translateX(100%); } }
+@keyframes gm-chart-breathe { 0%, 100% { opacity: .72; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .gm-chart-skeleton-art, .gm-chart-skeleton::after, .gm-chart-skeleton-value::after { animation: none; }
+  .gm-chart-skeleton::after, .gm-chart-skeleton-value::after { display: none; }
+}
+
 @theme {
   --color-coke-red: #f40009;
   --color-coke-dark: #1a1a1a;

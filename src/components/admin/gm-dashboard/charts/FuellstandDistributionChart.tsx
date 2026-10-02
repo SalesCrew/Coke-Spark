@@ -5,6 +5,7 @@ import {
   chartContentWidth,
   populatedChartRange,
 } from "@/lib/gm-dashboard/chart-layout";
+import { ChartSkeleton } from "./ChartSkeleton";
 import { useChartViewportWidth } from "./useChartViewportWidth";
 import type { FuellstandTypeKey } from "@/lib/fuellstand-dashboard/mock-data";
 import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
@@ -23,6 +24,7 @@ type FuellstandDistributionPoint = {
 };
 
 type FuellstandDistributionChartProps = {
+  loading?: boolean;
   points: FuellstandDistributionPoint[];
   selectedIntervalId: string | null;
   onSelectInterval: (intervalId: string) => void;
@@ -88,6 +90,7 @@ function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
 }
 
 export function FuellstandDistributionChart({
+  loading = false,
   points,
   selectedIntervalId,
   onSelectInterval,
@@ -271,6 +274,7 @@ export function FuellstandDistributionChart({
 
   return (
     <div
+      className={loading ? "gm-chart-loading" : undefined}
       style={{
         position: "relative",
         width: "100%",
@@ -653,6 +657,7 @@ export function FuellstandDistributionChart({
           </div>
         </div>
       )}
+      {loading && <ChartSkeleton kind="distribution" />}
     </div>
   );
 }

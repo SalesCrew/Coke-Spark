@@ -1,4 +1,5 @@
-import { BarChart3, Target, LoaderCircle, RefreshCw } from "lucide-react";
+import { BarChart3, Target, RefreshCw } from "lucide-react";
+import { ChartSkeleton } from "./charts/ChartSkeleton";
 import type { BonusEmptyState as EmptyState } from "@/lib/gm-dashboard/bonus-empty-state";
 
 export function BonusEmptyState({
@@ -10,11 +11,10 @@ export function BonusEmptyState({
   kind: "categories" | "goal";
   onRetry: () => void;
 }) {
-  const Icon = state.loading
-    ? LoaderCircle
-    : kind === "categories"
-      ? BarChart3
-      : Target;
+  if (state.loading) {
+    return <ChartSkeleton kind={kind === "categories" ? "bars" : "goal"} height={236} label={state.title} />;
+  }
+  const Icon = kind === "categories" ? BarChart3 : Target;
   return (
     <div
       role="status"
@@ -47,11 +47,6 @@ export function BonusEmptyState({
         <Icon
           size={21}
           strokeWidth={1.5}
-          className={
-            state.loading
-              ? "animate-spin motion-reduce:animate-none"
-              : undefined
-          }
         />
       </span>
       <div style={{ maxWidth: 340 }}>

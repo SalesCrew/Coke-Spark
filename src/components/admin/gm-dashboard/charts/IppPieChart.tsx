@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ChartSkeleton, ChartSkeletonValue } from "./ChartSkeleton";
 import type { IppPieSlice } from "@/lib/ipp-dashboard/mock-data";
 
 type IppPieChartProps = {
+  loading?: boolean;
   slices: IppPieSlice[];
   total: number;
   cumulativeSlices: IppPieSlice[];
@@ -29,7 +31,7 @@ function bubbleRadius(count: number, maxCount: number): number {
   return Math.round(66 * Math.sqrt(clamp(count, 0, maxCount) / maxCount));
 }
 
-export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }: IppPieChartProps) {
+export function IppPieChart({ loading = false, slices, total, cumulativeSlices, cumulativeTotal }: IppPieChartProps) {
   const [mode, setMode] = useState<"int" | "cum">("int");
   const activeSlices = mode === "int" ? slices : cumulativeSlices;
   const activeTotal = mode === "int" ? total : cumulativeTotal;
@@ -148,7 +150,7 @@ export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }
               color: "transparent",
             }}
           >
-            {activeTotal}
+            {loading ? <ChartSkeletonValue /> : activeTotal}
           </span>
           <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(0,0,0,0.34)", letterSpacing: "0.18em", textTransform: "uppercase" }}>
             Gesamt
@@ -156,7 +158,7 @@ export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }
         </div>
       </div>
 
-      <div style={{ minHeight: 162, display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 26, padding: "2px 8px 0" }}>
+      <div className={loading ? "gm-chart-loading" : undefined} style={{ position: "relative", minHeight: 162, display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 26, padding: "2px 8px 0" }}>
         {visibleSlices.map((slice, index) => {
           const radius = bubbleRadius(slice.count, maxBubbleCount);
           const diameter = radius * 2;
@@ -192,6 +194,7 @@ export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }
           </div>
           );
         })}
+        {loading && <ChartSkeleton kind="bubbles" />}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 0, marginTop: 2, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
@@ -220,8 +223,8 @@ export function IppPieChart({ slices, total, cumulativeSlices, cumulativeTotal }
               <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{slice.label}</span>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{formatPercent(slice.percent)}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 2 }}>{slice.count} Fälle</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#111111", lineHeight: 1 }}>{loading ? <ChartSkeletonValue style={{ width: 44 }} /> : formatPercent(slice.percent)}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(100,116,139,0.62)", marginTop: 2 }}>{loading ? <ChartSkeletonValue style={{ width: 34 }} /> : <>{slice.count} Fälle</>}</div>
             </div>
           </div>
         ))}

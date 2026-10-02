@@ -29,7 +29,7 @@ export async function exportRealGmDashboard(input: {
         {
           label: "Regeln",
           value:
-            "Top 100 / Mediocre 50 / Bad 0; STC nicht angewendet; Platzierungen = konfigurierte Punkte",
+            "Top 100 / Mediocre 50 / Bad 0; STC = geplante Besuche/Jahr: Gold 12–24, Silver 8–10, Bronze 6–7; Platzierungen = konfigurierte Punkte",
         },
       ]);
       for (const entry of input.datasets) {
@@ -60,6 +60,7 @@ export async function exportRealGmDashboard(input: {
           title: `${entry.title} – Filter und Auswahl`,
           rows: Object.entries({
             ...entry.data.scope,
+            stcApplied: entry.data.stcApplied,
             marketIds: entry.data.scope.marketIds?.length ? entry.data.scope.marketIds.join(", ") : "Alle Märkte",
             chainGroups: entry.data.scope.chainGroups?.length ? chainGroupLabel(entry.data.scope.chainGroups) : "",
             chains: entry.data.scope.chains?.length ? entry.data.scope.chains.map((chain) => chain || "Ohne Handelskette").join(", ") : "Alle Chains",

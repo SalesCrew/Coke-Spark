@@ -725,10 +725,11 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (!authChecked || !shouldPreloadFragebogenCatalog) return;
+    if (!authChecked || !shouldPreloadFragebogenCatalog || isGmDashboard) return;
     if (fragebogenLoadedRef.current) return;
     fragebogenLoadedRef.current = true;
     let cancelled = false;
+    let completed = false;
     const loadScope = async (scope: FragebogenScope) => {
       const [mods, fbs] = await Promise.all([fetchModules(scope), fetchFragebogen(scope)]);
       if (cancelled) return { mods: [], fbs: [] as Fragebogen[] };
@@ -744,6 +745,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           fetchMarketChains(),
         ]);
         if (cancelled) return;
+
+        completed = true;
 
         if (modules.length === 0) {
           mainData.mods
@@ -775,8 +778,9 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     })();
     return () => {
       cancelled = true;
+      if (!completed) fragebogenLoadedRef.current = false;
     };
-  }, [addFragebogen, addModule, authChecked, fragebogenList.length, modules.length, session?.user.id, shouldPreloadFragebogenCatalog]);
+  }, [addFragebogen, addModule, authChecked, fragebogenList.length, isGmDashboard, modules.length, session?.user.id, shouldPreloadFragebogenCatalog]);
 
   if (!authChecked) {
     return (

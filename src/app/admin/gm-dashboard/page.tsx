@@ -17,6 +17,7 @@ export default function GmDashboardPage() {
   const { isAdmin } = useAdminAccess();
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const prepareExport = useRef<(() => Promise<void>) | null>(null);
   const datasets = useRef(new Map<string, DashboardExport>()),
     bonus = useRef<Workspace | null>(null);
   const register = useCallback((key: string, value: DashboardExport | null) => {
@@ -32,6 +33,7 @@ export default function GmDashboardPage() {
     setIsExporting(true);
     setExportError(null);
     try {
+      await prepareExport.current?.();
       await exportRealGmDashboard({
         datasets: [...datasets.current.values()],
         bonus: isAdmin ? bonus.current : null,
@@ -58,7 +60,7 @@ export default function GmDashboardPage() {
   }, [handleExport]);
 
   return (
-    <RealDashboardProvider register={register}>
+    <RealDashboardProvider register={register} prepareExportRef={prepareExport} needsBonus={isAdmin}>
       <div
         style={{
           minHeight: "68vh",

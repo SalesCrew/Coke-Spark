@@ -21,6 +21,15 @@ type IppMiniDropdownProps = {
   multiple?: { values: string[]; onChange: (values: string[]) => void };
 };
 
+const searchIndexes = new WeakMap<IppMiniDropdownOption[], (IppMiniDropdownOption & { _searchBlob: string })[]>();
+function indexOptions(options: IppMiniDropdownOption[]) {
+  let indexed = searchIndexes.get(options);
+  if (!indexed) {
+    indexed = options.map((option) => ({ ...option, _searchBlob: `${option.label} ${option.searchText ?? ""}`.toLowerCase() }));
+    searchIndexes.set(options, indexed);
+  }
+  return indexed;
+}
 const OPTION_ROW_H = 34;
 const OPTION_OVERSCAN = 6;
 
@@ -112,14 +121,7 @@ export function IppMiniDropdown({
     ? `${selectedLabels[0]} +${selectedLabels.length - 1}`
     : selectedLabel;
   const isEmpty = multiple ? multiple.values.length === 0 : value == null;
-  const indexedOptions = useMemo(
-    () =>
-      options.map((option) => ({
-        ...option,
-        _searchBlob: `${option.label} ${option.searchText ?? ""}`.toLowerCase(),
-      })),
-    [options],
-  );
+  const indexedOptions = useMemo(() => indexOptions(options), [options]);
   const visibleOptions = useMemo(() => {
     const q = debouncedSearchQuery.trim().toLowerCase();
     if (!q) return indexedOptions;

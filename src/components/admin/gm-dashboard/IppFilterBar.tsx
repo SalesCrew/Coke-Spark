@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+import { useDashboardFilterWarmup } from "./RealGmDashboard";
 import { IppMiniDropdown, type IppMiniDropdownOption } from "@/components/admin/gm-dashboard/IppMiniDropdown";
 
 import type { DashboardScope } from "@/types/gm-dashboard";
@@ -32,16 +34,27 @@ type IppFilterBarProps = {
   chainShortcuts?: boolean;
 };
 
-export function IppFilterBar({ filters, regions, gms, markets, onChange, compact = false, showReset = true, chainShortcuts = false }: IppFilterBarProps) {
-  const selectedGm = gms.find((gm) => gm.id === filters.gmId) ?? null;
+const preparedDirectories = new WeakMap<IppMarketOption[], Map<string, { gms: IppGmOption[]; value: ReturnType<typeof buildFilterOptions> }>>();
+function prepareFilterOptions(markets: IppMarketOption[], gms: IppGmOption[], regions: string[], region: string | null, gmId: string | null, chains: string[], chainShortcuts: boolean) {
+  let cache = preparedDirectories.get(markets);
+  if (!cache) { cache = new Map(); preparedDirectories.set(markets, cache); }
+  const key = JSON.stringify([regions, region, gmId, chains, chainShortcuts]);
+  const previous = cache.get(key);
+  if (previous?.gms === gms) return previous.value;
+  const value = buildFilterOptions(markets, gms, regions, region, gmId, chains, chainShortcuts);
+  if (cache.size >= 32) cache.delete(cache.keys().next().value!);
+  cache.set(key, { gms, value });
+  return value;
+}
+function buildFilterOptions(markets: IppMarketOption[], gms: IppGmOption[], regions: string[], region: string | null, gmId: string | null, chains: string[], chainShortcuts: boolean) {
+  const selectedGm = gms.find((gm) => gm.id === gmId) ?? null;
   const baseMarketOptions = markets.filter((market) => {
-    if (filters.region && market.region !== filters.region) return false;
+    if (region && market.region !== region) return false;
     if (selectedGm && market.gmName && selectedGm.label && market.gmName.trim().toLowerCase() !== selectedGm.label.trim().toLowerCase()) {
       return false;
     }
     return true;
   });
-  const chains = filters.chains ?? (filters.chain ? [filters.chain] : []);
   const availableChains = [...new Set(baseMarketOptions.map((market) => market.chain))]
     .sort((left, right) => left.localeCompare(right, "de"));
   const otherChains = availableChains.filter((chain) => marketChainGroup(chain) === "other");
@@ -57,13 +70,9 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
   const marketOptions = baseMarketOptions.filter((market) =>
     !chains.length || chains.includes(market.chain),
   );
-
-  const marketIds = filters.marketIds ?? (filters.marketId ? [filters.marketId] : []);
-
-  const hasActiveFilters = Boolean(filters.region || filters.gmId || chains.length || marketIds.length || filters.stc);
   const regionOptions: IppMiniDropdownOption[] = regions.map((region) => ({ value: region, label: region }));
   const gmOptions: IppMiniDropdownOption[] = gms
-    .filter((gm) => !filters.region || gm.region === filters.region)
+    .filter((gm) => !region || gm.region === region)
     .map((gm) => ({ value: gm.id, label: gm.label }));
   const marketOptionsMapped: IppMiniDropdownOption[] = marketOptions
     .map((market) => ({
@@ -72,6 +81,18 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
       searchText: `${market.searchText ?? ""} ${market.region} ${market.gmName} ${market.chain}`,
     }))
     .sort((left, right) => left.label.localeCompare(right.label, "de"));
+  return { baseMarketOptions, otherChains, extraShortcuts, chainOptions, regionOptions, gmOptions, marketOptionsMapped };
+}
+
+export function IppFilterBar({ filters, regions, gms, markets, onChange, compact = false, showReset = true, chainShortcuts = false }: IppFilterBarProps) {
+  const warmFilters = useDashboardFilterWarmup();
+  const chains = filters.chains ?? (filters.chain ? [filters.chain] : []);
+  const prepared = useMemo(() => prepareFilterOptions(markets, gms, regions, filters.region, filters.gmId, chains, chainShortcuts), [markets, gms, regions, filters.region, filters.gmId, filters.chains, filters.chain, chainShortcuts]);
+  const { baseMarketOptions, otherChains, extraShortcuts, chainOptions, regionOptions, gmOptions, marketOptionsMapped } = prepared;
+
+  const marketIds = filters.marketIds ?? (filters.marketId ? [filters.marketId] : []);
+
+  const hasActiveFilters = Boolean(filters.region || filters.gmId || chains.length || marketIds.length || filters.stc);
   const stcOptions: IppMiniDropdownOption[] = [
     { value: "gold", label: "Gold" },
     { value: "silver", label: "Silver" },
@@ -80,6 +101,8 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
 
   return (
     <section
+      onPointerDownCapture={() => { void warmFilters?.(); }}
+      onFocusCapture={() => { void warmFilters?.(); }}
       style={{
         borderRadius: 10,
         border: "1px solid rgba(0,0,0,0.07)",

@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Award } from "lucide-react";
 import { IppMiniDropdown } from "@/components/admin/gm-dashboard/IppMiniDropdown";
 import { requestPraemienWorkspace } from "@/lib/api/backend";
 import type { Workspace, WaveInfo } from "@/types/praemien-workspace";
-import { useDashboardFacets } from "./RealGmDashboard";
+import { useDashboardFacets, useDashboardResource, useDashboardStage, useDashboardExportStatus } from "./RealGmDashboard";
 import { calendarToday } from "@/lib/gm-dashboard/data";
 import { bonusEmptyState } from "@/lib/gm-dashboard/bonus-empty-state";
+import { ALL_BONUS_GMS, selectBonusResult } from "@/lib/gm-dashboard/bonus-selection";
 import { BonusEmptyState } from "./BonusEmptyState";
 
 const euro = new Intl.NumberFormat("de-AT", {
@@ -56,6 +57,16 @@ export function BonusOverviewCard({
   const loading = loadingWaves || loadingWorkspace;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const facets = useDashboardFacets();
+  const stage = useDashboardStage();
+  const resource = useDashboardResource();
+  const priority = useRef(stage.priority);
+  useEffect(() => { priority.current = stage.priority; }, [stage.priority]);
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      resource.promote(`bonus-waves:${reloadKey}`, stage.priority);
+      if (waveId) resource.promote(`bonus-workspace:${reloadKey}:${waveId}`, stage.priority);
+    });
+  }, [resource.promote, reloadKey, waveId, stage.priority]);
   useEffect(() => {
     let cancelled = false;
     setLoadingWaves(true);
@@ -64,15 +75,15 @@ export function BonusOverviewCard({
     setWaves([]);
     setWaveId(null);
     setWorkspace(null);
-    void requestPraemienWorkspace<{ ready: boolean }>("/status")
-      .then((status) => {
-        if (cancelled) return null;
+    void Promise.resolve().then(() => resource.load(`bonus-waves:${reloadKey}`, async () => {
+      const status = await requestPraemienWorkspace<{ ready: boolean }>("/status");
+      const data = status.ready ? await requestPraemienWorkspace<{ waves: WaveInfo[] }>("/waves") : null;
+      return { status, data };
+    }, priority.current))
+      .then(({ status, data }) => {
+        if (cancelled) return;
         setReady(status.ready);
-        if (!status.ready) return null;
-        return requestPraemienWorkspace<{ waves: WaveInfo[] }>("/waves");
-      })
-      .then((data) => {
-        if (cancelled || !data) return;
+        if (!data) return;
         setWaves(data.waves);
         const today = calendarToday();
         setWaveId(
@@ -101,7 +112,7 @@ export function BonusOverviewCard({
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, resource.load, resource.version]);
   useEffect(() => {
     let cancelled = false;
     setWorkspace(null);
@@ -109,9 +120,9 @@ export function BonusOverviewCard({
     setLoadingWorkspace(Boolean(waveId));
     if (!waveId) return;
     setError(null);
-    void requestPraemienWorkspace<Workspace>(
+    void Promise.resolve().then(() => resource.load(`bonus-workspace:${reloadKey}:${waveId}`, () => requestPraemienWorkspace<Workspace>(
       `/waves/${encodeURIComponent(waveId)}`,
-    )
+    ), priority.current))
       .then((data) => {
         if (!cancelled) setWorkspace(data);
       })
@@ -129,7 +140,7 @@ export function BonusOverviewCard({
     return () => {
       cancelled = true;
     };
-  }, [waveId, onSnapshot]);
+  }, [waveId, onSnapshot, reloadKey, resource.load, resource.version]);
   useEffect(() => {
     onSnapshot?.(workspace);
   }, [workspace, onSnapshot]);
@@ -143,13 +154,10 @@ export function BonusOverviewCard({
         label: `Q${w.quarter} ${w.year} · ${w.name}`,
       }))}
       minWidth={220}
-      onChange={setWaveId}
+      onChange={(id) => { priority.current = 1; setWaveId(id); }}
     />
   );
-  const gm =
-    workspace?.results.find((row) => row.gmId === selectedId) ??
-    workspace?.results.find((row) => row.active) ??
-    workspace?.results[0];
+  const gm = selectBonusResult(workspace, selectedId);
   const selected = gm
     ? {
         id: gm.gmId,
@@ -172,10 +180,10 @@ export function BonusOverviewCard({
         goals: [],
       };
   const gmOptions = workspace
-    ? workspace.results.map((row) => ({
+    ? [{ value: ALL_BONUS_GMS, label: "Alle" }, ...workspace.results.map((row) => ({
         value: row.gmId,
         label: row.name + (row.active ? "" : " (inaktiv)"),
-      }))
+      }))]
     : facets.gms.map((g) => ({ value: g.id, label: g.label }));
   const emptyState = bonusEmptyState({
     loading,
@@ -187,7 +195,8 @@ export function BonusOverviewCard({
     hasParticipant: Boolean(gm),
     goalCount: gm?.pillars.length ?? 0,
   });
-  const retry = () => setReloadKey((key) => key + 1);
+  useDashboardExportStatus("Boni", !loading && ready !== null && (!waveId || workspace?.wave.id === waveId), error);
+  const retry = () => { priority.current = 1; setReloadKey((key) => key + 1); };
   const available = emptyState === null;
   const status =
     emptyState?.status ??
@@ -206,6 +215,7 @@ export function BonusOverviewCard({
 
   return (
     <section
+      ref={stage.ref}
       style={{
         background: "rgba(0,0,0,0.025)",
         border: "1px solid rgba(0,0,0,0.07)",

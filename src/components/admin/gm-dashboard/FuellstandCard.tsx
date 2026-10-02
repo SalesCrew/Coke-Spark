@@ -80,7 +80,7 @@ export function FuellstandCard() {
 
   useEffect(() => {
     if (intervals.length === 0) {
-      if (facets.loading) return;
+      if (facets.metadataLoading) return;
       setSelectedIntervalId(null);
       return;
     }
@@ -90,7 +90,7 @@ export function FuellstandCard() {
     ) {
       setSelectedIntervalId(intervals[0]!.id);
     }
-  }, [intervals, selectedIntervalId, facets.loading]);
+  }, [intervals, selectedIntervalId, facets.metadataLoading]);
 
   const selectedInterval = findIntervalById(intervals, selectedIntervalId);
   const regionOptions = useMemo(() => {
@@ -162,9 +162,10 @@ export function FuellstandCard() {
     selectedIntervalId,
   );
   const loading =
-    facets.loading || chartResult.loading || inventoryResult.loading;
+    facets.metadataLoading || chartResult.loading || inventoryResult.loading;
   const loadError =
     facets.error ??
+    facets.metadataError ??
     chartResult.error ??
     inventoryResult.error ??
     (intervalMode === "redmonth" ? calendarError : null);

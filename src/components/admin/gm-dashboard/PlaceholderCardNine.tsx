@@ -1,8 +1,9 @@
 "use client";
 
+import { activitySegments } from "@/lib/gm-dashboard/activity-segments";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
-import { useDashboardData, useDashboardFacets } from "./RealGmDashboard";
+import { useDashboardData, useDashboardFacets, useDashboardStage } from "./RealGmDashboard";
 import { calendarToday } from "@/lib/gm-dashboard/data";
 import { limitDashboardIntervals } from "@/lib/gm-dashboard/date-range";
 import {
@@ -546,6 +547,7 @@ function DateRangeDropdown({
 }
 
 export function PlaceholderCardNine() {
+  const stage = useDashboardStage();
   const [activityPeriod, setActivityPeriod] = useState<ActivityPeriod>("year");
   const [dateRange, setDateRange] = useState<DateRangeFilter>(EMPTY_DATE_RANGE);
   const [filters, setFilters] = useState<IppFilterState>(EMPTY_FILTERS);
@@ -613,16 +615,13 @@ export function PlaceholderCardNine() {
       : [],
     facets.startDate,
   );
-  const result = useDashboardData("Aktivitaet", intervals, filters, "activity");
+  const result = useDashboardData("Aktivitaet", intervals, filters, "activity", null, undefined, undefined, stage.priority);
   const point = result.data?.points[0];
   const totalVisits = point?.visits ?? 0,
     standardVisits = point?.standardOnly ?? 0,
     flexVisits = point?.flexOnly ?? 0;
   const standardShare = totalVisits ? (100 * standardVisits) / totalVisits : 0,
     flexShare = totalVisits ? (100 * flexVisits) / totalVisits : 0;
-  const classifiedShare = totalVisits
-    ? (100 * (standardVisits + flexVisits)) / totalVisits
-    : 0;
   const activityMetrics = {
     redSurveyCount: point?.redSurveys ?? 0,
     redSurveyShare: totalVisits
@@ -636,18 +635,11 @@ export function PlaceholderCardNine() {
         : "—",
   };
   const activityDotPatternId = "placeholder-nine-activity-dot-pattern";
-  const gaugeStart = 180;
-  const gaugeEnd = 360;
-  const splitAngle =
-    gaugeStart + (gaugeEnd - gaugeStart) * (standardShare / 100);
-  const segmentGap = 4;
-  const leftEnd = Math.max(gaugeStart, splitAngle - segmentGap / 2);
-  const rightStart = Math.min(gaugeEnd, splitAngle + segmentGap / 2);
-  const classifiedEnd =
-    gaugeStart + (gaugeEnd - gaugeStart) * (classifiedShare / 100);
+  const segments = activitySegments(totalVisits, standardVisits, flexVisits);
 
   return (
     <section
+      ref={stage.ref}
       style={{
         background: "rgba(0,0,0,0.025)",
         border: "1px solid rgba(0,0,0,0.07)",
@@ -696,7 +688,7 @@ export function PlaceholderCardNine() {
           <button
             type="button"
             aria-label="Filter öffnen"
-            onClick={() => setFilterModalOpen(true)}
+            onClick={() => { void facets.ensureFilters(); setFilterModalOpen(true); }}
             style={{
               position: "relative",
               width: 26,
@@ -755,31 +747,15 @@ export function PlaceholderCardNine() {
             height={160}
             style={{ display: "block" }}
           >
-            <path
-              d={describeDonutSegment(180, 146, 123, 93, gaugeStart, gaugeEnd)}
-              fill="rgba(100,116,139,.05)"
-              stroke="rgba(100,116,139,.25)"
-              strokeWidth={2}
-            />
-            <path
-              d={describeDonutSegment(180, 146, 123, 93, gaugeStart, leftEnd)}
-              fill="rgba(239,68,68,0.14)"
-              stroke="#ef4444"
-              strokeWidth={2}
-            />
-            <path
-              d={describeDonutSegment(
-                180,
-                146,
-                123,
-                93,
-                rightStart,
-                Math.max(rightStart, classifiedEnd),
-              )}
-              fill="rgba(239,68,68,0.08)"
-              stroke="#ef4444"
-              strokeWidth={2}
-            />
+            {segments.map((segment) => (
+              <path
+                key={segment.index}
+                d={describeDonutSegment(180, 146, 123, 93, segment.start, segment.end)}
+                fill={segment.index === 2 ? "rgba(100,116,139,.05)" : segment.index === 0 ? "rgba(239,68,68,0.14)" : "rgba(239,68,68,0.08)"}
+                stroke={segment.index === 2 ? "rgba(100,116,139,.25)" : "#ef4444"}
+                strokeWidth={2}
+              />
+            ))}
           </svg>
           <div
             style={{

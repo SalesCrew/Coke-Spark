@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useDashboardData, useDashboardFacets } from "./RealGmDashboard";
+import { useDashboardData, useDashboardFacets, useDashboardStage } from "./RealGmDashboard";
 import { calendarToday } from "@/lib/gm-dashboard/data";
 import { useRedMonth } from "@/context/RedMonthContext";
 import {
@@ -22,6 +22,7 @@ import { CompetitorQuestionBreakdown } from "./CompetitorQuestionBreakdown";
 import { type PlatzierungenFilterScope } from "@/lib/platzierungen-dashboard/mock-data";
 
 export function PlatzierungenCard() {
+  const stage = useDashboardStage();
   const { calendar, error: calendarError } = useRedMonth();
   const facets = useDashboardFacets();
   const { markets, gms } = facets;
@@ -60,7 +61,7 @@ export function PlatzierungenCard() {
 
   useEffect(() => {
     if (intervals.length === 0) {
-      if (facets.loading) return;
+      if (facets.metadataLoading) return;
       setSelectedIntervalId(null);
       return;
     }
@@ -70,7 +71,7 @@ export function PlatzierungenCard() {
     ) {
       setSelectedIntervalId(intervals[0]!.id);
     }
-  }, [intervals, selectedIntervalId, facets.loading]);
+  }, [intervals, selectedIntervalId, facets.metadataLoading]);
 
   const selectedInterval = findIntervalById(intervals, selectedIntervalId);
   const regionOptions = useMemo(() => {
@@ -98,10 +99,12 @@ export function PlatzierungenCard() {
     intervals,
     filterScope,
     selectedIntervalId,
+    null, undefined, undefined, stage.priority,
   );
-  const loading = facets.loading || result.loading;
+  const loading = facets.metadataLoading || result.loading;
   const loadError =
     facets.error ??
+    facets.metadataError ??
     result.error ??
     (intervalMode === "redmonth" ? calendarError : null);
   const series = useMemo(
@@ -119,6 +122,7 @@ export function PlatzierungenCard() {
 
   return (
     <section
+      ref={stage.ref}
       style={{
         background: "rgba(0,0,0,0.025)",
         border: "1px solid rgba(0,0,0,0.07)",

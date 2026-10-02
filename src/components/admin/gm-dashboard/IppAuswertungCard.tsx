@@ -76,7 +76,7 @@ export function IppAuswertungCard() {
 
   useEffect(() => {
     if (intervals.length === 0) {
-      if (facets.loading) return;
+      if (facets.metadataLoading) return;
       setSelectedIntervalId(null);
       return;
     }
@@ -86,11 +86,11 @@ export function IppAuswertungCard() {
     ) {
       setSelectedIntervalId(intervals[0]!.id);
     }
-  }, [intervals, selectedIntervalId, facets.loading]);
+  }, [intervals, selectedIntervalId, facets.metadataLoading]);
 
   useEffect(() => {
     if (intervals.length === 0) {
-      if (facets.loading) return;
+      if (facets.metadataLoading) return;
       setBaseIntervalId(null);
       return;
     }
@@ -100,10 +100,10 @@ export function IppAuswertungCard() {
     ) {
       setBaseIntervalId(selectedIntervalId ?? intervals[0]!.id);
     }
-  }, [baseIntervalId, intervals, selectedIntervalId, facets.loading]);
+  }, [baseIntervalId, intervals, selectedIntervalId, facets.metadataLoading]);
 
   useEffect(() => {
-    if (facets.loading) return;
+    if (facets.metadataLoading) return;
     if (comparePreset !== "custom") return;
     if (!customCompareIntervalId) return;
     if (
@@ -111,7 +111,7 @@ export function IppAuswertungCard() {
     ) {
       setCustomCompareIntervalId(null);
     }
-  }, [comparePreset, customCompareIntervalId, intervals, facets.loading]);
+  }, [comparePreset, customCompareIntervalId, intervals, facets.metadataLoading]);
 
   const activeBaseIntervalId = baseIntervalId ?? selectedIntervalId;
   const customCandidateIntervals = intervals.filter(
@@ -155,9 +155,10 @@ export function IppAuswertungCard() {
     compareEnabled ? comparePreset : "off",
     compareIntervalId,
   );
-  const loading = facets.loading || result.loading;
+  const loading = facets.metadataLoading || result.loading;
   const loadError =
     facets.error ??
+    facets.metadataError ??
     result.error ??
     (intervalMode === "redmonth" ? calendarError : null);
   const linePoints = useMemo<IppLinePoint[]>(

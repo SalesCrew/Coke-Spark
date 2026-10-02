@@ -11,7 +11,7 @@ export function useDialog(onClose: () => void) {
     document.body.style.overflow = "hidden";
     dialog?.querySelector<HTMLElement>("button,input,select")?.focus();
     function keydown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !e.defaultPrevented) {
         e.preventDefault();
         close.current();
       }
@@ -20,7 +20,7 @@ export function useDialog(onClose: () => void) {
         dialog.querySelectorAll<HTMLElement>(
           "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary",
         ),
-      ).filter((el) => el.getClientRects().length > 0);
+      ).filter((el) => el.getClientRects().length > 0 && el.tabIndex >= 0);
       const first = items[0],
         last = items.at(-1);
       if (e.shiftKey && document.activeElement === first) {

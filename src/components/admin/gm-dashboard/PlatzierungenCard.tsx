@@ -18,6 +18,7 @@ import {
 import { IppIntervalToolbar } from "@/components/admin/gm-dashboard/IppIntervalToolbar";
 import { placementSeries } from "@/lib/gm-dashboard/chart-adapters";
 import { PlatzierungenBarChart } from "@/components/admin/gm-dashboard/charts/PlatzierungenBarChart";
+import { CompetitorQuestionBreakdown } from "./CompetitorQuestionBreakdown";
 import { type PlatzierungenFilterScope } from "@/lib/platzierungen-dashboard/mock-data";
 
 export function PlatzierungenCard() {
@@ -337,6 +338,11 @@ export function PlatzierungenCard() {
             />
           </div>
         </section>
+
+        <CompetitorQuestionBreakdown
+          questions={result.data?.points.find((point) => point.id === selectedIntervalId)?.competitorQuestions ?? []}
+          loading={loading}
+        />
 
         {loading && (
           <div

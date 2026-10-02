@@ -1,10 +1,11 @@
 // Frontend API contract: deliberately independent of the backend Git checkout.
 // Keep in sync with backend model/workspace contracts (see contract regression test).
-export type MetricUnit = "percent" | "points" | "count";
+export type MetricUnit = "percent" | "points" | "count" | "eur";
 export type MetricMethod =
   | "manual"
   | "answer_sum"
   | "availability"
+  | "weighted_sum"
   | "sum"
   | "difference"
   | "average"
@@ -30,6 +31,15 @@ export type ModelMetric = {
   target: number | null;
   sources: ModelSource[];
   steps: { at: number; value: number }[];
+  goal?: { halfAt: number; fullAt: number } | undefined;
+  weights?: Record<string, number> | undefined;
+  hint?: string | undefined;
+  readOnly?: boolean | undefined;
+  minValue?: number | undefined;
+  maxValue?: number | undefined;
+  integerOnly?: boolean | undefined;
+  confirmation?: boolean | undefined;
+  manualRewardCap?: number | undefined;
 };
 export type ModelTier = {
   key: string;
@@ -48,7 +58,7 @@ export type ModelPillar = {
   kind: "displays" | "distribution" | "flex" | "quality" | "custom";
   color: string;
   maxRewardEur: number;
-  payoutMode: "highest" | "groups";
+  payoutMode: "highest" | "groups" | "manual";
   metrics: ModelMetric[];
   tiers: ModelTier[];
 };

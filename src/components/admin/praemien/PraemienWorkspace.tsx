@@ -1,4 +1,5 @@
 "use client";
+import { conditionText, metricUnit } from "@/lib/praemien-goals";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -23,6 +24,7 @@ import type {
   GmResult,
   MetricEntry,
 } from "@/types/praemien-workspace";
+import { BoniSelect } from "./BoniSelect";
 import { ModelEditor } from "./ModelEditor";
 import { useDialog } from "./useDialog";
 import { exportPraemien } from "./praemienExport";
@@ -182,7 +184,7 @@ export function PraemienWorkspace() {
             ))),
     ) ?? [];
   return (
-    <main className={styles.page}>
+    <div className={styles.page}>
       <header className={styles.header}>
         <div className={styles.heading}>
           <span className={styles.icon}>
@@ -195,7 +197,7 @@ export function PraemienWorkspace() {
           </div>
         </div>
         <div className={styles.actions}>
-          <select
+          <BoniSelect
             aria-label="Prämienwelle wählen"
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
@@ -207,7 +209,7 @@ export function PraemienWorkspace() {
                 {w.name} · Q{w.quarter} {w.year}
               </option>
             ))}
-          </select>
+          </BoniSelect>
           <button aria-label="Neu laden" onClick={reload} disabled={busy}>
             <RefreshCw size={16} />
           </button>
@@ -317,6 +319,7 @@ export function PraemienWorkspace() {
                 ).map((t) => (
                   <button
                     key={t}
+                    aria-current={tab === t ? "page" : undefined}
                     className={tab === t ? styles.activeTab : ""}
                     onClick={() => setTab(t)}
                   >
@@ -377,7 +380,7 @@ export function PraemienWorkspace() {
                           {p.metrics.length} Messgrößen
                         </p>
                         <small>
-                          {p.tiers.length
+                          {p.payoutMode === "manual" ? p.metrics.filter(m => m.manualRewardCap !== undefined).map(m => `${m.label}: bis ${euro(m.manualRewardCap!)}`).join(" · ") : p.tiers.length
                             ? p.tiers.map((t) => t.label).join(" · ")
                             : "Stufen noch einzurichten"}
                         </small>
@@ -468,11 +471,11 @@ export function PraemienWorkspace() {
                   <p>{workspace.model.provenance}</p>
                   {workspace.model.pillars.map((p) => (
                     <div key={p.key} className={styles.ruleSummary}>
-                      <h3 style={{ color: p.color }}>
+                      <h3 style={{ color: `color-mix(in srgb, ${p.color} 75%, #111827)` }}>
                         {p.name} · bis {euro(p.maxRewardEur)}
                       </h3>
                       <p>
-                        {p.payoutMode === "groups"
+                        {p.payoutMode === "manual" ? "Manuell festgelegte Teilprämien in Euro; leer bleibt offen, 0 € ist bewertet." : p.payoutMode === "groups"
                           ? "Je Teilziel die höchste Stufe, danach addieren."
                           : "Höchste erreichte Euro-Stufe; alle Bedingungen einer Stufe müssen erfüllt sein."}
                       </p>
@@ -480,7 +483,7 @@ export function PraemienWorkspace() {
                         <div key={m.key}>
                           <strong>{m.label}</strong>
                           <span>
-                            {m.unit === "percent"
+                            {m.unit === "eur" ? "€" : m.unit === "percent"
                               ? "%"
                               : m.unit === "count"
                                 ? "Anzahl"
@@ -488,6 +491,8 @@ export function PraemienWorkspace() {
                             · {m.method === "manual" ? "Manuell" : m.method}{" "}
                             {m.target ? `· Soll ${decimal(m.target)}` : ""}
                           </span>
+                          {m.hint && <small>{m.hint}</small>}
+                          {m.manualRewardCap !== undefined && <small>Maximale Teilprämie: {euro(m.manualRewardCap)}</small>}
                           <small>
                             {m.sources
                               .map(
@@ -504,7 +509,7 @@ export function PraemienWorkspace() {
                           {t.conditions
                             .map(
                               (c) =>
-                                `${p.metrics.find((m) => m.key === c.metricKey)?.label} ${c.operator === "gte" ? "≥" : c.operator === "lte" ? "≤" : "="} ${decimal(c.value)}`,
+                                conditionText(p, c),
                             )
                             .join(" UND ")}{" "}
                           → {euro(t.rewardEur)}
@@ -525,7 +530,7 @@ export function PraemienWorkspace() {
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
-                    <select
+                    <BoniSelect
                       aria-label="Bewertungen filtern"
                       value={filter}
                       onChange={(e) => setFilter(e.target.value)}
@@ -533,7 +538,7 @@ export function PraemienWorkspace() {
                       <option value="all">Alle</option>
                       <option value="pending">Offene Bewertungen</option>
                       <option value="manual">Manuell bearbeitet</option>
-                    </select>
+                    </BoniSelect>
                   </div>
                   <p>
                     Einzelne Prozent-/Teilwerte bearbeiten. Leer = automatisch
@@ -697,7 +702,7 @@ export function PraemienWorkspace() {
           }}
         />
       )}
-    </main>
+    </div>
   );
 }
 
@@ -829,7 +834,7 @@ function CreateWave({
             </label>
             <label>
               Quartal
-              <select
+              <BoniSelect
                 value={quarter}
                 onChange={(e) => setQuarter(Number(e.target.value))}
               >
@@ -838,18 +843,19 @@ function CreateWave({
                     Q{q}
                   </option>
                 ))}
-              </select>
+              </BoniSelect>
             </label>
           </div>
           <label>
             Regelvorlage
-            <select
+            <BoniSelect
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
             >
               <option value="empty">Leer – frei einrichten</option>
               <option value="q1">Q1 2026 · belegte Vorlage</option>
               <option value="q2">Q2 2026 · belegte Vorlage</option>
+              <option value="xmas">Kühler + X-Mas · 25 / 30 Punkte · manuelle Qualität</option>
               <option value="q3">
                 Q3 · Kühler & permanente Racks (Stufen offen)
               </option>
@@ -858,12 +864,11 @@ function CreateWave({
                   Regeln der geöffneten Welle kopieren
                 </option>
               )}
-            </select>
+            </BoniSelect>
           </label>
           <p className={styles.notice}>
             Nur Regeln werden übernommen – keine Istwerte, Bewertungen oder
-            Auszahlungen. Qualitätsdefinitionen bleiben bis zur fachlichen
-            Bestätigung offen.
+            Auszahlungen. Die Kühler-/X-Mas-Vorlage enthält manuelle Qualitätsprämien; ältere Vorlagen behalten ihre offenen Qualitätsregeln.
           </p>
           {error && (
             <p role="alert" className={styles.error}>
@@ -971,6 +976,9 @@ function GmValues({
             throw new Error(
               "Bitte gültige Zahlen eingeben; Sollwerte müssen größer als 0 sein.",
             );
+          const def = workspace.model?.pillars.find(x => x.key === p.key)?.metrics.find(x => x.key === m.key);
+          if (value !== null && def && ((def.minValue !== undefined && value < def.minValue) || (def.maxValue !== undefined && value > def.maxValue) || (def.integerOnly && !Number.isInteger(value))))
+            throw new Error(`${m.label}: Bitte einen Wert im zulässigen Bereich eingeben${def.manualRewardCap !== undefined ? ` (0 bis ${euro(def.manualRewardCap)})` : ""}.`);
           return {
             gmId: gm.gmId,
             pillarKey: p.key,
@@ -1024,7 +1032,7 @@ function GmValues({
         <div className={styles.dialogBody}>
           {gm.pillars.map((p) => (
             <section key={p.key} className={styles.ruleSummary}>
-              <h3 style={{ color: p.color }}>
+              <h3 style={{ color: `color-mix(in srgb, ${p.color} 75%, #111827)` }}>
                 {p.name}
                 <span className={styles.right}>{euro(p.earned)}</span>
               </h3>
@@ -1044,12 +1052,7 @@ function GmValues({
                           : m.origin === "pending"
                             ? "Noch nicht bewertet / nicht auswertbar"
                             : "Automatisch"}{" "}
-                        · wirksam: {decimal(m.value)}{" "}
-                        {m.unit === "percent"
-                          ? "%"
-                          : m.unit === "count"
-                            ? "Stück"
-                            : "Punkte"}
+                        · wirksam: {definition?.confirmation ? m.value === null ? "Prüfung offen" : m.value === 1 ? "Bestätigt" : "Nicht erfüllt" : `${decimal(m.value)} ${metricUnit(m.unit)}`}
                       </small>
                       <small>
                         Automatisch: {decimal(m.automatic)}
@@ -1058,9 +1061,11 @@ function GmValues({
                           : ""}
                       </small>
                     </div>
-                    <div className={styles.twoColumns}>
+                    {definition?.hint && <p className={styles.notice}>{definition.hint}</p>}
+                    {definition?.manualRewardCap !== undefined && <p>Maximalprämie: {euro(definition.manualRewardCap)} {!frozen && <button onClick={() => field(id, "value", String(definition.manualRewardCap).replace(".", ","))}>Volle Teilprämie übernehmen</button>}</p>}
+                    {definition?.confirmation ? <label>Nachweise geprüft<BoniSelect aria-label={m.label} value={d.value} disabled={frozen} onChange={e => field(id, "value", e.target.value)}><option value="">Prüfung offen</option><option value="1">Bestätigt · Voraussetzungen erfüllt</option><option value="0">Nicht erfüllt</option></BoniSelect></label> : definition?.readOnly ? <p>Wird aus den erfassten Werten berechnet: {decimal(m.value)} {metricUnit(m.unit)}</p> : <div className={styles.twoColumns}>
                       <label>
-                        {m.unit === "percent"
+                        {m.unit === "eur" ? "Manuelle Auszahlung in €" : m.unit === "percent"
                           ? "Manuell in %"
                           : m.unit === "count"
                             ? "Manuell in Stück"
@@ -1098,7 +1103,7 @@ function GmValues({
                           />
                         </label>
                       )}
-                    </div>
+                    </div>}
                     {definition?.method === "ratio" &&
                       workspace.model?.pillars.find((x) => x.key === p.key)
                         ?.kind === "displays" &&
@@ -1118,7 +1123,7 @@ function GmValues({
                         disabled={frozen}
                       />
                     </label>
-                    {!frozen && (
+                    {!frozen && !definition?.readOnly && (
                       <button onClick={() => field(id, "value", "")}>
                         {definition?.method === "manual"
                           ? "Bewertung entfernen"

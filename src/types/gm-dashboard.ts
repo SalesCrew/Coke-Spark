@@ -1,4 +1,3 @@
-// Frontend API contract: no dependency on fetching the backend Git checkout.
 // Shared read-only dashboard contract. No production credentials or fixtures here.
 export type DashboardChainGroup = "rewe" | "spar" | "other";
 export type DashboardScope = {
@@ -40,6 +39,15 @@ export type DashboardPoint = DashboardInterval & {
   ippPlacement: number | null;
   placements: number | null;
   competitor: number | null;
+  competitorQuestions?: {
+    questionId: string;
+    questionText: string;
+    moduleName: string;
+    points: number;
+    marketCount: number;
+    yesCount: number;
+    noCount: number;
+  }[];
   availability: Record<AvailabilityType, AvailabilityCounts>;
   availabilityAnswered: number;
   availabilityExpected: number;

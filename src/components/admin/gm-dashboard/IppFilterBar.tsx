@@ -3,7 +3,7 @@
 import { IppMiniDropdown, type IppMiniDropdownOption } from "@/components/admin/gm-dashboard/IppMiniDropdown";
 
 import type { DashboardScope } from "@/types/gm-dashboard";
-import { marketChainGroup, OTHER_CHAINS_SHORTCUT, chainSelectionValues, updateChainSelection } from "@/lib/gm-dashboard/chain-groups";
+import { marketChainGroup, OTHER_CHAINS_SHORTCUT, REWE_CHAINS_SHORTCUT, SPAR_CHAINS_SHORTCUT, chainSelectionValues, updateChainSelection } from "@/lib/gm-dashboard/chain-groups";
 
 export type IppFilterState = DashboardScope;
 export type IppGmOption = {
@@ -29,9 +29,10 @@ type IppFilterBarProps = {
   onChange: (next: IppFilterState) => void;
   compact?: boolean;
   showReset?: boolean;
+  chainShortcuts?: boolean;
 };
 
-export function IppFilterBar({ filters, regions, gms, markets, onChange, compact = false, showReset = true }: IppFilterBarProps) {
+export function IppFilterBar({ filters, regions, gms, markets, onChange, compact = false, showReset = true, chainShortcuts = false }: IppFilterBarProps) {
   const selectedGm = gms.find((gm) => gm.id === filters.gmId) ?? null;
   const baseMarketOptions = markets.filter((market) => {
     if (filters.region && market.region !== filters.region) return false;
@@ -44,10 +45,15 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
   const availableChains = [...new Set(baseMarketOptions.map((market) => market.chain))]
     .sort((left, right) => left.localeCompare(right, "de"));
   const otherChains = availableChains.filter((chain) => marketChainGroup(chain) === "other");
+  const extraShortcuts = chainShortcuts ? [
+    { value: REWE_CHAINS_SHORTCUT, label: "REWE", chains: availableChains.filter((chain) => marketChainGroup(chain) === "rewe") },
+    { value: SPAR_CHAINS_SHORTCUT, label: "SPAR", chains: availableChains.filter((chain) => marketChainGroup(chain) === "spar") },
+  ].filter((shortcut) => shortcut.chains.length) : [];
   const chainOptions: IppMiniDropdownOption[] = availableChains.map((chain) => ({
     value: chain, label: chain || "Ohne Handelskette",
   }));
-  if (otherChains.length) chainOptions.push({ value: OTHER_CHAINS_SHORTCUT, label: "Sonstige Märkte" });
+  chainOptions.push(...extraShortcuts.map(({ value, label }) => ({ value, label, selectionShortcut: true })));
+  if (otherChains.length) chainOptions.push({ value: OTHER_CHAINS_SHORTCUT, label: "Sonstige Märkte", selectionShortcut: true });
   const marketOptions = baseMarketOptions.filter((market) =>
     !chains.length || chains.includes(market.chain),
   );
@@ -127,9 +133,9 @@ export function IppFilterBar({ filters, regions, gms, markets, onChange, compact
             minWidth={compact ? 152 : 250}
             onChange={() => {}}
             multiple={{
-              values: chainSelectionValues(chains, otherChains),
+              values: chainSelectionValues(chains, otherChains, extraShortcuts),
               onChange: (values) => {
-                const nextChains = updateChainSelection(chains, values, otherChains);
+                const nextChains = updateChainSelection(chains, values, otherChains, extraShortcuts);
                 const compatibleIds = new Set(baseMarketOptions
                   .filter((market) => !nextChains.length || nextChains.includes(market.chain))
                   .map((market) => market.id));

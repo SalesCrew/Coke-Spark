@@ -6,6 +6,7 @@ export type IppMiniDropdownOption = {
   value: string;
   label: string;
   searchText?: string;
+  selectionShortcut?: boolean;
 };
 
 type IppMiniDropdownProps = {
@@ -104,7 +105,7 @@ export function IppMiniDropdown({
   const selected = useMemo(() => options.find((option) => option.value === value) ?? null, [options, value]);
   const selectedValues = new Set(multiple?.values);
   const selectedLabels = multiple
-    ? options.filter((option) => selectedValues.has(option.value)).map((option) => option.label)
+    ? options.filter((option) => !option.selectionShortcut && selectedValues.has(option.value)).map((option) => option.label)
     : [];
   const selectedLabel = multiple ? selectedLabels.join(", ") : selected?.label;
   const displayLabel = multiple && selectedLabels.length > 1

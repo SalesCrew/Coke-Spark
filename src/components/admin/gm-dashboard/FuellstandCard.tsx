@@ -265,6 +265,7 @@ export function FuellstandCard() {
               }}
             >
               <IppFilterBar
+                chainShortcuts
                 filters={inventoryFilters}
                 regions={regionOptions}
                 gms={gms}
@@ -440,6 +441,7 @@ export function FuellstandCard() {
           )}
 
           <IppFilterBar
+            chainShortcuts
             filters={chartFilters}
             regions={regionOptions}
             gms={gms}

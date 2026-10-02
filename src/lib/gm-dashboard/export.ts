@@ -39,6 +39,22 @@ export async function exportRealGmDashboard(input: {
         const comparison = entry.data.points.find(
           (p) => p.id === entry.comparisonIntervalId,
         );
+        if (entry.title === "Platzierungen") {
+          appendTableSheet(XLSX, wb, {
+            name: "Mitbewerb Details",
+            title: "Abfrage Mitbewerb – Ergebnisse je Frage und Intervall",
+            rows: entry.data.points.flatMap((point) => (point.competitorQuestions ?? []).map((question) => ({ point, question }))),
+            columns: [
+              { header: "Intervall", width: 25, value: (row) => row.point.label },
+              { header: "Modul", width: 30, value: (row) => row.question.moduleName },
+              { header: "Frage", width: 70, value: (row) => row.question.questionText },
+              { header: "Ja", value: (row) => row.question.yesCount },
+              { header: "Nein", value: (row) => row.question.noCount },
+              { header: "Märkte", value: (row) => row.question.marketCount },
+              { header: "Mitbewerber Punkte", value: (row) => row.question.points },
+            ],
+          });
+        }
         appendTableSheet(XLSX, wb, {
           name: `${entry.title} Filter`,
           title: `${entry.title} – Filter und Auswahl`,

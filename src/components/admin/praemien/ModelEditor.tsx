@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Settings2, Trash2, X } from "lucide-react";
 import { requestPraemienWorkspace as api } from "@/lib/api/backend";
 import type {
@@ -8,11 +8,15 @@ import type {
   WaveModel,
   ModelMetric,
   ModelPillar,
-  ModelSource,
   ModelTier,
 } from "@/types/praemien-workspace";
 import styles from "./praemien.module.css";
 import { useDialog } from "./useDialog";
+import { BoniSelect } from "./BoniSelect";
+import { QuestionSources } from "./QuestionSources";
+import { DecimalField } from "./DecimalField";
+import { appendIndependentGoal, conditionText, goalFor, metricUnit, updateGoal } from "@/lib/praemien-goals";
+import type { BonusQuestion } from "@/lib/praemien-question-selection";
 
 const currency = (n: number) =>
   n.toLocaleString("de-AT", { style: "currency", currency: "EUR" });
@@ -20,13 +24,14 @@ const methods: Record<ModelMetric["method"], string> = {
   manual: "Manuelle Bewertung",
   answer_sum: "Besuchsantworten · Wert / Punkte",
   availability: "Verfügbarkeit · Marktquote",
+  weighted_sum: "Stückzahlen × Punkte je Platzierung",
   sum: "Summe der Teilwerte",
   difference: "Differenz (neu − retour)",
   average: "Mittelwert der Produktquoten",
   ratio: "Ist / Soll in %",
   steps: "Rohwert in Schwellenpunkte umrechnen",
 };
-const units = { percent: "Prozent (%)", points: "Punkte", count: "Anzahl" };
+const units = { percent: "Prozent (%)", points: "Punkte", count: "Anzahl", eur: "Euro (€)" };
 const newMetric = (key: string): ModelMetric => ({
   key,
   label: "Neue Messgröße",
@@ -42,14 +47,7 @@ const uniqueKey = (prefix: string, keys: string[]) => {
   while (keys.includes(`${prefix}_${i}`)) i++;
   return `${prefix}_${i}`;
 };
-type Question = {
-  id: string;
-  text: string;
-  type: string;
-  config: Record<string, unknown>;
-  scores: { scoreKey: string; weight: number | null }[];
-  updatedAt: string;
-};
+
 
 export function ModelEditor({
   initial,
@@ -81,6 +79,16 @@ export function ModelEditor({
   });
   const modelVersion = useRef(0);
   const editorRef = useRef<HTMLElement>(null);
+  const [customConditions, setCustomConditions] = useState<string[]>([]);
+  const [focusGoal, setFocusGoal] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!focusGoal) return;
+    const input = editorRef.current?.querySelector<HTMLInputElement>(`input[data-goal-key="${focusGoal}"]`);
+    input?.focus({ preventScroll: true });
+    input?.scrollIntoView({ block: "center" });
+    input?.select();
+    setFocusGoal(null);
+  }, [focusGoal, model]);
   function validFields() {
     const input = editorRef.current?.querySelector<HTMLInputElement>(
       'input:invalid, input[aria-invalid="true"]',
@@ -91,20 +99,25 @@ export function ModelEditor({
     setError("Bitte die markierte Zahl korrigieren.");
     return false;
   }
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questions, setQuestions] = useState<BonusQuestion[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(true);
+  const [questionsError, setQuestionsError] = useState("");
+  const [sourceReload, setSourceReload] = useState(0);
   useEffect(() => {
     let alive = true;
-    api<{ questions: Question[] }>("/sources")
+    setQuestionsLoading(true);
+    setQuestionsError("");
+    api<{ questions: BonusQuestion[] }>("/sources")
       .then((d) => {
-        if (alive) setQuestions(d.questions);
+        if (alive) { setQuestions(d.questions); setQuestionsLoading(false); }
       })
-      .catch((e) => {
-        if (alive) setError(e.message);
+      .catch(() => {
+        if (alive) { setQuestionsError("Fragen konnten nicht geladen werden. Deine Zuordnungen bleiben erhalten."); setQuestionsLoading(false); }
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [sourceReload]);
   const p = model.pillars[pillarIndex];
   function change(next: WaveModel) {
     modelVersion.current++;
@@ -122,6 +135,11 @@ export function ModelEditor({
       ...p,
       metrics: p.metrics.map((m, i) => (i === index ? next : m)),
     });
+  }
+  function addGoal(index: number) {
+    const next = appendIndependentGoal(p, index);
+    pillar(next);
+    setFocusGoal(next.metrics.at(-1)!.key);
   }
   function tier(index: number, next: ModelTier) {
     const before = p.tiers[index];
@@ -152,6 +170,8 @@ export function ModelEditor({
             <X size={20} />
           </button>
         </header>
+        {questionsError && <div className={`${styles.error} ${styles.editorAlert}`} role="alert"><span>{questionsError}</span><button type="button" disabled={busy || questionsLoading} onClick={() => setSourceReload((value) => value + 1)}>Fragen neu laden</button></div>}
+        {error && <div className={`${styles.error} ${styles.editorAlert}`} role="alert">{error}</div>}
         <div className={styles.editorLayout}>
           <aside className={styles.pillarNav}>
             {model.pillars.map((p, i) => (
@@ -216,7 +236,7 @@ export function ModelEditor({
                 </label>
                 <label>
                   Fachliche Art
-                  <select
+                  <BoniSelect
                     value={p.kind}
                     onChange={(e) =>
                       pillar({
@@ -230,7 +250,7 @@ export function ModelEditor({
                     <option value="flex">Flexziel</option>
                     <option value="quality">Qualität</option>
                     <option value="custom">Eigenes Ziel</option>
-                  </select>
+                  </BoniSelect>
                 </label>
                 <label>
                   Diagrammfarbe
@@ -246,6 +266,17 @@ export function ModelEditor({
                 bestimmen, was alte Werte bedeuten. Bestehende Bewertungen
                 werden nicht umgedeutet.
               </p>
+              {p.payoutMode !== "manual" && <section className={styles.goalPanel} aria-label="Teilziele festlegen">
+                <h3>Teilziele festlegen</h3>
+                <p>Jedes Teilziel hat einen eigenen Wert. Für eine gemeinsame Prämie müssen alle ausgewählten Teilziele ihre Mindestgrenze erreichen.</p>
+                {p.metrics.filter(m => goalFor(m)).map(m => { const goal = goalFor(m)!; return <div key={m.key} className={styles.goalRow}>
+                  <label>Teilzielname<input data-goal-key={m.key} value={m.label} onChange={e => metric(p.metrics.indexOf(m), { ...m, label: e.target.value })} /></label>
+                  <label>50 % erreicht ab ({metricUnit(m.unit)})<DecimalField value={goal.halfAt} onChange={v => pillar(updateGoal(p, m.key, { ...goal, halfAt: v ?? 0 }))} /></label>
+                  <label>100 % erreicht ab ({metricUnit(m.unit)})<DecimalField value={goal.fullAt} onChange={v => pillar(updateGoal(p, m.key, { ...goal, fullAt: v ?? 0 }))} /></label>
+                </div>; })}
+                {!p.metrics.some(m => goalFor(m)) && <p>Prozentwerte oder Messgrößen mit 50-/100-%-Grenzen werden hier als Teilziele angezeigt.</p>}
+              </section>}
+              <details className={styles.calculationDetails} open={p.metrics.length === 1}><summary>Erfassung & Berechnung · {p.metrics.length} Messgrößen</summary>
               {p.metrics.map((m, i) => (
                 <details
                   key={m.key}
@@ -258,6 +289,7 @@ export function ModelEditor({
                       {units[m.unit]} · {methods[m.method]}
                     </small>
                   </summary>
+                  <label>Hinweis / Erfassungsregel<textarea value={m.hint ?? ""} onChange={e => metric(i, { ...m, hint: e.target.value })} /></label>
                   <div className={styles.twoColumns}>
                     <label>
                       Name
@@ -274,7 +306,7 @@ export function ModelEditor({
                     </label>
                     <label>
                       Einheit
-                      <select
+                      <BoniSelect
                         value={m.unit}
                         onChange={(e) =>
                           metric(i, {
@@ -288,11 +320,11 @@ export function ModelEditor({
                             {label}
                           </option>
                         ))}
-                      </select>
+                      </BoniSelect>
                     </label>
                     <label>
                       Berechnung
-                      <select
+                      <BoniSelect
                         value={m.method}
                         onChange={(e) =>
                           metric(i, {
@@ -306,9 +338,11 @@ export function ModelEditor({
                             {label}
                           </option>
                         ))}
-                      </select>
+                      </BoniSelect>
                     </label>
                   </div>
+                  {m.unit !== "eur" && m.unit !== "percent" && !m.confirmation && <label className={styles.check}><input type="checkbox" checked={!!m.goal} onChange={e => metric(i, { ...m, goal: e.target.checked ? { halfAt: 50, fullAt: 100 } : undefined })} />Als Teilziel mit eigener 50-/100-%-Grenze verwenden</label>}
+                  {m.unit === "eur" && p.payoutMode === "manual" && <label>Maximale manuelle Teilprämie in €<DecimalField value={m.manualRewardCap ?? null} optional onChange={v => metric(i, { ...m, manualRewardCap: v ?? undefined, maxValue: v ?? undefined, minValue: 0 })} /></label>}
                   {["ratio", "availability"].includes(m.method) && (
                     <label>
                       Soll / berechtigte Märkte (persönlich überschreibbar)
@@ -323,13 +357,13 @@ export function ModelEditor({
                       </small>
                     </label>
                   )}
-                  {["sum", "difference", "average", "ratio", "steps"].includes(
+                  {["sum", "weighted_sum", "difference", "average", "ratio", "steps"].includes(
                     m.method,
                   ) && (
                     <fieldset>
                       <legend>Eingaben (in dieser Reihenfolge)</legend>
                       {p.metrics.slice(0, i).map((other) => (
-                        <label className={styles.check} key={other.key}>
+                        <div className={styles.check} key={other.key}><label className={styles.check}>
                           <input
                             type="checkbox"
                             checked={m.inputs.includes(other.key)}
@@ -339,11 +373,13 @@ export function ModelEditor({
                                 inputs: e.target.checked
                                   ? [...m.inputs, other.key]
                                   : m.inputs.filter((k) => k !== other.key),
+                                ...(m.method === "weighted_sum" ? { weights: e.target.checked ? { ...m.weights, [other.key]: m.weights?.[other.key] ?? 1 } : Object.fromEntries(Object.entries(m.weights ?? {}).filter(([k]) => k !== other.key)) } : {}),
                               })
                             }
                           />
-                          {other.label} · {units[other.unit]}
-                        </label>
+                          {other.label} · {units[other.unit]}</label>
+                          {m.method === "weighted_sum" && m.inputs.includes(other.key) && <label className={styles.weightField}>Punkte je Stück<DecimalField value={m.weights?.[other.key] ?? 1} onChange={v => metric(i, { ...m, weights: { ...m.weights, [other.key]: v ?? 0 } })} /></label>}
+                        </div>
                       ))}
                       {!i && (
                         <p>
@@ -378,7 +414,7 @@ export function ModelEditor({
                             />
                           </label>
                           <label>
-                            Ergibt Punkte
+                            Ergibt {units[m.unit]}
                             <DecimalField
                               value={s.value}
                               onChange={(v) =>
@@ -417,9 +453,11 @@ export function ModelEditor({
                     </fieldset>
                   )}
                   {["answer_sum", "availability"].includes(m.method) && (
-                    <Sources
+                    <QuestionSources
                       metric={m}
                       questions={questions}
+                      loading={questionsLoading}
+                      occupied={model.pillars.flatMap((pillar) => pillar.metrics.filter((other) => pillar.key !== p.key || other.key !== m.key).flatMap((other) => other.sources))}
                       onChange={(next) => metric(i, next)}
                     />
                   )}
@@ -486,29 +524,37 @@ export function ModelEditor({
                 <Plus size={14} />
                 Messgröße hinzufügen
               </button>
+              </details>
             </section>
             <section className={styles.formSection}>
-              <h3>Stufen & Bedingungen</h3>
+              <h3>Auszahlung & Mindestziele</h3>
               <label>
                 Auszahlungsmodus
-                <select
+                <BoniSelect
                   value={p.payoutMode}
                   onChange={(e) =>
                     pillar({
                       ...p,
                       payoutMode: e.target.value as ModelPillar["payoutMode"],
+                      tiers: e.target.value === "manual" ? [] : p.tiers,
+                      metrics: p.metrics.map(m => ({ ...m, manualRewardCap: e.target.value === "manual" && m.unit === "eur" && m.method === "manual" ? m.manualRewardCap ?? m.maxValue : undefined })),
                     })
                   }
                 >
+                  <option value="manual">Manuell festgelegte Eurobeträge</option>
                   <option value="highest">Höchste erreichte Euro-Stufe</option>
                   <option value="groups">
                     Teilziele addieren (je Gruppe nur die höchste Stufe)
                   </option>
-                </select>
+                </BoniSelect>
               </label>
+              {p.payoutMode === "manual" ? <div className={styles.notice}><strong>Manuelle Teilprämien · bis {currency(p.maxRewardEur)}</strong><p>Die verantwortliche Person legt die Auszahlung in Euro fest. Es gelten keine automatischen Prozentgrenzen. Leer bleibt offen; ausdrücklich 0 € ist eine abgeschlossene Bewertung.</p>{p.metrics.filter(m => m.manualRewardCap !== undefined).map(m => <p key={m.key}>{m.label}: bis {currency(m.manualRewardCap!)}</p>)}<button onClick={() => {
+                const key = uniqueKey("teilpraemie", p.metrics.map(m => m.key));
+                pillar({ ...p, metrics: [...p.metrics, { ...newMetric(key), label: "Neue manuelle Teilprämie", unit: "eur", minValue: 0 }] });
+              }}><Plus size={14} /> Manuelle Teilprämie hinzufügen</button></div> : <>
               <p>
-                Unter der ersten erfüllten Stufe: 0 €. Alle Bedingungen einer
-                Stufe gelten als UND.
+                Eine Stufe zahlt erst aus, wenn jede ihrer Bedingungen erfüllt ist.
+                Wähle die Teilziele einzeln aus – z. B. beide mindestens 50 %.
               </p>
               {p.tiers.map((t, i) => (
                 <div key={t.key} className={styles.tier}>
@@ -542,33 +588,40 @@ export function ModelEditor({
                       </label>
                     )}
                   </div>
-                  {t.conditions.map((c, j) => (
-                    <div key={j} className={styles.condition}>
+                  <div className={styles.tierHeading}><span className={styles.andBadge}>ALLE {t.conditions.length} BEDINGUNGEN · UND</span><strong>{currency(t.rewardEur)}</strong></div>
+                  {t.conditions.map((c, j) => { const selected = p.metrics.find(m => m.key === c.metricKey); const goal = selected && goalFor(selected); const conditionId = `${p.key}/${t.key}/${c.metricKey}`; const milestone = goal && !customConditions.includes(conditionId) && c.operator === "gte" && (c.value === goal.halfAt || c.value === goal.fullAt); return (
+                    <div key={j} className={`${styles.condition} ${milestone || selected?.confirmation ? styles.minimumCondition : goal ? styles.customCondition : ""}`}>
                       <label>
-                        Messgröße
-                        <select
+                        Teilziel / Bedingung
+                        <BoniSelect
                           value={c.metricKey}
                           onChange={(e) =>
                             tier(i, {
                               ...t,
                               conditions: t.conditions.map((x, k) =>
                                 k === j
-                                  ? { ...x, metricKey: e.target.value }
+                                  ? { ...x, metricKey: e.target.value, operator: "gte", value: goalFor(p.metrics.find(m => m.key === e.target.value)!)?.halfAt ?? 0 }
                                   : x,
                               ),
                             })
                           }
                         >
-                          {p.metrics.map((m) => (
+                          {p.metrics.filter(m => m.key === c.metricKey || !t.conditions.some(other => other.metricKey === m.key)).map((m) => (
                             <option key={m.key} value={m.key}>
                               {m.label} · {units[m.unit]}
                             </option>
                           ))}
-                        </select>
+                        </BoniSelect>
                       </label>
-                      <label>
+                      {goal && <label>Mindestziel<BoniSelect value={milestone ? c.value === goal.halfAt ? "50" : "100" : "custom"} onChange={e => {
+                        if (e.target.value === "custom") { setCustomConditions(keys => [...keys, conditionId]); return; }
+                        setCustomConditions(keys => keys.filter(key => key !== conditionId));
+                        tier(i, { ...t, conditions: t.conditions.map((x,k) => k !== j ? x : { ...x, operator: "gte", value: e.target.value === "50" ? goal.halfAt : goal.fullAt }) });
+                      }}><option value="50">Mindestens 50 %</option><option value="100">Mindestens 100 %</option><option value="custom">Eigene Grenze</option></BoniSelect><small>{milestone ? `Ab ${c.value.toLocaleString("de-AT")} ${metricUnit(selected!.unit)}` : "Grenze unten festlegen"}</small></label>}
+                      {selected?.confirmation && <p className={styles.notice}>Die Nachweise müssen bestätigt sein.</p>}
+                      {!milestone && !selected?.confirmation && <><label>
                         Vergleich
-                        <select
+                        <BoniSelect
                           value={c.operator}
                           onChange={(e) =>
                             tier(i, {
@@ -588,7 +641,7 @@ export function ModelEditor({
                           <option value="gte">Mindestens ≥</option>
                           <option value="lte">Höchstens ≤</option>
                           <option value="eq">Genau =</option>
-                        </select>
+                        </BoniSelect>
                       </label>
                       <label>
                         Grenze
@@ -604,8 +657,9 @@ export function ModelEditor({
                           }
                         />
                       </label>
+                      </>}
                       <button
-                        aria-label="Bedingung entfernen"
+                        aria-label={`Bedingung ${j + 1} entfernen`}
                         disabled={t.conditions.length === 1}
                         onClick={() =>
                           tier(i, {
@@ -617,25 +671,15 @@ export function ModelEditor({
                         <X size={14} />
                       </button>
                     </div>
-                  ))}
+                  ); })}
+                  <p className={styles.conditionSummary}>Auszahlung nur wenn {t.conditions.map(c => conditionText(p, c)).join(" UND ")}.</p>
                   <div className={styles.actions}>
-                    <button
-                      onClick={() =>
-                        tier(i, {
-                          ...t,
-                          conditions: [
-                            ...t.conditions,
-                            {
-                              metricKey: p.metrics[0].key,
-                              operator: "gte",
-                              value: 0,
-                            },
-                          ],
-                        })
-                      }
-                    >
-                      UND-Bedingung hinzufügen
-                    </button>
+                    <button onClick={() => {
+                      const next = p.metrics.find(m => goalFor(m) && !t.conditions.some(c => c.metricKey === m.key));
+                      if (next) tier(i, { ...t, conditions: [...t.conditions, { metricKey: next.key, operator: "gte", value: goalFor(next)!.halfAt }] });
+                      else addGoal(i);
+                    }}><Plus size={14} /> Weiteres Teilziel (UND)</button>
+                    <button onClick={() => addGoal(i)}><Plus size={14} /> Neues unabhängiges Teilziel anlegen</button>
                     <button
                       onClick={() =>
                         pillar({
@@ -665,9 +709,9 @@ export function ModelEditor({
                         rewardEur: 0,
                         conditions: [
                           {
-                            metricKey: p.metrics[0].key,
+                            metricKey: p.metrics.find(m => goalFor(m))?.key ?? p.metrics[0].key,
                             operator: "gte",
-                            value: 80,
+                            value: goalFor(p.metrics.find(m => goalFor(m)) ?? p.metrics[0])?.halfAt ?? 0,
                           },
                         ],
                       },
@@ -678,6 +722,7 @@ export function ModelEditor({
                 <Plus size={14} />
                 Stufe hinzufügen
               </button>
+              </>}
             </section>
             <section className={styles.formSection}>
               <label>
@@ -702,16 +747,11 @@ export function ModelEditor({
                 Säule entfernen
               </button>
             </section>
-            {error && (
-              <p className={styles.error} role="alert">
-                {error}
-              </p>
-            )}
             {preview && (
               <section className={styles.preview}>
                 <h3>Änderungen geprüft</h3>
                 <p>
-                  {preview.results.length} echte GMs ·{" "}
+                  {preview.results.length} GMs ·{" "}
                   {preview.results.filter((r) => r.pending).length} noch offene
                   Bewertungen. Diese Vorschau schreibt keine Daten.
                 </p>
@@ -786,245 +826,5 @@ export function ModelEditor({
         </footer>
       </section>
     </div>
-  );
-}
-
-function Sources({
-  metric,
-  questions,
-  onChange,
-}: {
-  metric: ModelMetric;
-  questions: Question[];
-  onChange: (m: ModelMetric) => void;
-}) {
-  const [search, setSearch] = useState("");
-  function source(index: number, next: ModelSource) {
-    onChange({
-      ...metric,
-      sources: metric.sources.map((s, i) => (i === index ? next : s)),
-    });
-  }
-  return (
-    <fieldset>
-      <legend>Fragebogenquellen</legend>
-      <p>
-        Die Zuordnung gilt für diese Quartalsregel. Frageänderungen ändern die
-        Euro-Regel nicht automatisch; bitte bewusst prüfen und neu speichern.
-      </p>
-      {metric.sources.map((s, i) => (
-        <div key={i} className={styles.source}>
-          <label>
-            Frage suchen
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Frage / Produkt …"
-            />
-          </label>
-          <label>
-            Technische Frage
-            <select
-              aria-label="Technische Frage"
-              value={s.questionId}
-              onChange={(e) => {
-                const q = questions.find((q) => q.id === e.target.value);
-                source(i, {
-                  ...s,
-                  questionId: e.target.value,
-                  label: q?.text ?? "",
-                  factor: ["numeric", "slider"].includes(q?.type ?? ""),
-                  scoreKey: ["numeric", "slider"].includes(q?.type ?? "")
-                    ? "__value__"
-                    : (q?.scores[0]?.scoreKey ?? "Ja"),
-                  weight: Number(q?.scores[0]?.weight ?? 1),
-                });
-              }}
-            >
-              <option value="">Frage auswählen</option>
-              {questions
-                .filter(
-                  (q) =>
-                    q.id === s.questionId ||
-                    q.text
-                      .toLocaleLowerCase("de")
-                      .includes(search.toLocaleLowerCase("de")),
-                )
-                .map((q) => (
-                  <option key={q.id} value={q.id}>
-                    {q.text} · {q.type}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <div className={styles.twoColumns}>
-            <label>
-              Besuchsbereich
-              <select
-                value={s.section}
-                onChange={(e) => source(i, { ...s, section: e.target.value })}
-              >
-                {[
-                  "standard",
-                  "flex",
-                  "billa",
-                  "kuehler",
-                  "mhd",
-                  "durcharbeit",
-                ].map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Zählweise
-              <select
-                value={s.counting}
-                onChange={(e) =>
-                  source(i, {
-                    ...s,
-                    counting: e.target.value as ModelSource["counting"],
-                  })
-                }
-              >
-                <option value="latest">
-                  Letzter Stand pro Markt / Quartal
-                </option>
-                <option value="once">
-                  Einmal pro Markt / Quartal (höchster gültiger Wert)
-                </option>
-              </select>
-            </label>
-            <label>
-              {s.factor ? "Numerischer Faktor" : "Passende Antwort"}
-              <input
-                value={s.scoreKey}
-                readOnly={s.factor}
-                onChange={(e) => source(i, { ...s, scoreKey: e.target.value })}
-              />
-            </label>
-            <label>
-              {metric.method === "availability"
-                ? "Gewicht (positiv = vorhanden)"
-                : "Punkte / Faktor"}
-              <DecimalField
-                value={s.weight}
-                onChange={(v) => source(i, { ...s, weight: v ?? 0 })}
-              />
-            </label>
-            <label>
-              Frequenz mindestens
-              <DecimalField
-                value={s.minFrequency}
-                onChange={(v) => source(i, { ...s, minFrequency: v ?? 0 })}
-              />
-            </label>
-            <label>
-              Ketten (kommagetrennt, leer = alle)
-              <input
-                value={s.chains.join(", ")}
-                onChange={(e) =>
-                  source(i, {
-                    ...s,
-                    chains: e.target.value
-                      .split(",")
-                      .map((x) => x.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-            </label>
-          </div>
-          <small>
-            {s.factor
-              ? "Antwortwert × Faktor."
-              : "Nur die passende Antwort ergibt einen Beitrag."}{" "}
-            Technische ID: {s.questionId || "noch nicht gewählt"}
-          </small>
-          <button
-            onClick={() =>
-              onChange({
-                ...metric,
-                sources: metric.sources.filter((_, j) => j !== i),
-              })
-            }
-          >
-            Quelle entfernen
-          </button>
-        </div>
-      ))}
-      <button
-        onClick={() =>
-          onChange({
-            ...metric,
-            sources: [
-              ...metric.sources,
-              {
-                questionId: "",
-                section: "standard",
-                label: "",
-                scoreKey: "Ja",
-                factor: false,
-                weight: 1,
-                minFrequency: 0,
-                chains: [],
-                counting: "latest",
-              },
-            ],
-          })
-        }
-      >
-        <Plus size={14} />
-        Quelle zuordnen
-      </button>
-    </fieldset>
-  );
-}
-export function DecimalField({
-  value,
-  onChange,
-  optional = false,
-}: {
-  value: number | null;
-  onChange: (v: number | null) => void;
-  optional?: boolean;
-}) {
-  const [text, setText] = useState(
-      value === null ? "" : String(value).replace(".", ","),
-    ),
-    [focused, setFocused] = useState(false),
-    [invalid, setInvalid] = useState(false);
-  useEffect(() => {
-    if (!focused)
-      setText(value === null ? "" : String(value).replace(".", ","));
-  }, [value, focused]);
-  return (
-    <input
-      type="text"
-      required={!optional}
-      pattern="-?(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+)"
-      inputMode="decimal"
-      aria-invalid={invalid}
-      value={text}
-      onFocus={() => setFocused(true)}
-      onChange={(e) => {
-        setText(e.target.value);
-        setInvalid(false);
-      }}
-      onBlur={() => {
-        const next =
-          text.trim() === "" && optional
-            ? null
-            : Number(text.trim().replace(",", "."));
-        if (next !== null && !Number.isFinite(next)) {
-          setInvalid(true);
-          return;
-        }
-        onChange(next);
-        setFocused(false);
-      }}
-    />
   );
 }

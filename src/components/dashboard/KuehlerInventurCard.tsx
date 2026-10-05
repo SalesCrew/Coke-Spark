@@ -23,6 +23,7 @@ import {
   persistLocalDaySessionFromBackend,
   readLatestLocalDaySessionSnapshot,
 } from "@/lib/gm/daySessionPersistence";
+import { redMonthToday } from "@/lib/gm/redMonthRefresh";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import {
   GmMarketDetailModal,
@@ -235,6 +236,7 @@ interface KuehlerInventurCardProps {
   daySessionPayload?: DaySessionCurrentPayload | null;
   daySessionLoading?: boolean;
   initialProgressData?: GmKuehlerMhdProgressPayload | null;
+  progressLoading?: boolean;
 }
 
 export function KuehlerInventurCard({
@@ -254,6 +256,7 @@ export function KuehlerInventurCard({
   daySessionPayload,
   daySessionLoading = false,
   initialProgressData,
+  progressLoading,
 }: KuehlerInventurCardProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("kuehler");
@@ -279,6 +282,7 @@ export function KuehlerInventurCard({
   // Auto-rotate: switches every 10s, pauses 60s after manual interaction
   const autoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pauseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressRequestRef = useRef(0);
   const progressLoadedAtRef = useRef(initialProgressData ? Date.now() : 0);
   const [paused, setPaused] = useState(false);
 
@@ -358,32 +362,38 @@ export function KuehlerInventurCard({
       setLoadingData(false);
       return;
     }
+    const request = ++progressRequestRef.current;
+    const requestDay = redMonthToday();
     setLoadingData(true);
     try {
       const payload = await fetchGmKuehlerMhdProgress({ force: options?.force });
+      if (request !== progressRequestRef.current || requestDay !== redMonthToday()) return;
       setProgressData(payload);
       progressLoadedAtRef.current = Date.now();
       setLoadError(null);
     } catch (error) {
+      if (request !== progressRequestRef.current || requestDay !== redMonthToday()) return;
       const message = error instanceof Error ? error.message : "Fortschritt konnte nicht geladen werden.";
       setLoadError(message || "Fortschritt konnte nicht geladen werden.");
       setProgressData(null);
     } finally {
-      setLoadingData(false);
+      if (request === progressRequestRef.current && requestDay === redMonthToday()) setLoadingData(false);
     }
   }, [initialProgressData]);
 
   useEffect(() => {
-    if (!initialProgressData) return;
-    setProgressData(initialProgressData);
-    progressLoadedAtRef.current = Date.now();
-    setLoadError(null);
-    setLoadingData(false);
-  }, [initialProgressData]);
+    if (progressLoading === undefined && !initialProgressData) return;
+    progressRequestRef.current += 1;
+    setProgressData(initialProgressData ?? null);
+    progressLoadedAtRef.current = initialProgressData ? Date.now() : 0;
+    setLoadError(!progressLoading && !initialProgressData ? "Fortschritt konnte nicht geladen werden." : null);
+    setLoadingData(progressLoading ?? false);
+  }, [initialProgressData, progressLoading]);
 
   useEffect(() => {
-    void loadProgress();
-  }, [loadProgress]);
+    if (progressLoading === undefined) void loadProgress();
+    return () => { progressRequestRef.current += 1; };
+  }, [loadProgress, progressLoading]);
 
   useEffect(() => {
     void refreshDayGate();
@@ -403,6 +413,7 @@ export function KuehlerInventurCard({
 
   useEffect(() => {
     const onFocus = () => {
+      if (progressLoading !== undefined) return;
       if (Date.now() - progressLoadedAtRef.current < 30_000) return;
       void loadProgress({ force: true });
     };
@@ -417,7 +428,7 @@ export function KuehlerInventurCard({
       window.removeEventListener(TODAY_SUBMISSIONS_UPDATED_EVENT, onExternalUpdate);
       window.removeEventListener(KUEHLER_MHD_PROGRESS_UPDATED_EVENT, onExternalUpdate);
     };
-  }, [loadProgress]);
+  }, [loadProgress, progressLoading]);
 
   // Derived values per tab
   const kuehlerPayload = progressData?.kuehler;

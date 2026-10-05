@@ -12,7 +12,7 @@ import { MarketList } from "@/components/dashboard/MarketList";
 import { ActivityLauncher } from "@/components/dashboard/ActivityLauncher";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import Aurora from "@/components/ui/Aurora";
-import { RedMonthProvider } from "@/context/RedMonthContext";
+import { RedMonthProvider, useRedMonth } from "@/context/RedMonthContext";
 import {
   cancelGmVisitSession,
   clearGmVisitPreloadCache,
@@ -32,6 +32,7 @@ import {
   type GmKuehlerMhdProgressPayload,
   type GmVisitSessionReadPayload,
 } from "@/lib/api/backend";
+import { redMonthKey, redMonthToday } from "@/lib/gm/redMonthRefresh";
 import type { PraemienGmBonusSummary } from "@/types/praemien";
 
 function formatElapsedTime(totalSeconds: number): string {
@@ -59,6 +60,12 @@ function summarizeActiveVisitPayload(payload: GmVisitSessionReadPayload): Dashbo
 }
 
 export default function GMDashboard() {
+  return <RedMonthProvider autoRefresh><GMDashboardContent /></RedMonthProvider>;
+}
+
+function GMDashboardContent() {
+  const { current: redMonth, refreshVersion } = useRedMonth();
+  const periodKey = redMonthKey(redMonth);
   const router = useRouter();
   const [bonusModalOpen, setBonusModalOpen] = useState(false);
   const [bonusSummary, setBonusSummary] = useState<PraemienGmBonusSummary | null>(null);
@@ -201,6 +208,11 @@ export default function GMDashboard() {
 
   useEffect(() => {
     let cancelled = false;
+    if (!periodKey) {
+      setBonusSummary(null); setKuehlerMhdProgress(null); setBonusLoading(true);
+      return;
+    }
+    const requestDay = redMonthToday();
     const cached = readCachedGmKpiSummary();
     if (cached && !cancelled) {
       setGmKpiSummary(cached);
@@ -209,10 +221,10 @@ export default function GMDashboard() {
     void (async () => {
       const [bonusResult, progressResult, kpiResult] = await Promise.allSettled([
         fetchGmBonusSummary(),
-        fetchGmKuehlerMhdProgress(),
+        fetchGmKuehlerMhdProgress({ force: true }),
         fetchGmKpiSummary(),
       ]);
-      if (!cancelled) {
+      if (!cancelled && requestDay === redMonthToday()) {
         setBonusSummary(bonusResult.status === "fulfilled" ? bonusResult.value : null);
         setKuehlerMhdProgress(progressResult.status === "fulfilled" ? progressResult.value : null);
         if (kpiResult.status === "fulfilled") {
@@ -224,7 +236,7 @@ export default function GMDashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [periodKey, refreshVersion]);
 
   const bonusGoals = bonusSummary?.goals.map((goal) => ({
     name: goal.name,
@@ -311,7 +323,6 @@ export default function GMDashboard() {
   }
 
   return (
-    <RedMonthProvider>
     <main className="min-h-screen" style={{ position: "relative", backgroundColor: "#f5f5f7" }}>
       {activeVisitSummary && (
         <div
@@ -559,6 +570,7 @@ export default function GMDashboard() {
                 daySessionPayload={dashboardCritical?.daySession}
                 daySessionLoading={dashboardCriticalLoading}
                 initialProgressData={kuehlerMhdProgress}
+                progressLoading={!periodKey || bonusLoading}
               />
             </div>
 
@@ -606,6 +618,5 @@ export default function GMDashboard() {
         />
       )}
     </main>
-    </RedMonthProvider>
   );
 }

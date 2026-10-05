@@ -1624,7 +1624,7 @@ export async function deleteAdminPraemienWave(waveId: string): Promise<{ ok: boo
 }
 
 export async function fetchGmBonusSummary(): Promise<PraemienGmBonusSummary> {
-  const data = (await authedFetch("/markets/gm/bonus-summary")) as Partial<PraemienGmBonusSummary>;
+  const data = (await authedFetch("/markets/gm/bonus-summary", { cache: "no-store" })) as Partial<PraemienGmBonusSummary>;
   return {
     hasActiveWave: Boolean(data.hasActiveWave),
     waveId: data.waveId ?? null,
@@ -1781,8 +1781,12 @@ export function writeCachedGmKpiSummary(summary: GmKpiSummary): void {
   }
 }
 
+let gmKpiSummaryRequest = 0;
+
 export async function fetchGmKpiSummary(): Promise<GmKpiSummary> {
-  const data = (await authedFetch("/markets/gm/kpi-summary")) as Partial<GmKpiSummary>;
+  const request = ++gmKpiSummaryRequest;
+  const owner = readAuthSession()?.user.id;
+  const data = (await authedFetch("/markets/gm/kpi-summary", { cache: "no-store" })) as Partial<GmKpiSummary>;
   const normalized: GmKpiSummary = {
     ippAllTimeAvg: Number(data.ippAllTimeAvg ?? 0),
     ippSampleCount: Number(data.ippSampleCount ?? 0),
@@ -1791,7 +1795,9 @@ export async function fetchGmKpiSummary(): Promise<GmKpiSummary> {
       ? data.lastComputedAt
       : new Date(0).toISOString(),
   };
-  writeCachedGmKpiSummary(normalized);
+  if (request === gmKpiSummaryRequest && readAuthSession()?.user.id === owner) {
+    writeCachedGmKpiSummary(normalized);
+  }
   return normalized;
 }
 
@@ -3144,7 +3150,7 @@ export async function fetchMarkets(options?: { forceFresh?: boolean }): Promise<
 }
 
 export async function fetchGmAssignedActiveCampaignMarkets(): Promise<MarketRecord[]> {
-  const data = (await authedFetch("/markets/gm/assigned-active")) as { markets?: BackendMarket[] };
+  const data = (await authedFetch("/markets/gm/assigned-active", { cache: "no-store" })) as { markets?: BackendMarket[] };
   return (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market));
 }
 
@@ -3310,16 +3316,20 @@ async function readTimedApiCache<T>(
   const now = Date.now();
   if (!options?.force && cache.data && cache.expiresAt > now) return clone(cache.data);
   if (!options?.force && cache.promise) return clone(await cache.promise);
-  cache.promise = loader()
+  const request = loader()
     .then((value) => {
-      cache.data = value;
-      cache.expiresAt = Date.now() + ttlMs;
+      // A slower previous refresh must not replace the latest cached month data.
+      if (cache.promise === request) {
+        cache.data = value;
+        cache.expiresAt = Date.now() + ttlMs;
+      }
       return value;
     })
     .finally(() => {
-      cache.promise = null;
+      if (cache.promise === request) cache.promise = null;
     });
-  return clone(await cache.promise);
+  cache.promise = request;
+  return clone(await request);
 }
 
 export async function fetchGmAssignedStartMarkets(options?: { force?: boolean }): Promise<GmStartMarket[]> {
@@ -3327,7 +3337,7 @@ export async function fetchGmAssignedStartMarkets(options?: { force?: boolean })
     gmAssignedStartMarketsCache,
     GM_START_MARKETS_CACHE_TTL_MS,
     async () => {
-      const data = (await authedFetch("/markets/gm/assigned-active")) as { markets?: BackendMarket[] };
+      const data = (await authedFetch("/markets/gm/assigned-active", { cache: "no-store" })) as { markets?: BackendMarket[] };
       return (data.markets ?? []).map((market) => ({
         market: mapBackendMarketToMarketRecord(market),
         nextSmVisitDate: market.nextSmVisitDate ?? null,
@@ -3370,7 +3380,7 @@ export async function fetchGmKuehlerMhdProgress(options?: { force?: boolean }): 
   return readTimedApiCache(
     gmKuehlerMhdProgressCache,
     GM_PROGRESS_CACHE_TTL_MS,
-    async () => (await authedFetch("/markets/gm/kuehler-mhd-progress")) as GmKuehlerMhdProgressPayload,
+    async () => (await authedFetch("/markets/gm/kuehler-mhd-progress", { cache: "no-store" })) as GmKuehlerMhdProgressPayload,
     cloneGmKuehlerMhdProgress,
     options,
   );
@@ -6333,7 +6343,7 @@ export async function clearAdminIppAdjustment(input: {
 }
 
 export async function fetchCurrentRedMonth(): Promise<RedMonthCurrentPayload> {
-  const data = (await authedFetch("/red-month/current")) as {
+  const data = (await authedFetch("/red-month/current", { cache: "no-store" })) as {
     current: BackendRedMonthPeriod;
     config: BackendRedMonthConfig;
   };

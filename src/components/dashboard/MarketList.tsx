@@ -32,6 +32,7 @@ import {
   type GmStartMarket,
   type GmVisitSessionPayload,
 } from "@/lib/api/backend";
+import { redMonthKey, redMonthToday } from "@/lib/gm/redMonthRefresh";
 import { useRedMonth } from "@/context/RedMonthContext";
 import {
   isLocalDaySessionSnapshotUsableForStartGate,
@@ -751,11 +752,12 @@ export function GmMarketDetailModal({
 
 export function MarketList({ visited, total, activeVisitLocked = false, pauseActive = false, daySessionPayload, daySessionLoading = false }: MarketListProps) {
   const router = useRouter();
-  const { current } = useRedMonth();
+  const { current, loading: monthLoading, currentError, refreshVersion, refreshCurrent } = useRedMonth();
+  const periodKey = redMonthKey(current);
   const [search, setSearch] = useState("");
   const [markets, setMarkets] = useState<Market[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [marketsLoading, setIsLoading] = useState(true);
+  const [marketsError, setLoadError] = useState<string | null>(null);
   const [revealedId, setRevealedId] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [cardMaxH, setCardMaxH] = useState<number | undefined>(undefined);
@@ -772,7 +774,9 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
   const [blockedActiveOpening, setBlockedActiveOpening] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const daysLeft = current?.daysUntilEnd ?? 0;
+  const daysLeft = current?.daysUntilEnd;
+  const isLoading = (!current && monthLoading) || marketsLoading;
+  const loadError = currentError ?? marketsError;
   const totalMarkets = total ?? markets.length;
   const visitedMarkets = visited ?? markets.filter((market) => market.visitedThisMonth || market.visited > 0).length;
 
@@ -803,10 +807,12 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
     let cancelled = false;
     setIsLoading(true);
     setLoadError(null);
-    // Returning from a submitted visit must show its new RED-month progress immediately.
+    if (!periodKey) { setMarkets([]); setIsLoading(false); return; }
+    const requestDay = redMonthToday();
+    // Reload month progress on successful period refresh; late reads cannot restore the old month.
     void fetchGmAssignedStartMarkets({ force: true })
       .then((rows) => {
-        if (cancelled) return;
+        if (cancelled || requestDay !== redMonthToday()) return;
         const mapped = rows
           .map((row) => ({
             market: row.market,
@@ -830,7 +836,7 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [periodKey, refreshVersion]);
 
   useEffect(() => {
     void refreshDayGate();
@@ -1049,10 +1055,11 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
     >
       <div className="flex items-baseline justify-between">
         <span className="text-[11px] font-semibold" style={{ color: "#DC2626", fontSize: 11 }}>
-          RED Monat endet in {daysLeft} Tagen
+          {currentError ? <button type="button" aria-label="RED-Monat erneut laden" onClick={() => void refreshCurrent()} style={{ border: 0, padding: 0, background: "none", color: "inherit", font: "inherit", cursor: "pointer" }} title={currentError}>RED Monat nicht geladen · Erneut versuchen</button>
+            : !current ? "RED Monat wird geladen …" : <>RED Monat endet in {daysLeft} Tagen</>}
         </span>
         <span className="text-[11px] font-medium text-gray-500" style={{ fontSize: 11 }}>
-          Märkte besucht <span className="font-semibold text-gray-700" style={{ fontSize: 11 }}>{visitedMarkets}/{totalMarkets}</span>
+          Märkte besucht <span className="font-semibold text-gray-700" style={{ fontSize: 11 }}>{isLoading || !current || loadError ? "…/…" : `${visitedMarkets}/${totalMarkets}`}</span>
         </span>
       </div>
 

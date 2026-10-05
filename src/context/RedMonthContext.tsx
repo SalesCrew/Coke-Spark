@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   activateRedMonthYear,
   createRedMonthYear,
@@ -10,8 +10,11 @@ import {
   previewRedMonthYear,
   updateRedMonthYear,
   updateRedMonthConfig,
+  readAuthSession,
 } from "@/lib/api/backend";
 import type { RedMonthConfig, RedMonthPeriod, RedMonthYear } from "@/types/red-month";
+
+import { createRedMonthLoader, redMonthToday, redMonthRolloverDelay } from "@/lib/gm/redMonthRefresh";
 
 type RedMonthContextValue = {
   current: RedMonthPeriod | null;
@@ -21,6 +24,8 @@ type RedMonthContextValue = {
   loading: boolean;
   saving: boolean;
   error: string | null;
+  currentError: string | null;
+  refreshVersion: number;
   refreshCurrent: () => Promise<void>;
   loadCalendar: (input?: { from?: string; to?: string }) => Promise<void>;
   loadYears: () => Promise<void>;
@@ -33,7 +38,7 @@ type RedMonthContextValue = {
 
 const RedMonthContext = createContext<RedMonthContextValue | null>(null);
 
-export function RedMonthProvider({ children }: { children: React.ReactNode }) {
+export function RedMonthProvider({ children, autoRefresh = false }: { children: React.ReactNode; autoRefresh?: boolean }) {
   const [current, setCurrent] = useState<RedMonthPeriod | null>(null);
   const [config, setConfig] = useState<RedMonthConfig | null>(null);
   const [calendar, setCalendar] = useState<RedMonthPeriod[]>([]);
@@ -42,20 +47,27 @@ export function RedMonthProvider({ children }: { children: React.ReactNode }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [currentError, setCurrentError] = useState<string | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const loaderRef = useRef<ReturnType<typeof createRedMonthLoader> | null>(null);
+
   const refreshCurrent = useCallback(async () => {
+    if (autoRefresh && loaderRef.current) return loaderRef.current.refresh(true);
     setLoading(true);
     try {
       const data = await fetchCurrentRedMonth();
       setCurrent(data.current);
       setConfig(data.config);
+      setCurrentError(null);
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "RED-Monat konnte nicht geladen werden.";
+      setCurrentError(message);
       setError(message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [autoRefresh]);
 
   const loadCalendar = useCallback(async (input?: { from?: string; to?: string }) => {
     try {
@@ -156,8 +168,43 @@ export function RedMonthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refreshCurrent();
-  }, [refreshCurrent]);
+    if (!autoRefresh) { void refreshCurrent(); return; }
+    const owner = readAuthSession()?.user.id;
+    const loader = createRedMonthLoader({
+      fetch: fetchCurrentRedMonth,
+      isCurrent: () => readAuthSession()?.user.id === owner,
+      onChange: (state) => {
+        setCurrent(state.current); setConfig(state.config);
+        setLoading(state.loading); setCurrentError(state.error); setError(state.error);
+        setRefreshVersion(state.revision);
+      },
+    });
+    loaderRef.current = loader;
+    let lastDay = redMonthToday(), lastAttempt = Date.now();
+    let wakeTimer: ReturnType<typeof setTimeout> | undefined;
+    let midnightTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => { lastDay = redMonthToday(); lastAttempt = Date.now(); void loader.refresh(true); };
+    const wake = () => {
+      if (document.visibilityState === "hidden") return;
+      if (lastDay === redMonthToday() && Date.now() - lastAttempt < 15_000) return;
+      clearTimeout(wakeTimer); wakeTimer = setTimeout(refresh, 50);
+    };
+    const online = () => { clearTimeout(wakeTimer); wakeTimer = setTimeout(refresh, 50); };
+    const scheduleMidnight = () => {
+      midnightTimer = setTimeout(() => { refresh(); scheduleMidnight(); }, redMonthRolloverDelay());
+    };
+    void loader.refresh(); scheduleMidnight();
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", online);
+    return () => {
+      loader.dispose(); loaderRef.current = null;
+      clearTimeout(wakeTimer); clearTimeout(midnightTimer);
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("online", online);
+    };
+  }, [autoRefresh, refreshCurrent]);
 
   const value = useMemo<RedMonthContextValue>(
     () => ({
@@ -168,6 +215,8 @@ export function RedMonthProvider({ children }: { children: React.ReactNode }) {
       loading,
       saving,
       error,
+      currentError,
+      refreshVersion,
       refreshCurrent,
       loadCalendar,
       loadYears,
@@ -177,7 +226,7 @@ export function RedMonthProvider({ children }: { children: React.ReactNode }) {
       activateYear,
       saveConfig,
     }),
-    [activateYear, calendar, config, createYear, current, error, loadCalendar, loadYears, loading, previewYear, refreshCurrent, saveConfig, saving, updateYear, years],
+    [activateYear, calendar, config, createYear, current, currentError, refreshVersion, error, loadCalendar, loadYears, loading, previewYear, refreshCurrent, saveConfig, saving, updateYear, years],
   );
 
   return <RedMonthContext.Provider value={value}>{children}</RedMonthContext.Provider>;

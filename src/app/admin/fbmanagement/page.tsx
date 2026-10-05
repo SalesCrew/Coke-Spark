@@ -11064,11 +11064,11 @@ export default function FbManagementPage() {
                 minHeight: 22,
                 padding: "3px 8px",
                 borderRadius: 7,
-                border: selectedCampaignVisitsError ? "1px solid rgba(220,38,38,0.16)" : "1px solid rgba(220,38,38,0.1)",
-                background: selectedCampaignVisitsError ? "rgba(220,38,38,0.06)" : "rgba(220,38,38,0.045)",
-                color: selectedCampaignVisitsError ? "#b91c1c" : "#c52222",
+                border: selectedCampaignVisitsError ? "1px solid rgba(220,38,38,0.16)" : "1px solid rgba(0,0,0,0.07)",
+                background: selectedCampaignVisitsError ? "rgba(220,38,38,0.06)" : "rgba(255,255,255,0.68)",
+                color: selectedCampaignVisitsError ? "#b91c1c" : "rgba(0,0,0,0.55)",
                 fontSize: 9,
-                fontWeight: 700,
+                fontWeight: 600,
                 fontVariantNumeric: "tabular-nums",
                 whiteSpace: "nowrap",
               }}
@@ -11106,7 +11106,7 @@ export default function FbManagementPage() {
               }}
               disabled={!campaignId || campaign.assignments.length === 0 || campaignBusy}
               title={campaign.section === "flex" ? "Flex-Besuche und globale GM-Zuordnung anzeigen" : "Alle geplanten Besuche anzeigen und den GM je Besuch ändern"}
-              style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, border: "1px solid rgba(220,38,38,0.18)", background: "rgba(220,38,38,0.045)", color: "#b91c1c", fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: campaign.assignments.length === 0 ? 0.45 : 1 }}
+              className="fbm-visit-planning-button"
             >
               <ArrowRightLeft size={12} /> Besuche &amp; GM
             </button>
@@ -11158,6 +11158,10 @@ export default function FbManagementPage() {
         {/* White inner card — search, filters, market list */}
         <div style={{ margin: "0 8px 8px", background: "#fff", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
         <style>{`
+          .fbm-visit-planning-button{height:29px;padding:0 10px;display:flex;align-items:center;gap:5px;border:1px solid rgba(0,0,0,.1);border-radius:7px;background:linear-gradient(to bottom,#fff,#fafafa);color:rgba(0,0,0,.6);font-family:inherit;font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;box-shadow:inset 0 1px .6px rgba(255,255,255,.9),0 1px 3px rgba(0,0,0,.03);transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
+          .fbm-visit-planning-button:hover:not(:disabled){border-color:rgba(0,0,0,.16);background:#fff;color:#1a1a1a;box-shadow:inset 0 1px .6px rgba(255,255,255,.9),0 1px 4px rgba(0,0,0,.05)}
+          .fbm-visit-planning-button:focus-visible{outline:2px solid rgba(0,0,0,.15);outline-offset:2px}
+          .fbm-visit-planning-button:disabled{cursor:not-allowed;opacity:.45;box-shadow:none}
           @keyframes mrSlideOut { from { transform:translateX(0); opacity:1; max-height:60px } to { transform:translateX(110%); opacity:0; max-height:0; padding-top:0; padding-bottom:0; border-width:0 } }
           @keyframes mrSlideIn  { from { transform:translateX(40px); opacity:0 } to { transform:translateX(0); opacity:1 } }
           @keyframes fbmInlineSkeletonPulse { 0%, 100% { opacity: 0.46; } 50% { opacity: 0.84; } }

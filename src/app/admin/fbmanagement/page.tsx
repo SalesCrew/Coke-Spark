@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { ArrowRightLeft, Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle, ListPlus } from "lucide-react";
+import { ArrowRightLeft, Check, ChevronLeft, ChevronRight, Camera, FileText, Search, Minus, Plus, X, ChevronDown, Trash2, AlertTriangle, ListPlus, CalendarClock } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
+import { CampaignExtensionDialog } from "@/components/admin/campaigns/CampaignExtensionDialog";
 import { CampaignVisitAssignmentsDialog } from "@/components/admin/campaigns/CampaignVisitAssignmentsDialog";
 import type { Campaign, CampaignMarketAssignment, CampaignMarketOverlapConflict, CampaignSection } from "@/types/campaign";
 import type { ConditionalRule, Fragebogen, Module, Question } from "@/types/fragebogen";
@@ -39,6 +40,7 @@ import {
   removeCampaignMarket,
   switchCampaignFragebogen,
   updateCampaign,
+  extendCampaignEndDate,
 } from "@/lib/api/backend";
 import type { CampaignMarketVisitExportIndexItem, CampaignMarketVisitStatus, CampaignMarketVisitSummary, CampaignVisitAnswerPatchMissingRequired } from "@/lib/api/backend";
 import type { RedMonthPeriod } from "@/types/red-month";
@@ -7788,6 +7790,7 @@ export default function FbManagementPage() {
   const [campaignPendingOps, setCampaignPendingOps] = useState<Record<string, number>>({});
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [campaignContextMenu, setCampaignContextMenu] = useState<CampaignContextMenuState | null>(null);
+  const [campaignExtensionTarget, setCampaignExtensionTarget] = useState<Campaign | null>(null);
   const [campaignDeleteDialog, setCampaignDeleteDialog] = useState<CampaignDeleteDialogState | null>(null);
   const [campaignReassignDialog, setCampaignReassignDialog] = useState<CampaignReassignDialogState | null>(null);
   const [visitAssignmentsOpen, setVisitAssignmentsOpen] = useState(false);
@@ -8436,12 +8439,12 @@ export default function FbManagementPage() {
   const assignedIds = campaignMarketIds;
   const isCampaignBusy = (campaignId: string) => (campaignPendingOps[campaignId] ?? 0) > 0;
   const campaignBusy = campaignId ? isCampaignBusy(campaignId) : false;
-  const handleOpenCampaignContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>, targetCampaignId: string) => {
+  const handleOpenCampaignContextMenu = useCallback((event: React.MouseEvent<HTMLElement>, targetCampaignId: string) => {
     event.preventDefault();
     if (isDeletingCampaign || isCampaignBusy(targetCampaignId)) return;
     const menuWidth = 200;
     const targetCampaign = campaignsView.find((entry) => entry.id === targetCampaignId);
-    const menuHeight = targetCampaign && targetCampaign.section !== "flex" ? 128 : 94;
+    const menuHeight = targetCampaign && targetCampaign.section !== "flex" ? 164 : 130;
     const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
     const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
     setCampaignContextMenu({
@@ -8450,6 +8453,31 @@ export default function FbManagementPage() {
       y: Math.min(Math.max(8, event.clientY), maxY),
     });
   }, [campaignPendingOps, campaignsView, isDeletingCampaign]);
+  const handleOpenCampaignExtension = useCallback(() => {
+    const target = campaignsData.find((entry) => entry.id === campaignContextMenu?.campaignId);
+    if (!target) return;
+    setCampaignExtensionTarget(target);
+    setCampaignContextMenu(null);
+    setMutationError(null);
+  }, [campaignContextMenu?.campaignId, campaignsData]);
+
+  const handleExtendCampaign = async (endDate: string) => {
+    const target = campaignExtensionTarget;
+    if (!target) throw new Error("Kampagne nicht gefunden.");
+    setCampaignPendingOps((current) => ({ ...current, [target.id]: (current[target.id] ?? 0) + 1 }));
+    try {
+      const updated = await extendCampaignEndDate(target, endDate);
+      setCampaignsData((current) => current.map((entry) => entry.id === updated.id ? { ...entry, ...updated } : entry));
+      setSelectedId(updated.id);
+      if (target.status === "inactive") setShowInactive(false);
+      invalidateCampaignVisitStatus(updated.id);
+      void refreshCampaignVisitStatuses([updated.id], { suppressErrorBanner: true, force: true });
+      setCampaignExtensionTarget(null);
+    } finally {
+      setCampaignPendingOps((current) => ({ ...current, [target.id]: Math.max(0, (current[target.id] ?? 0) - 1) }));
+    }
+  };
+
   const handleOpenCampaignDeleteDialog = useCallback((mode: "soft" | "hard") => {
     if (!campaignContextMenu?.campaignId) return;
     setCampaignDeleteDialog({ campaignId: campaignContextMenu.campaignId, mode });
@@ -10758,7 +10786,7 @@ export default function FbManagementPage() {
             <div style={{ background: "#fff", margin: "8px 8px 8px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", gap: 22 }}>
 
           {/* Campaign title + status */}
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+          <div onContextMenu={(event) => handleOpenCampaignContextMenu(event, campaign.id)} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
             <div>
               <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", margin: 0, lineHeight: 1.2 }}>{campaign.name}</h2>
               <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
@@ -11346,6 +11374,11 @@ export default function FbManagementPage() {
           directoryError={marketDirectoryError}
         />
       )}
+      {campaignExtensionTarget && <CampaignExtensionDialog
+        campaign={campaignExtensionTarget}
+        onSave={handleExtendCampaign}
+        onClose={() => setCampaignExtensionTarget(null)}
+      />}
       {campaignContextMenu && contextMenuCampaign && createPortal(
         <div
           ref={campaignContextMenuRef}
@@ -11363,6 +11396,14 @@ export default function FbManagementPage() {
           }}
           onMouseDown={(event) => event.stopPropagation()}
         >
+          <button
+            type="button"
+            onClick={handleOpenCampaignExtension}
+            disabled={isDeletingCampaign || isCampaignBusy(contextMenuCampaign.id)}
+            style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", border: "none", borderRadius: 6, padding: "7px 10px", background: "none", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#111827", cursor: "pointer", fontFamily: "inherit" }}
+            onMouseEnter={(event) => { event.currentTarget.style.backgroundColor = "rgba(0,0,0,.045)"; }}
+            onMouseLeave={(event) => { event.currentTarget.style.backgroundColor = "transparent"; }}
+          ><CalendarClock size={12} strokeWidth={1.9} /> Verlängern…</button>
           {contextMenuCampaign.section !== "flex" && (
             <button
               type="button"

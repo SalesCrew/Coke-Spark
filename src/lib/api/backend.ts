@@ -6094,6 +6094,14 @@ export async function updateCampaign(campaignId: string, patch: UpdateCampaignIn
   return normalizeCampaign(data.campaign);
 }
 
+export async function extendCampaignEndDate(campaign: Pick<Campaign, "id" | "endDate" | "updatedAt">, endDate: string): Promise<Pick<Campaign, "id" | "endDate" | "status" | "updatedAt">> {
+  const data = (await authedFetch(`/admin/campaigns/${campaign.id}/extend`, {
+    method: "PATCH",
+    body: JSON.stringify({ endDate, expectedEndDate: campaign.endDate, expectedUpdatedAt: campaign.updatedAt }),
+  })) as { campaign: Pick<Campaign, "id" | "endDate" | "status" | "updatedAt"> };
+  return data.campaign;
+}
+
 export async function deleteCampaign(campaignId: string): Promise<void> {
   await authedFetch(`/admin/campaigns/${campaignId}/delete`, { method: "PATCH" });
 }

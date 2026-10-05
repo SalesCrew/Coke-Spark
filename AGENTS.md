@@ -7,5 +7,7 @@ The database configured by the local environment files is production and critica
 - Do not start application entry points that launch database write jobs for local testing.
 - A request to implement, test, deploy, or roll back code does not authorize changing production data.
 - Keep all environment values private and out of source control, logs, and test artifacts.
+- Normal localhost:3000 with backend localhost:4000 is for the human user's manual use and must allow the app's normal authentication and save/edit/delete behavior. Do not impose read-only guards on that human app unless the user explicitly asks. This does not authorize the agent to mutate production data.
+- Keep agent development and verification on an independent preview (currently 3037/4037) with disposable synthetic data. Never use the human production-connected localhost for agent tests or exploratory queries, even read-only. Keep experimental routes and redirects out of the normal human app. Starting the human local app must not launch scheduled database write jobs.
 
 Keep the GM Dashboard’s original per-card filter controls and existing UI. The user rejected the experimental shared/global filter redesign. Chain and Market must allow multiple selections within the existing dropdowns on each card. Show each Handelskette as an individual row; Sonstige Märkte may be an extra shortcut selecting all other individual chains. Do not replace individual chain rows with REWE/SPAR groups; preserve their labels, styling, dimensions, and the dashboard layout.

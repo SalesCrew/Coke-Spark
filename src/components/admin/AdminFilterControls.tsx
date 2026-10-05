@@ -225,12 +225,14 @@ export function AdminDatePicker({
   ariaLabel,
   minDate,
   maxDate,
+  portalContainer,
 }: {
   value: string;
   onChange: (value: string) => void;
   ariaLabel: string;
   minDate?: string;
   maxDate?: string;
+  portalContainer?: HTMLElement | null;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -358,7 +360,7 @@ export function AdminDatePicker({
         <button type="button" disabled={todayDisabled} onClick={() => selectDate(new Date())}>Heute</button>
       </div>
     </div>,
-    document.body,
+    portalContainer ?? document.body,
   ) : null;
 
   return (

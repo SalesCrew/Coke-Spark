@@ -8,8 +8,8 @@ export const chainGroupOptions: { value: DashboardChainGroup; label: string }[] 
 
 export function marketChainGroup(chain: string | null): DashboardChainGroup {
   const normalized = (chain ?? "").replace(/\s+/g, "").toUpperCase();
-  if (["BILLA", "BILLA+", "BILLAPLUS", "ISP", "ESP"].includes(normalized)) return "rewe";
-  if (normalized === "SPAR") return "spar";
+  if (["BILLA", "BILLA+", "BILLAPLUS", "BILLACORSO"].includes(normalized)) return "rewe";
+  if (["SPAR", "ISP", "ESP"].includes(normalized)) return "spar";
   return "other";
 }
 

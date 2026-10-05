@@ -3,24 +3,26 @@ import assert from "node:assert/strict";
 import { marketChainGroup, chainGroupLabel, OTHER_CHAINS_SHORTCUT, REWE_CHAINS_SHORTCUT, SPAR_CHAINS_SHORTCUT, chainSelectionValues, updateChainSelection } from "../src/lib/gm-dashboard/chain-groups";
 
 test("market dropdown uses the requested groups, including case/spacing and unclassified markets", () => {
-  for (const chain of ["Billa", " BILLA + ", "Billa Plus", "isp", "ESP"]) assert.equal(marketChainGroup(chain), "rewe");
-  for (const chain of ["Spar", " SPAR "]) assert.equal(marketChainGroup(chain), "spar");
-  for (const chain of [null, "", "Hofer", "Billa Corso", "REWE Zentrallager", "Spar Zentrallager"]) assert.equal(marketChainGroup(chain), "other");
+  for (const chain of ["Billa", " BILLA + ", "Billa Plus", "Billa Corso", " bIlLa  cOrSo "]) assert.equal(marketChainGroup(chain), "rewe");
+  for (const chain of ["Spar", " SPAR ", "isp", " ESP "]) assert.equal(marketChainGroup(chain), "spar");
+  for (const chain of [null, "", "Hofer", "REWE Zentrallager", "Spar Zentrallager"]) assert.equal(marketChainGroup(chain), "other");
 });
 
 test("availability REWE/SPAR shortcuts select individual rows, combine and remain individually editable", () => {
+  const availableChains = ["Billa", "Billa+", "Billa Corso", "Spar", "ISP", "ESP", "Hofer"];
   const extra = [
-    { value: REWE_CHAINS_SHORTCUT, label: "REWE", chains: ["Billa", "Billa+", "ISP", "ESP"] },
-    { value: SPAR_CHAINS_SHORTCUT, label: "SPAR", chains: ["Spar"] },
+    { value: REWE_CHAINS_SHORTCUT, label: "REWE", chains: availableChains.filter((chain) => marketChainGroup(chain) === "rewe") },
+    { value: SPAR_CHAINS_SHORTCUT, label: "SPAR", chains: availableChains.filter((chain) => marketChainGroup(chain) === "spar") },
   ];
   const rewe = updateChainSelection([], [REWE_CHAINS_SHORTCUT], ["Hofer"], extra);
-  assert.deepEqual(rewe, extra[0].chains);
+  assert.deepEqual(rewe, ["Billa", "Billa+", "Billa Corso"]);
+  assert.deepEqual(updateChainSelection([], [SPAR_CHAINS_SHORTCUT], ["Hofer"], extra), ["Spar", "ISP", "ESP"]);
   const both = updateChainSelection(rewe, [...chainSelectionValues(rewe, ["Hofer"], extra), SPAR_CHAINS_SHORTCUT], ["Hofer"], extra);
-  assert.deepEqual(both, ["Billa", "Billa+", "ISP", "ESP", "Spar"]);
+  assert.deepEqual(both, ["Billa", "Billa+", "Billa Corso", "Spar", "ISP", "ESP"]);
   const edited = updateChainSelection(both, chainSelectionValues(both, ["Hofer"], extra).filter((value) => value !== "ISP"), ["Hofer"], extra);
-  assert.deepEqual(edited, ["Billa", "Billa+", "ESP", "Spar"]);
-  assert.equal(chainSelectionValues(edited, ["Hofer"], extra).includes(REWE_CHAINS_SHORTCUT), false);
-  assert.equal(chainSelectionValues(edited, ["Hofer"], extra).includes(SPAR_CHAINS_SHORTCUT), true);
+  assert.deepEqual(edited, ["Billa", "Billa+", "Billa Corso", "Spar", "ESP"]);
+  assert.equal(chainSelectionValues(edited, ["Hofer"], extra).includes(REWE_CHAINS_SHORTCUT), true);
+  assert.equal(chainSelectionValues(edited, ["Hofer"], extra).includes(SPAR_CHAINS_SHORTCUT), false);
   assert.deepEqual(updateChainSelection(both, [], ["Hofer"], extra), []);
 });
 test("export labels preserve all selected groups and empty selection means all markets", () => {
@@ -31,12 +33,12 @@ test("export labels preserve all selected groups and empty selection means all m
 });
 
 test("Sonstige shortcut selects editable individual chain rows and preserves other selections", () => {
-  const others = ["Hofer", "Billa Corso", ""];
+  const others = ["Hofer", "Lidl", ""];
   const selected = updateChainSelection(["Billa"], ["Billa", OTHER_CHAINS_SHORTCUT], others);
   assert.deepEqual(selected, ["Billa", ...others]);
   assert.deepEqual(chainSelectionValues(selected, others), [...selected, OTHER_CHAINS_SHORTCUT]);
-  const removeOne = updateChainSelection(selected, ["Billa", "Billa Corso", "", OTHER_CHAINS_SHORTCUT], others);
-  assert.deepEqual(removeOne, ["Billa", "Billa Corso", ""]);
+  const removeOne = updateChainSelection(selected, ["Billa", "Lidl", "", OTHER_CHAINS_SHORTCUT], others);
+  assert.deepEqual(removeOne, ["Billa", "Lidl", ""]);
   assert.equal(chainSelectionValues(removeOne, others).includes(OTHER_CHAINS_SHORTCUT), false);
   assert.deepEqual(updateChainSelection(selected, selected, others), ["Billa"]);
   assert.deepEqual(updateChainSelection(selected, [], others), []);

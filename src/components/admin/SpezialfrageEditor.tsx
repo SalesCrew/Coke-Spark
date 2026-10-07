@@ -31,6 +31,8 @@ import { AvailabilityTypeModal } from "@/components/admin/AvailabilityTypeModal"
 import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
 import { fetchMarketChains, fetchSpezialfragenLibrary, type FragebogenScope } from "@/lib/api/backend";
 import { cloneQuestionForModuleInsert } from "@/utils/existingQuestionPicker";
+import { AdminDatePicker, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
+import { clearSpezialfragePeriod, isSpezialfrageDate, spezialfragePeriodError, updateSpezialfragePeriod, type SpezialfragePeriod } from "@/lib/spezialfragen-period";
 
 let _sqid = 0;
 function nextId(): string {
@@ -873,6 +875,8 @@ function QuestionCard({
   dropTarget: boolean; allQuestions: Question[]; availableChains: string[];
 }) {
   const badge = typeBadgeColor(question.type);
+  const period = question.config.spezialfragePeriod as Partial<SpezialfragePeriod> | undefined;
+  const periodError = spezialfragePeriodError(question.config);
   const [logicOpen, setLogicOpen] = useState(false);
   const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
   const [pendingAvailabilityType, setPendingAvailabilityType] = useState<SingleChoiceAvailabilityType | null>(
@@ -958,6 +962,11 @@ function QuestionCard({
           {question.rules.length > 0 && (
             <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#DC2626", flexShrink: 0 }} />
           )}
+          {period && !periodError && (
+            <span style={{ fontSize: 10, color: "#6b7280", flexShrink: 0 }}>
+              {period.startDate!.split("-").reverse().join(".")} – {period.endDate!.split("-").reverse().join(".")}
+            </span>
+          )}
           <ChevronDown size={13} strokeWidth={1.8} color="rgba(0,0,0,0.25)" style={{ flexShrink: 0, transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)" }} />
         </div>
 
@@ -1020,6 +1029,19 @@ function QuestionCard({
             <TypeConfig question={question} onUpdate={onUpdate} />
             <ScoringEditor question={question} onUpdate={onUpdate} />
             <HandelskettenSelector question={question} onUpdate={onUpdate} availableChains={availableChains} />
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>Zeitraum</span>
+                {question.config.spezialfragePeriod !== undefined && <button type="button" onClick={() => onUpdate({ ...question, config: clearSpezialfragePeriod(question.config) })} style={{ border: 0, background: "none", fontSize: 10, color: "#6b7280", cursor: "pointer" }}>Zeitraum entfernen</button>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 180px))", gap: 10 }}>
+                <div><span style={{ display: "block", fontSize: 10, color: "#6b7280", marginBottom: 5 }}>Von</span><AdminDatePicker ariaLabel={`Beginn für Spezialfrage ${index + 1}`} value={isSpezialfrageDate(period?.startDate) ? period.startDate : ""} onChange={value => onUpdate({ ...question, config: updateSpezialfragePeriod(question.config, "startDate", value) })} /></div>
+                <div><span style={{ display: "block", fontSize: 10, color: "#6b7280", marginBottom: 5 }}>Bis</span><AdminDatePicker ariaLabel={`Ende für Spezialfrage ${index + 1}`} value={isSpezialfrageDate(period?.endDate) ? period.endDate : ""} minDate={isSpezialfrageDate(period?.startDate) ? period.startDate : undefined} onChange={value => onUpdate({ ...question, config: updateSpezialfragePeriod(question.config, "endDate", value) })} /></div>
+              </div>
+              <p style={{ fontSize: 10, color: periodError ? "#b91c1c" : "#6b7280", margin: "8px 0 0", lineHeight: 1.5 }}>
+                {periodError ?? (period ? "Automatisch verfügbar vom Beginn bis einschließlich Ende (Wien). Gilt für diese Spezialfrage in allen zugeordneten Fragebögen." : "Optional · Ohne Zeitraum bleibt die Frage immer verfügbar.")}
+              </p>
+            </div>
             <div style={{ marginTop: 14 }}>
               <button onClick={(e) => { e.stopPropagation(); setLogicOpen(!logicOpen); }} style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 0 6px", fontSize: 11, fontWeight: 600, color: question.rules.length > 0 ? "#DC2626" : "rgba(0,0,0,0.35)", background: "none", border: "none", cursor: "pointer", borderTop: "1px solid rgba(0,0,0,0.04)" }}>
                 <Zap size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
@@ -1157,6 +1179,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
   }, [questions]);
 
   const updateQuestion = useCallback((updated: Question) => {
+    setSaveError(null);
     setQuestions((prev) => prev.map((q) => (q.id === updated.id ? updated : q)));
   }, []);
 
@@ -1197,6 +1220,7 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
       `}</style>
 
       {/* Top bar */}
+      <AdminFilterControlStyles />
       <div style={{ height: 56, borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button onClick={onClose} style={{ width: 22, height: 22, borderRadius: 7, backgroundColor: "rgba(0,0,0,0.04)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background-color 0.15s ease" }} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.08)")} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.04)")}>
@@ -1223,6 +1247,12 @@ export function SpezialfrageEditor({ onClose, onSave, existingQuestions, fragebo
           <button
             onClick={async () => {
               if (isSaving) return;
+              const invalidQuestion = questions.find(question => spezialfragePeriodError(question.config));
+              if (invalidQuestion) {
+                setExpandedId(invalidQuestion.id);
+                setSaveError(spezialfragePeriodError(invalidQuestion.config));
+                return;
+              }
               setSaveError(null);
               setIsSaving(true);
               try {

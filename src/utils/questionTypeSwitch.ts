@@ -15,6 +15,9 @@ export function applyQuestionTypeSwitch(question: Question, nextType: QuestionTy
   if (images.length > 0) {
     nextConfig.images = images;
   }
+  if (question.config.spezialfragePeriod !== undefined) {
+    nextConfig.spezialfragePeriod = structuredClone(question.config.spezialfragePeriod);
+  }
   return {
     ...question,
     type: nextType,

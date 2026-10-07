@@ -1432,10 +1432,6 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
       {loadError ? <div role="alert" style={{ marginBottom: 10, padding: "9px 11px", border: "1px solid rgba(220,38,38,.16)", borderRadius: 9, background: "rgba(220,38,38,.055)", color: COKE_RED, fontSize: 10.5, fontWeight: 700 }}>{loadError}</div> : null}
       {mutationError ? <div role="alert" style={{ marginBottom: 10, padding: "9px 11px", border: "1px solid rgba(220,38,38,.16)", borderRadius: 9, background: "rgba(220,38,38,.055)", color: COKE_RED, fontSize: 10.5, fontWeight: 700 }}>{mutationError}</div> : null}
 
-      {SMDurcharbeit ? <div style={{ marginBottom: 14, padding: "17px 20px", border: "1px solid #DBEAFE", borderLeft: "4px solid #2563EB", borderRadius: 12, background: "linear-gradient(120deg,#EFF6FF,#FFFFFF)", display: "flex", alignItems: "center", gap: 12 }}>
-        <Store size={22} color="#2563EB" /><div><strong style={{ display: "block", fontSize: 14, color: "#1E3A8A" }}>Durcharbeit Märkte</strong><span style={{ display: "block", marginTop: 4, fontSize: 10, color: "#64748B" }}>Eigener Marktbestand für SM-Durcharbeit · Die Importliste folgt. Marktansicht aktuell nur lesbar.</span></div>
-        <a href="/admin/sm/durcharbeit-verplanung" className="sm-market-edit-button is-secondary" style={{ marginLeft: "auto", textDecoration: "none", color: "#1D4ED8" }}>Zur Verplanung</a>
-      </div> : null}
       {SMDurcharbeit && loadError ? <button className="sm-market-edit-button is-secondary" type="button" onClick={() => setSMDurcharbeitReload(value => value + 1)}>Erneut laden</button> : null}
       {loading ? <PageSkeleton /> : SMDurcharbeit && loadError ? null : (
         <div style={{ overflow: "hidden", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 14, background: "rgba(0,0,0,0.025)" }}>

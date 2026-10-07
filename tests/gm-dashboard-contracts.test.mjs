@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const normalize = (value) => value.replace(/\/\/[^\n]*/g, '').replace(/\s+/g, '');
+const normalize = (value) => value.replace(/import type \{ AvailabilityAudit \} from [^;]+;/g, '').replace(/\/\/[^\n]*/g, '').replace(/\s+/g, '');
 test('frontend deployment contracts do not depend on the backend checkout', async () => {
   const [dashboard, workspace, model, backendWorkspace, backendDashboard] = await Promise.all([
     readFile(new URL('../src/types/gm-dashboard.ts', import.meta.url), 'utf8'),

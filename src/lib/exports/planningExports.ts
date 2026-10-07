@@ -26,6 +26,8 @@ import {
   type FuellstandTypeKey,
 } from "@/lib/fuellstand-dashboard/mock-data";
 import { formatAvailabilityLabel } from "@/lib/availabilityLabels";
+import { auditAvailability, availabilityCategory, type AvailabilityObservation } from "@/lib/availability.shared";
+import { appendAvailabilityExportSheets } from "./availabilityExport";
 import {
   buildPlatzierungenSeries,
   type PlatzierungenFilterScope,
@@ -373,6 +375,7 @@ export type FbManagementExportVisitRow = {
     value: SaraCellValue;
     comment: string;
   }>;
+  availabilityObservations?: AvailabilityObservation[];
 };
 
 const SARA_BASE_COLUMN_COUNT = 22;
@@ -564,7 +567,8 @@ export function prepareFbManagementExportVisitRow(input: {
   allowedQuestionIds?: ReadonlySet<string>;
 }): FbManagementExportVisitRow | null {
   const { visit } = input;
-  if (!visit.hasSubmittedVisit || !visit.sessionId || !visit.startedAt) return null;
+  if (!visit.hasSubmittedVisit || !visit.sessionId || !visit.submittedAt) return null;
+  const visitStart = visit.startedAt ?? visit.submittedAt;
 
   const primarySection = visit.sections[0] ?? null;
   const columns = getSaraEinsaetzeColumns();
@@ -586,23 +590,36 @@ export function prepareFbManagementExportVisitRow(input: {
 
   row[0] = saraTargetObject(input.market);
   row[1] = saraCustomerNumber(input.market);
-  row[2] = formatSaraDateTime(visit.startedAt, "date");
-  row[3] = formatSaraDateTime(visit.startedAt, "time");
+  row[2] = formatSaraDateTime(visitStart, "date");
+  row[3] = formatSaraDateTime(visitStart, "time");
   row[4] = input.campaignName ?? primarySection?.fragebogenName ?? "";
   row[5] = saraInternalId(visit, input.market);
   row[6] = saraExternalId(input.market);
   row[7] = visit.gmName ?? "";
   row[8] = photoCount;
-  row[13] = formatSaraDateTime(visit.startedAt, "time");
+  row[13] = formatSaraDateTime(visitStart, "time");
   row[14] = formatSaraDateTime(visit.submittedAt, "time");
   row[15] = visit.durationMinutes ?? "";
   row[17] = primarySection ? sectionLabel(primarySection.section) : "";
   row[18] = 0;
   row[20] = false;
 
+  const availabilityObservations: AvailabilityObservation[] = [];
   for (const section of visit.sections) {
     for (const question of section.questions) {
-      if (input.allowedQuestionIds && !input.allowedQuestionIds.has(question.questionId)) continue;
+      if (question.singleChoiceAvailability) availabilityObservations.push({
+        intervalId: "", sessionId: visit.sessionId, visitQuestionId: question.id, questionId: question.questionId,
+        sectionId: section.id, campaignId: section.campaignId, questionText: question.text, moduleName: question.moduleName,
+        marketId: visit.marketId, chain: input.market?.chain ?? "", region: input.market?.region ?? "Unbekannt",
+        gmId: visit.gmUserId, startedAt: visit.startedAt, submittedAt: visit.submittedAt,
+        changedAt: question.answer?.changedAt ?? visit.submittedAt, version: question.answer?.version ?? 0,
+        availabilityType: question.singleChoiceAvailabilityType, appliesToChain: question.appliesToMarketChain,
+        visible: question.visibility?.isVisibleAtSubmit ?? question.appliesToMarketChain,
+        answer: question.answer ? { id: question.answer.id, answerStatus: question.answer.answerStatus, isValid: question.answer.isValid,
+          valueText: question.answer.valueText, valueNumber: question.answer.valueNumber,
+          valueJson: question.answer.valueJson, options: question.answer.options } : null,
+      });
+      if (input.allowedQuestionIds && !input.allowedQuestionIds.has(question.questionId) && !question.singleChoiceAvailability) continue;
       const rawValue = visitAnswerSummary(question) || saraAnswerRawValue(question) || "Keine Antwort";
       const kind = question.type === "numeric" || question.type === "slider" ? "number" : "value";
       dynamicAnswers.push({
@@ -619,12 +636,13 @@ export function prepareFbManagementExportVisitRow(input: {
   return {
     campaignId: input.campaignId ?? primarySection?.campaignId ?? "",
     sessionId: visit.sessionId,
-    startedAt: visit.startedAt,
+    startedAt: visitStart,
     gmUserId: visit.gmUserId,
     kuehlerTechnicalIdentNo: visit.kuehlerTechnicalIdentNo ?? null,
     sectionTypes: Array.from(new Set(visit.sections.map((section) => section.section))),
     cells: row,
     dynamicAnswers,
+    availabilityObservations,
   };
 }
 
@@ -635,19 +653,7 @@ function dynamicSaraColumnWidth(question: string): number {
 type FbManagementAvailabilityBucket = "top" | "mediocre" | "bad";
 
 function fbManagementAvailabilityBucket(value: SaraCellValue): FbManagementAvailabilityBucket | null {
-  const normalized = String(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-  if (!normalized || normalized === "keine antwort") return null;
-  if (/^(top|voll|1)$/.test(normalized)) return "top";
-  if (/^(mediocre|mittel|mittelmassig|3)$/.test(normalized)) return "mediocre";
-  if (/^(bad|leer|schlecht|oos|5)$/.test(normalized)) return "bad";
-  if (/\btop\b|\bvoll\b|\(1\)|^1\b/.test(normalized)) return "top";
-  if (/\bmediocre\b|\bmittel|\(3\)|^3\b/.test(normalized)) return "mediocre";
-  if (/\bbad\b|\bleer\b|\bschlecht\b|\boos\b|\(5\)|^5\b/.test(normalized)) return "bad";
-  return null;
+  return availabilityCategory(value);
 }
 
 export function buildPreparedFbManagementExportRows(
@@ -672,20 +678,20 @@ export function buildPreparedFbManagementExportRows(
 
   if (questionCatalog) {
     for (const question of questionCatalog) {
-      if (!dynamicQuestionByKey.has(question.key)) dynamicQuestionByKey.set(question.key, question);
+      if (!dynamicQuestionByKey.has(question.key)) dynamicQuestionByKey.set(question.key, { ...question });
     }
-  } else {
-    for (const row of sortedRows) {
-      for (const answer of row.dynamicAnswers) {
-        if (!dynamicQuestionByKey.has(answer.key)) {
+  }
+  for (const row of sortedRows) {
+    for (const answer of row.dynamicAnswers) {
+      if (!dynamicQuestionByKey.has(answer.key) && (!questionCatalog || answer.availability)) {
           dynamicQuestionByKey.set(answer.key, {
             key: answer.key,
             question: answer.question,
             kind: answer.kind,
             availability: Boolean(answer.availability),
           });
-        }
       }
+      if (answer.availability) dynamicQuestionByKey.get(answer.key)!.availability = true;
     }
   }
 
@@ -713,6 +719,7 @@ export function buildPreparedFbManagementExportRows(
       ]),
     )
     : null;
+  const audit = auditAvailability(sortedRows.flatMap(row => row.availabilityObservations ?? []));
   const rows = sortedRows.map((prepared) => {
     const row = prepared.cells.slice(0, SARA_BASE_COLUMN_COUNT);
     const applicableQuestionIds = applicableQuestionIdsByCampaignId?.get(prepared.campaignId) ?? null;
@@ -739,11 +746,19 @@ export function buildPreparedFbManagementExportRows(
     for (const question of dynamicQuestions) {
       const answer = answerByKey.get(question.key);
       if (question.availability) {
-        if (applicableQuestionIds && !applicableQuestionIds.has(question.key)) {
+        const recorded = prepared.availabilityObservations?.filter(o => o.questionId === question.key) ?? [];
+        if (applicableQuestionIds && !applicableQuestionIds.has(question.key) && !recorded.length) {
           row.push("", "", "");
           continue;
         }
-        const bucket = answer ? fbManagementAvailabilityBucket(answer.value) : null;
+        const canonical = recorded.length ? audit.find(o => o.sessionId === prepared.sessionId
+          && o.campaignId === prepared.campaignId && o.questionId === question.key && o.included) : null;
+        const onlyDuplicates = recorded.length > 0 && !canonical && audit.filter(o => o.sessionId === prepared.sessionId
+          && o.campaignId === prepared.campaignId && o.questionId === question.key)
+          .every(o => ["duplicate_visit_question", "hidden_by_chain", "hidden_by_rule"].includes(o.exclusion ?? ""));
+        if (onlyDuplicates) { row.push("", "", ""); continue; }
+        const bucket = prepared.availabilityObservations ? canonical?.category ?? null
+          : answer ? fbManagementAvailabilityBucket(answer.value) : null;
         row.push(
           bucket === "top" ? "X" : bucket ? "" : "Keine Antwort",
           bucket === "mediocre" ? "X" : "",
@@ -794,7 +809,7 @@ export function buildFbManagementCampaignSheets(input: {
     );
     return {
       ...row,
-      dynamicAnswers: row.dynamicAnswers.filter((answer) => allowedQuestionIds.has(answer.key)),
+      dynamicAnswers: row.dynamicAnswers.filter((answer) => allowedQuestionIds.has(answer.key) || answer.availability),
     };
   });
   const campaignSections = new Set(input.campaigns.map((campaign) => campaign.section));
@@ -841,6 +856,10 @@ function appendFbManagementCampaignSheets(input: {
   for (const sheet of sheets) {
     appendSaraEinsaetzeSheet(input.XLSX, input.wb, sheet.rows, sheet.columns, sheet.sheetName);
   }
+  const audit = auditAvailability(input.preparedRows.flatMap(row => row.availabilityObservations ?? []));
+  if (audit.length) appendAvailabilityExportSheets(input.XLSX, input.wb, audit, {
+    source: "FB Management", scope: input.campaigns.map(c => c.name).join(", "),
+  });
 }
 
 export async function exportFbManagementExcel(input: {

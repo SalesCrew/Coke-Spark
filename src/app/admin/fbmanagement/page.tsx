@@ -9360,7 +9360,7 @@ export default function FbManagementPage() {
         const marketBatchGroups = await mapWithConcurrency(
           campaignIdChunks,
           VISIT_STATUS_MAX_CONCURRENT_BATCHES,
-          async (chunk) => retryExportRequest(() => fetchCampaignAssignedMarkets(chunk), 3),
+          async (chunk) => retryExportRequest(() => fetchCampaignAssignedMarkets(chunk, true), 3),
         );
         const scopedMarketsById = new Map<string, MarketCatalogItem>();
         for (const market of marketBatchGroups.flat().map(toMarketCatalogItem)) {
@@ -9371,7 +9371,11 @@ export default function FbManagementPage() {
         exportMarketsData = await ensureMarketDirectoryLoaded();
       }
 
-      const expectedMarketIds = new Set(baseCampaigns.flatMap((entry) => entry.assignments.map((assignment) => assignment.marketId)));
+      const visitIndex = (await visitIndexPromise).flat();
+      const expectedMarketIds = new Set([
+        ...baseCampaigns.flatMap((entry) => entry.assignments.map((assignment) => assignment.marketId)),
+        ...visitIndex.map(visit => visit.marketId),
+      ]);
       let exportMarketById = new Map(exportMarketsData.map((market) => [market.id, market]));
       let missingMarketIds = Array.from(expectedMarketIds).filter((marketId) => !exportMarketById.has(marketId));
       if (missingMarketIds.length > 0) {
@@ -9386,7 +9390,6 @@ export default function FbManagementPage() {
         throw new Error(`${missingMarketIds.length} Zielmärkte konnten nicht vollständig geladen werden. Es wurde kein unvollständiger Export erstellt.`);
       }
 
-      const visitIndex = (await visitIndexPromise).flat();
       const visitsByCampaignMarket = new Map<string, CampaignMarketVisitExportIndexItem[]>();
       const visitsByCampaign = new Map<string, CampaignMarketVisitExportIndexItem[]>();
       for (const visit of visitIndex) {
@@ -9419,12 +9422,16 @@ export default function FbManagementPage() {
             const submittedOk = (!filters.onlySubmitted && !dateRange) || matchingVisits.length > 0;
             return gmOk && regionOk && submittedOk;
           });
-          const marketIds = Array.from(new Set(assignments.map((assignment) => assignment.marketId)));
+          const historicalMarketIds = (visitsByCampaign.get(exportCampaign.id) ?? []).filter(visit =>
+            (gmSet.size === 0 || gmSet.has(normalizeExportFilterValue(visit.gmName)))
+            && (regionSet.size === 0 || regionSet.has(normalizeExportFilterValue(exportMarketById.get(visit.marketId)?.region))),
+          ).map(visit => visit.marketId);
+          const marketIds = Array.from(new Set([...assignments.map((assignment) => assignment.marketId), ...historicalMarketIds]));
           return { ...exportCampaign, assignments, marketIds };
         })
-        .filter((entry) => entry.assignments.length > 0 || !marketLevelFiltersActive);
+        .filter((entry) => entry.marketIds.length > 0 || !marketLevelFiltersActive);
 
-      const assignmentTotal = filteredCampaigns.reduce((sum, entry) => sum + entry.assignments.length, 0);
+      const assignmentTotal = filteredCampaigns.reduce((sum, entry) => sum + entry.marketIds.length, 0);
       if (filteredCampaigns.length === 0 || assignmentTotal === 0) {
         throw new Error("Für diese Exportfilter wurden keine passenden Zielmärkte gefunden.");
       }
@@ -9454,10 +9461,7 @@ export default function FbManagementPage() {
           if (!allowedMarketIds.has(visit.marketId)) continue;
           if (gmSet.size > 0) {
             const visitGm = normalizeExportFilterValue(visit.gmName);
-            const assignmentGmMatches = exportCampaign.assignments.some((assignment) =>
-              assignment.marketId === visit.marketId && gmSet.has(normalizeExportFilterValue(assignment.gmName)),
-            );
-            if (visitGm ? !gmSet.has(visitGm) : !assignmentGmMatches) continue;
+            if (!visitGm || !gmSet.has(visitGm)) continue;
           }
           const market = exportMarketById.get(visit.marketId);
           const key = getVisitDetailKey(exportCampaign.id, visit.marketId, visit.sessionId);
@@ -9555,15 +9559,8 @@ export default function FbManagementPage() {
         }
       };
 
-      const uncachedTargets: typeof detailTargets = [];
-      for (const target of detailTargets) {
-        const cached = visitDetailByKey[target.key];
-        if (cached && appendPreparedVisit(target, cached)) {
-          loadedDetailCount += 1;
-        } else {
-          uncachedTargets.push(target);
-        }
-      }
+      // Export recorded answers afresh; an opened detail panel may be stale.
+      const uncachedTargets = detailTargets;
       if (loadedDetailCount > 0) reportLoadedDetailProgress();
 
       const pendingTargetsByCampaign = new Map<string, typeof detailTargets>();

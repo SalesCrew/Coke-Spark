@@ -302,6 +302,7 @@ type BackendCampaignMarketVisitSummary = {
       };
       answer: {
         id: string;
+        changedAt?: string | null;
         answerStatus: "unanswered" | "answered" | "invalid" | "hidden_by_rule" | "skipped";
         valueText: string | null;
         valueNumber: string | null;
@@ -5806,10 +5807,11 @@ export async function fetchCampaigns(): Promise<Campaign[]> {
   return (data.campaigns ?? []).map(normalizeCampaign);
 }
 
-export async function fetchCampaignAssignedMarkets(campaignIds: string[]): Promise<MarketRecord[]> {
+export async function fetchCampaignAssignedMarkets(campaignIds: string[], includeSubmittedHistory = false): Promise<MarketRecord[]> {
   const uniqueCampaignIds = Array.from(new Set(campaignIds.map((entry) => entry.trim()).filter(Boolean)));
   if (uniqueCampaignIds.length === 0) return [];
   const params = new URLSearchParams({ campaignIds: uniqueCampaignIds.join(",") });
+  if (includeSubmittedHistory) params.set("includeSubmittedHistory", "true");
   const data = (await authedFetch(`/admin/campaigns/assigned-markets?${params.toString()}`)) as { markets?: BackendMarket[] };
   return (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market));
 }

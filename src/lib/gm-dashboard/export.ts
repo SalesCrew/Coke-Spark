@@ -1,4 +1,6 @@
-import type { DashboardExport } from "@/types/gm-dashboard";
+import type { DashboardData, DashboardExport } from "@/types/gm-dashboard";
+import { requestGmDashboard } from "@/lib/api/backend";
+import { appendAvailabilityExportSheets } from "@/lib/exports/availabilityExport";
 import type { Workspace } from "@/types/praemien-workspace";
 import { availabilitySummary } from "./data";
 import { chainGroupLabel } from "./chain-groups";
@@ -19,6 +21,21 @@ export async function exportRealGmDashboard(input: {
     )
   )
     throw new Error("Bitte warten, bis alle Dashboardkarten geladen sind.");
+  const availabilityEntry = input.datasets.find(entry => entry.title === "Fuellstand")!;
+  const availabilityData = await requestGmDashboard<DashboardData>("/query", {
+    intervals: availabilityEntry.data.points.map(({ id, label, shortLabel, start, end }) => ({ id, label, shortLabel, start, end })),
+    scope: availabilityEntry.data.scope,
+    includeAvailabilityAudit: true,
+  });
+  if (!availabilityData.availabilityAudit) throw new Error("Die Verfügbarkeitsprüfung ist im Backend noch nicht verfügbar.");
+  for (const point of availabilityEntry.data.points) {
+    const current = availabilityData.points.find(p => p.id === point.id);
+    if (!current || Object.keys(point.availability).some(key => {
+      const type = key as keyof typeof point.availability;
+      return ["top", "mediocre", "bad"].some(category =>
+        point.availability[type][category as "top" | "mediocre" | "bad"] !== current.availability[type][category as "top" | "mediocre" | "bad"]);
+    })) throw new Error("Verfügbarkeitsdaten haben sich geändert. Bitte das Dashboard aktualisieren und erneut exportieren.");
+  }
   await buildAndDownloadWorkbook({
     filename: `CokeSpark_GM_Dashboard_${new Date().toISOString().slice(0, 10)}.xlsx`,
     build: ({ XLSX, wb }) => {
@@ -32,6 +49,9 @@ export async function exportRealGmDashboard(input: {
             "Top 100 / Mediocre 50 / Bad 0; STC = geplante Besuche/Jahr: Gold 12–24, Silver 8–10, Bronze 6–7; Platzierungen = konfigurierte Punkte",
         },
       ]);
+      appendAvailabilityExportSheets(XLSX, wb, availabilityData.availabilityAudit!, {
+        source: "GM Dashboard", scope: JSON.stringify({ ...availabilityEntry.data.scope, highlightedType: availabilityEntry.highlightedType ?? "Alle" }),
+      });
       for (const entry of input.datasets) {
         const selected = entry.data.points.find(
           (p) => p.id === entry.selectedIntervalId,

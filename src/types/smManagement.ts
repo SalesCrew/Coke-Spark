@@ -1,13 +1,14 @@
 import type { SmVisitAnswer, SmVisitQuestion } from "./smVisit";
 
 export type SmManagedVisit = {
+  SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope | null;
   id: string; assignmentId: string | null; workDate: string; smUserId: string; smName: string;
   marketId: string; marketName: string; address: string; questionnaireId: string; questionnaireName: string;
   questionnaireVersion: number; startedAt: string | null; completedAt: string | null; submittedAt: string | null; answeredCount: number;
 };
 export type SmManagementFacet = Pick<SmManagedVisit, "smUserId" | "smName" | "marketId" | "marketName" | "questionnaireId" | "questionnaireName">;
 export type SmManagementList = { visits: SmManagedVisit[]; nextCursor: { date: string; id: string } | null; facets: SmManagementFacet[]; facetsTruncated: boolean };
-export type SmManagementQuery = { from: string; to: string; smUserId?: string; marketId?: string; questionnaireId?: string; search?: string; cursorDate?: string; cursorId?: string; limit?: number };
+export type SmManagementQuery = { SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope;  from: string; to: string; smUserId?: string; marketId?: string; questionnaireId?: string; search?: string; cursorDate?: string; cursorId?: string; limit?: number };
 export type SmManagementPhoto = { id: string; fileName: string | null; mimeType?: string | null; byteSize?: number | null; signedUrl: string | null };
 export type SmManagedQuestion = SmVisitQuestion & { answer: SmVisitAnswer; answerId: string | null; answerState: string; photos: SmManagementPhoto[] };
 export type SmManagementDetail = {

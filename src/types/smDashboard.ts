@@ -35,6 +35,7 @@ export type SmDashboardFilterOption = {
 };
 
 export type SmDashboardPayload = {
+  SMDurcharbeitBreakdown?: Record<import("./smSMDurcharbeit").SMDurcharbeitCatalogScope, { completedVisits: number; answeredQuestions: number }>;
   meta: {
     from: string;
     to: string;
@@ -45,6 +46,7 @@ export type SmDashboardPayload = {
       chain: string | null;
       smUserId: string | null;
       marketId: string | null;
+      SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope | null;
     };
   };
   summary: SmDashboardMetricSummary;
@@ -60,6 +62,7 @@ export type SmDashboardPayload = {
 };
 
 export type SmDashboardQuery = {
+  SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope;
   from: string;
   to: string;
   region?: string;

@@ -4,6 +4,7 @@ import type { SmQuestionType } from "@/types/smQuestionnaire";
 export type SmRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
 
 export type SmCompletedActivitySummary = {
+  SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope | null;
   submissionId: string;
   assignmentId: string;
   workDate: string;
@@ -43,10 +44,11 @@ export type SmActivityAnswerChangeRequest = {
   autoApplicabilityError: string | null;
   sm: { id: string; name: string; email: string };
   market: { id: string; name: string; address: string; postalCode: string; city: string };
-  submission: { assignmentId: string | null; questionnaireName: string; questionnaireVersion: number; submittedAt: string | null; moduleName: string };
+  submission: { SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope | null; assignmentId: string | null; questionnaireName: string; questionnaireVersion: number; submittedAt: string | null; moduleName: string };
 };
 
 export type SmActivitySubmissionDeleteRequest = {
+  SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope | null;
   id: string;
   status: SmRequestStatus;
   createdAt: string;

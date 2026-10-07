@@ -14,7 +14,7 @@ test("SM admin can create and edit an inactive Shelf Merchandiser", async () => 
 });
 
 test("SM market edit assigns Stammmarkt from SM accounts and Field Service from GM accounts", async () => {
-  const page = await read("../src/app/admin/sm/maerkte/page.tsx");
+  const page = await read("../src/components/admin/sm/SmMarketsWorkspace.tsx");
   const backend = await read("../backend/src/routes/sm-markets.ts");
   assert.match(page, /label="Stammmarkt von"[\s\S]*users=\{assignableSmUsers\}/);
   assert.match(page, /label="Field Service Gebietsleiter"[\s\S]*users=\{assignableGmUsers\}/);

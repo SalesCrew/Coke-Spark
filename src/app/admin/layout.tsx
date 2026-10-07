@@ -122,6 +122,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isBilla = pathname.startsWith("/admin/billa");
   const isFbManagement = pathname.startsWith("/admin/fbmanagement");
   const isFotoarchiv = pathname.startsWith("/admin/fotoarchiv");
+  const isSmFotoarchiv = pathname.startsWith("/admin/sm/fotoarchiv");
   const isFbNeu = pathname === "/admin/fbmanagement/neu";
   const isFbExtend = pathname.startsWith("/admin/fbmanagement/erweitern/");
   const isPraemien = pathname.startsWith("/admin/praemien");
@@ -129,8 +130,12 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isSmDashboard = pathname.startsWith("/admin/sm/dashboard");
   const isSmMaerkte = pathname.startsWith("/admin/sm/maerkte");
   const isSmFragebogen = pathname.startsWith("/admin/sm/fragebogen");
+  const isSMDurcharbeitMaerkte = pathname.startsWith("/admin/sm/durcharbeit-maerkte");
+  const isSMDurcharbeitVerplanung = pathname.startsWith("/admin/sm/durcharbeit-verplanung");
+  const isSMDurcharbeit = pathname === "/admin/sm/durcharbeit" || pathname.startsWith("/admin/sm/durcharbeit/");
+  const smCatalogEventNamespace = isSMDurcharbeit ? "SMDurcharbeit" : "sm-fragebogen";
   const isSmFbManagement = pathname.startsWith("/admin/sm/fbmanagement");
-  const isSmVerplanung = pathname.startsWith("/admin/sm/verplanung");
+  const isSmVerplanung = pathname.startsWith("/admin/sm/verplanung") || isSMDurcharbeitVerplanung;
   const isSmZeiterfassung = pathname.startsWith("/admin/sm/zeiterfassung");
   const isSmNachrichten = pathname.startsWith("/admin/sm/nachrichten");
   const isLager = pathname.startsWith("/admin/lager");
@@ -798,7 +803,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmDashboard ? "SM Dashboard" : isSmFbManagement ? "Fragebogen-Management" : isSmFragebogen ? "Fragebögen" : isSmVerplanung ? "Verplanung" : isSmZeiterfassung ? "Zeiterfassung" : isSmNachrichten ? "Nachrichten" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
+  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv || isSmFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmDashboard ? "SM Dashboard" : isSmFbManagement ? "Fragebogen-Management" : isSMDurcharbeitMaerkte ? "Durcharbeit Märkte" : isSMDurcharbeitVerplanung ? "Durcharbeit Verplanung" : isSMDurcharbeit ? "Durcharbeit" : isSmFragebogen ? "Standartfragebogen" : isSmVerplanung ? "Verplanung" : isSmZeiterfassung ? "Zeiterfassung" : isSmNachrichten ? "Nachrichten" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
   const exportEventName =
     isDurcharbeit ? "admin:durcharbeit:export"
     : isMhd ? "admin:mhd:export"
@@ -807,9 +812,10 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : isBilla ? "admin:billa:export"
     : isFbManagement ? "admin:fbmanagement:export"
     : isFotoarchiv ? "admin:fotoarchiv:export"
+    : isSmFotoarchiv ? "admin:sm-fotoarchiv:export"
     : isPraemien ? "admin:praemien:export"
     : isSmDashboard ? "admin:sm-dashboard:export"
-    : isSmFragebogen ? "admin:sm-fragebogen:export"
+    : isSmFragebogen || isSMDurcharbeit ? `admin:${smCatalogEventNamespace}:export`
     : isSmVerplanung ? "admin:sm-verplanung:export"
     : isMaerkte ? "admin:maerkte:export"
     : isLager ? "admin:lager:export"
@@ -820,8 +826,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : pathname === "/admin/fragebogen" ? "admin:fragebogen:export"
     : null;
   const showHeaderExcelExport = Boolean(exportEventName) && !isFbNeu && !isFbExtend;
-  const headerExportLabel = isFotoarchiv ? "Foto Export" : "Excel Export";
-  const HeaderExportIcon = isFotoarchiv ? Download : FileSpreadsheet;
+  const headerExportLabel = isFotoarchiv || isSmFotoarchiv ? "Foto Export" : "Excel Export";
+  const HeaderExportIcon = isFotoarchiv || isSmFotoarchiv ? Download : FileSpreadsheet;
   const headerSecondaryButtonStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
@@ -925,14 +931,14 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   {canWriteCurrentPage ? <button
                     type="button"
                     onClick={() => window.dispatchEvent(new CustomEvent("sm-verplanung:openSingle"))}
-                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: isSMDurcharbeitVerplanung ? "linear-gradient(#2563EB,#1D4ED8)" : "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: isSMDurcharbeitVerplanung ? "inset 0 1px .6px rgba(255,255,255,.33),0 0 0 1px #1E40AF,0 1px 6px rgba(37,99,235,.18)" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.9"; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
                   >
                     <Plus size={12} strokeWidth={2} />
                     Einsatz planen
                   </button> : null}
-                  {canWriteCurrentPage ? <button
+                  {canWriteCurrentPage && !isSMDurcharbeitVerplanung ? <button
                     type="button"
                     onClick={() => window.dispatchEvent(new CustomEvent("sm-verplanung:openSeries"))}
                     style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
@@ -954,7 +960,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Plus size={12} strokeWidth={2} />
                   Nachricht erstellen
                 </button> : null
-              ) : isSmZeiterfassung || isSmFbManagement ? null
+              ) : isSmZeiterfassung || isSmFbManagement || isSmFotoarchiv ? null
               : isDurcharbeit && canWriteCurrentPage ? (
                 <>
                   <button
@@ -1067,11 +1073,11 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Download size={12} strokeWidth={2} />
                   Exportieren
                 </button>
-              ) : isIppBerechnung ? null : isLager ? null : isSmFragebogen ? (
+              ) : isIppBerechnung ? null : isLager ? null : isSMDurcharbeitMaerkte ? null : isSmFragebogen || isSMDurcharbeit ? (
                 <>
                   {canWriteCurrentPage ? <button
                     type="button"
-                    onClick={() => window.dispatchEvent(new CustomEvent("sm-fragebogen:openModuleCreate"))}
+                    onClick={() => window.dispatchEvent(new CustomEvent(`${smCatalogEventNamespace}:openModuleCreate`))}
                     style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #2a2a2a, #1a1a1a)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.18), inset 0 -1px 0 rgba(255,255,255,0.06), 0 0 0 1px #111111, 0 1px 6px rgba(0,0,0,0.18)" }}
                   >
                     <Plus size={12} strokeWidth={2} />
@@ -1079,8 +1085,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   </button> : null}
                   {canWriteCurrentPage ? <button
                     type="button"
-                    onClick={() => window.dispatchEvent(new CustomEvent("sm-fragebogen:openQuestionnaireCreate"))}
-                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
+                    onClick={() => window.dispatchEvent(new CustomEvent(`${smCatalogEventNamespace}:openQuestionnaireCreate`))}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: isSMDurcharbeit ? "linear-gradient(to bottom, #2563EB, #1D4ED8)" : "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: isSMDurcharbeit ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #1E40AF, 0 1px 6px rgba(37,99,235,0.24)" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
                   >
                     <Plus size={12} strokeWidth={2} />
                     Fragebogen erstellen

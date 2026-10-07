@@ -1,11 +1,13 @@
 "use client";
 
+import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQuestionnaireBadge";
+
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronLeft, ChevronRight, ClipboardCheck, History, LoaderCircle, Pencil, RefreshCw, X } from "lucide-react";
 import { AdminDropdown, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
 import { BackendApiError, readAuthSession, smManagementApi, subscribeAuthSession } from "@/lib/api/backend";
-import { currentSmPeriod, shiftSmPeriod, type SmPlanningPeriod } from "@/lib/sm/planningPeriod";
+import { currentSmPeriod, shiftSmPeriod, smMonthPeriod, type SmPlanningPeriod } from "@/lib/sm/planningPeriod";
 import { smManagementAnswerComplete, smManagementAnswerLabel, smManagementHidden, smManagementTime } from "@/lib/sm/management";
 import type { SmAdminCorrection, SmAdminPhotoReceipt, SmManagedQuestion, SmManagementApi, SmManagementDetail, SmManagementHistory, SmManagementList, SmManagementPhoto, SmManagementQuery } from "@/types/smManagement";
 import type { SmVisitAnswer } from "@/types/smVisit";
@@ -34,13 +36,19 @@ export function SmFbManagementWorkspace({ api = smManagementApi }: { api?: SmMan
 
 export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { api: SmManagementApi; owner: string; currentOwner?: () => string | null }) {
   const [period, setPeriod] = useState<SmPlanningPeriod>(() => currentSmPeriod("month"));
-  const [filters, setFilters] = useState({ smUserId: "all", marketId: "all", questionnaireId: "all", search: "" });
+  const [filters, setFilters] = useState({ SMDurcharbeitCatalogScope: "all", smUserId: "all", marketId: "all", questionnaireId: "all", search: "" });
   const search = useDeferredValue(filters.search.trim());
   const [cursor, setCursor] = useState<{ date: string; id: string } | null>(null);
   const [previous, setPrevious] = useState<Array<{ date: string; id: string } | null>>([]);
   const [data, setData] = useState<{ key: string; result: SmManagementList } | null>(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState<string | null>(null), [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search), id = params.get("submissionId"), workDate = params.get("workDate");
+    if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
+    if (workDate) { try { setPeriod(smMonthPeriod(workDate)); } catch { /* Keep the current month for invalid links. */ } }
+    setSelected(id);
+  }, []);
   const closeSelected = useCallback(() => setSelected(null), []);
   const refreshAfterSave = useCallback(() => {
     setReload(value => value + 1);
@@ -50,7 +58,7 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
     setReload(value => value + 1);
     setNotice("Start und Ende wurden korrigiert. Die ursprüngliche Zeit bleibt im Verlauf erhalten.");
   }, []);
-  const query: SmManagementQuery = { from: period.from, to: period.to,
+  const query: SmManagementQuery = { ...(filters.SMDurcharbeitCatalogScope !== "all" ? { SMDurcharbeitCatalogScope: filters.SMDurcharbeitCatalogScope as "standard" | "SMDurcharbeit" } : {}), from: period.from, to: period.to,
     ...(filters.smUserId !== "all" ? { smUserId: filters.smUserId } : {}), ...(filters.marketId !== "all" ? { marketId: filters.marketId } : {}),
     ...(filters.questionnaireId !== "all" ? { questionnaireId: filters.questionnaireId } : {}), ...(search ? { search } : {}),
     ...(cursor ? { cursorDate: cursor.date, cursorId: cursor.id } : {}),
@@ -77,6 +85,7 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
         <button className={styles.iconButton} disabled={loading} aria-label="Fragebögen aktualisieren" onClick={() => setReload(value => value + 1)}><RefreshCw size={14} /></button></div>
       <div className={styles.filters}>
         <div className={styles.field}><span>Besuchszeitraum</span><div style={{ display: "flex", gap: 5 }}><button className={styles.iconButton} aria-label="Vorheriger Zeitraum" onClick={() => changePeriod(shiftSmPeriod(period, -1))}><ChevronLeft size={13} /></button><SmPlanningPeriodPicker value={period} onChange={changePeriod} /><button className={styles.iconButton} aria-label="Nächster Zeitraum" onClick={() => changePeriod(shiftSmPeriod(period, 1))}><ChevronRight size={13} /></button></div></div>
+        <div className={styles.field}><span>Fragebogentyp</span><AdminDropdown value={filters.SMDurcharbeitCatalogScope} options={[{ value: "all", label: "Alle Fragebögen" }, { value: "standard", label: "Standard" }, { value: "SMDurcharbeit", label: "Durcharbeit" }]} ariaLabel="Fragebogentyp" placeholder="Alle Fragebögen" onChange={value => { setFilters(current => ({ ...current, SMDurcharbeitCatalogScope: value })); resetPage(); }} /></div>
         {([ ["smUserId", "smName", "Shelf Merchandiser", "Alle SMs"], ["marketId", "marketName", "Markt", "Alle Märkte"], ["questionnaireId", "questionnaireName", "Fragebogen", "Alle Fragebögen"] ] as const).map(([key, name, label, all]) => <div className={styles.field} key={key}><span>{label}</span><AdminDropdown value={filters[key]} options={facetOptions(key, name, all)} ariaLabel={label} placeholder={all} searchable onChange={value => { setFilters(current => ({ ...current, [key]: value })); resetPage(); }} /></div>)}
         <label className={styles.field}>Suche<input type="search" value={filters.search} maxLength={200} placeholder="SM, Markt oder Adresse …" onChange={event => { setFilters(current => ({ ...current, search: event.target.value })); resetPage(); }} /></label>
       </div>
@@ -84,7 +93,7 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
       {error ? <div role="alert" className={styles.error}>{error} <button className={styles.textButton} onClick={() => setReload(value => value + 1)}>Erneut laden</button></div> : null}
       {data?.result.facetsTruncated ? <p className={styles.hint} style={{ padding: "0 20px" }}>Viele Filteroptionen: Nutze die Suche oder einen kleineren Zeitraum, wenn ein Eintrag fehlt.</p> : null}
       {!matching && loading ? <SmManagementSkeleton /> : matching?.visits.length ? <div className={styles.tableWrap}><table className={styles.table}><thead><tr>{["Besuch", "Shelf Merchandiser", "Markt", "Fragebogen", "Start – Ende", ""].map((label, index) => <th key={index} scope="col">{label}</th>)}</tr></thead><tbody>
-        {matching.visits.map(visit => <tr key={visit.id}><td className={styles.time}>{dateLabel(visit.workDate)}</td><td>{visit.smName}</td><td>{visit.marketName}<small>{visit.address}</small></td><td>{visit.questionnaireName}<small>Version {visit.questionnaireVersion} · {visit.answeredCount} Antworten</small></td><td className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</td><td><button className={styles.iconButton} aria-label={`Fragebogen von ${visit.smName} in ${visit.marketName} öffnen`} onClick={() => setSelected(visit.id)}><ChevronRight size={14} /></button></td></tr>)}
+        {matching.visits.map(visit => <tr key={visit.id}><td className={styles.time}>{dateLabel(visit.workDate)}</td><td>{visit.smName}</td><td>{visit.marketName}<small>{visit.address}</small></td><td>{visit.questionnaireName}<span style={{ display: "block", marginTop: 4 }}><SMDurcharbeitQuestionnaireBadge scope={visit.SMDurcharbeitCatalogScope} /></span><small>Version {visit.questionnaireVersion} · {visit.answeredCount} Antworten</small></td><td className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</td><td><button className={styles.iconButton} aria-label={`Fragebogen von ${visit.smName} in ${visit.marketName} öffnen`} onClick={() => setSelected(visit.id)}><ChevronRight size={14} /></button></td></tr>)}
       </tbody></table></div> : !error && !loading ? <div className={styles.empty}><ClipboardCheck size={26} strokeWidth={1.4} /><strong>{search || Object.values(filters).some(value => value !== "all" && value !== "") ? "Keine Treffer für diese Filter" : "Noch keine abgeschlossenen Fragebögen"}</strong><span>Wähle einen anderen Zeitraum oder passe die Filter an.</span></div> : null}
       <div className={styles.pagination}><span className={styles.hint}>{matching?.visits.length ?? 0} Fragebögen auf dieser Seite</span><div className={styles.actions}>
         <button className={styles.secondary} disabled={loading || previous.length === 0} onClick={() => { setCursor(previous.at(-1) ?? null); setPrevious(values => values.slice(0, -1)); }}>Zurück</button>
@@ -181,7 +190,7 @@ function SmManagementDrawer({ id, api, onClose, onSaved, onTimeSaved }: { id: st
   return createPortal(<div className={styles.backdrop} onClick={event => { if (event.target === event.currentTarget) close(); }}>
     <div ref={dialog} className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="sm-management-title" tabIndex={-1}>
       <header className={styles.drawerHeader}><div className={styles.headerLine}><div><p className={styles.eyebrow}>Fragebogen · {editing ? "Korrektur" : "Abgeschlossen"}</p><h2 id="sm-management-title">{visit?.marketName ?? "Fragebogen laden"}</h2><p className={styles.hint}>{visit?.address}</p></div><button className={styles.iconButton} aria-label="Fragebogen schließen" disabled={busy || uploading} onClick={close}><X size={15} /></button></div>
-        {visit ? <div className={styles.meta}><div><small>SM</small><span>{visit.smName}</span></div><div><small>Besuch</small><span>{visit.startedAt ? dateLabel(visit.startedAt) : "Datum nicht erfasst"}</span></div><div><small>Start – Ende</small><span className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</span>{visit.assignmentId && visit.startedAt && visit.completedAt && !editing ? <button type="button" className={styles.timeEditButton} onClick={() => setTimeEditing(value => !value)} disabled={busy || uploading} aria-label="Start und Endzeit bearbeiten"><Pencil size={11} /> Bearbeiten</button> : null}</div><div><small>Fragebogen</small><span>{visit.questionnaireName} · V{visit.questionnaireVersion}</span></div></div> : null}
+        {visit ? <div className={styles.meta}><div><small>SM</small><span>{visit.smName}</span></div><div><small>Besuch</small><span>{visit.startedAt ? dateLabel(visit.startedAt) : "Datum nicht erfasst"}</span></div><div><small>Start – Ende</small><span className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</span>{visit.assignmentId && visit.startedAt && visit.completedAt && !editing ? <button type="button" className={styles.timeEditButton} onClick={() => setTimeEditing(value => !value)} disabled={busy || uploading} aria-label="Start und Endzeit bearbeiten"><Pencil size={11} /> Bearbeiten</button> : null}</div><div><small>Fragebogen</small><span>{visit.questionnaireName} · V{visit.questionnaireVersion}</span><SMDurcharbeitQuestionnaireBadge scope={visit.SMDurcharbeitCatalogScope} /></div></div> : null}
         {timeEditing && visit?.assignmentId && visit.startedAt && visit.completedAt ? <div className={styles.timeEditor}>
           <SmVisitTimeEditor assignmentId={visit.assignmentId} visitId={visit.id} startedAt={visit.startedAt} completedAt={visit.completedAt}
             onCancel={() => setTimeEditing(false)} onSaved={async () => { setTimeEditing(false); onTimeSaved(); await load(); }} />

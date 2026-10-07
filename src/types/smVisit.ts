@@ -34,6 +34,7 @@ export type SmVisitSection = {
 };
 
 export type SmVisitPayload = {
+  SMDurcharbeitQuestionnaireSelection?: import("./smSMDurcharbeit").SMDurcharbeitQuestionnaireSelection;
   assignment: {
     id: string;
     status: SmPlanningStatus;

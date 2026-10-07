@@ -33,7 +33,7 @@ test("both time modes use editable timestamps and overlap failures retain review
 });
 
 test("deactivation opens on Inaktiv, uses shared dropdowns and requires every decision", async () => {
-  const page = await read("../src/app/admin/sm/maerkte/page.tsx");
+  const page = await read("../src/components/admin/sm/SmMarketsWorkspace.tsx");
   const modal = await read("../src/components/admin/sm/SmMarketDeactivationModal.tsx");
   assert.ok(page.includes('value === "inactive" && market.isActive) setShowDeactivation(true)'));
   for (const value of ['role="dialog"', 'aria-modal="true"', 'overflow-y-auto', '<AdminDropdown', 'previewToken: preview.previewToken', '!allChosen', 'Einzeltermine ansehen / individuell ersetzen', 'sm_market_deactivation_stale', 'Bestätigen & Markt deaktivieren', 'Abbrechen']) assert.ok(modal.includes(value), value);

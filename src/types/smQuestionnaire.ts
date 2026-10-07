@@ -1,3 +1,5 @@
+export type SmQuestionnaireCatalogScope = "standard" | "SMDurcharbeit";
+
 export type SmQuestionType =
   | "single"
   | "yesno"

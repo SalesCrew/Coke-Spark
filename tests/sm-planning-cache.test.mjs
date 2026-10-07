@@ -14,7 +14,9 @@ const ast = ts.createSourceFile("backend.ts", source, ts.ScriptTarget.Latest, tr
 const selected = new Set(["SM_VISIT_PRELOAD_CACHE_PREFIX", "SM_PLANNING_ASSIGNMENTS_CACHE_PREFIX", "smVisitPreloadMemoryCache",
   "getSmPlanningAssignmentsCacheKey", "setMySmPlanningAssignmentsCache", "readMySmPlanningAssignmentsCache", "clearMySmPlanningAssignmentsCache",
   "getSmVisitPreloadMemoryKey", "getSmVisitPreloadCacheKey", "isValidSmVisitPreloadPayload", "setSmVisitPreloadCache", "readSmVisitPreloadCache", "clearSmVisitPreloadCache",
-  "fetchMySmPlanningAssignments", "fetchSmVisit", "createSmRequestOwnerGuard"]);
+  "fetchMySmPlanningAssignments", "fetchSmVisit", "createSmRequestOwnerGuard",
+  "SMDurcharbeitOptionCache", "fetchSMDurcharbeitQuestionnaireOptions", "updateSmGlobalQuestionnaireAssignment",
+  "saveSmQuestionnaire", "deleteSmQuestionnaire", "smCatalogQuery", "UUID_PATTERN"]);
 // Execute the real selected declarations; only storage, auth and network boundaries are injected.
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) ? selected.has(node.name?.text)
   : ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration => selected.has(declaration.name.getText(ast))));
@@ -86,4 +88,51 @@ test("cancelled direct-link error clears current owner's preload but never anoth
   const pending = h.api.fetchSmVisit("one"); h.setOwner("sm-b");
   h.api.setSmVisitPreloadCache("one", payload("one")); reject(new h.BackendApiError("sm_visit_assignment_cancelled"));
   await assert.rejects(pending); assert.ok(h.api.readSmVisitPreloadCache("one"));
+});
+
+test("SMDurcharbeit picker is cached, then refreshed after default, publication and deletion changes", async () => {
+  const h = harness(); let reads = 0, central = "standard";
+  h.setFetch(async (path, input) => {
+    if (path.includes("SMDurcharbeit-questionnaire-options")) { reads++; return { options: [], centralQuestionnaire: central }; }
+    if (path.endsWith("questionnaire-assignment")) { central = "durcharbeit"; return { replayed: false }; }
+    return { questionnaire: JSON.parse(input.body ?? "{}") };
+  });
+  const first = await h.api.fetchSMDurcharbeitQuestionnaireOptions(from);
+  assert.equal(await h.api.fetchSMDurcharbeitQuestionnaireOptions(from), first);
+  assert.equal(reads, 1);
+  await h.api.updateSmGlobalQuestionnaireAssignment("synthetic-template");
+  assert.equal((await h.api.fetchSMDurcharbeitQuestionnaireOptions(from)).centralQuestionnaire, "durcharbeit");
+  assert.equal(reads, 2);
+  await h.api.saveSmQuestionnaire({ id: "new-synthetic" }, "SMDurcharbeit");
+  await h.api.fetchSMDurcharbeitQuestionnaireOptions(from); assert.equal(reads, 3);
+  await h.api.deleteSmQuestionnaire("synthetic-template", "SMDurcharbeit");
+  await h.api.fetchSMDurcharbeitQuestionnaireOptions(from); assert.equal(reads, 4);
+  assert.equal(h.listeners.size, 0);
+});
+
+test("old failed SMDurcharbeit request cannot evict a newer cache entry after mutation", async () => {
+  const h = harness(); let rejectOld, resolveNew, reads = 0;
+  h.setFetch(async path => {
+    if (!path.includes("SMDurcharbeit-questionnaire-options")) return { replayed: false };
+    reads++;
+    return new Promise((resolve, reject) => { if (reads === 1) rejectOld = reject; else resolveNew = resolve; });
+  });
+  const old = h.api.fetchSMDurcharbeitQuestionnaireOptions(from);
+  await h.api.updateSmGlobalQuestionnaireAssignment("synthetic-template");
+  const fresh = h.api.fetchSMDurcharbeitQuestionnaireOptions(from);
+  rejectOld(new Error("old request failed")); await assert.rejects(old, /old request failed/);
+  assert.equal(h.api.fetchSMDurcharbeitQuestionnaireOptions(from), fresh);
+  resolveNew({ options: [], centralQuestionnaire: "new central" });
+  assert.equal((await fresh).centralQuestionnaire, "new central");
+  assert.equal(reads, 2); assert.equal(h.listeners.size, 0);
+});
+
+test("SMDurcharbeit options reject delayed results across an A-B-A account switch", async () => {
+  const h = harness(); let resolve;
+  h.setFetch(() => new Promise(done => { resolve = done; }));
+  const pending = h.api.fetchSMDurcharbeitQuestionnaireOptions(from);
+  h.setOwner("sm-b"); h.setOwner("sm-a");
+  resolve({ options: [], centralQuestionnaire: "old user's catalog" });
+  await assert.rejects(pending, /Zugang hat sich geändert/);
+  assert.equal(h.listeners.size, 0);
 });

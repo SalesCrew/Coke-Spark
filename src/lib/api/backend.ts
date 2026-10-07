@@ -2,6 +2,7 @@
 
 import { visibleSmAssignments } from "@/lib/sm/assignmentVisibility";
 import type { SmManagementApi, SmManagementList, SmManagementDetail, SmManagementHistory, SmAdminPhotoReceipt } from "@/types/smManagement";
+import type { SmPhotoArchiveApi } from "@/types/smPhotoArchive";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { SMRecord } from "@/types/shelfmerchandiser";
 import type {
@@ -27,7 +28,7 @@ import type { ColumnMapping, ImportDatasetType, ImportSummary, KuehlerUpdateIden
 import type { IppQuestionAuditRow } from "@/types/ipp";
 import type { CreateLagerInput, LagerRecord, UpdateLagerInput } from "@/types/lager";
 import type { RedMonthConfig, RedMonthCurrentPayload, RedMonthPeriod, RedMonthYear } from "@/types/red-month";
-import type { SmModule, SmQuestionnaire } from "@/types/smQuestionnaire";
+import type { SmModule, SmQuestionnaireCatalogScope, SmQuestionnaire } from "@/types/smQuestionnaire";
 import type {
   AdminGmPlanningVisit,
   CreateSmPlanningAssignmentInput,
@@ -1973,8 +1974,8 @@ export async function fetchSmUsers(options?: { force?: boolean }): Promise<SMRec
   return smUsersDirectoryInFlight;
 }
 
-export async function fetchSmMarkets(): Promise<SmMarketRecord[]> {
-  const data = (await authedFetch("/admin/sm-markets", { cache: "no-store" }, 60_000)) as {
+export async function fetchSmMarkets(SMDurcharbeitMarketScope: "standard" | "SMDurcharbeit" | "all" = "standard"): Promise<SmMarketRecord[]> {
+  const data = (await authedFetch(`/admin/sm-markets${SMDurcharbeitMarketScope === "standard" ? "" : `?SMDurcharbeitMarketScope=${SMDurcharbeitMarketScope}`}`, { cache: "no-store" }, 60_000)) as {
     markets?: SmMarketRecord[];
   };
   return data.markets ?? [];
@@ -1994,10 +1995,12 @@ export async function fetchSmGlobalQuestionnaireConfiguration(): Promise<SmGloba
 }
 
 export async function updateSmGlobalQuestionnaireAssignment(questionnaireTemplateId: string): Promise<SmGlobalQuestionnaireConfiguration & { replayed: boolean }> {
-  return (await authedFetch("/admin/sm-planning/questionnaire-assignment", {
+  const response = (await authedFetch("/admin/sm-planning/questionnaire-assignment", {
     method: "PUT",
     body: JSON.stringify({ questionnaireTemplateId }),
   })) as SmGlobalQuestionnaireConfiguration & { replayed: boolean };
+  SMDurcharbeitOptionCache.clear();
+  return response;
 }
 
 export async function fetchMySmPlanningAssignments(from: string, to: string): Promise<SmPlanningAssignment[]> {
@@ -2464,6 +2467,7 @@ export function getSmVisitStartTokenStorageKey(assignmentId: string): string {
 }
 
 export async function startSmVisit(assignmentId: string, input: {
+  SMDurcharbeitExpectedSelectionRevision?: string;
   mode: "timer" | "manual";
   travelMinutes?: number | null;
   clientSubmissionToken: string;
@@ -2505,6 +2509,28 @@ async function smManagementFetch(path: string, init: RequestInit = {}): Promise<
     return result;
   } finally { guard.dispose(); }
 }
+
+export const smPhotoArchiveApi: SmPhotoArchiveApi = (() => {
+  const queryString = (query: object) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "") params.set(key, String(value));
+    return params.toString();
+  };
+  const request = async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
+    const guard = createSmRequestOwnerGuard();
+    try {
+      const result = await authedFetch(`/admin/sm-photos${path}`, { cache: "no-store", ...init }, 30_000);
+      if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+      return result as T;
+    } finally { guard.dispose(); }
+  };
+  return {
+    list: query => request(`?${queryString(query)}`),
+    facets: query => request(`/facets?${queryString(query)}`),
+    urls: ids => request("/signed-urls", { method: "POST", body: JSON.stringify({ ids }) }),
+    export: query => request(`/export?${queryString(query)}`),
+  };
+})();
 
 export const smManagementApi: SmManagementApi = {
   list: async query => {
@@ -2677,6 +2703,7 @@ export async function markSmMessageRead(messageId: string): Promise<{ messageId:
 
 export async function createSmPlanningAssignment(input: CreateSmPlanningAssignmentInput): Promise<{ assignmentId: string; replayed: boolean; holidayAdjustment?: SmPlanningAssignment["holidayAdjustment"] }> {
   const payload: CreateSmPlanningAssignmentInput = {
+    ...(input.SMDurcharbeitQuestionnaireOverrideVersionId !== undefined ? { SMDurcharbeitQuestionnaireOverrideVersionId: input.SMDurcharbeitQuestionnaireOverrideVersionId } : {}),
     smMarketId: input.smMarketId,
     smUserId: input.smUserId,
     workDate: input.workDate,
@@ -2706,6 +2733,26 @@ export async function createSmPlanningSeries(input: CreateSmPlanningSeriesInput)
     method: "POST",
     body: JSON.stringify(payload),
   })) as { seriesId: string; count: number; replayed: boolean };
+}
+
+type SMDurcharbeitOptionsPayload = { options: import("@/types/smPlanning").SmGlobalQuestionnaireOption[]; centralQuestionnaire: string | null; SMDurcharbeitCentralQuestionnaire: import("@/types/smPlanning").SmGlobalQuestionnaireOption | null };
+const SMDurcharbeitOptionCache = new Map<string, { at: number; value: Promise<SMDurcharbeitOptionsPayload> }>();
+export function fetchSMDurcharbeitQuestionnaireOptions(workDate: string) {
+  const key = `${getActiveAuthUserId() ?? "anon"}:${workDate}`;
+  const cached = SMDurcharbeitOptionCache.get(key);
+  if (cached && Date.now() - cached.at < 30_000) return cached.value;
+  const guard = createSmRequestOwnerGuard();
+  const value: Promise<SMDurcharbeitOptionsPayload> = authedFetch(`/admin/sm-planning/SMDurcharbeit-questionnaire-options?workDate=${encodeURIComponent(workDate)}`, { cache: "no-store" })
+    .then(data => {
+      if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+      return data as SMDurcharbeitOptionsPayload;
+    })
+    .catch(error => { if (SMDurcharbeitOptionCache.get(key)?.value === value) SMDurcharbeitOptionCache.delete(key); throw error; })
+    .finally(() => guard.dispose());
+  for (const [cachedKey, entry] of SMDurcharbeitOptionCache) if (Date.now() - entry.at >= 30_000) SMDurcharbeitOptionCache.delete(cachedKey);
+  if (SMDurcharbeitOptionCache.size >= 32) SMDurcharbeitOptionCache.delete(SMDurcharbeitOptionCache.keys().next().value!);
+  SMDurcharbeitOptionCache.set(key, { at: Date.now(), value });
+  return value;
 }
 
 export async function updateSmPlanningAssignment(id: string, input: UpdateSmPlanningAssignmentInput): Promise<SmPlanningMutationResult> {
@@ -3585,7 +3632,7 @@ export type VisitSessionDeleteRequest = {
   };
 };
 export type GmVisitSessionDeleteRequest = VisitSessionDeleteRequest;
-export type AdminVisitSessionDeleteRequest = VisitSessionDeleteRequest;
+export type AdminVisitSessionDeleteRequest = VisitSessionDeleteRequest & { SMDurcharbeitCatalogScope?: import("@/types/smSMDurcharbeit").SMDurcharbeitCatalogScope | null };
 export type GmVisitSessionDeleteRequestResult = {
   ok: boolean;
   request: {
@@ -3596,6 +3643,7 @@ export type GmVisitSessionDeleteRequestResult = {
   } | null;
 };
 export type AdminAnswerChangeRequest = {
+  SMDurcharbeitCatalogScope?: import("@/types/smSMDurcharbeit").SMDurcharbeitCatalogScope | null;
   id: string;
   status: "pending" | "approved" | "rejected" | "cancelled";
   createdAt: string;
@@ -6887,25 +6935,27 @@ export async function cancelDaySession(): Promise<{ session: DaySession }> {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function smCatalogQuery(scope?: SmQuestionnaireCatalogScope): string {
+  return scope ? `?scope=${scope}` : "";
+}
+
 type SmQuestionnaireWorkspace = {
   modules: SmModule[];
   questionnaires: SmQuestionnaire[];
 };
 
-let smQuestionnaireWorkspaceInFlight: Promise<SmQuestionnaireWorkspace> | null = null;
+const smQuestionnaireWorkspaceInFlight = new Map<string, Promise<SmQuestionnaireWorkspace>>();
 
-export async function fetchSmQuestionnaireWorkspace(): Promise<SmQuestionnaireWorkspace> {
-  if (smQuestionnaireWorkspaceInFlight) return smQuestionnaireWorkspaceInFlight;
-
-  smQuestionnaireWorkspaceInFlight = authedFetch(
-    "/admin/sm-questionnaires/workspace",
-    { cache: "no-store" },
-  ) as Promise<SmQuestionnaireWorkspace>;
-
+export async function fetchSmQuestionnaireWorkspace(scope?: SmQuestionnaireCatalogScope): Promise<SmQuestionnaireWorkspace> {
+  const key = scope ?? "all";
+  const current = smQuestionnaireWorkspaceInFlight.get(key);
+  if (current) return current;
+  const request = authedFetch(`/admin/sm-questionnaires/workspace${smCatalogQuery(scope)}`, { cache: "no-store" }) as Promise<SmQuestionnaireWorkspace>;
+  smQuestionnaireWorkspaceInFlight.set(key, request);
   try {
-    return await smQuestionnaireWorkspaceInFlight;
+    return await request;
   } finally {
-    smQuestionnaireWorkspaceInFlight = null;
+    if (smQuestionnaireWorkspaceInFlight.get(key) === request) smQuestionnaireWorkspaceInFlight.delete(key);
   }
 }
 
@@ -6915,33 +6965,38 @@ export async function fetchSmDashboard(input: SmDashboardQuery): Promise<SmDashb
   if (input.chain) params.set("chain", input.chain);
   if (input.smUserId) params.set("smUserId", input.smUserId);
   if (input.marketId) params.set("marketId", input.marketId);
+  if (input.SMDurcharbeitCatalogScope) params.set("SMDurcharbeitCatalogScope", input.SMDurcharbeitCatalogScope);
   return (await authedFetch(`/admin/sm-dashboard?${params.toString()}`, { cache: "no-store" })) as SmDashboardPayload;
 }
 
-export async function saveSmQuestionnaireModule(module: SmModule): Promise<SmModule> {
+export async function saveSmQuestionnaireModule(module: SmModule, scope: SmQuestionnaireCatalogScope = "standard"): Promise<SmModule> {
   const persisted = UUID_PATTERN.test(module.id);
-  const response = await authedFetch(persisted ? `/admin/sm-questionnaires/modules/${module.id}` : "/admin/sm-questionnaires/modules", {
+  const response = await authedFetch((persisted ? `/admin/sm-questionnaires/modules/${module.id}` : "/admin/sm-questionnaires/modules") + smCatalogQuery(scope), {
     method: persisted ? "PATCH" : "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(module),
   }) as { module: SmModule };
+  SMDurcharbeitOptionCache.clear();
   return response.module;
 }
 
-export async function deleteSmQuestionnaireModule(id: string): Promise<void> {
-  await authedFetch(`/admin/sm-questionnaires/modules/${id}/delete`, { method: "PATCH" });
+export async function deleteSmQuestionnaireModule(id: string, scope: SmQuestionnaireCatalogScope = "standard"): Promise<void> {
+  await authedFetch(`/admin/sm-questionnaires/modules/${id}/delete${smCatalogQuery(scope)}`, { method: "PATCH" });
+  SMDurcharbeitOptionCache.clear();
 }
 
-export async function saveSmQuestionnaire(questionnaire: SmQuestionnaire): Promise<SmQuestionnaire> {
+export async function saveSmQuestionnaire(questionnaire: SmQuestionnaire, scope: SmQuestionnaireCatalogScope = "standard"): Promise<SmQuestionnaire> {
   const persisted = UUID_PATTERN.test(questionnaire.id);
-  const response = await authedFetch(persisted ? `/admin/sm-questionnaires/questionnaires/${questionnaire.id}` : "/admin/sm-questionnaires/questionnaires", {
+  const response = await authedFetch((persisted ? `/admin/sm-questionnaires/questionnaires/${questionnaire.id}` : "/admin/sm-questionnaires/questionnaires") + smCatalogQuery(scope), {
     method: persisted ? "PATCH" : "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(questionnaire),
   }) as { questionnaire: SmQuestionnaire };
+  SMDurcharbeitOptionCache.clear();
   return response.questionnaire;
 }
 
-export async function deleteSmQuestionnaire(id: string): Promise<void> {
-  await authedFetch(`/admin/sm-questionnaires/questionnaires/${id}/delete`, { method: "PATCH" });
+export async function deleteSmQuestionnaire(id: string, scope: SmQuestionnaireCatalogScope = "standard"): Promise<void> {
+  await authedFetch(`/admin/sm-questionnaires/questionnaires/${id}/delete${smCatalogQuery(scope)}`, { method: "PATCH" });
+  SMDurcharbeitOptionCache.clear();
 }

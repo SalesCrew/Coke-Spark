@@ -13,6 +13,7 @@ type XlsxModule = typeof import("xlsx-js-style");
 type SmQuestionRow = { module: SmModule; question: SmQuestion; questionIndex: number };
 
 export type SmQuestionnaireExportInput = {
+  SMDurcharbeitCatalogScope?: import("@/types/smQuestionnaire").SmQuestionnaireCatalogScope;
   modules: SmModule[];
   questionnaires: SmQuestionnaire[];
   exportedBy?: string;
@@ -150,6 +151,7 @@ function buildSheets(input: SmQuestionnaireExportInput, XLSX: XlsxModule, workbo
     { label: "Logikregeln", value: logicRows.length },
     { label: "OOS-Zuordnungen", value: oosRows.length },
     { label: "Hinweis", value: "Aktueller SM-Autorenkatalog mit Fragebogen-Komposition, SM-Fragetypen, Logik und OOS-Metadaten." },
+    ...(input.SMDurcharbeitCatalogScope ? [{ label: "Fragebogentyp", value: input.SMDurcharbeitCatalogScope === "SMDurcharbeit" ? "Durcharbeit" : "Standardfragebogen" }] : []),
   ]);
 
   appendTableSheet(XLSX, workbook, {

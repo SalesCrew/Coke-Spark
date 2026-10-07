@@ -5,9 +5,13 @@ import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "r
 import { createPortal } from "react-dom";
 import type { SmPlanningStatus } from "@/types/smPlanning";
 import type { SmHolidayAdjustment } from "@/lib/sm/austrianHolidays";
+import { isSMDurcharbeitAssignment } from "@/lib/sm/SMDurcharbeitView";
 import { SmHolidayNote } from "@/components/sm/SmHolidayNote";
 
 export interface DashboardAssignment {
+  SMDurcharbeitMarket?: boolean;
+  SMDurcharbeitQuestionnaireSelection?: import("@/types/smSMDurcharbeit").SMDurcharbeitQuestionnaireSelection;
+  SMDurcharbeitUpdatedAt?: string;
   holidayAdjustment?: SmHolidayAdjustment | null;
   id: string;
   duration: string;
@@ -46,7 +50,11 @@ export function AssignmentList({
   };
 
   return (
-    <div>
+    <section aria-label="Besuche">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2"><CalendarDays size={12} className="text-gray-400" /><h3 className="text-[11px] font-semibold text-gray-600">Besuche</h3></div>
+        {loading ? <span aria-hidden="true" className="h-2.5 w-12 motion-safe:animate-pulse rounded bg-black/[.04]" /> : !error ? <span className="text-[9px] tabular-nums text-gray-400">{assignments.length} {assignments.length === 1 ? "Einsatz" : "Einsätze"}</span> : null}
+      </div>
       <div className="flex items-center px-1 pb-2">
         <span className="w-[68px] text-[10px] font-semibold uppercase tracking-[0.04em] text-gray-300">
           Dauer
@@ -95,12 +103,14 @@ export function AssignmentList({
             >
               <CalendarDays size={15} strokeWidth={1.65} />
             </span>
-            <p className="mt-3 text-[10px] font-semibold text-gray-500">Keine Einsätze für diesen Tag</p>
+            <p className="mt-3 text-[10px] font-semibold text-gray-500">Keine Besuche für diesen Tag</p>
             <p className="mt-1 text-[9px] leading-relaxed text-gray-300">Wähle unten einen anderen Tag aus.</p>
           </div>
         ) : null}
 
-        {assignments.map((a, i) => (
+        {assignments.map((a, i) => {
+          const SMDurcharbeit = isSMDurcharbeitAssignment(a);
+          return (
           <div
             key={a.id}
             role="button"
@@ -110,17 +120,18 @@ export function AssignmentList({
             onKeyDown={(event) => openDetailsFromKeyboard(event, a)}
             className={`flex ${a.holidayAdjustment ? "min-h-[58px]" : "h-[44px]"} cursor-pointer items-center px-1 outline-none transition-colors hover:bg-black/[0.018] focus-visible:bg-black/[0.025]`}
             style={{
+              ...(SMDurcharbeit ? { background: "rgba(37,99,235,.025)" } : {}),
               borderBottom:
                 i < assignments.length - 1
                   ? "1px solid rgba(0,0,0,0.04)"
                   : "none",
             }}
           >
-            <span className="w-[68px] shrink-0 whitespace-nowrap text-[10px] tabular-nums text-gray-400">
+            <span className={`w-[68px] shrink-0 whitespace-nowrap text-[10px] tabular-nums ${SMDurcharbeit ? "font-medium text-blue-500" : "text-gray-400"}`}>
               {a.duration}
             </span>
             <span className="min-w-0 flex-1 pr-2">
-              <span className="block truncate text-[12px] font-medium text-gray-800">{a.market}</span>
+              <span className={`block truncate text-[12px] font-medium ${SMDurcharbeit ? "text-blue-950" : "text-gray-800"}`}>{a.market}</span>
               {a.holidayAdjustment ? <SmHolidayNote compact adjustment={a.holidayAdjustment} currentDate={a.workDate} /> : null}
               {a.address ? (
                 <a
@@ -129,22 +140,23 @@ export function AssignmentList({
                   rel="noopener noreferrer"
                   title={`${a.market} in Google Maps öffnen`}
                   onClick={(event) => event.stopPropagation()}
-                  className="mt-0.5 inline-block max-w-full truncate align-top text-[9px] text-gray-400 hover:text-red-600 hover:underline"
+                  className={`mt-0.5 inline-block max-w-full truncate align-top text-[9px] hover:underline ${SMDurcharbeit ? "text-blue-400 hover:text-blue-600" : "text-gray-400 hover:text-red-600"}`}
                 >
-                  {a.address}
+                  {SMDurcharbeit ? "Durcharbeit · " : ""}{a.address}
                 </a>
-              ) : null}
+              ) : SMDurcharbeit ? <span className="mt-0.5 block text-[9px] text-blue-400">Durcharbeit</span> : null}
             </span>
-            <StatusPill assignment={a} onStart={onStart} starting={startingAssignmentId === a.id} launchLocked={startingAssignmentId !== null} />
+            <StatusPill SMDurcharbeit={SMDurcharbeit} assignment={a} onStart={onStart} starting={startingAssignmentId === a.id} launchLocked={startingAssignmentId !== null} />
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {selectedAssignment && typeof document !== "undefined" ? createPortal(
         <AssignmentDetailDialog assignment={selectedAssignment} onClose={() => setSelectedAssignment(null)} />,
         document.body,
       ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -163,6 +175,7 @@ function formatWorkDate(value: string): string {
 
 function AssignmentDetailDialog({ assignment, onClose }: { assignment: DashboardAssignment; onClose: () => void }) {
   const status = STATUS_META[assignment.status];
+  const SMDurcharbeit = isSMDurcharbeitAssignment(assignment);
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/25 px-4 py-6 backdrop-blur-[1px]"
@@ -178,7 +191,7 @@ function AssignmentDetailDialog({ assignment, onClose }: { assignment: Dashboard
       >
         <header className="flex items-start justify-between gap-4 border-b border-black/[0.055] px-5 py-4">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-red-500/65">Einsatzdetails</p>
+            <p className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${SMDurcharbeit ? "text-blue-600" : "text-red-500/65"}`}>{SMDurcharbeit ? "Durcharbeit · Einsatzdetails" : "Einsatzdetails"}</p>
             <h2 id="sm-assignment-detail-title" className="mt-1 truncate text-[16px] font-semibold text-gray-900">{assignment.market}</h2>
             <p className="mt-1 text-[11px] text-gray-400">Stammnr. {assignment.marketInternalId}</p>
           </div>
@@ -189,10 +202,11 @@ function AssignmentDetailDialog({ assignment, onClose }: { assignment: Dashboard
 
         <div className="grid gap-3 px-5 py-4">
           {assignment.holidayAdjustment ? <SmHolidayNote adjustment={assignment.holidayAdjustment} currentDate={assignment.workDate} /> : null}
-          <DetailRow icon={<CalendarDays size={15} />} label="Datum" value={formatWorkDate(assignment.workDate)} />
-          <DetailRow icon={<Clock3 size={15} />} label="Sollzeit" value={assignment.duration} />
-          <DetailRow icon={<Store size={15} />} label="Planung" value={`${assignment.sourceType === "series" ? "Serie" : "Einmalig"} · ${status.label}`} />
-          <DetailRow icon={<MapPin size={15} />} label="Adresse" value={assignment.address || "Keine Adresse hinterlegt"} />
+          {assignment.SMDurcharbeitQuestionnaireSelection ? <div><p className={`text-[11px] font-medium ${SMDurcharbeit ? "text-blue-800" : "text-gray-600"}`}>{assignment.SMDurcharbeitQuestionnaireSelection.name} · Version {assignment.SMDurcharbeitQuestionnaireSelection.versionNumber ?? "—"}</p>{assignment.SMDurcharbeitQuestionnaireSelection.blockReason ? <p className="mt-2 text-[10px] text-amber-700">{assignment.SMDurcharbeitQuestionnaireSelection.blockReason}</p> : null}</div> : null}
+          <DetailRow SMDurcharbeit={SMDurcharbeit} icon={<CalendarDays size={15} />} label="Datum" value={formatWorkDate(assignment.workDate)} />
+          <DetailRow SMDurcharbeit={SMDurcharbeit} icon={<Clock3 size={15} />} label="Sollzeit" value={assignment.duration} />
+          <DetailRow SMDurcharbeit={SMDurcharbeit} icon={<Store size={15} />} label="Planung" value={`${assignment.sourceType === "series" ? "Serie" : "Einmalig"} · ${status.label}`} />
+          <DetailRow SMDurcharbeit={SMDurcharbeit} icon={<MapPin size={15} />} label="Adresse" value={assignment.address || "Keine Adresse hinterlegt"} />
         </div>
 
         <div className="px-5 pb-5">
@@ -201,7 +215,7 @@ function AssignmentDetailDialog({ assignment, onClose }: { assignment: Dashboard
             target="_blank"
             rel="noopener noreferrer"
             className="flex h-11 w-full items-center justify-center gap-2 rounded-xl text-[12px] font-semibold text-white"
-            style={{ background: "linear-gradient(to bottom,#DC2626,#c42020)", boxShadow: "inset 0 1px .6px rgba(255,255,255,.35),0 1px 6px rgba(180,20,20,.18)" }}
+            style={{ background: SMDurcharbeit ? "linear-gradient(#2563EB,#1D4ED8)" : "linear-gradient(to bottom,#DC2626,#c42020)", boxShadow: "inset 0 1px .6px rgba(255,255,255,.35),0 1px 6px rgba(180,20,20,.18)" }}
           >
             <MapPin size={14} /> In Google Maps öffnen
           </a>
@@ -211,10 +225,10 @@ function AssignmentDetailDialog({ assignment, onClose }: { assignment: Dashboard
   );
 }
 
-function DetailRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function DetailRow({ icon, label, value, SMDurcharbeit = false }: { icon: ReactNode; label: string; value: string; SMDurcharbeit?: boolean }) {
   return (
     <div className="flex items-start gap-3 rounded-xl bg-black/[0.025] px-3.5 py-3">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-red-500 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">{icon}</span>
+      <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white ${SMDurcharbeit ? "text-blue-500" : "text-red-500"} shadow-[0_0_0_1px_rgba(0,0,0,0.05)]`}>{icon}</span>
       <span className="min-w-0">
         <span className="block text-[9px] font-semibold uppercase tracking-[0.07em] text-gray-400">{label}</span>
         <span className="mt-1 block text-[13px] font-medium leading-snug text-gray-800">{value}</span>
@@ -233,7 +247,7 @@ const STATUS_META: Record<SmPlanningStatus, { label: string; background: string;
   missed: { label: "Versäumt", background: "#F3F4F6", color: "#6B7280" },
 };
 
-function StatusPill({ assignment, onStart, starting, launchLocked }: { assignment: DashboardAssignment; onStart?: (assignment: DashboardAssignment) => void; starting: boolean; launchLocked: boolean }) {
+function StatusPill({ assignment, onStart, starting, launchLocked, SMDurcharbeit = false }: { SMDurcharbeit?: boolean; assignment: DashboardAssignment; onStart?: (assignment: DashboardAssignment) => void; starting: boolean; launchLocked: boolean }) {
   const meta = STATUS_META[assignment.status];
   const actionable = ["planned", "confirmed", "open", "in_progress"].includes(assignment.status);
 
@@ -251,11 +265,11 @@ function StatusPill({ assignment, onStart, starting, launchLocked }: { assignmen
         padding: "4px 14px",
         borderRadius: 8,
         border: 0,
-        background: meta.background,
-        color: meta.color,
+        background: SMDurcharbeit && actionable ? assignment.status === "in_progress" ? "#DBEAFE" : "linear-gradient(#2563EB,#1D4ED8)" : meta.background,
+        color: SMDurcharbeit && assignment.status === "in_progress" ? "#1D4ED8" : meta.color,
         cursor: actionable && !launchLocked ? "pointer" : "default",
         boxShadow: actionable && assignment.status !== "in_progress"
-          ? "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
+          ? SMDurcharbeit ? "inset 0 1px .6px rgba(255,255,255,.33),0 0 0 1px #1E40AF,0 1px 5px rgba(37,99,235,.16)" : "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #c42020, 0 1px 6px rgba(180,20,20,0.14)"
           : "0 0 0 0.5px rgba(0,0,0,0.06)",
         letterSpacing: "0.01em",
       }}

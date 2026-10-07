@@ -1,5 +1,7 @@
 "use client";
 
+import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQuestionnaireBadge";
+
 import {
   AlertCircle,
   ArrowLeft,
@@ -752,10 +754,20 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       const storageKey = getSmVisitStartTokenStorageKey(assignmentId);
       const token = localStorage.getItem(storageKey) ?? uuid();
       localStorage.setItem(storageKey, token);
-      const next = await startSmVisit(assignmentId, { mode, travelMinutes, clientSubmissionToken: token });
-      clearSmVisitPendingAnswers(assignmentId);
+      const fresh = await fetchSmVisit(assignmentId);
+      if (fresh.submission) { applyPayload(fresh, { fromServer: true }); return; }
+      if (payload.SMDurcharbeitQuestionnaireSelection && fresh.SMDurcharbeitQuestionnaireSelection?.revision !== payload.SMDurcharbeitQuestionnaireSelection.revision) {
+        applyPayload(fresh, { fromServer: true });
+        setError("Der Fragebogen wurde geändert. Bitte prüfe die aktuelle Auswahl und starte erneut.");
+        return;
+      }
+      const next = await startSmVisit(assignmentId, { mode, travelMinutes, clientSubmissionToken: token,
+        SMDurcharbeitExpectedSelectionRevision: fresh.SMDurcharbeitQuestionnaireSelection?.revision });
       applyPayload(next, { fromServer: true });
     } catch (startError) {
+      if (startError instanceof BackendApiError && startError.code === "smdurcharbeit_selection_stale") {
+        await fetchSmVisit(assignmentId).then(fresh => applyPayload(fresh, { fromServer: true })).catch(() => undefined);
+      }
       setError(startError instanceof Error ? startError.message : "Der Marktbesuch konnte nicht gestartet werden.");
     } finally {
       setStarting(false);
@@ -1178,6 +1190,7 @@ function VisitHeader({ payload, onBack }: { payload: SmVisitPayload; onBack: () 
       <div className="flex min-w-0 flex-1 items-center gap-2"><span className="max-w-[44%] truncate rounded-md bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-700">{market.name}</span><span className="min-w-0 flex-1 truncate text-[9px] text-black/35">{market.address} · {market.postalCode} {market.city}</span></div>
       {payload.submission?.visitStartedAt ? <TimerLabel startedAt={payload.submission.visitStartedAt} /> : null}
     </div>
+    <div className="mt-1 pl-[38px]"><SMDurcharbeitQuestionnaireBadge selection={payload.SMDurcharbeitQuestionnaireSelection} showName /></div>
   </header>;
 }
 
@@ -1274,6 +1287,7 @@ function StartScreen({ payload, travelInput, onTravelInput, busy, error, onBack,
       <div className="mb-5 h-px bg-black/[0.05]" />
       <div className="mb-[22px]">
         <h1 className="text-[15px] font-bold tracking-[-.02em] text-[#1a1a1a]">Aktiver Marktbesuch</h1>
+        <div className="mt-2"><SMDurcharbeitQuestionnaireBadge selection={payload.SMDurcharbeitQuestionnaireSelection} showName /></div>
         <p className="mt-1 text-[11px] leading-[1.5] text-black/[0.38]">Timer läuft automatisch. Du kannst die Zeit danach anpassen.</p>
       </div>
       {payload.profile.travelTimeEnabled ? <label className="block">
@@ -1283,7 +1297,8 @@ function StartScreen({ payload, travelInput, onTravelInput, busy, error, onBack,
           <SmTravelTimeInput value={travelInput} onValueChange={onTravelInput} className="h-full min-w-0 flex-1 bg-transparent text-center text-[16px] font-semibold tabular-nums outline-none placeholder:text-black/20" />
         </span>
       </label> : null}
-      {payload.questionnaireAvailability.count === 0 ? <p className="mt-3 rounded-[9px] bg-amber-50 px-3 py-2 text-[9px] leading-relaxed text-amber-800">Für diesen Einsatz ist aktuell noch kein veröffentlichter SM-Fragebogen verfügbar.</p> : null}
+      {payload.SMDurcharbeitQuestionnaireSelection?.blockReason ? <p role="status" className="mt-3 rounded-[9px] bg-amber-50 px-3 py-2 text-[9px] text-amber-800">{payload.SMDurcharbeitQuestionnaireSelection.blockReason}</p> : null}
+      {payload.questionnaireAvailability.count === 0 && !payload.SMDurcharbeitQuestionnaireSelection?.blockReason ? <p className="mt-3 rounded-[9px] bg-amber-50 px-3 py-2 text-[9px] leading-relaxed text-amber-800">Für diesen Einsatz ist aktuell noch kein veröffentlichter SM-Fragebogen verfügbar.</p> : null}
       {payload.questionnaireAvailability.count > 1 ? <p className="mt-3 rounded-[9px] bg-amber-50 px-3 py-2 text-[9px] leading-relaxed text-amber-800">Mehrere Fragebögen sind gültig. Ordne dem Einsatz in der Verplanung einen konkreten Fragebogen zu.</p> : null}
       {error ? <p role="alert" className="mt-3 rounded-[9px] bg-red-50 px-3 py-2 text-[9px] font-semibold leading-relaxed text-red-700">{error}</p> : null}
       <button type="button" disabled={blocked} onClick={onStartTimer} className={`${payload.profile.travelTimeEnabled ? "mt-5" : ""} flex h-[36px] w-full items-center justify-center gap-1.5 rounded-[9px] bg-gradient-to-b from-[#DC2626] to-[#b91c1c] text-[11px] font-bold text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.33),inset_0_-1px_0_rgba(255,255,255,.15),0_0_0_1px_#a91b1b,0_1px_6px_rgba(180,20,20,.18)] disabled:bg-none disabled:bg-black/[0.08] disabled:text-black/25 disabled:shadow-none`}>{busy ? <LoaderCircle size={12} className="animate-spin" /> : <Clock3 size={12} />}Timer starten</button>
@@ -1804,6 +1819,7 @@ function ReviewScreen({ payload, flat, error, timeConflict, busy, onBack, onSubm
       <div className="mt-5">
         <p className="text-[9px] font-bold uppercase tracking-[.09em] text-red-500">Abschluss</p>
         <h1 className="mt-2 text-[22px] font-extrabold tracking-[-.03em]">Antworten prüfen</h1>
+        <div className="mt-2"><SMDurcharbeitQuestionnaireBadge selection={payload.SMDurcharbeitQuestionnaireSelection} showName /></div>
         <p className="mt-2 max-w-[360px] text-[11px] leading-[1.55] text-black/35">Kontrolliere die Zeitangaben, bevor du den Marktbesuch abschließt.</p>
       </div>
 
@@ -1864,7 +1880,8 @@ function ReviewScreen({ payload, flat, error, timeConflict, busy, onBack, onSubm
 }
 
 function ReviewTimestampField({ label, tone, value, onChange, onOpenClock }: { label: string; tone: "green" | "red"; value: string; onChange: (value: string) => void; onOpenClock: () => void }) {
-  const [dateKey = formatDateKey(new Date()), time = ""] = value.split("T");
+  const [datePart, time = ""] = value.split("T");
+  const dateKey = datePart || formatDateKey(new Date());
   return <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
     <span style={{ fontSize: 10, fontWeight: 600, color: tone === "green" ? "#16a34a" : "#DC2626", width: 36, flexShrink: 0 }}>{label}</span>
     <div style={{ flex: 1, display: "flex", alignItems: "center", backgroundColor: "rgba(0,0,0,0.03)", borderRadius: 8, padding: "6px 10px" }}>
@@ -1897,6 +1914,7 @@ function ReceiptScreen({ payload, receipt, onDone }: { payload: SmVisitPayload; 
         </span>
         <p className="mt-4 text-[8px] font-bold uppercase tracking-[.15em] text-emerald-600">Erfolgreich gespeichert</p>
         <h1 className="mt-1.5 text-[22px] font-extrabold leading-[1.12] tracking-[-.035em]">Marktbesuch abgeschlossen</h1>
+        <div className="mt-2"><SMDurcharbeitQuestionnaireBadge selection={payload.SMDurcharbeitQuestionnaireSelection} showName /></div>
         <p className="mx-auto mt-2 max-w-[270px] text-[11px] leading-[1.5] text-black/40">Alle Angaben für <span className="font-semibold text-black/60">{market.name}</span> wurden sicher übernommen.</p>
       </div>
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { SmCommentTriggerEditor, reconcileCommentOptions } from "./SmCommentTriggerEditor";
+import { smQuestionnaireThemeStyle, type SmQuestionnaireTheme } from "./smQuestionnaireTheme";
 import {
   AlignLeft,
   Camera,
@@ -288,12 +289,19 @@ function SmLogicDropdown({
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, width: 0 });
+  const [menuTheme, setMenuTheme] = useState<CSSProperties>({});
 
   const updateMenuPosition = useCallback(() => {
     const trigger = ref.current;
     if (!trigger) return;
 
     const rect = trigger.getBoundingClientRect();
+    // The menu is rendered in document.body, outside the editor's themed root.
+    const triggerStyle = window.getComputedStyle(trigger);
+    setMenuTheme({
+      "--module-accent": triggerStyle.getPropertyValue("--module-accent"),
+      "--module-accent-rgb": triggerStyle.getPropertyValue("--module-accent-rgb"),
+    } as CSSProperties);
     const estimatedHeight = Math.min(180, Math.max(54, options.length * 34 + 8));
     const roomBelow = window.innerHeight - rect.bottom;
     const openAbove = roomBelow < estimatedHeight + 8 && rect.top > estimatedHeight + 8;
@@ -363,6 +371,7 @@ function SmLogicDropdown({
           ref={menuRef}
           className="sm-logic-dropdown"
           style={{
+            ...menuTheme,
             position: "fixed",
             top: menuPosition.top,
             left: menuPosition.left,
@@ -1627,11 +1636,13 @@ export function SmModuleEditor({
   existingQuestions,
   onClose,
   onSave,
+  theme,
 }: {
   existing: SmModule | null;
   existingQuestions: SmQuestion[];
   onClose: () => void;
   onSave: (module: SmModule) => Promise<void> | void;
+  theme?: SmQuestionnaireTheme;
 }) {
   const [moduleName, setModuleName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
@@ -1707,11 +1718,7 @@ export function SmModuleEditor({
   return (
     <div
       style={{
-        "--module-accent": "#DC2626",
-        "--module-accent-dark": "#b91c1c",
-        "--module-accent-light": "#e84040",
-        "--module-accent-border": "#a91b1b",
-        "--module-accent-rgb": "220,38,38",
+        ...smQuestionnaireThemeStyle(theme),
         position: "fixed",
         inset: 0,
         zIndex: 12000,

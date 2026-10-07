@@ -70,6 +70,9 @@ function toDashboardAssignment(assignment: SmPlanningAssignment): DashboardAssig
     sourceType: assignment.sourceType,
     status: assignment.status,
     holidayAdjustment: assignment.holidayAdjustment,
+    SMDurcharbeitQuestionnaireSelection: assignment.SMDurcharbeitQuestionnaireSelection,
+    SMDurcharbeitUpdatedAt: assignment.updatedAt,
+    SMDurcharbeitMarket: assignment.SMDurcharbeitMarket,
   };
 }
 

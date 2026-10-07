@@ -2,6 +2,7 @@ export type SmMarketWeekdayKey = "mo" | "di" | "mi" | "do" | "fr";
 export type SmMarketWeekdayHours = Record<SmMarketWeekdayKey, number | null>;
 
 export type SmMarketRecord = {
+  SMDurcharbeitMarket?: boolean;
   id: string;
   internalId: string;
   flexNumber?: string;

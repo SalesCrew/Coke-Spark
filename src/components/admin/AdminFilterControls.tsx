@@ -1,10 +1,14 @@
 "use client";
 
 import { Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 const RED = "#DC2626";
+const SMDurcharbeitControlTheme = createContext(false);
+export function SMDurcharbeitFilterTheme({ children, enabled }: { children: ReactNode; enabled: boolean }) {
+  return <SMDurcharbeitControlTheme.Provider value={enabled}>{children}</SMDurcharbeitControlTheme.Provider>;
+}
 const CALENDAR_WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const MONTH_NAMES = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 
@@ -45,6 +49,7 @@ export function AdminDropdown({
   searchable?: boolean;
   disabled?: boolean;
 }) {
+  const SMDurcharbeit = useContext(SMDurcharbeitControlTheme);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -148,7 +153,7 @@ export function AdminDropdown({
       ref={menuRef}
       role="listbox"
       aria-label={ariaLabel}
-      className="sm-plan-dropdown-menu"
+      className={`sm-plan-dropdown-menu${SMDurcharbeit ? " is-SMDurcharbeit" : ""}`}
       onKeyDown={handleKeyDown}
       style={{
         position: "fixed",
@@ -189,7 +194,7 @@ export function AdminDropdown({
                 <span className="sm-plan-dropdown-option-label">{option.label}{option.recommended ? <span className="sm-plan-dropdown-recommended">Synchronisiert</span> : null}</span>
                 {option.description ? <span className="sm-plan-dropdown-option-description">{option.description}</span> : null}
               </span>
-              {selected ? <Check size={11} strokeWidth={2.5} color={RED} style={{ flexShrink: 0 }} /> : null}
+              {selected ? <Check size={11} strokeWidth={2.5} color={SMDurcharbeit ? "#2563EB" : RED} style={{ flexShrink: 0 }} /> : null}
             </button>
           );
         }) : <div className="sm-plan-dropdown-empty">Keine Treffer</div>}
@@ -207,7 +212,7 @@ export function AdminDropdown({
         aria-haspopup="listbox"
         aria-expanded={disabled ? false : open}
         disabled={disabled}
-        className={`sm-plan-dropdown-trigger${compact ? " is-compact" : ""}${active && compact ? " is-active" : ""}${open ? " is-open" : ""}`}
+        className={`sm-plan-dropdown-trigger${SMDurcharbeit ? " is-SMDurcharbeit" : ""}${compact ? " is-compact" : ""}${active && compact ? " is-active" : ""}${open ? " is-open" : ""}`}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={handleKeyDown}
       >
@@ -234,6 +239,7 @@ export function AdminDatePicker({
   maxDate?: string;
   portalContainer?: HTMLElement | null;
 }) {
+  const SMDurcharbeit = useContext(SMDurcharbeitControlTheme);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -318,7 +324,7 @@ export function AdminDatePicker({
       ref={panelRef}
       role="dialog"
       aria-label={`${ariaLabel} auswählen`}
-      className="sm-plan-calendar-panel"
+      className={`sm-plan-calendar-panel${SMDurcharbeit ? " is-SMDurcharbeit" : ""}`}
       style={{
         position: "fixed",
         zIndex: 12000,
@@ -378,7 +384,7 @@ export function AdminDatePicker({
           event.stopPropagation();
           setOpen(false);
         }}
-        className={`sm-plan-date-trigger${open ? " is-open" : ""}`}
+        className={`sm-plan-date-trigger${SMDurcharbeit ? " is-SMDurcharbeit" : ""}${open ? " is-open" : ""}`}
       >
         <span>{displayValue}</span>
         <Calendar size={12} strokeWidth={1.8}/>
@@ -437,6 +443,11 @@ export function AdminFilterControlStyles() {
         .sm-plan-calendar-footer{margin-top:8px;padding-top:8px;display:flex;justify-content:flex-end;border-top:1px solid rgba(0,0,0,.05)}
         .sm-plan-calendar-footer button{padding:2px 4px;border:0;background:transparent;color:${RED};font-family:inherit;font-size:9.5px;font-weight:650;cursor:pointer}
         .sm-plan-calendar-footer button:disabled{color:rgba(0,0,0,.20);cursor:not-allowed}
+        .sm-plan-dropdown-trigger.is-SMDurcharbeit.is-active{background:#EFF6FF;border-color:#BFDBFE;color:#2563EB}
+        .sm-plan-dropdown-menu.is-SMDurcharbeit .sm-plan-dropdown-option.is-selected{background:#EFF6FF;color:#1D4ED8}
+        .sm-plan-calendar-panel.is-SMDurcharbeit .sm-plan-calendar-day.is-today:not(.is-selected){background:#EFF6FF;color:#2563EB}
+        .sm-plan-calendar-panel.is-SMDurcharbeit .sm-plan-calendar-day.is-selected{background:linear-gradient(#2563EB,#1D4ED8);box-shadow:inset 0 1px .6px rgba(255,255,255,.33),0 0 0 1px #1E40AF,0 1px 4px rgba(37,99,235,.14)}
+        .sm-plan-calendar-panel.is-SMDurcharbeit .sm-plan-calendar-footer button:not(:disabled){color:#2563EB}
         @keyframes smPlanDropdownIn{from{opacity:0}to{opacity:1}}
         .sm-plan-dropdown-trigger:focus-visible,.sm-plan-date-trigger:focus-visible,.sm-plan-calendar-nav:focus-visible,.sm-plan-calendar-day:focus-visible,.sm-plan-dropdown-option:focus-visible{outline:2px solid rgba(0,0,0,.15);outline-offset:-2px}
         @media(prefers-reduced-motion:reduce){.sm-plan-dropdown-menu,.sm-plan-calendar-panel{animation:none}}

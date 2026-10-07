@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Eye, GripVertical, Plus, Search, X } from "lucide-react";
+import { smQuestionnaireThemeStyle, type SmQuestionnaireTheme } from "./smQuestionnaireTheme";
 import type { SmModule, SmQuestion, SmQuestionnaire, SmQuestionType } from "@/types/smQuestionnaire";
 
-const RED = "#DC2626";
+const ACCENT = "var(--module-accent,#DC2626)";
 
 const labelStyle: React.CSSProperties = {
   display: "block",
@@ -200,14 +201,14 @@ function ModulePreview({ module, onClose }: { module: SmModule; onClose: () => v
           <div style={{ flex: 1 }}>
             <div style={{ color: "#1a1a1a", fontSize: 14, fontWeight: 700, letterSpacing: "-.01em" }}>{module.name || "Unbenanntes Modul"}</div>
             {module.description ? <div style={{ marginTop: 4, color: "rgba(0,0,0,.45)", fontSize: 11, lineHeight: 1.5 }}>{module.description}</div> : null}
-            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}><span style={{ padding: "2px 8px", borderRadius: 4, backgroundColor: "rgba(220,38,38,.06)", color: RED, fontSize: 9, fontWeight: 600 }}>{module.questions.length} {module.questions.length === 1 ? "Frage" : "Fragen"}</span></div>
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}><span style={{ padding: "2px 8px", borderRadius: 4, backgroundColor: "rgba(var(--module-accent-rgb,220,38,38),.06)", color: ACCENT, fontSize: 9, fontWeight: 600 }}>{module.questions.length} {module.questions.length === 1 ? "Frage" : "Fragen"}</span></div>
           </div>
-          <button type="button" onClick={onClose} style={{ padding: 4, border: 0, background: "none", display: "flex", alignItems: "center", color: "rgba(0,0,0,.35)", cursor: "pointer", transition: "color .15s ease", flexShrink: 0 }} onMouseEnter={(event) => { event.currentTarget.style.color = RED; }} onMouseLeave={(event) => { event.currentTarget.style.color = "rgba(0,0,0,.35)"; }}><X size={16} strokeWidth={1.8} /></button>
+          <button type="button" onClick={onClose} style={{ padding: 4, border: 0, background: "none", display: "flex", alignItems: "center", color: "rgba(0,0,0,.35)", cursor: "pointer", transition: "color .15s ease", flexShrink: 0 }} onMouseEnter={(event) => { event.currentTarget.style.color = ACCENT; }} onMouseLeave={(event) => { event.currentTarget.style.color = "rgba(0,0,0,.35)"; }}><X size={16} strokeWidth={1.8} /></button>
         </header>
         <div style={{ minHeight: 0, flex: 1, overflowY: "auto", padding: "12px 20px 20px", scrollbarWidth: "none" }}>
           {module.questions.map((question, index) => (
             <div key={question.id} style={{ padding: "8px 0", borderBottom: index < module.questions.length - 1 ? "1px solid rgba(0,0,0,.04)" : "none", display: "flex", alignItems: "flex-start", gap: 9 }}>
-              <span style={{ width: 18, height: 18, flex: "none", borderRadius: "50%", background: "linear-gradient(to bottom,#DC2626,#e84040)", display: "grid", placeItems: "center", color: "#fff", fontSize: 8, fontWeight: 700 }}>{index + 1}</span>
+              <span style={{ width: 18, height: 18, flex: "none", borderRadius: "50%", background: "linear-gradient(to bottom,var(--module-accent,#DC2626),var(--module-accent-light,#e84040))", display: "grid", placeItems: "center", color: "#fff", fontSize: 8, fontWeight: 700 }}>{index + 1}</span>
               <div style={{ minWidth: 0, flex: 1 }}><div style={{ color: "#374151", fontSize: 11, fontWeight: 500, lineHeight: 1.45 }}>{question.text || "Ohne Fragetext"}</div><div style={{ marginTop: 3, color: "rgba(0,0,0,.3)", fontSize: 9 }}>{question.required ? "Pflichtfrage" : "Optional"}</div></div>
             </div>
           ))}
@@ -222,11 +223,13 @@ export function SmFragebogenEditor({
   modules,
   onClose,
   onSave,
+  theme,
 }: {
   existing: SmQuestionnaire | null;
   modules: SmModule[];
   onClose: () => void;
   onSave: (row: SmQuestionnaire) => Promise<void> | void;
+  theme?: SmQuestionnaireTheme;
 }) {
   const [name, setName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
@@ -319,12 +322,12 @@ export function SmFragebogenEditor({
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 12000, background: "#fff", display: "flex", flexDirection: "column" }}>
+    <div style={{ ...smQuestionnaireThemeStyle(theme), position: "fixed", inset: 0, zIndex: 12000, background: "#fff", display: "flex", flexDirection: "column" }}>
       <header style={{ height: 56, padding: "0 20px", borderBottom: "1px solid rgba(0,0,0,.07)", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,.04)", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-        <button type="button" aria-label="Fragebogen-Editor schließen" onClick={onClose} style={{ padding: 4, border: 0, background: "transparent", color: "rgba(0,0,0,.4)", display: "flex", cursor: "pointer", transition: "color .15s ease" }} onMouseEnter={(event) => { event.currentTarget.style.color = RED; }} onMouseLeave={(event) => { event.currentTarget.style.color = "rgba(0,0,0,.4)"; }}><X size={18} strokeWidth={1.8} /></button>
+        <button type="button" aria-label="Fragebogen-Editor schließen" onClick={onClose} style={{ padding: 4, border: 0, background: "transparent", color: "rgba(0,0,0,.4)", display: "flex", cursor: "pointer", transition: "color .15s ease" }} onMouseEnter={(event) => { event.currentTarget.style.color = ACCENT; }} onMouseLeave={(event) => { event.currentTarget.style.color = "rgba(0,0,0,.4)"; }}><X size={18} strokeWidth={1.8} /></button>
         <div style={{ width: 1, height: 20, background: "rgba(0,0,0,.07)" }} />
         <span style={{ flex: 1, color: "#1A1A1A", fontSize: 14, fontWeight: 600, letterSpacing: "-.01em" }}>{existing ? "Fragebogen bearbeiten" : "Neuer Fragebogen"}</span>
-        <button type="button" disabled={isSaving || selectedModules.length === 0} onClick={() => { void save(); }} style={{ padding: "7px 18px", border: 0, borderRadius: 6, background: "linear-gradient(to bottom,#DC2626,#B91C1C)", boxShadow: "inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px rgba(255,255,255,.15),0 0 0 1px #A91B1B,0 1px 6px rgba(220,38,38,.18)", color: "#fff", opacity: isSaving || selectedModules.length === 0 ? .55 : 1, fontFamily: "inherit", fontSize: 11, fontWeight: 600, cursor: isSaving || selectedModules.length === 0 ? "not-allowed" : "pointer" }}>{isSaving ? "Speichern..." : "Speichern"}</button>
+        <button type="button" disabled={isSaving || selectedModules.length === 0} onClick={() => { void save(); }} style={{ padding: "7px 18px", border: 0, borderRadius: 6, background: "linear-gradient(to bottom,var(--module-accent,#DC2626),var(--module-accent-dark,#B91C1C))", boxShadow: "inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px rgba(255,255,255,.15),0 0 0 1px var(--module-accent-border,#A91B1B),0 1px 6px rgba(var(--module-accent-rgb,220,38,38),.18)", color: "#fff", opacity: isSaving || selectedModules.length === 0 ? .55 : 1, fontFamily: "inherit", fontSize: 11, fontWeight: 600, cursor: isSaving || selectedModules.length === 0 ? "not-allowed" : "pointer" }}>{isSaving ? "Speichern..." : "Speichern"}</button>
       </header>
 
       {saveError ? <div role="alert" style={{ padding: "8px 20px", borderBottom: "1px solid rgba(220,38,38,.12)", background: "rgba(220,38,38,.04)", color: "#B91C1C", fontSize: 11, fontWeight: 500 }}>{saveError}</div> : null}
@@ -341,10 +344,10 @@ export function SmFragebogenEditor({
               {filteredModules.map((module) => {
                 const selected = selectedModules.some((row) => row.id === module.id);
                 return (
-                  <div key={module.id} onClick={() => !selected && addModule(module)} onContextMenu={(event) => { event.preventDefault(); setContextMenu({ module, x: event.clientX, y: event.clientY }); }} style={{ padding: "8px 12px", border: selected ? "1px solid rgba(220,38,38,.15)" : "1px solid rgba(0,0,0,.06)", borderRadius: 8, background: selected ? "rgba(220,38,38,.03)" : "#fff", display: "flex", alignItems: "center", gap: 8, cursor: selected ? "default" : "pointer", userSelect: "none", transition: "all .15s ease" }} onMouseEnter={(event) => { if (!selected) event.currentTarget.style.borderColor = "rgba(220,38,38,.3)"; }} onMouseLeave={(event) => { if (!selected) event.currentTarget.style.borderColor = "rgba(0,0,0,.06)"; }}>
+                  <div key={module.id} onClick={() => !selected && addModule(module)} onContextMenu={(event) => { event.preventDefault(); setContextMenu({ module, x: event.clientX, y: event.clientY }); }} style={{ padding: "8px 12px", border: selected ? "1px solid rgba(var(--module-accent-rgb,220,38,38),.15)" : "1px solid rgba(0,0,0,.06)", borderRadius: 8, background: selected ? "rgba(var(--module-accent-rgb,220,38,38),.03)" : "#fff", display: "flex", alignItems: "center", gap: 8, cursor: selected ? "default" : "pointer", userSelect: "none", transition: "all .15s ease" }} onMouseEnter={(event) => { if (!selected) event.currentTarget.style.borderColor = "rgba(var(--module-accent-rgb,220,38,38),.3)"; }} onMouseLeave={(event) => { if (!selected) event.currentTarget.style.borderColor = "rgba(0,0,0,.06)"; }}>
                     <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selected ? "rgba(0,0,0,.3)" : "#374151", fontSize: 11, fontWeight: 500 }}>{module.name || "Unbenannt"}</span>
                     <span style={{ padding: "1px 6px", borderRadius: 4, background: "rgba(0,0,0,.04)", color: "rgba(0,0,0,.3)", fontSize: 9, fontWeight: 600 }}>{module.questions.length}F</span>
-                    {selected ? <Check size={10} strokeWidth={2.5} color={RED} /> : null}
+                    {selected ? <Check size={10} strokeWidth={2.5} color={ACCENT} /> : null}
                   </div>
                 );
               })}
@@ -360,17 +363,17 @@ export function SmFragebogenEditor({
             <div><label style={labelStyle}>Beschreibung (optional)</label><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Kurze Beschreibung des Fragebogens..." rows={2} style={{ ...inputStyle, resize: "none", lineHeight: 1.5 }} /></div>
             <div style={{ marginTop: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div><div style={{ color: "#1A1A1A", fontSize: 11, fontWeight: 600 }}>Nur einmal ausfüllbar</div><div style={{ marginTop: 1, color: "rgba(0,0,0,.4)", fontSize: 10 }}>Dieser Fragebogen kann pro Markt jeweils nur einmal ausgefüllt werden</div></div>
-              <button type="button" aria-pressed={nurEinmal} onClick={() => setNurEinmal((current) => !current)} style={{ position: "relative", width: 38, height: 22, border: 0, borderRadius: 99, background: nurEinmal ? RED : "rgba(0,0,0,.1)", cursor: "pointer", transition: "background .18s" }}><span style={{ position: "absolute", top: 3, left: nurEinmal ? 19 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.2)", transition: "left .18s" }} /></button>
+              <button type="button" aria-pressed={nurEinmal} onClick={() => setNurEinmal((current) => !current)} style={{ position: "relative", width: 38, height: 22, border: 0, borderRadius: 99, background: nurEinmal ? ACCENT : "rgba(0,0,0,.1)", cursor: "pointer", transition: "background .18s" }}><span style={{ position: "absolute", top: 3, left: nurEinmal ? 19 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.2)", transition: "left .18s" }} /></button>
             </div>
           </section>
 
           <section style={sectionStyle}>
-            <div style={sectionHeadingStyle}>Module <span style={{ marginLeft: 8, padding: "2px 7px", borderRadius: 4, background: "rgba(220,38,38,.06)", color: RED, fontSize: 9, fontWeight: 600 }}>{selectedModules.length}</span></div>
+            <div style={sectionHeadingStyle}>Module <span style={{ marginLeft: 8, padding: "2px 7px", borderRadius: 4, background: "rgba(var(--module-accent-rgb,220,38,38),.06)", color: ACCENT, fontSize: 9, fontWeight: 600 }}>{selectedModules.length}</span></div>
             {selectedModules.length === 0 ? <div style={{ padding: "24px 16px", border: "1.5px dashed rgba(0,0,0,.1)", borderRadius: 10, color: "rgba(0,0,0,.25)", fontSize: 11, textAlign: "center" }}>Klicke links auf Module um sie hier hinzuzufügen</div> : (
               <div>
                 {selectedModules.map((module, index) => <ModuleRow key={module.id} module={module} index={index} expanded={expandedIds.has(module.id)} isDropTarget={dropTarget === index && dragFrom.current !== index} onToggle={() => setExpandedIds((current) => { const next = new Set(current); if (next.has(module.id)) next.delete(module.id); else next.add(module.id); return next; })} onRemove={() => removeModule(module.id)} onDragStart={(value) => { dragFrom.current = value; }} onDragOver={setDropTarget} onDrop={handleDrop} />)}
                 <div style={{ height: 10 }} onDragOver={(event) => { event.preventDefault(); setDropTarget(selectedModules.length); }} onDrop={(event) => { event.preventDefault(); handleDrop(); }} />
-                <button type="button" style={{ padding: 0, border: 0, background: "transparent", display: "flex", alignItems: "center", gap: 5, color: RED, fontFamily: "inherit", fontSize: 10, fontWeight: 500, cursor: "pointer" }}><Plus size={11} />Modul aus Bibliothek hinzufügen</button>
+                <button type="button" style={{ padding: 0, border: 0, background: "transparent", display: "flex", alignItems: "center", gap: 5, color: ACCENT, fontFamily: "inherit", fontSize: 10, fontWeight: 500, cursor: "pointer" }}><Plus size={11} />Modul aus Bibliothek hinzufügen</button>
                 <div style={{ marginTop: 14, padding: "10px 12px", borderRadius: 8, background: "rgba(0,0,0,.02)", color: "rgba(0,0,0,.35)", fontSize: 10 }}>{selectedModules.reduce((sum, module) => sum + module.questions.length, 0)} Fragen gesamt</div>
               </div>
             )}

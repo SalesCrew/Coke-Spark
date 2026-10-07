@@ -47,6 +47,7 @@ export type AdminGmPlanningVisit = {
 };
 
 export type SmGlobalQuestionnaireOption = {
+  SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope;
   questionnaireTemplateId: string;
   latestPublishedVersionId: string;
   versionNumber: number;
@@ -92,6 +93,9 @@ export type SmTimeChangeRequest = {
 };
 
 export type SmPlanningAssignment = {
+  SMDurcharbeitMarket?: boolean;
+  SMDurcharbeitQuestionnaireOverrideVersionId?: string | null;
+  SMDurcharbeitQuestionnaireSelection?: import("./smSMDurcharbeit").SMDurcharbeitQuestionnaireSelection;
   holidayAdjustment?: import("@/lib/sm/austrianHolidays").SmHolidayAdjustment | null;
   id: string;
   sourceType: "single" | "series";
@@ -166,6 +170,7 @@ export type SmPlanningAssignment = {
 };
 
 export type CreateSmPlanningAssignmentInput = {
+  SMDurcharbeitQuestionnaireOverrideVersionId?: string;
   smMarketId: string;
   smUserId: string;
   workDate: string;
@@ -187,6 +192,9 @@ export type CreateSmPlanningSeriesInput = {
 };
 
 export type UpdateSmPlanningAssignmentInput = {
+  workDate?: string;
+  smUserId?: string;
+  SMDurcharbeitQuestionnaireOverrideVersionId?: string | null;
   smMarketId?: string;
   plannedMinutes?: number;
   expectedUpdatedAt: string;

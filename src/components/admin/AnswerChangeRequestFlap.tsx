@@ -40,6 +40,7 @@ import type {
   SmAdminTimeChangeRequest,
 } from "@/types/smActivity";
 
+import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQuestionnaireBadge";
 type RequestAction = "approve" | "reject";
 
 function formatDateTime(value: string | null | undefined): string {
@@ -253,6 +254,7 @@ function smOriginalAnswerLabel(request: SmActivityAnswerChangeRequest): string {
 
 function adaptSmAnswerRequest(request: SmActivityAnswerChangeRequest): AdminAnswerChangeRequest {
   return {
+    SMDurcharbeitCatalogScope: request.submission.SMDurcharbeitCatalogScope,
     id: request.id,
     status: request.status,
     createdAt: request.createdAt,
@@ -289,6 +291,7 @@ function adaptSmAnswerRequest(request: SmActivityAnswerChangeRequest): AdminAnsw
 
 function adaptSmDeleteRequest(request: SmActivitySubmissionDeleteRequest): AdminVisitSessionDeleteRequest {
   return {
+    SMDurcharbeitCatalogScope: request.SMDurcharbeitCatalogScope,
     id: request.id,
     status: request.status,
     createdAt: request.createdAt,
@@ -762,7 +765,7 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
           </div>
           <p className="answer-question">Fragebogen aus Auswertungen entfernen</p>
           <div className="answer-diff-mini">
-            <span>{request.campaignSummary || "Fragebogen"}</span>
+            <span>{request.campaignSummary || "Fragebogen"}<SMDurcharbeitQuestionnaireBadge scope={request.SMDurcharbeitCatalogScope} /></span>
             <ChevronRight size={13} />
             <strong>Soft delete</strong>
           </div>
@@ -780,7 +783,7 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
             <span>
               <strong>{marketLabel(request)}</strong>
               <small>
-                {sectionLabel(request.section.section)} · {formatDateTime(request.session.submittedAt)} · {request.section.campaignName}
+                {sectionLabel(request.section.section)} · {formatDateTime(request.session.submittedAt)} · {request.section.campaignName}<SMDurcharbeitQuestionnaireBadge scope={request.SMDurcharbeitCatalogScope} />
               </small>
             </span>
             <span className={`answer-status is-${request.status}`}>{request.status}</span>
@@ -830,7 +833,7 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
             <span>
               <strong>{deleteRequestMarketLabel(request)}</strong>
               <small>
-                {request.campaignSummary || "Fragebogen"} · {formatDateTime(request.session.submittedAt)}
+                {request.campaignSummary || "Fragebogen"}<SMDurcharbeitQuestionnaireBadge scope={request.SMDurcharbeitCatalogScope} /> · {formatDateTime(request.session.submittedAt)}
               </small>
             </span>
             <span className={`answer-status is-${request.status}`}>{request.status}</span>
@@ -993,7 +996,7 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
                       </div>
                       <p className="answer-question">Fragebogen aus Auswertungen entfernen</p>
                       <div className="answer-diff-mini">
-                        <span>{request.campaignSummary || "Fragebogen"}</span>
+                        <span>{request.campaignSummary || "Fragebogen"}<SMDurcharbeitQuestionnaireBadge scope={request.SMDurcharbeitCatalogScope} /></span>
                         <ChevronRight size={13} />
                         <strong>Soft delete</strong>
                       </div>
@@ -1129,7 +1132,7 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
                               <span>
                                 <strong>{marketLabel(request)}</strong>
                                 <small>
-                                  {sectionLabel(request.section.section)} · {formatDateTime(request.session.submittedAt)} · {request.section.campaignName}
+                                  {sectionLabel(request.section.section)} · {formatDateTime(request.session.submittedAt)} · {request.section.campaignName}<SMDurcharbeitQuestionnaireBadge scope={request.SMDurcharbeitCatalogScope} />
                                 </small>
                               </span>
                               <span className="answer-time">
@@ -1210,7 +1213,7 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
                             <span>
                               <strong>{deleteRequestMarketLabel(request)}</strong>
                               <small>
-                                {request.campaignSummary || "Fragebogen"} Â· {formatDateTime(request.session.submittedAt)}
+                                {request.campaignSummary || "Fragebogen"}<SMDurcharbeitQuestionnaireBadge scope={request.SMDurcharbeitCatalogScope} /> Â· {formatDateTime(request.session.submittedAt)}
                               </small>
                             </span>
                             <span className="answer-time">

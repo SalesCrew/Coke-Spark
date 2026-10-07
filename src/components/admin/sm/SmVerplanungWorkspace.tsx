@@ -22,7 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AdminDropdown as SmPlanDropdown, AdminDatePicker as SmPlanDatePicker, AdminFilterControlStyles, type AdminDropdownOption as SmPlanDropdownOption } from "@/components/admin/AdminFilterControls";
+import { AdminDropdown as SmPlanDropdown, AdminDatePicker as SmPlanDatePicker, AdminFilterControlStyles, SMDurcharbeitFilterTheme, type AdminDropdownOption as SmPlanDropdownOption } from "@/components/admin/AdminFilterControls";
 
 import {
   cancelSmPlanningAssignment,
@@ -31,11 +31,11 @@ import {
   fetchAdminGmPlanningVisits,
   fetchSmMarkets,
   fetchSmGlobalQuestionnaireConfiguration,
+  fetchSMDurcharbeitQuestionnaireOptions,
   fetchSmPlanningAssignments,
   fetchSmUsers,
   previewSmPlanningReassignment,
   reassignSmPlanningAssignment,
-  rescheduleSmPlanningAssignment,
   restoreSmPlanningAssignment,
   updateSmPlanningAssignment,
   updateSmGlobalQuestionnaireAssignment,
@@ -45,15 +45,18 @@ import type { AdminGmPlanningVisit, SmGlobalQuestionnaireConfiguration, SmPlanni
 import type { SMRecord } from "@/types/shelfmerchandiser";
 import { austrianHoliday, austrianHolidays } from "@/lib/sm/austrianHolidays";
 import { SmHolidayCalendarCard } from "./SmHolidayCalendarCard";
+import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQuestionnaireBadge";
+import type { SmGlobalQuestionnaireOption } from "@/types/smPlanning";
 import { SmHolidayNote } from "@/components/sm/SmHolidayNote";
 import { SmPlanningPeriodPicker } from "./SmPlanningPeriodPicker";
 import { SmSeriesDrawer } from "./SmSeriesDrawer";
 import type { SmSeriesPreview } from "@/types/smPlanning";
+import { isSMDurcharbeitAssignment } from "@/lib/sm/SMDurcharbeitView";
 import { currentSmPeriod, shiftSmPeriod, smPeriodExportSlug, smPeriodHeading, smPeriodLabel, type SmPlanningPeriod } from "@/lib/sm/planningPeriod";
 import { filterAdminGmPlanningVisits, recommendedUserFirst } from "@/lib/sm/planningView";
 import { DEFAULT_SM_PLANNING_STATUS, matchesSmPlanningStatus, smPlanningMinutes } from "@/lib/sm/planningCancellation";
 
-const RED = "#DC2626";
+const RED = "var(--sm-plan-accent, #DC2626)";
 const ROW_GRID = "132px minmax(150px, .8fr) minmax(110px, .65fr) minmax(230px, 1.35fr) 80px 118px 84px";
 
 type DrawerMode = "single" | "series" | null;
@@ -62,6 +65,7 @@ type PlanningListRow = { kind: "sm"; row: SmPlanningAssignment } | { kind: "gm";
 export type PlanningSubmitRequest =
   | {
       kind: "create_single";
+      SMDurcharbeitQuestionnaireOverrideVersionId?: string;
       workDate: string;
       smMarketId: string;
       smUserId: string;
@@ -81,6 +85,7 @@ export type PlanningSubmitRequest =
     }
   | {
       kind: "edit";
+      SMDurcharbeitQuestionnaireOverrideVersionId: string | null;
       assignment: SmPlanningAssignment;
       smMarketId: string;
       smUserId: string;
@@ -218,7 +223,9 @@ export function PlanningDrawer({
   onClose,
   onSubmit,
   onSeriesSaved,
+  SMDurcharbeit = false,
 }: {
+  SMDurcharbeit?: boolean;
   mode: Exclude<DrawerMode, null>;
   assignment: SmPlanningAssignment | null;
   defaultDate: string;
@@ -233,6 +240,45 @@ export function PlanningDrawer({
   const currentDate = assignment?.effective.workDate ?? defaultDate;
   const currentWeekday = parseDate(currentDate).getDay() || 7;
   const [workDate, setWorkDate] = useState(currentDate);
+  const [SMDurcharbeitOverride, setSMDurcharbeitOverride] = useState(assignment?.SMDurcharbeitQuestionnaireOverrideVersionId ?? "");
+  const [SMDurcharbeitOptions, setSMDurcharbeitOptions] = useState<SmGlobalQuestionnaireOption[]>([]);
+  const [SMDurcharbeitCentralQuestionnaire, setSMDurcharbeitCentralQuestionnaire] = useState<SmGlobalQuestionnaireOption | null>(null);
+  const [SMDurcharbeitOptionsLoading, setSMDurcharbeitOptionsLoading] = useState(true);
+  const [SMDurcharbeitOptionsError, setSMDurcharbeitOptionsError] = useState<string | null>(null);
+  const SMDurcharbeitFrozenSelection = assignment?.SMDurcharbeitQuestionnaireSelection?.source === "submission"
+    ? assignment.SMDurcharbeitQuestionnaireSelection : null;
+  useEffect(() => {
+    if (!assignment && !SMDurcharbeit) return;
+    if (SMDurcharbeitFrozenSelection) { setSMDurcharbeitOptionsLoading(false); return; }
+    let active = true;
+    setSMDurcharbeitOptionsLoading(true); setSMDurcharbeitOptionsError(null);
+    void fetchSMDurcharbeitQuestionnaireOptions(workDate).then(result => {
+      if (active) { setSMDurcharbeitOptions(result.options); setSMDurcharbeitCentralQuestionnaire(result.SMDurcharbeitCentralQuestionnaire); }
+    }).catch(error => { if (active) setSMDurcharbeitOptionsError(error instanceof Error ? error.message : "Fragebögen konnten nicht geladen werden."); })
+      .finally(() => { if (active) setSMDurcharbeitOptionsLoading(false); });
+    return () => { active = false; };
+  }, [assignment?.id, workDate, SMDurcharbeitFrozenSelection, SMDurcharbeit]);
+  const SMDurcharbeitChanged = SMDurcharbeitOverride !== (assignment?.SMDurcharbeitQuestionnaireOverrideVersionId ?? "");
+  const SMDurcharbeitDropdownOptions = useMemo<SmPlanDropdownOption[]>(() => {
+    if (SMDurcharbeitFrozenSelection) return [{ value: SMDurcharbeitOverride,
+      label: SMDurcharbeitFrozenSelection.name ?? "Gespeicherter Fragebogen",
+      description: `${SMDurcharbeitFrozenSelection.catalogScope === "SMDurcharbeit" ? "Durcharbeit" : "Standardfragebogen"} · Version ${SMDurcharbeitFrozenSelection.versionNumber ?? "—"}` }];
+    const options: SmPlanDropdownOption[] = [...(SMDurcharbeit ? [] : [{ value: "", label: "Zentralen Fragebogen verwenden", description: SMDurcharbeitCentralQuestionnaire?.name ?? "Aktuelle zentrale Zuordnung" }]),
+      ...SMDurcharbeitOptions.filter(option => !SMDurcharbeit || option.SMDurcharbeitCatalogScope === "SMDurcharbeit").map(option => ({ value: option.latestPublishedVersionId, label: option.name,
+        description: `${option.SMDurcharbeitCatalogScope === "SMDurcharbeit" ? "Durcharbeit" : "Standardfragebogen"} · Version ${option.versionNumber}` }))];
+    const selected = assignment?.SMDurcharbeitQuestionnaireSelection;
+    if (SMDurcharbeitOverride && selected?.questionnaireVersionId === SMDurcharbeitOverride && !options.some(option => option.value === SMDurcharbeitOverride)) options.push({
+      value: SMDurcharbeitOverride, label: selected.name ?? "Gespeicherter Fragebogen",
+      description: `${selected.catalogScope === "SMDurcharbeit" ? "Durcharbeit" : "Standardfragebogen"} · Version ${selected.versionNumber ?? "—"}`,
+    });
+    return options;
+  }, [SMDurcharbeitOptions, SMDurcharbeitCentralQuestionnaire, SMDurcharbeitOverride, SMDurcharbeitFrozenSelection, assignment?.SMDurcharbeitQuestionnaireSelection, SMDurcharbeit]);
+  const SMDurcharbeitSelectedOption = SMDurcharbeitOverride
+    ? SMDurcharbeitOptions.find(option => option.latestPublishedVersionId === SMDurcharbeitOverride)
+    : SMDurcharbeit ? null : SMDurcharbeitCentralQuestionnaire;
+  const SMDurcharbeitSelectedScope = SMDurcharbeitFrozenSelection ? SMDurcharbeitFrozenSelection.catalogScope
+    : SMDurcharbeitSelectedOption?.SMDurcharbeitCatalogScope
+      ?? (!SMDurcharbeitChanged ? assignment?.SMDurcharbeitQuestionnaireSelection?.catalogScope : null);
   const [smMarketId, setSmMarketId] = useState(assignment?.effective.smMarketId ?? markets[0]?.id ?? "");
   const [smUserId, setSmUserId] = useState(assignment?.effective.smUserId ?? users[0]?.id ?? "");
   const [plannedMinutes, setPlannedMinutes] = useState(String(assignment?.effective.plannedMinutes ?? 90));
@@ -252,7 +298,7 @@ export function PlanningDrawer({
   const [seriesPreviewLoading, setSeriesPreviewLoading] = useState(false);
   const [seriesPreviewError, setSeriesPreviewError] = useState<string | null>(null);
 
-  const isLocked = Boolean(assignment && ["in_progress", "completed", "missed"].includes(assignment.status));
+  const isLocked = Boolean(assignment && (assignment.visit || ["in_progress", "completed", "missed"].includes(assignment.status)));
   const isCancelled = assignment?.status === "cancelled";
   const marketOptions = useMemo<SmPlanDropdownOption[]>(() => markets.map((market) => ({
     value: market.id,
@@ -285,8 +331,15 @@ export function PlanningDrawer({
     ? buildSeriesDates({ validFrom, validTo, weekdays, frequency }).length
     : 0;
   const requiresReason = smChanged || cancellationAction !== "none";
-  const hasEditChange = marketChanged || minutesChanged || dateChanged || smChanged || cancellationAction !== "none";
-  const validationMessage = cancellationAction !== "none"
+  const hasEditChange = SMDurcharbeitChanged || marketChanged || minutesChanged || dateChanged || smChanged || cancellationAction !== "none";
+  const SMDurcharbeitMixedSeries = smChanged && reassignmentScope === "series_future" && (SMDurcharbeitChanged || marketChanged || minutesChanged || dateChanged);
+  const validationMessage = cancellationAction === "none" && SMDurcharbeit && !assignment && (SMDurcharbeitOptionsLoading || SMDurcharbeitOptionsError || !SMDurcharbeitOverride)
+    ? SMDurcharbeitOptionsLoading ? "Fragebögen werden geladen." : SMDurcharbeitOptionsError ?? "Wähle einen Durcharbeit-Fragebogen für diesen Einsatz."
+    : cancellationAction === "none" && SMDurcharbeitMixedSeries
+    ? "Bitte Serienzuordnung und Änderungen an diesem einzelnen Einsatz getrennt speichern."
+    : cancellationAction === "none" && SMDurcharbeitChanged && SMDurcharbeitOptionsLoading ? "Fragebögen werden geladen."
+    : cancellationAction === "none" && SMDurcharbeitChanged && SMDurcharbeitOptionsError ? SMDurcharbeitOptionsError
+    : cancellationAction !== "none"
     ? reason.trim().length < 3 ? "Bitte gib einen kurzen Änderungsgrund an." : null
     : !smMarketId || !smUserId
     ? "Ein aktiver Markt und Shelf Merchandiser sind erforderlich."
@@ -348,6 +401,7 @@ export function PlanningDrawer({
           idempotencyKey,
         } : {
           kind: "create_single",
+          ...(SMDurcharbeit ? { SMDurcharbeitQuestionnaireOverrideVersionId: SMDurcharbeitOverride } : {}),
           workDate,
           smMarketId,
           smUserId,
@@ -360,6 +414,7 @@ export function PlanningDrawer({
       } else {
         await onSubmit({
           kind: "edit",
+          SMDurcharbeitQuestionnaireOverrideVersionId: SMDurcharbeitOverride || null,
           assignment,
           smMarketId,
           smUserId,
@@ -386,7 +441,7 @@ export function PlanningDrawer({
       <div style={{ height: 64, padding: "0 18px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderBottom: "1px solid rgba(0,0,0,.06)", flexShrink: 0 }}>
         <div>
           <div style={{ color: "#1a1a1a", fontSize: 14, fontWeight: 750, letterSpacing: "-.02em" }}>{assignment ? "Einsatz bearbeiten" : createsSeries ? "Serie planen" : "Einsatz planen"}</div>
-          <div style={{ marginTop: 3, color: "rgba(0,0,0,.35)", fontSize: 9.5 }}>{assignment ? "Originalplanung bleibt unverändert erhalten" : "Neue SM-Verplanung erstellen"}</div>
+          <div style={{ marginTop: 3, color: "rgba(0,0,0,.35)", fontSize: 9.5 }}>{assignment ? "Originalplanung bleibt unverändert erhalten" : SMDurcharbeit ? "Durcharbeit-Einsatz planen" : "Neue SM-Verplanung erstellen"}</div>
         </div>
         <button type="button" aria-label="Schließen" disabled={saving} onClick={onClose} className="sm-plan-icon-button"><X size={14} strokeWidth={2}/></button>
       </div>
@@ -419,10 +474,21 @@ export function PlanningDrawer({
           </div> : null}
           <div><FieldLabel>Markt · Stammnummer</FieldLabel><SmPlanDropdown disabled={isLocked || isCancelled || rescheduling} ariaLabel="Markt" value={smMarketId} options={marketOptions} onChange={setSmMarketId} placeholder="Markt auswählen" searchable /></div>
           <div><FieldLabel>Shelf Merchandiser</FieldLabel><SmPlanDropdown disabled={isLocked || isCancelled || rescheduling} ariaLabel="Shelf Merchandiser" value={smUserId} options={userOptions} onChange={setSmUserId} placeholder="Shelf Merchandiser auswählen" searchable /></div>
+          {assignment || SMDurcharbeit ? <div>
+            <FieldLabel>Fragebogen</FieldLabel>
+            <SmPlanDropdown searchable ariaLabel="Fragebogen für diesen Einsatz" value={SMDurcharbeitOverride} options={SMDurcharbeitDropdownOptions} onChange={setSMDurcharbeitOverride} placeholder={SMDurcharbeit ? "Durcharbeit-Fragebogen wählen" : "Zentralen Fragebogen verwenden"} disabled={isLocked || isCancelled} />
+            <div style={{ marginTop: 7, fontSize: 9.3, color: "rgba(0,0,0,.45)", lineHeight: 1.6 }}>
+              {isLocked ? "Der gestartete Besuch behält seinen ursprünglichen Fragebogen." : SMDurcharbeitOverride ? "Nur dieser Einsatz · ersetzt den zentralen Fragebogen · ausgewählte Version bleibt fest." : SMDurcharbeit ? "Wähle einen veröffentlichten Durcharbeit-Fragebogen. Seine Version wird für diesen Einsatz fest gespeichert." : "Verwendet den für den Einsatztag gültigen zentralen Fragebogen."}
+              {SMDurcharbeitOptionsLoading ? <span style={{ marginLeft: 5 }}>Wird geladen…</span> : null}
+            </div>
+            {SMDurcharbeitSelectedScope ? <div style={{ marginTop: 7 }}><SMDurcharbeitQuestionnaireBadge scope={SMDurcharbeitSelectedScope} /></div> : null}
+            {SMDurcharbeitOptionsError ? <div role="alert" style={{ marginTop: 6, color: "#B91C1C", fontSize: 9 }}>{SMDurcharbeitOptionsError}</div> : null}
+            {!SMDurcharbeitChanged && assignment?.SMDurcharbeitQuestionnaireSelection?.blockReason ? <div role="status" style={{ marginTop: 6, color: "#B45309", fontSize: 9 }}>{assignment?.SMDurcharbeitQuestionnaireSelection?.blockReason}</div> : null}
+          </div> : null}
           <div><FieldLabel>Sollzeit</FieldLabel><SmPlanDropdown disabled={isLocked || isCancelled || rescheduling} ariaLabel="Sollzeit" value={plannedMinutes} options={DURATION_OPTIONS} onChange={setPlannedMinutes} placeholder="Sollzeit" /></div>
         </fieldset>
 
-        {!assignment ? <div style={{ marginTop: 18, paddingTop: 15, borderTop: "1px solid rgba(0,0,0,.06)" }}>
+        {!assignment && !SMDurcharbeit ? <div style={{ marginTop: 18, paddingTop: 15, borderTop: "1px solid rgba(0,0,0,.06)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div><div style={{ color: "#1a1a1a", fontSize: 11, fontWeight: 700 }}>Wiederkehrender Einsatz</div><div style={{ marginTop: 2, color: "rgba(0,0,0,.35)", fontSize: 9 }}>Einsatz als eigenständige Serie anlegen</div></div>
             <button type="button" aria-label="Wiederkehrender Einsatz" aria-pressed={createsSeries} onClick={() => window.dispatchEvent(new CustomEvent(createsSeries ? "sm-verplanung:openSingle" : "sm-verplanung:openSeries"))} className={`sm-plan-switch${createsSeries ? " is-active" : ""}`}><span/></button>
@@ -547,7 +613,7 @@ function GmVisitDetailDrawer({ visit, onClose }: { visit: AdminGmPlanningVisit; 
   );
 }
 
-export function SmVerplanungWorkspace() {
+export function SmVerplanungWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: boolean }) {
   const [search, setSearch] = useState("");
   const [region, setRegion] = useState("all");
   const [smFilter, setSmFilter] = useState("all");
@@ -614,7 +680,7 @@ export function SmVerplanungWorkspace() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([fetchSmUsers(), fetchSmMarkets(), fetchSmGlobalQuestionnaireConfiguration()])
+    Promise.all([fetchSmUsers(), fetchSmMarkets("all"), fetchSmGlobalQuestionnaireConfiguration()])
       .then(([userRows, marketRows, questionnaireRows]) => {
         if (!active) return;
         setUsers(userRows);
@@ -659,8 +725,11 @@ export function SmVerplanungWorkspace() {
     return () => { active = false; };
   }, [showGmVisits, rangeEndKey, rangeStartKey]);
 
+  const SMDurcharbeitPlanningMarkets = useMemo(() => markets.filter(market => Boolean(market.SMDurcharbeitMarket) === SMDurcharbeit), [markets, SMDurcharbeit]);
+  const SMDurcharbeitDrawerMarkets = useMemo(() => markets.filter(market => Boolean(market.SMDurcharbeitMarket) === SMDurcharbeit || market.id === selectedAssignment?.effective.smMarketId), [markets, SMDurcharbeit, selectedAssignment]);
   const normalizedSearch = search.trim().toLocaleLowerCase("de-AT");
   const rows = useMemo(() => assignments.filter((row) => {
+    if (isSMDurcharbeitAssignment(row) !== SMDurcharbeit) return false;
     if (row.effective.workDate < rangeStartKey || row.effective.workDate > rangeEndKey) return false;
     const matchesSearch = !normalizedSearch || [
       row.effective.smName,
@@ -676,7 +745,7 @@ export function SmVerplanungWorkspace() {
       && (smFilter === "all" || row.effective.smUserId === smFilter)
       && (typeFilter === "all" || row.sourceType === typeFilter)
       && matchesStatus;
-  }), [assignments, normalizedSearch, region, smFilter, statusFilter, typeFilter, rangeStartKey, rangeEndKey]);
+  }), [assignments, normalizedSearch, region, smFilter, statusFilter, typeFilter, rangeStartKey, rangeEndKey, SMDurcharbeit]);
 
   const normalizedGmSearch = gmSearch.trim().toLocaleLowerCase("de-AT");
   const filteredGmVisits = useMemo(() => showGmVisits ? filterAdminGmPlanningVisits(gmVisits, {
@@ -730,19 +799,21 @@ export function SmVerplanungWorkspace() {
     description: `Version ${option.versionNumber}${option.description ? ` · ${option.description}` : ""}`,
   })), [questionnaireConfiguration]);
 
+  useEffect(() => { void fetchSMDurcharbeitQuestionnaireOptions(rangeStartKey).catch(() => undefined); }, [rangeStartKey]);
+
   const openDrawer = useCallback((mode: Exclude<DrawerMode, null>, assignment: SmPlanningAssignment | null = null) => {
-    if (!assignment && !questionnaireConfiguration?.assignment?.questionnaire) {
+    if (!assignment && !SMDurcharbeit && !questionnaireConfiguration?.assignment?.questionnaire) {
       setNotice({ message: "Wähle zuerst den zentralen SM-Fragebogen für alle Einsätze aus", tone: "error" });
       return;
     }
-    if (!assignment && (markets.length === 0 || users.length === 0)) {
-      setNotice({ message: markets.length === 0 ? "Lege zuerst einen aktiven SM-Markt mit Stammnummer an" : "Lege zuerst einen aktiven Shelf Merchandiser an", tone: "error" });
+    if (!assignment && (SMDurcharbeitPlanningMarkets.length === 0 || users.length === 0)) {
+      setNotice({ message: SMDurcharbeitPlanningMarkets.length === 0 ? SMDurcharbeit ? "Noch keine Durcharbeit-Märkte importiert" : "Lege zuerst einen aktiven SM-Markt mit Stammnummer an" : "Lege zuerst einen aktiven Shelf Merchandiser an", tone: "error" });
       return;
     }
     setSelectedGmVisit(null);
     setSelectedAssignment(assignment);
     setDrawerMode(mode);
-  }, [markets.length, questionnaireConfiguration?.assignment?.questionnaire, users.length]);
+  }, [SMDurcharbeit, SMDurcharbeitPlanningMarkets.length, questionnaireConfiguration?.assignment?.questionnaire, users.length]);
 
   const saveQuestionnaireAssignment = useCallback(async () => {
     if (!questionnaireSelection) {
@@ -754,13 +825,15 @@ export function SmVerplanungWorkspace() {
       const updated = await updateSmGlobalQuestionnaireAssignment(questionnaireSelection);
       setQuestionnaireConfiguration({ assignment: updated.assignment, options: updated.options });
       setQuestionnaireSelection(updated.assignment?.questionnaireTemplateId ?? questionnaireSelection);
-      setNotice({ message: updated.replayed ? "Dieser Fragebogen gilt bereits für alle Einsätze" : "Fragebogen gilt jetzt für alle ungestarteten SM-Einsätze", tone: "success" });
+      setNotice({ message: updated.replayed ? "Dieser Fragebogen ist bereits zentral zugeordnet" : "Fragebogen gilt jetzt für ungestartete SM-Einsätze ohne eigene Auswahl", tone: "success" });
+      try { await reloadAssignments(); }
+      catch { setNotice({ message: "Zentrale Zuordnung gespeichert. Bitte die Planung neu laden.", tone: "info" }); }
     } catch (error) {
       setNotice({ message: error instanceof Error ? error.message : "Der zentrale Fragebogen konnte nicht gespeichert werden", tone: "error" });
     } finally {
       setQuestionnaireSaving(false);
     }
-  }, [questionnaireSelection]);
+  }, [questionnaireSelection, reloadAssignments]);
 
   const clearFilters = useCallback(() => {
     setSearch("");
@@ -805,38 +878,21 @@ export function SmVerplanungWorkspace() {
         setNotice({ message: request.kind === "cancel" ? "Einsatz entfernt · unter Status → Abgesagt / entfernt wiederherstellbar" : "Einsatz wurde wiederhergestellt", tone: "success" });
       } else if (request.kind === "edit") {
         const { assignment } = request;
-        let expectedUpdatedAt = assignment.updatedAt;
-        if (request.smMarketId !== assignment.effective.smMarketId || request.plannedMinutes !== assignment.effective.plannedMinutes) {
-          const result = await updateSmPlanningAssignment(assignment.id, {
+        const questionnaireChanged = request.SMDurcharbeitQuestionnaireOverrideVersionId !== (assignment.SMDurcharbeitQuestionnaireOverrideVersionId ?? null);
+        if (request.reassignmentScope === "series_future" && request.smUserId !== assignment.effective.smUserId) {
+          if (questionnaireChanged || request.workDate !== assignment.effective.workDate || request.smMarketId !== assignment.effective.smMarketId || request.plannedMinutes !== assignment.effective.plannedMinutes) throw new Error("Bitte Serienzuordnung und Einzeländerungen getrennt speichern.");
+          const result = await reassignSmPlanningAssignment(assignment.id, { smUserId: request.smUserId, scope: "series_future", expectedUpdatedAt: assignment.updatedAt, reason: request.reason });
+          setNotice({ message: `${result.affectedCount} zukünftige Einsätze aktualisiert${result.skippedCount ? ` · ${result.skippedCount} unverändert` : ""}`, tone: "success" });
+        } else {
+          await updateSmPlanningAssignment(assignment.id, {
             ...(request.smMarketId !== assignment.effective.smMarketId ? { smMarketId: request.smMarketId } : {}),
             ...(request.plannedMinutes !== assignment.effective.plannedMinutes ? { plannedMinutes: request.plannedMinutes } : {}),
-            expectedUpdatedAt,
+            ...(request.workDate !== assignment.effective.workDate ? { workDate: request.workDate } : {}),
+            ...(request.smUserId !== assignment.effective.smUserId ? { smUserId: request.smUserId } : {}),
+            ...(questionnaireChanged ? { SMDurcharbeitQuestionnaireOverrideVersionId: request.SMDurcharbeitQuestionnaireOverrideVersionId } : {}),
+            expectedUpdatedAt: assignment.updatedAt,
             ...(request.reason ? { reason: request.reason } : {}),
           });
-          expectedUpdatedAt = result.updatedAt;
-        }
-        if (request.workDate !== assignment.effective.workDate) {
-          const result = await rescheduleSmPlanningAssignment(assignment.id, {
-            workDate: request.workDate,
-            expectedUpdatedAt,
-            ...(request.reason ? { reason: request.reason } : {}),
-          });
-          expectedUpdatedAt = result.updatedAt;
-        }
-        if (request.smUserId !== assignment.effective.smUserId) {
-          const result = await reassignSmPlanningAssignment(assignment.id, {
-            smUserId: request.smUserId,
-            scope: request.reassignmentScope,
-            expectedUpdatedAt,
-            reason: request.reason,
-          });
-          expectedUpdatedAt = result.updatedAt;
-          if (request.reassignmentScope === "series_future") {
-            setNotice({ message: `${result.affectedCount} zukünftige Einsätze aktualisiert${result.skippedCount ? ` · ${result.skippedCount} unverändert` : ""}`, tone: "success" });
-          }
-        }
-        void expectedUpdatedAt;
-        if (request.reassignmentScope !== "series_future" || request.smUserId === assignment.effective.smUserId) {
           setNotice({ message: "Änderung wurde gespeichert", tone: "success" });
         }
       }
@@ -856,7 +912,7 @@ export function SmVerplanungWorkspace() {
 
   useEffect(() => {
     const openSingle = () => openDrawer("single");
-    const openSeries = () => openDrawer("series");
+    const openSeries = () => { if (!SMDurcharbeit) openDrawer("series"); };
     const resetToday = () => resetToCurrentPeriod();
     const exportExcel = async () => {
       if (periodLoading || loadError) {
@@ -865,7 +921,7 @@ export function SmVerplanungWorkspace() {
       }
       try {
         setNotice({ message: "Excel-Export wird erstellt…", tone: "info" });
-        const header = ["Tag", "Shelf Merchandiser", "Markt", "Adresse", "Sollzeit", "Planung", "Status"];
+        const header = ["Tag", "Shelf Merchandiser", "Markt", "Adresse", "Sollzeit", "Planung", "Status", "Fragebogentyp", "Fragebogen", "Version"];
         const XLSX = await import("xlsx-js-style");
         const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows.map((row) => [
           formatDate(row.effective.workDate),
@@ -875,8 +931,11 @@ export function SmVerplanungWorkspace() {
           row.effective.plannedMinutes,
           row.sourceType === "series" ? row.series?.frequency === "biweekly" ? "14-tägig" : "Wöchentlich" : "Einmalig",
           statusMeta(row.status).label,
+          row.SMDurcharbeitQuestionnaireSelection?.catalogScope === "SMDurcharbeit" ? "Durcharbeit" : row.SMDurcharbeitQuestionnaireSelection?.catalogScope === "standard" ? "Standardfragebogen" : "",
+          row.SMDurcharbeitQuestionnaireSelection?.name ?? "",
+          row.SMDurcharbeitQuestionnaireSelection?.versionNumber ?? "",
         ])]);
-        worksheet["!cols"] = [{ wch: 13 }, { wch: 24 }, { wch: 18 }, { wch: 42 }, { wch: 12 }, { wch: 16 }, { wch: 14 }];
+        worksheet["!cols"] = [{ wch: 13 }, { wch: 24 }, { wch: 18 }, { wch: 42 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 22 }, { wch: 32 }, { wch: 10 }];
         const workbook = XLSX.utils.book_new();
         const rangeSlug = smPeriodExportSlug(period);
         XLSX.utils.book_append_sheet(workbook, worksheet, rangeSlug.slice(0, 31));
@@ -897,7 +956,7 @@ export function SmVerplanungWorkspace() {
       window.removeEventListener("sm-verplanung:today", resetToday);
       window.removeEventListener("admin:sm-verplanung:export", exportHandler);
     };
-  }, [openDrawer, resetToCurrentPeriod, rows, period, periodLoading, loadError]);
+  }, [openDrawer, resetToCurrentPeriod, rows, period, periodLoading, loadError, SMDurcharbeit]);
 
   useEffect(() => {
     if (!notice) return;
@@ -920,7 +979,7 @@ export function SmVerplanungWorkspace() {
   const toggleDate = (date: string) => setCollapsedDates((current) => current.includes(date) ? current.filter((entry) => entry !== date) : [...current, date]);
 
   return (
-    <div style={{ marginRight: drawerMode || selectedGmVisit ? 408 : 0, transition: "margin-right .22s cubic-bezier(.4,0,.2,1)" }}>
+    <SMDurcharbeitFilterTheme enabled={SMDurcharbeit}><div className={SMDurcharbeit ? "sm-SMDurcharbeit-planning" : undefined} style={{ ...(SMDurcharbeit ? { "--sm-plan-accent": "#2563EB" } : {}), marginRight: drawerMode || selectedGmVisit ? 408 : 0, transition: "margin-right .22s cubic-bezier(.4,0,.2,1)" }}>
       <AdminFilterControlStyles />
       <style>{`
         @keyframes smPlanFadeIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
@@ -942,6 +1001,9 @@ export function SmVerplanungWorkspace() {
         .sm-plan-weekday{width:35px;height:27px;border:1px solid rgba(0,0,0,.09);border-radius:6px;background:linear-gradient(to bottom,#fff,#f7f7f7);color:rgba(0,0,0,.48);font-family:inherit;font-size:9.5px;font-weight:650;cursor:pointer}
         .sm-plan-weekday.is-active{border-color:#b91c1c;background:linear-gradient(to bottom,#DC2626,#b91c1c);color:#fff;box-shadow:inset 0 1px .6px rgba(255,255,255,.28),0 1px 4px rgba(180,20,20,.15)}
         .sm-plan-primary-button,.sm-plan-secondary-button{height:32px;padding:0 15px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:7px;font-family:inherit;font-size:10.5px;font-weight:650;cursor:pointer;transition:opacity .15s}
+        .sm-SMDurcharbeit-planning .sm-plan-primary-button:not(:disabled){background:linear-gradient(#2563EB,#1D4ED8);box-shadow:inset 0 1px .6px rgba(255,255,255,.33),0 0 0 1px #1E40AF,0 1px 6px rgba(37,99,235,.18)}
+        .sm-SMDurcharbeit-planning .sm-plan-row:hover{background:#EFF6FF!important}
+        .sm-SMDurcharbeit-planning .sm-plan-row.is-selected{background:#DBEAFE!important}
         .sm-plan-primary-button{color:#fff;background:linear-gradient(to bottom,#DC2626,#b91c1c);box-shadow:inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,.14)}
         .sm-plan-secondary-button{color:rgba(0,0,0,.56);background:linear-gradient(to bottom,#fff,#f5f5f5);box-shadow:inset 0 1px .6px rgba(255,255,255,.9),inset 0 -1px 0 rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.10),0 1px 4px rgba(0,0,0,.07)}
         .sm-plan-primary-button:hover,.sm-plan-secondary-button:hover{opacity:.84}
@@ -978,19 +1040,23 @@ export function SmVerplanungWorkspace() {
       {loadError ? <div role="alert" style={{ marginBottom: 10, padding: "9px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: "1px solid rgba(220,38,38,.16)", borderRadius: 9, background: "rgba(220,38,38,.045)", color: "#B91C1C", fontSize: 10, fontWeight: 600 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><AlertCircle size={13}/>{loadError}</span><button type="button" onClick={() => { void reloadAssignments(true).catch(() => undefined); }} className="sm-plan-secondary-button">Erneut laden</button></div> : null}
       <div className="mb-2.5"><SmHolidayCalendarCard /></div>
 
-      <section className="sm-plan-card" style={{ marginBottom: 10, padding: "11px 12px", display: "grid", gridTemplateColumns: "minmax(240px,1fr) minmax(300px,430px) auto", alignItems: "center", gap: 14, border: "1px solid rgba(0,0,0,.07)", borderRadius: 12, background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,.035)" }}>
+      {SMDurcharbeit ? <section style={{ marginBottom: 14, padding: "17px 20px", display: "flex", alignItems: "center", gap: 12, border: "1px solid #DBEAFE", borderLeft: "4px solid #2563EB", borderRadius: 12, background: "linear-gradient(120deg,#EFF6FF,#FFF)" }}>
+        <ClipboardCheck size={23} color="#2563EB" /><div style={{ flex: 1 }}><strong style={{ fontSize: 14, color: "#1E3A8A" }}>Durcharbeit Verplanung</strong><p style={{ margin: "4px 0 0", fontSize: 10, color: "#64748B" }}>Eigene Märkte · Ein Fragebogen pro Einsatz · Laufende Besuche behalten ihren gespeicherten Stand.</p></div>
+        <a href="/admin/sm/durcharbeit" className="sm-plan-secondary-button" style={{ textDecoration: "none", color: "#1D4ED8" }}>Fragebögen verwalten</a>
+        <a href="/admin/sm/durcharbeit-maerkte" className="sm-plan-secondary-button" style={{ textDecoration: "none", color: "#1D4ED8" }}>Märkte</a>
+      </section> : <section className="sm-plan-card" style={{ marginBottom: 10, padding: "11px 12px", display: "grid", gridTemplateColumns: "minmax(240px,1fr) minmax(300px,430px) auto", alignItems: "center", gap: 14, border: "1px solid rgba(0,0,0,.07)", borderRadius: 12, background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,.035)" }}>
         <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ width: 34, height: 34, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: "rgba(220,38,38,.065)", color: RED }}><ClipboardCheck size={15} strokeWidth={1.8}/></span>
           <span style={{ minWidth: 0 }}>
-            <strong style={{ display: "block", color: "#1a1a1a", fontSize: 11.5, fontWeight: 750 }}>Fragebogen für alle Einsätze</strong>
-            <small style={{ display: "block", marginTop: 3, color: "rgba(0,0,0,.40)", fontSize: 9.1, lineHeight: 1.4 }}>Gilt für alle noch nicht gestarteten SM-Marktbesuche. Laufende und abgeschlossene Besuche behalten ihren gespeicherten Stand.</small>
+            <strong style={{ display: "block", color: "#1a1a1a", fontSize: 11.5, fontWeight: 750 }}>Zentraler Fragebogen</strong>
+            <small style={{ display: "block", marginTop: 3, color: "rgba(0,0,0,.40)", fontSize: 9.1, lineHeight: 1.4 }}>Gilt für noch nicht gestartete SM-Besuche ohne eigene Auswahl. Individuelle Zuordnungen, laufende und abgeschlossene Besuche behalten ihren Stand.</small>
           </span>
         </div>
         <SmPlanDropdown searchable ariaLabel="Zentralen SM-Fragebogen auswählen" value={questionnaireSelection} onChange={setQuestionnaireSelection} placeholder={questionnaireOptions.length ? "Fragebogen auswählen…" : "Kein veröffentlichter Fragebogen"} options={questionnaireOptions}/>
         <button type="button" disabled={!questionnaireSelection || questionnaireSaving || questionnaireSelection === questionnaireConfiguration?.assignment?.questionnaireTemplateId} onClick={() => { void saveQuestionnaireAssignment(); }} className="sm-plan-primary-button" style={{ minWidth: 100 }}>
           {questionnaireSaving ? <LoaderCircle className="sm-plan-spinner" size={12}/> : <Check size={12} strokeWidth={2.2}/>}Übernehmen
         </button>
-      </section>
+      </section>}
 
       <section className="sm-plan-card" style={{ overflow: "hidden", border: "1px solid rgba(0,0,0,.07)", borderRadius: 14, background: "rgba(0,0,0,.025)" }}>
         <div style={{ padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1014,7 +1080,7 @@ export function SmVerplanungWorkspace() {
               <SmPlanDropdown compact ariaLabel="Planungstyp filtern" value={typeFilter} onChange={setTypeFilter} placeholder="Planungstyp" options={TYPE_FILTER_OPTIONS} />
               <SmPlanDropdown compact ariaLabel="Status filtern" value={statusFilter} onChange={setStatusFilter} placeholder="Status" options={STATUS_FILTER_OPTIONS} />
               {hasActiveFilters ? <button type="button" className="sm-plan-reset-filters" onClick={clearFilters}><X size={10} strokeWidth={2.2} />Filter löschen</button> : null}
-              <button type="button" aria-pressed={showGmVisits} onClick={toggleGmVisits} className={`sm-plan-gm-toggle${showGmVisits ? " is-active" : ""}`}><History size={11}/>{showGmVisits ? "GM-Besuche sichtbar" : "GM-Besuche"}</button>
+              {!SMDurcharbeit ? <button type="button" aria-pressed={showGmVisits} onClick={toggleGmVisits} className={`sm-plan-gm-toggle${showGmVisits ? " is-active" : ""}`}><History size={11}/>{showGmVisits ? "GM-Besuche sichtbar" : "GM-Besuche"}</button> : null}
             </div>
 
             {showGmVisits ? <div style={{ minHeight: 43, padding: "6px 14px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid rgba(37,99,235,.08)", background: "rgba(37,99,235,.018)" }}>
@@ -1102,7 +1168,7 @@ export function SmVerplanungWorkspace() {
                         {row.holidayAdjustment ? <SmHolidayNote compact adjustment={row.holidayAdjustment} currentDate={row.effective.workDate} /> : null}
                       </span>
                       <span style={{ minWidth: 0 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1a1a1a", fontSize: 10.5, fontWeight: 650 }}>{row.effective.smName}</span>{replaced ? <span style={{ display: "block", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1D4ED8", fontSize: 8.5, fontWeight: 650 }}>Original: {row.original.smName}</span> : null}</span>
-                      <span style={{ minWidth: 0 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#374151", fontSize: 10.5, fontWeight: 600 }}>{row.effective.marketName}</span><span style={{ display: "block", marginTop: 2, color: "rgba(0,0,0,.35)", fontSize: 8.3, fontWeight: 650 }}>Stammnr. {row.effective.marketInternalId}</span></span>
+                      <span style={{ minWidth: 0 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#374151", fontSize: 10.5, fontWeight: 600 }}>{row.effective.marketName}</span><span style={{ display: "block", marginTop: 3 }}><SMDurcharbeitQuestionnaireBadge selection={row.SMDurcharbeitQuestionnaireSelection} /></span><span style={{ display: "block", marginTop: 2, color: "rgba(0,0,0,.35)", fontSize: 8.3, fontWeight: 650 }}>Stammnr. {row.effective.marketInternalId}</span></span>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(0,0,0,.46)", fontSize: 9.8 }}>{row.effective.address}</span>
                       <span style={{ minWidth: 0 }}><span style={{ display: "block", color: "#374151", fontSize: 10.5, fontWeight: 650 }}>{formatDuration(row.effective.plannedMinutes)}</span>{row.actualMinutes !== null ? <span style={{ display: "block", marginTop: 2, color: "#15803D", fontSize: 8.2, fontWeight: 650 }}>Ist {formatDuration(row.actualMinutes)}</span> : null}</span>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "rgba(0,0,0,.54)", fontSize: 9.8 }}>{row.sourceType === "series" ? <RefreshCw size={11} strokeWidth={1.8}/> : null}{row.sourceType === "series" ? row.series?.frequency === "biweekly" ? "14-tägig" : "Wöchentlich" : "Einmalig"}</span>
@@ -1117,8 +1183,8 @@ export function SmVerplanungWorkspace() {
         </div>
       </section>
 
-      {drawerMode ? <PlanningDrawer key={`${drawerMode}-${selectedAssignment?.id ?? "new"}-${rangeStartKey}`} mode={drawerMode} assignment={selectedAssignment} defaultDate={rangeStartKey} markets={markets} users={users} onClose={() => { setDrawerMode(null); setSelectedAssignment(null); }} onSubmit={persistPlanning} onSeriesSaved={handleSeriesSaved}/> : null}
+      {drawerMode ? <PlanningDrawer SMDurcharbeit={SMDurcharbeit} key={`${drawerMode}-${selectedAssignment?.id ?? "new"}-${rangeStartKey}`} mode={drawerMode} assignment={selectedAssignment} defaultDate={rangeStartKey} markets={SMDurcharbeitDrawerMarkets} users={users} onClose={() => { setDrawerMode(null); setSelectedAssignment(null); }} onSubmit={persistPlanning} onSeriesSaved={handleSeriesSaved}/> : null}
       {selectedGmVisit ? <GmVisitDetailDrawer visit={selectedGmVisit} onClose={() => setSelectedGmVisit(null)}/> : null}
-    </div>
+    </div></SMDurcharbeitFilterTheme>
   );
 }

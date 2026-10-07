@@ -1,5 +1,7 @@
 "use client";
 
+import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQuestionnaireBadge";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SmAnswerCommentDialog } from "@/components/sm/SmAnswerCommentDialog";
@@ -690,6 +692,7 @@ function ChangeRequestSheet({
             <div>
               <strong>{summary.market.name}</strong>
               <span>{summary.questionnaireName}</span>
+              <SMDurcharbeitQuestionnaireBadge scope={summary.SMDurcharbeitCatalogScope} />
             </div>
           </div>
           <div className="sm-act-question-copy">
@@ -1109,6 +1112,7 @@ function ActivityViewer({
           </button>
           <div>
             <span>{summary.questionnaireName}</span>
+              <SMDurcharbeitQuestionnaireBadge scope={summary.SMDurcharbeitCatalogScope} />
             <h2>{summary.market.name}</h2>
           </div>
           <button type="button" onClick={onClose}>

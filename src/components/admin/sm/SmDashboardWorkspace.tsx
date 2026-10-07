@@ -27,6 +27,7 @@ const GREEN = "#11965a";
 const AMBER = "#d97706";
 
 type DashboardFilters = {
+  SMDurcharbeitCatalogScope: "" | "standard" | "SMDurcharbeit";
   from: string;
   to: string;
   region: string;
@@ -48,7 +49,7 @@ function viennaToday(): string {
 
 function initialFilters(): DashboardFilters {
   const to = viennaToday();
-  return { from: `${to.slice(0, 7)}-01`, to, region: "", chain: "", smUserId: "", marketId: "" };
+  return { SMDurcharbeitCatalogScope: "", from: `${to.slice(0, 7)}-01`, to, region: "", chain: "", smUserId: "", marketId: "" };
 }
 
 function formatNumber(value: number): string {
@@ -218,6 +219,12 @@ async function exportDashboardWorkbook(payload: SmDashboardPayload) {
   XLSX.utils.book_append_sheet(workbook, categories, "OOS Kategorien");
   XLSX.utils.book_append_sheet(workbook, dimensionSheet(payload.chains, "Handelskette"), "Handelsketten");
   XLSX.utils.book_append_sheet(workbook, dimensionSheet(payload.regions, "Region"), "Regionen");
+  const SMDurcharbeitInfo = XLSX.utils.aoa_to_sheet([
+    ["Fragebogentyp", payload.meta.filters.SMDurcharbeitCatalogScope === "SMDurcharbeit" ? "Durcharbeit" : payload.meta.filters.SMDurcharbeitCatalogScope === "standard" ? "Standard" : "Alle"],
+    ["Typ", "Abgeschlossene Besuche", "Beantwortete Fragen"],
+    ...(["standard", "SMDurcharbeit"] as const).map(scope => [scope === "SMDurcharbeit" ? "Durcharbeit" : "Standard", payload.SMDurcharbeitBreakdown?.[scope].completedVisits ?? 0, payload.SMDurcharbeitBreakdown?.[scope].answeredQuestions ?? 0]),
+  ]);
+  XLSX.utils.book_append_sheet(workbook, SMDurcharbeitInfo, "Fragebogentypen");
   XLSX.writeFile(workbook, `CokeSpark_SM_OOS_${payload.meta.from}_${payload.meta.to}.xlsx`);
 }
 
@@ -242,6 +249,7 @@ export function SmDashboardWorkspace() {
   useEffect(() => {
     const requestId = ++requestIdRef.current;
     const query: SmDashboardQuery = {
+      SMDurcharbeitCatalogScope: filters.SMDurcharbeitCatalogScope || undefined,
       from: filters.from,
       to: filters.to,
       ...(filters.region ? { region: filters.region } : {}),
@@ -291,7 +299,8 @@ export function SmDashboardWorkspace() {
     || filters.region
     || filters.chain
     || filters.smUserId
-    || filters.marketId,
+    || filters.marketId
+    || filters.SMDurcharbeitCatalogScope,
   );
   const summary: SmDashboardMetricSummary | null = payload?.summary ?? null;
 
@@ -338,6 +347,7 @@ export function SmDashboardWorkspace() {
             <FilterSelect label="Region" value={filters.region} options={payload?.filterOptions.regions ?? []} placeholder="Alle Regionen" onChange={(value) => updateFilter("region", value)} />
             <FilterSelect label="Handelskette" value={filters.chain} options={payload?.filterOptions.chains ?? []} placeholder="Alle Handelsketten" onChange={(value) => updateFilter("chain", value)} />
             <FilterSelect label="Shelf Merchandiser" value={filters.smUserId} options={payload?.filterOptions.sms ?? []} placeholder="Alle SMs" onChange={(value) => updateFilter("smUserId", value)} />
+            <FilterSelect label="Fragebogentyp" value={filters.SMDurcharbeitCatalogScope} options={[{ value: "standard", label: "Standard" }, { value: "SMDurcharbeit", label: "Durcharbeit" }]} placeholder="Alle Fragebögen" onChange={(value) => updateFilter("SMDurcharbeitCatalogScope", value as DashboardFilters["SMDurcharbeitCatalogScope"])} />
             <FilterSelect label="Markt" value={filters.marketId} options={payload?.filterOptions.markets ?? []} placeholder="Alle Märkte" onChange={(value) => updateFilter("marketId", value)} />
             <div className="sm-live-toolbar-actions"><button type="button" className="sm-live-reset" onClick={resetFilters} disabled={!hasDimensionFilters}>Filter zurücksetzen</button></div>
           </div>
@@ -352,7 +362,7 @@ export function SmDashboardWorkspace() {
                 <MetricCard label="OOS gefunden" value={formatNumber(summary.foundCases)} detail={`${formatNumber(summary.foundCases)} von ${formatNumber(summary.classifiedChecks)} Prüfungen`} subdetail={`OOS-Quote ${formatPercent(summary.foundRate)}`} tone="red" progress={summary.foundRate} icon={<AlertCircle size={13} strokeWidth={2.3} />} />
                 <MetricCard label="OOS behoben" value={formatPercent(summary.fixedRate)} detail={summary.foundCases ? `${formatNumber(summary.fixedCases)} von ${formatNumber(summary.foundCases)} Fällen` : "Nicht erforderlich"} subdetail={summary.foundCases ? "Nur nachgewiesene Behebung" : "Kein OOS im gewählten Bereich"} tone="green" progress={summary.fixedRate} icon={<CheckCircle2 size={13} strokeWidth={2.3} />} />
                 <MetricCard label="Märkte mit OOS" value={formatPercent(summary.affectedMarketRate)} detail={`${formatNumber(summary.marketsWithOos)} von ${formatNumber(summary.observedMarkets)} geprüften Märkten`} subdetail="Nur Märkte mit klassifizierter OOS-Prüfung" tone="red" progress={summary.affectedMarketRate} icon={<Store size={13} strokeWidth={2.3} />} />
-                <MetricCard label="Abgeschlossene Besuche" value={formatNumber(summary.completedVisits)} detail={`${formatNumber(summary.submittedMarkets)} besuchte Märkte`} subdetail="Eingereichte SM-Fragebögen" progress={summary.completedVisits ? 100 : 0} icon={<CalendarDays size={13} strokeWidth={2.3} />} />
+                <MetricCard label="Abgeschlossene Besuche" value={formatNumber(summary.completedVisits)} detail={`${formatNumber(summary.submittedMarkets)} besuchte Märkte`} subdetail={payload?.SMDurcharbeitBreakdown ? `${formatNumber(payload.SMDurcharbeitBreakdown.standard.completedVisits)} Standard · ${formatNumber(payload.SMDurcharbeitBreakdown.SMDurcharbeit.completedVisits)} Durcharbeit` : "Eingereichte SM-Fragebögen"} progress={summary.completedVisits ? 100 : 0} icon={<CalendarDays size={13} strokeWidth={2.3} />} />
                 <MetricCard label="Dokumentation offen" value={formatNumber(summary.openRemediationDocumentation)} detail={`${formatNumber(summary.documentedRemediations)} von ${formatNumber(summary.foundCases)} OOS-Fällen dokumentiert`} subdetail={summary.openRemediationDocumentation ? "Behebungsantwort fehlt" : "Keine offene Behebungsdokumentation"} tone={summary.openRemediationDocumentation ? "amber" : "green"} progress={summary.foundCases ? (summary.documentedRemediations / summary.foundCases) * 100 : null} icon={<ClipboardCheck size={13} strokeWidth={2.3} />} />
               </div>
 

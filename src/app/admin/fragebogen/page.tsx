@@ -1,4 +1,6 @@
 "use client";
+import { useFragebogenCampaignUsage, FragebogenUsageBadge, FragebogenUsageDetail } from "@/components/admin/FragebogenCampaignUsage";
+import { sortFragebogenByUsage, type FragebogenUsage } from "@/lib/fragebogen-campaign-usage";
 
 import { useState, useRef, useEffect } from "react";
 import {
@@ -1849,7 +1851,7 @@ function FragebogenDeleteDialog({
 
 function FragebogenCard({
   fragebogen,
-  campaignNames,
+  usage,
   availableModules,
   onEdit,
   onUpdate,
@@ -1860,7 +1862,7 @@ function FragebogenCard({
   onDelete,
 }: {
   fragebogen: Fragebogen;
-  campaignNames: string[];
+  usage: FragebogenUsage;
   availableModules: Module[];
   onEdit: () => void;
   onUpdate: (f: Fragebogen) => Promise<Fragebogen>;
@@ -1922,6 +1924,8 @@ function FragebogenCard({
             {fragebogen.name}
           </span>
 
+          <FragebogenUsageBadge usage={usage} accent="#DC2626" background="rgba(220,38,38,0.07)" />
+
           {/* Spezialfrage count pill */}
           {fragebogen.spezialfragen && fragebogen.spezialfragen.length > 0 && (
             <span style={{
@@ -1981,14 +1985,7 @@ function FragebogenCard({
 
         {/* Footer row */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 10, color: "#059669", fontWeight: 600 }}>
-              Verwendet in Kampagne:
-            </span>
-            <span style={{ fontSize: 10, color: "#059669", fontWeight: 500 }}>
-              {campaignNames.length > 0 ? campaignNames.join(", ") : "Keine"}
-            </span>
-          </div>
+          <FragebogenUsageDetail usage={usage} />
 
           {/* Spezialfrage button */}
           <div style={{ marginLeft: "auto" }}>
@@ -2238,6 +2235,7 @@ export default function FragebogenPage() {
   const { copyFragebogenToDurcharbeit } = useDurcharbeitCopy();
   const hasLoadedContent = modules.length > 0 || fragebogenList.length > 0;
   const [initialLoadCompleted, setInitialLoadCompleted] = useState(false);
+  const getUsage = useFragebogenCampaignUsage("main", "standard");
   const [campaignUsageByFragebogenId, setCampaignUsageByFragebogenId] = useState<Record<string, string[]>>({});
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -2647,11 +2645,11 @@ export default function FragebogenPage() {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {filteredFragebogen.map((fb) => (
+              {sortFragebogenByUsage(filteredFragebogen, getUsage).map((fb) => (
                 <FragebogenCard
                   key={fb.id}
                   fragebogen={fb}
-                  campaignNames={campaignUsageByFragebogenId[fb.id] ?? []}
+                  usage={getUsage(fb.id)}
                   availableModules={modules}
                   onEdit={() => editFragebogen(fb)}
                   onUpdate={updateFragebogen}

@@ -1,4 +1,7 @@
 "use client";
+import { useFragebogenCampaignUsage, fragebogenUsageStyle, FragebogenUsageDetail } from "@/components/admin/FragebogenCampaignUsage";
+import { sortFragebogenByUsage, type FragebogenUsage } from "@/lib/fragebogen-campaign-usage";
+
 import { useCatalogModules, ModuleCatalogStatusAction, ModuleCatalogStatusBadge } from "@/components/admin/ModuleCatalogStatus";
 
 import { useState, useRef, useEffect } from "react";
@@ -18,8 +21,6 @@ import {
   Trash2,
   MapPin,
   Clock,
-  CalendarRange,
-  Infinity,
 } from "lucide-react";
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
 import type { Question, Module, Fragebogen } from "@/types/fragebogen";
@@ -51,12 +52,6 @@ const TABS: { key: Tab; label: string }[] = [
 function formatDate(iso?: string): string {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-function daysUntil(iso?: string): number | null {
-  if (!iso) return null;
-  const diff = new Date(iso).getTime() - Date.now();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
 // ── Question Config Summary (read-only) ───────────────────────
@@ -679,8 +674,9 @@ function KuehlerFragebogenDeleteDialog({
   );
 }
 
-function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplicate, onDuplicateToDurcharbeit, onDelete }: {
+function KuehlerFragebogenCard({ fragebogen, usage, modules, onEdit, onUpdate, onDuplicate, onDuplicateToDurcharbeit, onDelete }: {
   fragebogen: Fragebogen;
+  usage: FragebogenUsage;
   modules: Module[];
   onEdit: () => void;
   onUpdate: (fragebogen: Fragebogen) => Promise<void> | void;
@@ -696,20 +692,14 @@ function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplic
     .map((id) => modules.find((m) => m.id === id))
     .filter((m): m is Module => !!m);
 
-  const status = fragebogen.status;
+  const status = usage.status;
 
   const accentColor =
     status === "active" ? YD :
     status === "scheduled" ? "#d97706" :
     "transparent";
 
-  const statusConfig = {
-    active: { label: "Aktiv", bg: Y_BG, text: YD, dot: YD },
-    scheduled: { label: "Geplant", bg: "rgba(245,158,11,0.08)", text: "#d97706", dot: Y },
-    inactive: { label: "Inaktiv", bg: "rgba(0,0,0,0.04)", text: "rgba(0,0,0,0.3)", dot: "rgba(0,0,0,0.2)" },
-  }[status];
-
-  const days = status === "scheduled" ? daysUntil(fragebogen.startDate) : null;
+  const statusConfig = { ...fragebogenUsageStyle(usage, YD, Y_BG, "#d97706"), label: usage.label };
 
   return (
     <>
@@ -751,7 +741,7 @@ function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplic
             )}
 
             {/* Status pill with dot */}
-            <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 20, backgroundColor: statusConfig.bg }}>
+            <div title={usage.title} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 20, backgroundColor: statusConfig.bg }}>
               <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: statusConfig.dot }} />
               <span style={{ fontSize: 9, fontWeight: 700, color: statusConfig.text, letterSpacing: "0.03em" }}>{statusConfig.label}</span>
             </div>
@@ -799,32 +789,7 @@ function KuehlerFragebogenCard({ fragebogen, modules, onEdit, onUpdate, onDuplic
 
             <div style={{ width: 1, height: 12, backgroundColor: "rgba(0,0,0,0.06)" }} />
 
-            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              {fragebogen.scheduleType === "always" ? (
-                <>
-                  <Infinity size={11} strokeWidth={1.8} color="#059669" />
-                  <span style={{ fontSize: 10, color: "#059669", fontWeight: 500 }}>Immer aktiv</span>
-                </>
-              ) : (
-                <>
-                  <CalendarRange size={11} strokeWidth={1.8} color={statusConfig.text} />
-                  <span style={{ fontSize: 10, color: statusConfig.text, fontWeight: 500 }}>
-                    {status === "inactive"
-                      ? `Beendet ${formatDate(fragebogen.endDate)}`
-                      : `${formatDate(fragebogen.startDate)} → ${formatDate(fragebogen.endDate)}`}
-                  </span>
-                </>
-              )}
-            </div>
-
-            {status === "scheduled" && days !== null && (
-              <>
-                <div style={{ width: 1, height: 12, backgroundColor: "rgba(0,0,0,0.06)" }} />
-                <span style={{ fontSize: 9, color: "#d97706", fontWeight: 600 }}>
-                  Startet in {days} {days === 1 ? "Tag" : "Tagen"}
-                </span>
-              </>
-            )}
+            <FragebogenUsageDetail usage={usage} />
             <SpezialfragenFragebogenAction
               fragebogen={fragebogen}
               onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
@@ -922,6 +887,7 @@ export default function KuehlerinventurPage() {
   const { modules = [], onEdit, onUpdate, onDelete, onDuplicate, fragebogenList = [], onEditFb, onUpdateFb, onDeleteFb, onDuplicateFb } = useKuehlerModules();
   const { copyFragebogenToDurcharbeit } = useDurcharbeitCopy();
   const [activeTab, setActiveTab] = useState<Tab>("module");
+  const getUsage = useFragebogenCampaignUsage("kuehler", "kuehler");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string | null>(null);
   const [typeDropOpen, setTypeDropOpen] = useState(false);
@@ -968,12 +934,8 @@ export default function KuehlerinventurPage() {
     ? fragebogenList.filter((fb) => fb.name.toLowerCase().includes(q) || fb.description.toLowerCase().includes(q))
     : fragebogenList;
 
-  // Sort fragebogen: active → scheduled (by startDate) → inactive
-  const sortedFragebogen = [
-    ...filteredFragebogen.filter((fb) => fb.status === "active"),
-    ...[...filteredFragebogen.filter((fb) => fb.status === "scheduled")].sort((a, b) => (a.startDate ?? "").localeCompare(b.startDate ?? "")),
-    ...filteredFragebogen.filter((fb) => fb.status === "inactive"),
-  ];
+  // Running campaign use first, followed by upcoming campaign use.
+  const sortedFragebogen = sortFragebogenByUsage(filteredFragebogen, getUsage);
 
   const counts: Record<Tab, number> = {
     fragen: allQuestions.length,
@@ -1161,6 +1123,7 @@ export default function KuehlerinventurPage() {
                 <KuehlerFragebogenCard
                   key={fb.id}
                   fragebogen={fb}
+                  usage={getUsage(fb.id)}
                   modules={modules}
                   onEdit={() => onEditFb(fb)}
                   onUpdate={onUpdateFb}

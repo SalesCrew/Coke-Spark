@@ -5776,6 +5776,12 @@ export async function fetchFragebogen(scope: FragebogenScope): Promise<Frageboge
   return (data.fragebogen ?? []).map(normalizeFragebogen);
 }
 
+export async function fetchFragebogenCampaignUsage(scope: FragebogenScope): Promise<import("@/lib/fragebogen-campaign-usage").QuestionnaireCampaignUsage[]> {
+  const data = (await authedFetch(`/admin/fragebogen/${scope}/campaign-usage`, { cache: "no-store" })) as { campaigns: import("@/lib/fragebogen-campaign-usage").QuestionnaireCampaignUsage[] };
+  if (!Array.isArray(data.campaigns)) throw new Error("Kampagnenverwendung konnte nicht geladen werden.");
+  return data.campaigns;
+}
+
 export async function fetchSpezialfragenLibrary(scope: FragebogenScope = "main"): Promise<Question[]> {
   const data = (await authedFetch(`/admin/spezialfragen?scope=${encodeURIComponent(scope)}`)) as { spezialfragen?: Question[] };
   return (data.spezialfragen ?? []).map(normalizeQuestion);

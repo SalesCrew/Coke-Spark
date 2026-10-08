@@ -1,10 +1,13 @@
 "use client";
+import { useFragebogenCampaignUsage, fragebogenUsageStyle, FragebogenUsageDetail } from "@/components/admin/FragebogenCampaignUsage";
+import { sortFragebogenByUsage, type FragebogenUsage } from "@/lib/fragebogen-campaign-usage";
+
 import { useCatalogModules, ModuleCatalogStatusAction, ModuleCatalogStatusBadge } from "@/components/admin/ModuleCatalogStatus";
 
 import { useState, useRef, useEffect } from "react";
 import {
   HelpCircle, Layers, FileText, Pencil, ChevronDown,
-  Zap, MapPin, Clock, CalendarRange, Infinity, Trophy,
+  Zap, MapPin, Clock, Trophy,
   Search, X, Check, Copy, Loader2, Trash2,
 } from "lucide-react";
 import { typeLabel, typeBadgeColor, QUESTION_TYPES } from "@/utils/fragebogen";
@@ -41,12 +44,6 @@ type BillaFragebogen = Fragebogen;
 function formatDate(iso?: string): string {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-function daysUntil(iso?: string): number | null {
-  if (!iso) return null;
-  const diff = new Date(iso).getTime() - Date.now();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
 // ── Context menu (shared) ────────────────────────────────────
@@ -601,8 +598,9 @@ function BillaFragenListItem({ question, moduleName, onDelete }: {
 
 // ── Fragebogen Card ───────────────────────────────────────────
 
-function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDuplicate, onDuplicateToStd, onDuplicateToFlex, onDuplicateToDurcharbeit, onDelete }: {
+function BillaFragebogenCard({ fragebogen, usage, moduleList, onEdit, onUpdate, onDuplicate, onDuplicateToStd, onDuplicateToFlex, onDuplicateToDurcharbeit, onDelete }: {
   fragebogen: BillaFragebogen;
+  usage: FragebogenUsage;
   moduleList: BillaModule[];
   onEdit: () => void;
   onUpdate: (fragebogen: Fragebogen) => Promise<void> | void;
@@ -616,19 +614,14 @@ function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDupli
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
 
-  const statusConfig = {
-    active:    { label: "Aktiv",     dot: T,        bg: T_BG,                       text: T },
-    scheduled: { label: "Geplant",   dot: "#f59e0b", bg: "rgba(245,158,11,0.08)",  text: "#d97706" },
-    inactive:  { label: "Inaktiv",   dot: "rgba(0,0,0,0.2)", bg: "rgba(0,0,0,0.04)", text: "rgba(0,0,0,0.3)" },
-  };
-  const sc = statusConfig[fragebogen.status];
-  const days = daysUntil(fragebogen.startDate);
+  const status = usage.status;
+  const sc = { ...fragebogenUsageStyle(usage, T, T_BG), label: usage.label };
   const assignedModules = moduleList.filter((m) => fragebogen.moduleIds.includes(m.id));
 
   return (
     <div
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-      style={{ backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden", position: "relative", borderLeft: `3px solid ${fragebogen.status === "active" ? T : fragebogen.status === "scheduled" ? "#d97706" : "transparent"}`, opacity: fragebogen.status === "inactive" ? 0.55 : 1, marginBottom: 0 }}
+      style={{ backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden", position: "relative", borderLeft: `3px solid ${status === "active" ? T : status === "scheduled" ? "#d97706" : "transparent"}`, opacity: status === "inactive" ? 0.55 : 1, marginBottom: 0 }}
     >
       {ctxMenu && (
         <BillaContextMenu x={ctxMenu.x} y={ctxMenu.y}
@@ -648,7 +641,7 @@ function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDupli
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>{fragebogen.name || "Unbenannt"}</span>
-            <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 20, backgroundColor: sc.bg, color: sc.text, display: "flex", alignItems: "center", gap: 4 }}>
+            <span title={usage.title} style={{ fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 20, backgroundColor: sc.bg, color: sc.text, display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: sc.dot, display: "inline-block" }} />
               {sc.label}
             </span>
@@ -685,20 +678,7 @@ function BillaFragebogenCard({ fragebogen, moduleList, onEdit, onUpdate, onDupli
           <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", fontWeight: 500 }}>{fragebogen.markets.length} Märkte</span>
         </div>
         <div style={{ width: 1, height: 10, backgroundColor: "rgba(0,0,0,0.08)", flexShrink: 0 }} />
-        {fragebogen.status === "scheduled" && fragebogen.startDate && fragebogen.endDate ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <CalendarRange size={10} strokeWidth={1.8} color="#d97706" />
-            <span style={{ fontSize: 10, color: "#d97706", fontWeight: 500 }}>{formatDate(fragebogen.startDate)} – {formatDate(fragebogen.endDate)}</span>
-            {days !== null && days > 0 && (
-              <span style={{ fontSize: 9, color: "#d97706", fontWeight: 600, marginLeft: 4 }}>Startet in {days} {days === 1 ? "Tag" : "Tagen"}</span>
-            )}
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <Infinity size={10} strokeWidth={1.8} color="#059669" />
-            <span style={{ fontSize: 10, color: "#059669", fontWeight: 500 }}>Immer aktiv</span>
-          </div>
-        )}
+        <FragebogenUsageDetail usage={usage} />
         <SpezialfragenFragebogenAction
           fragebogen={fragebogen}
           onSave={(questions) => onUpdate({ ...fragebogen, spezialfragen: questions })}
@@ -788,6 +768,7 @@ export default function BillaPage() {
   const { modules: flexModules } = useFlexModules();
   const { copyFragebogenToDurcharbeit } = useDurcharbeitCopy();
   const [activeTab, setActiveTab] = useState<Tab>("module");
+  const getUsage = useFragebogenCampaignUsage("main", "billa");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string | null>(null);
   const [typeDropOpen, setTypeDropOpen] = useState(false);
@@ -1031,12 +1012,8 @@ export default function BillaPage() {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {[
-                ...filteredFragebogen.filter((fb) => fb.status === "active"),
-                ...[...filteredFragebogen.filter((fb) => fb.status === "scheduled")].sort((a, b) => (a.startDate ?? "").localeCompare(b.startDate ?? "")),
-                ...filteredFragebogen.filter((fb) => fb.status === "inactive"),
-              ].map((fb) => (
-                <BillaFragebogenCard key={fb.id} fragebogen={fb} moduleList={modules}
+              {sortFragebogenByUsage(filteredFragebogen, getUsage).map((fb) => (
+                <BillaFragebogenCard key={fb.id} fragebogen={fb} usage={getUsage(fb.id)} moduleList={modules}
                   onEdit={() => onEditFb(fb)}
                   onUpdate={onUpdateFb}
                   onDuplicate={() => onDuplicateFb(fb)}

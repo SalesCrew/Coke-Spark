@@ -364,7 +364,7 @@ export function AdminSidenav() {
               )}
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href));
+                const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(`${item.href}/`));
 
                 return (
                   <Link

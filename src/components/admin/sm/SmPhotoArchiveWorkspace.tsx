@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, ExternalLink, Grid3X3, ImageOff, Images, List, RefreshCw, Search, X } from "lucide-react";
-import { AdminDatePicker, AdminDropdown, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
+import { ChevronLeft, ChevronRight, ExternalLink, Filter, Grid3X3, ImageOff, Images, List, RefreshCw, Search, X } from "lucide-react";
+import { AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
 import { readAuthSession, smPhotoArchiveApi, subscribeAuthSession } from "@/lib/api/backend";
 import type { SmArchivePhoto, SmArchivePhotoFacets, SmArchivePhotoList, SmArchivePhotoUrl, SmPhotoArchiveApi, SmPhotoArchiveFilters } from "@/types/smPhotoArchive";
 import styles from "./SmPhotoArchiveWorkspace.module.css";
+import { SmPhotoArchiveFilterDialog } from "./SmPhotoArchiveFilters";
 
 const readOwner = () => { const user = readAuthSession()?.user; return user && ["admin", "sm_admin"].includes(user.role) ? user.id : null; };
 const serverOwner = () => null;
@@ -34,6 +35,7 @@ export function PhotoArchive({ owner, api, currentOwner = readOwner }: { owner: 
   const [loading, setLoading] = useState(true), [error, setError] = useState<string | null>(null), [photoError, setPhotoError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null), [exporting, setExporting] = useState(false), [progress, setProgress] = useState("");
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
   const alive = useRef(true), exportBusy = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
@@ -76,16 +78,9 @@ export function PhotoArchive({ owner, api, currentOwner = readOwner }: { owner: 
     return () => { active = false; clearInterval(interval); };
   }, [api, currentOwner, owner, matching, queryKey]);
 
-  const update = (key: keyof SmPhotoArchiveFilters, value: string) => {
-    setFilters(current => cleanFilters({ ...current, [key]: value === "all" ? undefined : value,
-      ...(key === "SMDurcharbeitCatalogScope" ? { marketId: undefined, questionnaireId: undefined } : {}),
-      ...(key === "from" && value && current.to && value > current.to ? { to: value } : {}),
-      ...(key === "to" && value && current.from && value < current.from ? { from: value } : {}),
-    })); setPage(1); setSelectedId(null);
-  };
-  const options = (key: "smUserId" | "marketId" | "questionnaireId", name: "smName" | "marketName" | "questionnaireName", all: string) => {
-    const values = new Map((currentFacets?.facets ?? []).map(facet => [facet[key], facet[name]]));
-    return [{ value: "all", label: all }, ...Array.from(values, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "de-AT"))];
+  const applyFilters = (next: SmPhotoArchiveFilters) => {
+    setFilters(cleanFilters({ ...next, search: next.search?.trim() }));
+    setSearchDraft(next.search ?? ""); setPage(1); setSelectedId(null);
   };
   const doExport = useCallback(async () => {
     if (exportBusy.current) return;
@@ -105,22 +100,20 @@ export function PhotoArchive({ owner, api, currentOwner = readOwner }: { owner: 
   }, [doExport]);
   const selectedIndex = matching?.photos.findIndex(photo => photo.id === selectedId) ?? -1, selectedPhoto = selectedIndex >= 0 ? matching!.photos[selectedIndex] : null;
   const pages = Math.max(1, Math.ceil((matching?.total ?? 0) / 30));
+  const filterCount = Object.keys(filters).length;
+  const timeframeLabel = filters.from && filters.to ? `${dateLabel(filters.from)} – ${dateLabel(filters.to)}` : filters.from ? `Ab ${dateLabel(filters.from)}` : filters.to ? `Bis ${dateLabel(filters.to)}` : "Alle Zeiträume";
   return <main className={styles.workspace}>
     <AdminFilterControlStyles />
     <section className={styles.panel} aria-label="SM Fotoarchiv">
       <div className={styles.intro}>
         <div><div className={styles.title}><span className={styles.titleIcon}><Images size={16} /></span><div><p className={styles.eyebrow}>Shelf Merchandising · Fotoarchiv</p><h1>Bilder aus Foto-Fragen</h1></div></div>
-          <div className={styles.stats}><span><strong>{loading ? "…" : matching?.total.toLocaleString("de-AT") ?? "—"}</strong>Fotos</span><span><strong>{loading ? "…" : matching?.stats.markets ?? "—"}</strong>Märkte</span><span><strong>{loading ? "…" : matching?.stats.questionnaires ?? "—"}</strong>Fragebögen</span></div></div>
-        <div className={styles.actions}>
+          <div className={styles.stats}><span><strong>{loading ? "…" : matching?.total.toLocaleString("de-AT") ?? "—"}</strong>Fotos</span><span><strong>{loading ? "…" : matching?.stats.markets ?? "—"}</strong>Märkte</span><span><strong>{loading ? "…" : matching?.stats.questionnaires ?? "—"}</strong>Fragebögen</span><span><strong>{timeframeLabel}</strong>Zeitraum</span></div></div>
+        <div className={styles.toolbar}>
+          <label className={`${styles.search} ${styles.toolbarSearch}`}><Search size={13} /><input type="search" aria-label="Fotos suchen" value={searchDraft} maxLength={200} placeholder="Markt, SM, Frage …" onChange={event => setSearchDraft(event.target.value)} /></label>
+          <button type="button" className={`${styles.filterButton} ${filterCount ? styles.filterActive : ""}`} aria-haspopup="dialog" aria-expanded={filterOpen} onClick={() => setFilterOpen(true)}><Filter size={13} />Filter{filterCount > 0 ? ` (${filterCount})` : ""}</button>
           <button className={styles.icon} disabled={loading} aria-label="Fotoarchiv aktualisieren" onClick={() => { setData(null); setReload(value => value + 1); }}><RefreshCw size={13} /></button>
           <div className={styles.switch} aria-label="Fotoansicht"><button aria-label="Rasteransicht" aria-pressed={view === "grid"} onClick={() => setView("grid")}><Grid3X3 size={14} /></button><button aria-label="Listenansicht" aria-pressed={view === "list"} onClick={() => setView("list")}><List size={15} /></button></div>
         </div>
-      </div>
-      <div className={styles.filters}>
-        <div className={styles.field}><span>Fragebogentyp</span><AdminDropdown value={filters.SMDurcharbeitCatalogScope ?? "all"} options={[{ value: "all", label: "Alle Fragebogentypen" }, { value: "standard", label: "Standardfragebogen" }, { value: "SMDurcharbeit", label: "Durcharbeit" }]} ariaLabel="Fragebogentyp" placeholder="Alle Fragebogentypen" compact onChange={value => update("SMDurcharbeitCatalogScope", value)} /></div>
-        {([["smUserId", "smName", "Shelf Merchandiser", "Alle SMs"], ["marketId", "marketName", "Markt", "Alle Märkte"], ["questionnaireId", "questionnaireName", "Fragebogen", "Alle Fragebögen"]] as const).map(([key, name, label, all]) => <div className={styles.field} key={key}><span>{label}</span><AdminDropdown value={filters[key] ?? "all"} options={options(key, name, all)} ariaLabel={label} placeholder={all} compact searchable disabled={!currentFacets} onChange={value => update(key, value)} /></div>)}
-        <label className={styles.field}><span>Suche</span><span className={styles.search}><Search size={13} /><input type="search" aria-label="Fotos suchen" value={searchDraft} maxLength={200} placeholder="Markt, SM oder Frage …" onChange={event => setSearchDraft(event.target.value)} /></span></label>
-        <div className={styles.period}><span>Besuchszeitraum</span><AdminDatePicker value={filters.from ?? ""} ariaLabel="Besuchszeitraum von" onChange={value => update("from", value)} /><span>–</span><AdminDatePicker value={filters.to ?? ""} ariaLabel="Besuchszeitraum bis" onChange={value => update("to", value)} /><span>{!filters.from && !filters.to ? "Alle Daten" : ""}</span><button className={styles.button} onClick={() => { setFilters({}); setSearchDraft(""); setPage(1); setSelectedId(null); }}>Filter zurücksetzen</button></div>
       </div>
     </section>
     {error ? <div role="alert" className={styles.error}>{error}<button className={styles.button} onClick={() => { setData(null); setReload(value => value + 1); }}>Erneut laden</button></div> : null}
@@ -135,6 +128,7 @@ export function PhotoArchive({ owner, api, currentOwner = readOwner }: { owner: 
     </section>
     <div className={styles.pagination}><span>{matching ? `${matching.total ? (page - 1) * 30 + 1 : 0}–${Math.min(page * 30, matching.total)} von ${matching.total} Fotos · Seite ${page} / ${pages}` : ""}</span><div className={styles.actions}><button className={styles.icon} aria-label="Vorherige Fotoseite" disabled={loading || page <= 1} onClick={() => { setPage(value => value - 1); setSelectedId(null); }}><ChevronLeft size={14} /></button><button className={styles.icon} aria-label="Nächste Fotoseite" disabled={loading || page >= pages} onClick={() => { setPage(value => value + 1); setSelectedId(null); }}><ChevronRight size={14} /></button></div></div>
     {selectedPhoto ? <PhotoDialog photo={selectedPhoto} url={matchingUrls?.[selectedPhoto.id]} onClose={() => setSelectedId(null)} onStep={delta => setSelectedId(matching!.photos[selectedIndex + delta].id)} previousDisabled={selectedIndex <= 0} nextDisabled={selectedIndex >= matching!.photos.length - 1} /> : null}
+    {filterOpen ? <SmPhotoArchiveFilterDialog filters={filters} initialFacets={currentFacets} api={api} owner={owner} currentOwner={currentOwner} onClose={() => setFilterOpen(false)} onApply={applyFilters} onReset={() => applyFilters({})} /> : null}
   </main>;
 }
 

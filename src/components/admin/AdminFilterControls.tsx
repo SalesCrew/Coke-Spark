@@ -39,6 +39,7 @@ export function AdminDropdown({
   compact = false,
   searchable = false,
   disabled = false,
+  portalContainer,
 }: {
   value: string;
   options: AdminDropdownOption[];
@@ -48,6 +49,7 @@ export function AdminDropdown({
   compact?: boolean;
   searchable?: boolean;
   disabled?: boolean;
+  portalContainer?: HTMLElement | null;
 }) {
   const SMDurcharbeit = useContext(SMDurcharbeitControlTheme);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -200,7 +202,7 @@ export function AdminDropdown({
         }) : <div className="sm-plan-dropdown-empty">Keine Treffer</div>}
       </div>
     </div>,
-    document.body,
+    portalContainer ?? document.body,
   ) : null;
 
   return (

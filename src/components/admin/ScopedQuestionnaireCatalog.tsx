@@ -686,13 +686,6 @@ function MhdFragebogenCard({ fragebogen, usage, modules, onEdit, onUpdate, onDup
     .map((id) => modules.find((m) => m.id === id))
     .filter((m): m is Module => !!m);
 
-  const status = usage.status;
-
-  const accentColor =
-    status === "active" ? PD :
-    status === "scheduled" ? "#7C3AED" :
-    "transparent";
-
   const statusConfig = { ...fragebogenUsageStyle(usage, PD, P_BG, "#7C3AED"), label: usage.label };
 
   return (
@@ -720,10 +713,9 @@ function MhdFragebogenCard({ fragebogen, usage, modules, onEdit, onUpdate, onDup
           borderRadius: 14,
           boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
           overflow: "hidden",
-          borderLeft: accentColor !== "transparent" ? `3px solid ${accentColor}` : undefined,
         }}
       >
-        <div style={{ padding: "16px 20px", opacity: status === "inactive" ? 0.55 : 1 }}>
+        <div style={{ padding: "16px 20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", flex: 1, letterSpacing: "-0.01em" }}>
               {fragebogen.name || "Unbenannt"}

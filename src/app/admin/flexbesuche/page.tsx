@@ -611,14 +611,13 @@ function FlexFragebogenCard({ fragebogen, usage, moduleList, onEdit, onUpdate, o
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
 
-  const status = usage.status;
   const sc = { ...fragebogenUsageStyle(usage, L, L_BG), label: usage.label };
   const assignedModules = moduleList.filter((m) => fragebogen.moduleIds.includes(m.id));
 
   return (
     <div
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-      style={{ backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden", position: "relative", borderLeft: `3px solid ${status === "active" ? L : status === "scheduled" ? "#d97706" : "transparent"}`, opacity: status === "inactive" ? 0.55 : 1, marginBottom: 0 }}
+      style={{ backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", overflow: "hidden", position: "relative", marginBottom: 8 }}
     >
       {ctxMenu && (
         <FlexFbContextMenu x={ctxMenu.x} y={ctxMenu.y}

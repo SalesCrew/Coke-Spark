@@ -804,6 +804,7 @@ function MarketDetailDrawer({
       <div className="sm-market-scroll" style={{ minHeight: 0, flex: 1, overflowY: "auto", background: "#f5f5f7", padding: "16px" }}>
         {tab === "info" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            {market.SMDurcharbeitSourceValues ? <><InfoSection label="Importdaten">{Object.entries(market.SMDurcharbeitSourceValues).map(([label, value]) => <InfoRow key={label} label={label} value={value || "—"} />)}</InfoSection><div className="sm-drawer-divider" /></> : null}
             <InfoSection label="Identität">
               {editing ? <EditInfoRow label="Name"><input className="sm-market-edit-field" value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></EditInfoRow> : <InfoRow label="Name" value={market.name} />}
               {editing ? <EditInfoRow label="Name lt. DB"><input className="sm-market-edit-field" value={draft.dbName} onChange={(event) => updateDraft("dbName", event.target.value)} /></EditInfoRow> : <InfoRow label="Name lt. DB" value={market.dbName} />}
@@ -942,15 +943,15 @@ function SmMarketCreateField({ label, value, placeholder, required = false, onCh
   );
 }
 
-function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: { users: SMRecord[]; existingInternalIds: Set<string>; onCreate: (input: NewSmMarketInput) => Promise<void>; onClose: () => void }) {
+function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose, SMDurcharbeit = false }: { users: SMRecord[]; existingInternalIds: Set<string>; onCreate: (input: NewSmMarketInput) => Promise<void>; onClose: () => void; SMDurcharbeit?: boolean }) {
   const [name, setName] = useState("");
   const [dbName, setDbName] = useState("");
   const [chain, setChain] = useState("");
-  const [internalId, setInternalId] = useState("");
+  const [internalId, setInternalId] = useState(() => SMDurcharbeit ? `SMD-${crypto.randomUUID()}` : "");
   const [address, setAddress] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [city, setCity] = useState("");
-  const [region, setRegion] = useState("Ost");
+  const [region, setRegion] = useState(SMDurcharbeit ? "Ohne Region" : "Ost");
   const [infoNote, setInfoNote] = useState("");
   const [assignedSmId, setAssignedSmId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
@@ -1004,14 +1005,14 @@ function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: 
 
   return createPortal(
     <div onClick={() => { if (!submitting) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 9900, padding: 24, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.24)", backdropFilter: "blur(5px)" }}>
-      <form onSubmit={(event) => { event.preventDefault(); void submit(); }} onClick={(event) => event.stopPropagation()} style={{ width: 720, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 48px)", overflow: "hidden", display: "flex", flexDirection: "column", border: "1px solid rgba(15,23,42,.08)", borderRadius: 16, background: "#fff", boxShadow: "0 18px 60px rgba(15,23,42,.18),inset 0 1px 0 rgba(255,255,255,.8)" }}>
+      <form className={SMDurcharbeit ? "sm-SMDurcharbeit-market-create" : undefined} onSubmit={(event) => { event.preventDefault(); void submit(); }} onClick={(event) => event.stopPropagation()} style={{ ...(SMDurcharbeit ? { "--sm-market-accent": "#2563EB" } : {}), width: 720, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 48px)", overflow: "hidden", display: "flex", flexDirection: "column", border: "1px solid rgba(15,23,42,.08)", borderRadius: 16, background: "#fff", boxShadow: "0 18px 60px rgba(15,23,42,.18),inset 0 1px 0 rgba(255,255,255,.8)" }}>
         <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, borderBottom: "1px solid rgba(15,23,42,.06)" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
             <span style={{ width: 34, height: 34, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: "rgba(220,38,38,.065)", color: COKE_RED }}><Store size={15} strokeWidth={1.8}/></span>
             <div>
               <div style={{ marginBottom: 4, color: "rgba(15,23,42,.35)", fontSize: 8.5, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase" }}>Marktverwaltung</div>
-              <div style={{ color: "#111827", fontSize: 17, fontWeight: 850, letterSpacing: "-.03em" }}>Markt anlegen</div>
-              <div style={{ marginTop: 4, color: "rgba(15,23,42,.48)", fontSize: 11, fontWeight: 550 }}>Neuen Shelf-Merchandising-Markt erfassen und optional direkt zuordnen.</div>
+              <div style={{ color: "#111827", fontSize: 17, fontWeight: 850, letterSpacing: "-.03em" }}>{SMDurcharbeit ? "Durcharbeit-Markt anlegen" : "Markt anlegen"}</div>
+              <div style={{ marginTop: 4, color: "rgba(15,23,42,.48)", fontSize: 11, fontWeight: 550 }}>{SMDurcharbeit ? "Markt für SM-Durcharbeit erfassen und optional direkt zuordnen." : "Neuen Shelf-Merchandising-Markt erfassen und optional direkt zuordnen."}</div>
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Fenster schließen" className="sm-icon-button"><X size={14} strokeWidth={2.2}/></button>
@@ -1027,7 +1028,7 @@ function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: 
                 <SmMarketCreateField label="Name" value={name} onChange={setName} placeholder="z. B. Billa Plus" required />
                 <SmMarketCreateField label="Name lt. DB" value={dbName} onChange={setDbName} placeholder="optional" />
                 <SmMarketCreateField label="Handelskette" value={chain} onChange={setChain} placeholder="z. B. BILLA PLUS" required />
-                <SmMarketCreateField label="Interne ID" value={internalId} onChange={setInternalId} placeholder="z. B. 120024810" required />
+                {!SMDurcharbeit ? <SmMarketCreateField label="Interne ID" value={internalId} onChange={setInternalId} placeholder="z. B. 120024810" required /> : null}
               </div>
             </section>
 
@@ -1039,7 +1040,7 @@ function SmMarketCreateModal({ users, existingInternalIds, onCreate, onClose }: 
                   <SmMarketCreateField label="PLZ" value={postalCode} onChange={setPostalCode} placeholder="1010" required />
                   <SmMarketCreateField label="Ort" value={city} onChange={setCity} placeholder="Wien" required />
                 </div>
-                <label className="sm-market-create-label"><span>Region *</span><MarketFieldSelect large value={region} options={["Nord", "Ost", "Süd", "West"].map((value) => ({ value, label: value }))} onChange={setRegion} /></label>
+                <label className="sm-market-create-label"><span>Region *</span><MarketFieldSelect large value={region} options={[...(SMDurcharbeit ? ["Ohne Region"] : []), "Nord", "Ost", "Süd", "West"].map((value) => ({ value, label: value }))} onChange={setRegion} /></label>
               </div>
             </section>
           </div>
@@ -1145,7 +1146,6 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
   }, [SMDurcharbeit]);
 
   useEffect(() => {
-    if (SMDurcharbeit) return;
     const openCreate = () => {
       setSelectedId(null);
       setShowCreate(true);
@@ -1155,7 +1155,6 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
   }, [SMDurcharbeit]);
 
   useEffect(() => {
-    if (SMDurcharbeit) return;
     const openImport = () => {
       setSelectedId(null);
       setShowImport(true);
@@ -1251,7 +1250,7 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
         adminInfoNote: fields.infoNote,
         assignedSmUserId,
         isActive: fields.isActive,
-      });
+      }, SMDurcharbeit);
       setMarkets((current) => [market, ...current]);
       setFilters(EMPTY_FILTERS);
       setSearch("");
@@ -1262,18 +1261,18 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
       setMutationError(error.message);
       throw error;
     }
-  }, []);
+  }, [SMDurcharbeit]);
 
   const handleImport = useCallback(async (input: ImportSmMarketsInput): Promise<{ markets: SmMarketRecord[]; summary: SmMarketImportSummary }> => {
     setMutationError(null);
-    const result = await importSmMarkets(input);
+    const result = await importSmMarkets(input, SMDurcharbeit);
     setMarkets(result.markets);
     setSelectedId(null);
     setFilters(EMPTY_FILTERS);
     setSearch("");
     window.dispatchEvent(new CustomEvent("maerkte:imported", { detail: { count: result.summary.created + result.summary.updated } }));
     return result;
-  }, []);
+  }, [SMDurcharbeit]);
 
   const handleDeleteMarket = useCallback(async (marketId: string) => {
     setMutationError(null);
@@ -1338,6 +1337,7 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
         .sm-market-create-status.is-active { background:rgba(22,163,74,.07); color:#15803d; }
         .sm-market-create-status.is-inactive { background:rgba(220,38,38,.07); color:${COKE_RED}; }
         .sm-market-create-button { height:34px; padding:0 16px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:9px; font-family:inherit; font-size:11px; font-weight:800; cursor:pointer; }
+        .sm-SMDurcharbeit-market-create .sm-market-create-button.is-primary { background:linear-gradient(#2563EB,#1D4ED8); box-shadow:inset 0 1px .6px rgba(255,255,255,.33),0 0 0 1px #1D4ED8,0 1px 8px rgba(37,99,235,.18); }
         .sm-market-create-button.is-secondary { background:linear-gradient(to bottom,#fff,#f5f5f5); color:rgba(15,23,42,.48); box-shadow:inset 0 1px .6px rgba(255,255,255,.9),inset 0 -1px 0 rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.09),0 1px 4px rgba(0,0,0,.06); }
         .sm-market-create-button.is-primary { padding:0 18px; background:linear-gradient(to bottom,${COKE_RED},#b91c1c); color:#fff; box-shadow:inset 0 1px .6px rgba(255,255,255,.33),inset 0 -1px 0 rgba(255,255,255,.15),0 0 0 1px #a91b1b,0 1px 8px rgba(180,20,20,.18); }
         .sm-market-create-button:hover { opacity:.88; }
@@ -1485,8 +1485,8 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
               <div style={{ minHeight: 280, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: "rgba(15,23,42,.4)", textAlign: "center" }}>
                 <span style={{ width: 42, height: 42, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, background: "rgba(220,38,38,.06)", color: COKE_RED }}><Store size={18} strokeWidth={1.7} /></span>
                 <strong style={{ color: "#17191d", fontSize: 12 }}>{SMDurcharbeit ? "Noch keine Durcharbeit-Märkte hinterlegt" : "Noch keine SM-Märkte importiert"}</strong>
-                <span style={{ fontSize: 9.5 }}>{SMDurcharbeit ? "Die separate Importliste wird später hier eingelesen." : "Importiere die Marktdatei und ordne die SM-Spalten zu."}</span>
-                {!SMDurcharbeit ? <button type="button" onClick={() => setShowImport(true)} style={{ marginTop: 3, height: 30, padding: "0 13px", border: 0, borderRadius: 8, background: `linear-gradient(${COKE_RED},#b91c1c)`, color: "#fff", fontFamily: "inherit", fontSize: 10, fontWeight: 800, cursor: "pointer" }}>Importieren</button> : null}
+                <span style={{ fontSize: 9.5 }}>Importiere die Marktdatei und ordne die Spalten zu.</span>
+                <button type="button" onClick={() => setShowImport(true)} style={{ marginTop: 3, height: 30, padding: "0 13px", border: 0, borderRadius: 8, background: SMDurcharbeit ? "linear-gradient(#2563EB,#1D4ED8)" : `linear-gradient(${COKE_RED},#b91c1c)`, color: "#fff", fontFamily: "inherit", fontSize: 10, fontWeight: 800, cursor: "pointer" }}>Importieren</button>
               </div>
             ) : (
               <VirtualMarketList
@@ -1515,8 +1515,8 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
           onClose={() => setSelectedId(null)}
         />
       ) : null}
-      {showCreate ? <SmMarketCreateModal users={users} existingInternalIds={existingInternalIds} onCreate={handleCreateMarket} onClose={() => setShowCreate(false)} /> : null}
-      {showImport ? <SmMarketImportModal onImport={handleImport} onClose={() => setShowImport(false)} /> : null}
+      {showCreate ? <SmMarketCreateModal SMDurcharbeit={SMDurcharbeit} users={users} existingInternalIds={existingInternalIds} onCreate={handleCreateMarket} onClose={() => setShowCreate(false)} /> : null}
+      {showImport ? <SmMarketImportModal SMDurcharbeit={SMDurcharbeit} onImport={handleImport} onClose={() => setShowImport(false)} /> : null}
       {showSmSync ? <SmMarketUserSyncModal initialUsers={users} onMarketsChange={setMarkets} onUsersChange={(freshUsers) => setUsers([...freshUsers].sort((left, right) => formatSmName(left).localeCompare(formatSmName(right), "de-AT", { sensitivity: "base" })))} onClose={() => setShowSmSync(false)} /> : null}
     </div>
   );

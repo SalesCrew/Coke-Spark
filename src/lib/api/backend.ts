@@ -2703,6 +2703,7 @@ export async function markSmMessageRead(messageId: string): Promise<{ messageId:
 
 export async function createSmPlanningAssignment(input: CreateSmPlanningAssignmentInput): Promise<{ assignmentId: string; replayed: boolean; holidayAdjustment?: SmPlanningAssignment["holidayAdjustment"] }> {
   const payload: CreateSmPlanningAssignmentInput = {
+    ...(input.SMDurcharbeitMarketScope ? { SMDurcharbeitMarketScope: input.SMDurcharbeitMarketScope } : {}),
     ...(input.SMDurcharbeitQuestionnaireOverrideVersionId !== undefined ? { SMDurcharbeitQuestionnaireOverrideVersionId: input.SMDurcharbeitQuestionnaireOverrideVersionId } : {}),
     smMarketId: input.smMarketId,
     smUserId: input.smUserId,
@@ -2803,11 +2804,11 @@ export async function submitSmPlanningActualTime(id: string, input: { actualMinu
   })) as { submissionId: string; revisionNumber: number; actualMinutes: number; replayed: boolean };
 }
 
-export async function importSmMarkets(input: ImportSmMarketsInput): Promise<{
+export async function importSmMarkets(input: ImportSmMarketsInput, SMDurcharbeit = false): Promise<{
   markets: SmMarketRecord[];
   summary: SmMarketImportSummary;
 }> {
-  const data = (await authedFetch("/admin/sm-markets/import", {
+  const data = (await authedFetch(SMDurcharbeit ? "/admin/sm-markets/SMDurcharbeit/import" : "/admin/sm-markets/import", {
     method: "POST",
     body: JSON.stringify(input),
   }, 300_000)) as { markets?: SmMarketRecord[]; summary: SmMarketImportSummary };
@@ -2827,8 +2828,8 @@ export async function manuallyMatchSmMarketUsers(input: { marketIds: string[]; s
   }, 120_000)) as ManualSmMarketUserMatchResult;
 }
 
-export async function createSmMarket(input: CreateSmMarketInput): Promise<SmMarketRecord> {
-  const data = (await authedFetch("/admin/sm-markets", {
+export async function createSmMarket(input: CreateSmMarketInput, SMDurcharbeit = false): Promise<SmMarketRecord> {
+  const data = (await authedFetch(SMDurcharbeit ? "/admin/sm-markets/SMDurcharbeit" : "/admin/sm-markets", {
     method: "POST",
     body: JSON.stringify(input),
   })) as { market: SmMarketRecord };

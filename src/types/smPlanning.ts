@@ -170,6 +170,7 @@ export type SmPlanningAssignment = {
 };
 
 export type CreateSmPlanningAssignmentInput = {
+  SMDurcharbeitMarketScope?: "SMDurcharbeit";
   SMDurcharbeitQuestionnaireOverrideVersionId?: string;
   smMarketId: string;
   smUserId: string;

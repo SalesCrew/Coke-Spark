@@ -57,6 +57,15 @@ const FIELD_SPECS: ImportFieldSpec[] = [
   { key: "sourceInfo", label: "Info", aliases: ["info", "information", "kommentar"] },
   { key: "isActive", label: "Status aktiv", aliases: ["status", "aktiv", "is active"] },
 ];
+const SMDurcharbeit_FIELD_SPECS: ImportFieldSpec[] = [
+  { key: "SMDurcharbeitVertriebstyp", label: "Vertriebstyp", required: true, aliases: ["Vertriebstyp"] },
+  { key: "name", label: "Firma/Betrieb", required: true, aliases: ["Firma/Betrieb"] },
+  { key: "address", label: "Straße", required: true, aliases: ["Straße", "Strasse"] },
+  { key: "postalCode", label: "PLZ", required: true, aliases: ["PLZ"] },
+  { key: "city", label: "Ort", required: true, aliases: ["Ort"] },
+  { key: "SMDurcharbeitEmEh", label: "EM/EH", required: true, aliases: ["EM/EH"] },
+  { key: "shelfMerchandiserName", label: "Verplanung", required: true, aliases: ["Verplanung"] },
+];
 
 function normalizeHeader(value: string): string {
   return value
@@ -68,11 +77,11 @@ function normalizeHeader(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-function suggestMapping(rows: string[][]): SmMarketColumnMapping {
+function suggestMapping(rows: string[][], SMDurcharbeit = false): SmMarketColumnMapping {
   const header = rows[0] ?? [];
   const normalizedHeaders = header.map(normalizeHeader);
   const mapping: SmMarketColumnMapping = {};
-  for (const spec of FIELD_SPECS) {
+  for (const spec of SMDurcharbeit ? SMDurcharbeit_FIELD_SPECS : FIELD_SPECS) {
     const aliases = spec.aliases.map(normalizeHeader);
     const index = normalizedHeaders.findIndex((value) => aliases.includes(value));
     if (index >= 0) mapping[spec.key] = indexToExcelCol(index);
@@ -80,15 +89,15 @@ function suggestMapping(rows: string[][]): SmMarketColumnMapping {
   return mapping;
 }
 
-function validateMapping(mapping: SmMarketColumnMapping) {
+function validateMapping(mapping: SmMarketColumnMapping, SMDurcharbeit = false) {
   const errors: Partial<Record<SmMarketImportFieldKey, string>> = {};
   const duplicateErrors: Partial<Record<SmMarketImportFieldKey, string>> = {};
-  for (const spec of FIELD_SPECS) {
+  for (const spec of SMDurcharbeit ? SMDurcharbeit_FIELD_SPECS : FIELD_SPECS) {
     const value = mapping[spec.key] ?? "";
     if (spec.required && !isValidColLetter(value)) errors[spec.key] = "Pflichtfeld";
     if (value && !isValidColLetter(value)) errors[spec.key] = "Ungültige Spalte";
   }
-  const hasIdentity = isValidColLetter(mapping.flexNumber ?? "") || isValidColLetter(mapping.internalMarketId ?? "");
+  const hasIdentity = SMDurcharbeit || isValidColLetter(mapping.flexNumber ?? "") || isValidColLetter(mapping.internalMarketId ?? "");
   const seen = new Map<string, SmMarketImportFieldKey>();
   for (const [key, raw] of Object.entries(mapping) as Array<[SmMarketImportFieldKey, string | undefined]>) {
     if (!raw || !isValidColLetter(raw)) continue;
@@ -154,7 +163,8 @@ function MappingField({ spec, value, rows, error, onChange }: {
   );
 }
 
-export function SmMarketImportModal({ onClose, onImport }: {
+export function SmMarketImportModal({ onClose, onImport, SMDurcharbeit = false }: {
+  SMDurcharbeit?: boolean;
   onClose: () => void;
   onImport: (input: ImportSmMarketsInput) => Promise<{ markets: SmMarketRecord[]; summary: SmMarketImportSummary }>;
 }) {
@@ -172,7 +182,7 @@ export function SmMarketImportModal({ onClose, onImport }: {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preview = useMemo(() => workbook ? buildPreviewGrid(workbook.rows) : null, [workbook]);
-  const validation = useMemo(() => validateMapping(mapping), [mapping]);
+  const validation = useMemo(() => validateMapping(mapping, SMDurcharbeit), [mapping, SMDurcharbeit]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -196,14 +206,14 @@ export function SmMarketImportModal({ onClose, onImport }: {
       if (parsed.rows.length < 2) throw new Error("Die Datei enthält keine Datenzeilen.");
       setWorkbook(parsed);
       setFileName(file.name);
-      setMapping(suggestMapping(parsed.rows));
+      setMapping(suggestMapping(parsed.rows, SMDurcharbeit));
       setStep("mapping");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Datei konnte nicht gelesen werden.");
     } finally {
       setParsing(false);
     }
-  }, []);
+  }, [SMDurcharbeit]);
 
   const submit = useCallback(async () => {
     if (!workbook || !validation.canImport || submitting) return;
@@ -310,7 +320,7 @@ export function SmMarketImportModal({ onClose, onImport }: {
         <header style={{ padding: "16px 18px 13px", display: "flex", alignItems: "flex-start", gap: 11, borderBottom: "1px solid rgba(15,23,42,.06)" }}>
           <span style={{ width: 34, height: 34, flex: "0 0 34px", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: "rgba(220,38,38,.065)", color: RED }}><Upload size={15} strokeWidth={1.9} /></span>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ color: "rgba(15,23,42,.34)", fontSize: 8, fontWeight: 850, letterSpacing: ".12em", textTransform: "uppercase" }}>SM Marktimport</div>
+            <div style={{ color: "rgba(15,23,42,.34)", fontSize: 8, fontWeight: 850, letterSpacing: ".12em", textTransform: "uppercase" }}>{SMDurcharbeit ? "SM Durcharbeit Marktimport" : "SM Marktimport"}</div>
             <h2 id="sm-market-import-title" style={{ margin: "3px 0 0", color: "#111827", fontSize: 17, fontWeight: 850, letterSpacing: "-.03em" }}>{step === "upload" ? "Excel-Datei importieren" : step === "mapping" ? "Spalten zuweisen" : "Import abgeschlossen"}</h2>
             <div style={{ marginTop: 4, color: "rgba(15,23,42,.43)", fontSize: 10 }}>{step === "mapping" ? `${fileName} · ${workbook?.sheetName} · ${Math.max((workbook?.rows.length ?? 1) - 1, 0)} Datenzeilen` : "Shelf-Merchandising-Märkte getrennt vom GM-Marktstamm importieren."}</div>
           </div>
@@ -359,15 +369,16 @@ export function SmMarketImportModal({ onClose, onImport }: {
             <div style={{ minHeight: 0, flex: 1, overflowY: "auto", padding: "15px 18px" }}>
               <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}><span style={{ color: "rgba(15,23,42,.34)", fontSize: 8.5, fontWeight: 850, letterSpacing: ".1em", textTransform: "uppercase" }}>Spaltenzuweisung</span><span style={{ color: "rgba(15,23,42,.32)", fontSize: 8.5 }}>Automatisch aus der Kopfzeile erkannt · manuell anpassbar</span></div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: "9px 11px" }}>
-                {FIELD_SPECS.map((spec) => <MappingField key={spec.key} spec={spec} value={mapping[spec.key] ?? ""} rows={workbook.rows} error={validation.errors[spec.key] ?? validation.duplicateErrors[spec.key]} onChange={(value) => setMapping((current) => ({ ...current, [spec.key]: value }))} />)}
+                {(SMDurcharbeit ? SMDurcharbeit_FIELD_SPECS : FIELD_SPECS).map((spec) => <MappingField key={spec.key} spec={spec} value={mapping[spec.key] ?? ""} rows={workbook.rows} error={validation.errors[spec.key] ?? validation.duplicateErrors[spec.key]} onChange={(value) => setMapping((current) => ({ ...current, [spec.key]: value }))} />)}
               </div>
               {!validation.hasIdentity ? <div style={{ marginTop: 8, color: RED, fontSize: 9.5, fontWeight: 650 }}>Mindestens Flexnummer oder Stammnummern zuweisen.</div> : null}
+              {SMDurcharbeit ? <div style={{ marginTop: 10, color: "rgba(15,23,42,.5)", fontSize: 10 }}>Leere Firma/Betrieb- und EM/EH-Werte sind erlaubt. Alle Zeilen bleiben erhalten. Ein erneuter Import aktualisiert bestehende Durcharbeit-Märkte.</div> : null}
               {!validation.planningComplete ? <div style={{ marginTop: 8, color: RED, fontSize: 9.5, fontWeight: 650 }}>Wenn Betreuungstage oder Wochenstunden gemappt sind, müssen auch Mo bis Fr zugewiesen sein.</div> : null}
             </div>
             <footer style={{ padding: "11px 18px", display: "flex", alignItems: "center", gap: 9, borderTop: "1px solid rgba(15,23,42,.06)" }}>
               {error ? <div role="alert" style={{ minWidth: 0, flex: 1, padding: "8px 10px", display: "flex", alignItems: "flex-start", gap: 7, border: "1px solid rgba(220,38,38,.14)", borderRadius: 8, background: "rgba(220,38,38,.05)", color: RED, fontSize: 9.5, fontWeight: 650 }}><AlertTriangle size={11} style={{ flexShrink: 0 }} />{error}</div> : <div style={{ flex: 1 }} />}
               <button type="button" onClick={restart} disabled={submitting} style={{ height: 32, padding: "0 13px", border: "1px solid rgba(15,23,42,.09)", borderRadius: 8, background: "linear-gradient(#fff,#f5f5f5)", color: "rgba(15,23,42,.52)", fontFamily: "inherit", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>← Datei</button>
-              <button type="button" onClick={() => void submit()} disabled={!validation.canImport || submitting} style={{ height: 32, padding: "0 16px", display: "inline-flex", alignItems: "center", gap: 6, border: 0, borderRadius: 8, background: validation.canImport && !submitting ? `linear-gradient(${RED},#b91c1c)` : "rgba(15,23,42,.14)", color: "#fff", fontFamily: "inherit", fontSize: 10.5, fontWeight: 800, cursor: validation.canImport && !submitting ? "pointer" : "not-allowed" }}><Upload size={11} />{submitting ? "Import läuft…" : "Importieren"}</button>
+              <button type="button" onClick={() => void submit()} disabled={!validation.canImport || submitting} style={{ height: 32, padding: "0 16px", display: "inline-flex", alignItems: "center", gap: 6, border: 0, borderRadius: 8, background: validation.canImport && !submitting ? SMDurcharbeit ? "linear-gradient(#2563EB,#1D4ED8)" : `linear-gradient(${RED},#b91c1c)` : "rgba(15,23,42,.14)", color: "#fff", fontFamily: "inherit", fontSize: 10.5, fontWeight: 800, cursor: validation.canImport && !submitting ? "pointer" : "not-allowed" }}><Upload size={11} />{submitting ? "Import läuft…" : "Importieren"}</button>
             </footer>
           </div>
         ) : null}
@@ -378,6 +389,7 @@ export function SmMarketImportModal({ onClose, onImport }: {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>{[
               ["Zeilen", summary.totalParsedRows], ["Neu", summary.created], ["Aktualisiert", summary.updated], ["Unverändert", summary.unchanged], ["Übersprungen", summary.skipped],
             ].map(([label, value]) => <div key={String(label)} style={{ padding: "11px 9px", border: "1px solid rgba(15,23,42,.065)", borderRadius: 9, background: "#fafafa" }}><span style={{ display: "block", color: "rgba(15,23,42,.35)", fontSize: 7.5, fontWeight: 850, letterSpacing: ".07em", textTransform: "uppercase" }}>{label}</span><strong style={{ display: "block", marginTop: 4, color: "#17191d", fontSize: 17, fontWeight: 850 }}>{value}</strong></div>)}</div>
+            {SMDurcharbeit ? <div style={{ color: "rgba(15,23,42,.55)", fontSize: 10, lineHeight: 1.6 }}>{summary.SMDurcharbeitDuplicateRows || 0} identische Mehrfachzeilen separat erhalten. {summary.SMDurcharbeitUnassignedRows || 0} Märkte ohne eindeutige SM-Zuordnung; der Originalname bleibt in Verplanung gespeichert.</div> : null}
             {summary.skippedReasons.length > 0 ? <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid rgba(217,119,6,.13)", borderRadius: 9, background: "rgba(255,251,235,.55)" }}>{summary.skippedReasons.map((reason) => {
               const repairOpen = repairDraft?.row === reason.row;
               const repairable = isMissingIdentityWarning(reason.reason);

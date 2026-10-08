@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { CalendarDays, Plus, Download, FileSpreadsheet, RefreshCw } from "lucide-react";
+import { CalendarDays, Plus, Download, FileSpreadsheet, RefreshCw, Upload } from "lucide-react";
 import { AdminSidenav } from "@/components/ui/AdminSidenav";
 import { ModuleEditor } from "@/components/admin/ModuleEditor";
 import { FragebogenEditor } from "@/components/admin/FragebogenEditor";
@@ -1073,7 +1073,12 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Download size={12} strokeWidth={2} />
                   Exportieren
                 </button>
-              ) : isIppBerechnung ? null : isLager ? null : isSMDurcharbeitMaerkte ? null : isSmFragebogen || isSMDurcharbeit ? (
+              ) : isIppBerechnung ? null : isLager ? null : isSMDurcharbeitMaerkte ? (
+                <>
+                  {canWriteCurrentPage ? <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("sm-maerkte:openManualCreate"))} style={{ display:"flex",alignItems:"center",gap:5,padding:"7px 16px",fontSize:11,fontWeight:600,color:"#fff",background:"linear-gradient(#2a2a2a,#1a1a1a)",border:0,borderRadius:7,cursor:"pointer",boxShadow:"inset 0 1px .6px rgba(255,255,255,.18),0 0 0 1px #111,0 1px 6px rgba(0,0,0,.18)" }}><Plus size={12} strokeWidth={2}/>Neuer Markt</button> : null}
+                  {canWriteCurrentPage ? <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("sm-maerkte:openImport"))} style={{ display:"flex",alignItems:"center",gap:5,padding:"7px 16px",fontSize:11,fontWeight:600,color:"#fff",background:"linear-gradient(#2563EB,#1D4ED8)",border:0,borderRadius:7,cursor:"pointer",boxShadow:"inset 0 1px .6px rgba(255,255,255,.33),0 0 0 1px #1E40AF,0 1px 6px rgba(37,99,235,.16)" }}><Upload size={12} strokeWidth={2}/>Importieren</button> : null}
+                </>
+              ) : isSmFragebogen || isSMDurcharbeit ? (
                 <>
                   {canWriteCurrentPage ? <button
                     type="button"

@@ -65,6 +65,7 @@ type PlanningListRow = { kind: "sm"; row: SmPlanningAssignment } | { kind: "gm";
 export type PlanningSubmitRequest =
   | {
       kind: "create_single";
+      SMDurcharbeitMarketScope?: "SMDurcharbeit";
       SMDurcharbeitQuestionnaireOverrideVersionId?: string;
       workDate: string;
       smMarketId: string;
@@ -401,7 +402,7 @@ export function PlanningDrawer({
           idempotencyKey,
         } : {
           kind: "create_single",
-          ...(SMDurcharbeit ? { SMDurcharbeitQuestionnaireOverrideVersionId: SMDurcharbeitOverride } : {}),
+          ...(SMDurcharbeit ? { SMDurcharbeitMarketScope: "SMDurcharbeit" as const, SMDurcharbeitQuestionnaireOverrideVersionId: SMDurcharbeitOverride } : {}),
           workDate,
           smMarketId,
           smUserId,

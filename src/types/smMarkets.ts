@@ -3,6 +3,7 @@ export type SmMarketWeekdayHours = Record<SmMarketWeekdayKey, number | null>;
 
 export type SmMarketRecord = {
   SMDurcharbeitMarket?: boolean;
+  SMDurcharbeitSourceValues?: Record<string, string> | null;
   id: string;
   internalId: string;
   flexNumber?: string;
@@ -32,6 +33,8 @@ export type SmMarketRecord = {
 };
 
 export type SmMarketImportFieldKey =
+  | "SMDurcharbeitVertriebstyp"
+  | "SMDurcharbeitEmEh"
   | "flexNumber"
   | "internalMarketId"
   | "name"
@@ -54,6 +57,8 @@ export type SmMarketImportFieldKey =
 export type SmMarketColumnMapping = Partial<Record<SmMarketImportFieldKey, string>>;
 
 export type SmMarketImportSummary = {
+  SMDurcharbeitDuplicateRows?: number;
+  SMDurcharbeitUnassignedRows?: number;
   fileName: string;
   sheetName: string;
   totalParsedRows: number;

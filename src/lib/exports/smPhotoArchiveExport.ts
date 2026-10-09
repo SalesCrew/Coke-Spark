@@ -7,10 +7,12 @@ const csvCell = (value: unknown) => {
   return `"${(/^[\s]*[=+\-@]/.test(text) ? "'" : "") + text.replaceAll('"', '""')}"`;
 };
 export function smPhotoArchiveManifest(photos: SmArchivePhoto[]) {
-  const fields = ["Foto-ID", "Fragebogentyp", "Besuchsdatum", "SM", "Markt", "Adresse", "Fragebogen", "Version", "Modul", "Fotofrage", "Dateiname"];
+  const fields = ["Foto-ID", "Fragebogentyp", "Besuchsdatum", "SM", "Markt", "Adresse", "Fragebogen", "Version", "Modul", "Fotofrage", "Dateiname",
+    "Ursprungs-Uploaddatum", "Ursprungs-Einreichung-ID", "Durcharbeit-Besuch-ID", "Durcharbeit-Monatsziel-ID", "Durcharbeit-Kampagne-ID", "Durcharbeit-Kampagne", "Durcharbeit-Kalendermonat"];
   return "\uFEFF" + [fields, ...photos.map(photo => [photo.id, photo.SMDurcharbeitCatalogScope === "SMDurcharbeit" ? "Durcharbeit" : "Standardfragebogen", photo.workDate,
     photo.smName, photo.marketName, [photo.address, photo.postalCode, photo.city].filter(Boolean).join(" · "), photo.questionnaireName, photo.questionnaireVersion,
-    photo.moduleName, photo.questionText, photo.fileName])].map(row => row.map(csvCell).join(";")).join("\r\n");
+    photo.moduleName, photo.questionText, photo.fileName, photo.uploadedAt, photo.submissionId, photo.SMDurcharbeitVisitId, photo.SMDurcharbeitTargetId,
+    photo.SMDurcharbeitCampaignId, photo.SMDurcharbeitCampaignName, photo.SMDurcharbeitMonth])].map(row => row.map(csvCell).join(";")).join("\r\n");
 }
 
 function download(blob: Blob, name: string) {

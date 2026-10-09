@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCheck,
@@ -30,6 +30,7 @@ import {
   rejectAdminVisitSessionDeleteRequest,
   reviewAdminSmAnswerChangeRequest,
   reviewAdminSmSubmissionDeleteRequest,
+  reviewAdminSMDurcharbeitTimeRequest,
   type AdminAnswerChangeRequest,
   type AdminVisitSessionDeleteRequest,
   type TimeEntryChangeRequest,
@@ -41,6 +42,8 @@ import type {
 } from "@/types/smActivity";
 
 import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQuestionnaireBadge";
+import { SMDurcharbeitVisitReference } from "@/lib/sm/SMDurcharbeitVisitReference";
+import { subscribeToAuthSessionChanges } from "@/lib/auth/sessionRegistry";
 type RequestAction = "approve" | "reject";
 
 function formatDateTime(value: string | null | undefined): string {
@@ -320,15 +323,17 @@ function adaptSmDeleteRequest(request: SmActivitySubmissionDeleteRequest): Admin
 }
 
 function adaptSmTimeRequest(request: SmAdminTimeChangeRequest): TimeEntryChangeRequest {
+  const executionReference = request.SMDurcharbeitVisitId ? SMDurcharbeitVisitReference(request.SMDurcharbeitVisitId) : request.assignmentId!;
   return {
     id: request.id,
-    daySessionId: request.assignmentId,
+    SMDurcharbeitVisitId: request.SMDurcharbeitVisitId,
+    daySessionId: executionReference,
     gmUserId: request.sm.id,
     sourceKind: "marktbesuch",
-    sourceId: request.assignmentId,
+    sourceId: executionReference,
     workDate: request.workDate,
     timezone: "Europe/Vienna",
-    title: request.market.name,
+    title: request.SMDurcharbeitVisitId ? `${request.market.name} · ${request.SMDurcharbeitCampaignName} · ${request.SMDurcharbeitMonth?.slice(0, 7)}` : request.market.name,
     subtitle: request.kind === "deletion" ? "Ist-Zeit löschen" : "Start und Ende korrigieren",
     requestedActivityType: null,
     originalStartAt: request.originalStartedAt ?? "",
@@ -376,13 +381,16 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [compactDoneOpen, setCompactDoneOpen] = useState(false);
   const [expandedDoneOpen, setExpandedDoneOpen] = useState(false);
+  const SMDurcharbeitRequestGeneration = useRef(0);
 
   const loadRequests = useCallback(async (options?: { preserveError?: boolean }) => {
+    const generation = ++SMDurcharbeitRequestGeneration.current;
     setLoading(true);
     if (!options?.preserveError) setError(null);
     try {
       if (isSmWorkspace) {
         const result = await fetchAdminSmActivityRequests();
+        if (generation !== SMDurcharbeitRequestGeneration.current) return;
         setRequests(sortRequests(result.answerRequests.map(adaptSmAnswerRequest)));
         setTimeRequests(sortTimeRequests(result.timeRequests.map(adaptSmTimeRequest)));
         setDeleteRequests(sortDeleteRequests(result.deleteRequests.map(adaptSmDeleteRequest)));
@@ -397,16 +405,27 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
       setTimeRequests(sortTimeRequests(nextTimeRequests));
       setDeleteRequests(sortDeleteRequests(nextDeleteRequests));
     } catch (err) {
+      if (isSmWorkspace && generation !== SMDurcharbeitRequestGeneration.current) return;
       const message = err instanceof Error ? err.message : "Änderungsanfragen konnten nicht geladen werden.";
       setError((current) => options?.preserveError && current ? `${current} Aktualisierung fehlgeschlagen: ${message}` : message);
     } finally {
-      setLoading(false);
+      if (!isSmWorkspace || generation === SMDurcharbeitRequestGeneration.current) setLoading(false);
     }
   }, [isSmWorkspace]);
 
   useEffect(() => {
     void loadRequests();
   }, [loadRequests]);
+  useEffect(() => {
+    if (!isSmWorkspace) return;
+    const unsubscribe = subscribeToAuthSessionChanges(() => {
+      SMDurcharbeitRequestGeneration.current += 1;
+      setRequests([]); setTimeRequests([]); setDeleteRequests([]); setSelectedIds(new Set()); setSelectedGmId(null);
+      setBusyIds(new Set()); setOpen(false); setExpanded(false); setError(null);
+      void loadRequests();
+    });
+    return () => { unsubscribe(); SMDurcharbeitRequestGeneration.current += 1; };
+  }, [isSmWorkspace, loadRequests]);
 
   const pendingRequests = useMemo(() => requests.filter((request) => request.status === "pending"), [requests]);
   const pendingTimeRequests = useMemo(() => timeRequests.filter((request) => request.status === "pending"), [timeRequests]);
@@ -662,7 +681,9 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
       const results = await Promise.allSettled(
         uniqueIds.map((id) =>
           isSmWorkspace
-            ? action === "approve"
+            ? timeRequests.find(request => request.id === id)?.SMDurcharbeitVisitId
+              ? reviewAdminSMDurcharbeitTimeRequest(id, action)
+              : action === "approve"
               ? approveAdminSmPlanningTimeChangeRequest(id)
               : rejectAdminSmPlanningTimeChangeRequest(id)
             : action === "approve"

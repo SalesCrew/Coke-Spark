@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { buildSmTimeDays, groupSmTimeEmployees, selectSmTimeAssignments, smVisitTimeLabel, summarizeSmTime } from "../src/lib/sm/timeView";
+import { buildSmTimeDays, groupSmTimeEmployees, selectSmTimeAssignments, mapSMDurcharbeitTime, smVisitTimeLabel, summarizeSmTime } from "../src/lib/sm/timeView";
 import { SmEmployeeTimeRow, SmZeiterfassungWorkspace } from "../src/components/admin/sm/SmZeiterfassungWorkspace";
 import { smDayPeriod, smMonthPeriod } from "../src/lib/sm/planningPeriod";
 import { smTimeFixtures, timeFixture } from "./fixtures/sm-time";
@@ -37,6 +37,23 @@ test("effective reassignment/date and latest time revision win without rewriting
   assert.equal(mapped.smId, "ben"); assert.equal(mapped.actualMinutes, 75); assert.equal(mapped.timeRevisionNumber, 2);
   assert.equal(row.original.workDate, "2026-08-31");
   assert.equal(selectSmTimeAssignments([row], "2026-08-31", "2026-08-31").length, 0);
+});
+
+test("monthly physical visits add actual time without creating Soll or planned days", () => {
+  const visitId = "11111111-1111-4111-8111-111111111111";
+  const monthly = mapSMDurcharbeitTime({ visitId, submissionId: "monthly-submission", targetId: "target", smUserId: "ada", smName: "Ada Beispiel",
+    marketId: "market", marketName: "Durcharbeit Markt", marketAddress: "Testweg", marketInternalId: "M1", campaignId: "campaign", campaignName: "Monatskampagne",
+    month: "2026-09-01", workDate: "2026-09-15", startedAt: "2026-09-15T07:00:00Z", completedAt: "2026-09-15T07:15:00Z",
+    originalStartedAt: "2026-09-15T08:00:00Z", originalCompletedAt: "2026-09-15T08:10:00Z", actualMinutes: 15, travelMinutes: 5,
+    revision: 2, questionnaireComplete: true, pendingTimeChangeRequest: null, submittedAt: "2026-09-15T08:10:00Z" });
+  assert.equal(monthly.id, `SMDurcharbeit:${visitId}`); assert.equal(monthly.plannedMinutes, null);
+  assert.equal(monthly.visitStartedAt, "2026-09-15T07:00:00Z"); assert.equal(monthly.timeRevisionNumber, 2);
+  const onlyMonthly = summarizeSmTime([monthly]);
+  assert.equal(onlyMonthly.planned, null); assert.equal(onlyMonthly.plannedDays, 0); assert.equal(onlyMonthly.total, 20);
+  const standard = selectSmTimeAssignments([timeFixture("standard", "2026-09-14", 30)], "2026-09-01", "2026-09-30")[0];
+  const mixed = summarizeSmTime([standard, monthly]);
+  assert.equal(mixed.planned, standard.plannedMinutes); assert.equal(mixed.plannedDays, 1); assert.equal(mixed.actual, 45); assert.equal(mixed.recordedDays, 2);
+  assert.equal(summarizeSmTime([{ ...monthly, actualMinutes: null, totalMinutes: null }]).actual, null, "Time deletion leaves physical history without a paid duration");
 });
 
 test("Vienna visit timestamps handle DST, overnight and absent historical values", () => {

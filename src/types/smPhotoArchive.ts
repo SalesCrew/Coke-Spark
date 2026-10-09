@@ -8,6 +8,8 @@ export interface SmPhotoArchiveFilters {
   marketId?: string;
   questionnaireId?: string;
   search?: string;
+  SMDurcharbeitCampaignId?: string;
+  SMDurcharbeitMonth?: string;
 }
 export interface SmArchivePhoto {
   id: string; submissionId: string; assignmentId: string | null; questionId: string;
@@ -16,13 +18,16 @@ export interface SmArchivePhoto {
   workDate: string; smUserId: string; smName: string; marketId: string; marketName: string;
   address: string; postalCode: string; city: string; questionnaireId: string; questionnaireName: string;
   questionnaireVersion: number; SMDurcharbeitCatalogScope: SmQuestionnaireCatalogScope;
+  SMDurcharbeitVisitId?: string | null; SMDurcharbeitTargetId?: string | null;
+  SMDurcharbeitCampaignId?: string | null; SMDurcharbeitCampaignName?: string | null; SMDurcharbeitMonth?: string | null;
 }
 export interface SmArchivePhotoList {
   photos: SmArchivePhoto[]; total: number; page: number; pageSize: number;
   stats: { markets: number; questionnaires: number };
 }
 export interface SmArchivePhotoFacets {
-  facets: Array<{ smUserId: string; smName: string; marketId: string; marketName: string; questionnaireId: string; questionnaireName: string }>;
+  facets: Array<{ smUserId: string; smName: string; marketId: string; marketName: string; questionnaireId: string; questionnaireName: string;
+    SMDurcharbeitCampaignId?: string | null; SMDurcharbeitCampaignName?: string | null; SMDurcharbeitMonth?: string | null }>;
   truncated: boolean;
 }
 export interface SmArchivePhotoUrl { id: string; signedUrl: string | null; expiresAt: string }

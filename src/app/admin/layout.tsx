@@ -132,10 +132,11 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isSmFragebogen = pathname.startsWith("/admin/sm/fragebogen");
   const isSMDurcharbeitMaerkte = pathname.startsWith("/admin/sm/durcharbeit-maerkte");
   const isSMDurcharbeitVerplanung = pathname.startsWith("/admin/sm/durcharbeit-verplanung");
+  const isSMDurcharbeitCampaigns = pathname === "/admin/sm/durcharbeit-verplanung";
   const isSMDurcharbeit = pathname === "/admin/sm/durcharbeit" || pathname.startsWith("/admin/sm/durcharbeit/");
   const smCatalogEventNamespace = isSMDurcharbeit ? "SMDurcharbeit" : "sm-fragebogen";
   const isSmFbManagement = pathname.startsWith("/admin/sm/fbmanagement");
-  const isSmVerplanung = pathname.startsWith("/admin/sm/verplanung") || isSMDurcharbeitVerplanung;
+  const isSmVerplanung = pathname.startsWith("/admin/sm/verplanung") || (isSMDurcharbeitVerplanung && !isSMDurcharbeitCampaigns);
   const isSmZeiterfassung = pathname.startsWith("/admin/sm/zeiterfassung");
   const isSmNachrichten = pathname.startsWith("/admin/sm/nachrichten");
   const isLager = pathname.startsWith("/admin/lager");
@@ -866,6 +867,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <CalendarDays size={10} strokeWidth={1.8} />
                   Live · aktueller Monat
                 </div>
+              ) : isSMDurcharbeitCampaigns ? (
+                <p style={{ margin: "6px 0 0", fontSize: 11, color: "rgba(0,0,0,0.42)" }}>Kampagnen · Ein Marktbesuch je Kalendermonat</p>
               ) : isSmVerplanung ? (
                 <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", color: "rgba(0,0,0,0.38)", backgroundColor: "#ffffff", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 999, fontSize: 9, fontWeight: 600, lineHeight: 1, letterSpacing: "0.01em" }}>
                   <CalendarDays size={10} strokeWidth={1.8} />
@@ -960,7 +963,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                   <Plus size={12} strokeWidth={2} />
                   Nachricht erstellen
                 </button> : null
-              ) : isSmZeiterfassung || isSmFbManagement || isSmFotoarchiv ? null
+              ) : isSMDurcharbeitCampaigns || isSmZeiterfassung || isSmFbManagement || isSmFotoarchiv ? null
               : isDurcharbeit && canWriteCurrentPage ? (
                 <>
                   <button

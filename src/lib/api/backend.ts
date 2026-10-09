@@ -1,6 +1,8 @@
 "use client";
 
 import { visibleSmAssignments } from "@/lib/sm/assignmentVisibility";
+import { smVisitApiPath, SMDurcharbeitVisitId } from "@/lib/sm/SMDurcharbeitVisitReference";
+import type { SMDurcharbeitTarget, SMDurcharbeitTargetPreview } from "@/types/smSMDurcharbeitCampaign";
 import type { SmManagementApi, SmManagementList, SmManagementDetail, SmManagementHistory, SmAdminPhotoReceipt } from "@/types/smManagement";
 import type { SmPhotoArchiveApi } from "@/types/smPhotoArchive";
 import type { GMRecord } from "@/types/gebietsmanager";
@@ -372,7 +374,7 @@ type BackendIppDetailRecord = BackendIppListRow & {
   questionRows: IppQuestionAuditRow[];
 };
 
-function getAuthPrincipalKey(session: AuthSessionPayload | null): string | null {
+export function getAuthPrincipalKey(session: AuthSessionPayload | null): string | null {
   if (!session) return null;
   return `${session.user.id}:${session.user.role}`;
 }
@@ -987,12 +989,22 @@ function getKundePageKeyHeader(): Record<string, string> {
   return pageKey ? { "x-coke-spark-page-key": pageKey } : {};
 }
 
-async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 30000) {
+async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 30000, ownerGuard?: { isCurrent(): boolean }) {
+  const assertOwner = () => {
+    if (ownerGuard && !ownerGuard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+  };
+  assertOwner();
   const token = getAccessToken();
   if (!token) {
     handleAuthExpired("missing-access-token");
     throw new Error("Nicht eingeloggt. Bitte erneut anmelden.");
   }
+
+  // Monthly execution/time actions retain the initiating principal through refresh/retry.
+  const automaticOwnerGuard = !ownerGuard && (path.startsWith("/sm/smdurcharbeit/")
+    || /^\/sm\/smdurcharbeit-times(?:[/?]|$)/.test(path)
+    || /^\/admin\/sm-smdurcharbeit-(?:campaigns|times)(?:[/?]|$)/.test(path)) ? createSmRequestOwnerGuard() : null;
+  ownerGuard ??= automaticOwnerGuard ?? undefined;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -1000,8 +1012,9 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
   const method = String(init.method ?? "GET").toUpperCase();
   const shouldTrack = shouldTrackClientAction(path, method);
 
-  const requestWithToken = (accessToken: string) =>
-    fetch(`${BACKEND_URL}${path}`, {
+  const requestWithToken = (accessToken: string) => {
+    assertOwner();
+    return fetch(`${BACKEND_URL}${path}`, {
       ...init,
       signal: controller.signal,
       headers: {
@@ -1011,19 +1024,23 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
         ...(init.headers ?? {}),
       },
     });
+  };
 
   try {
     let telemetryToken = token;
     let res = await requestWithToken(token);
     let data = await res.json().catch(() => ({}));
+    assertOwner();
     let refreshedAfter401 = false;
 
     if (res.status === 401) {
-      const refreshed = await refreshAuthSession();
+      const refreshed = await refreshAuthSession(ownerGuard, ownerGuard ? controller.signal : undefined);
+      assertOwner();
       if (refreshed) {
         telemetryToken = refreshed.session.accessToken;
         res = await requestWithToken(refreshed.session.accessToken);
         data = await res.json().catch(() => ({}));
+        assertOwner();
         refreshedAfter401 = true;
       }
     }
@@ -1077,7 +1094,7 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
 
     return data;
   } catch (error) {
-    if (shouldTrack && !(error instanceof BackendApiError)) {
+    if (shouldTrack && !(error instanceof BackendApiError) && (!ownerGuard || ownerGuard.isCurrent())) {
       emitClientTelemetry({
         backendUrl: BACKEND_URL,
         accessToken: token,
@@ -1100,6 +1117,7 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    automaticOwnerGuard?.dispose();
   }
 }
 
@@ -1866,7 +1884,11 @@ export async function updateOwnPasswordWithCurrent(input: {
   });
 }
 
-async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
+async function refreshAuthSession(ownerGuard?: { isCurrent(): boolean }, signal?: AbortSignal): Promise<AuthSessionPayload | null> {
+  const assertOwner = () => {
+    if (ownerGuard && !ownerGuard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+  };
+  assertOwner();
   const currentSession = readActiveAuthSessionWithTarget();
   if (!currentSession?.payload.session.refreshToken) {
     handleAuthExpired("refresh-missing-token");
@@ -1875,11 +1897,13 @@ async function refreshAuthSession(): Promise<AuthSessionPayload | null> {
 
   const res = await fetch(`${BACKEND_URL}/auth/refresh`, {
     method: "POST",
+    ...(signal ? { signal } : {}),
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refreshToken: currentSession.payload.session.refreshToken }),
   });
 
   const data = (await res.json().catch(() => ({}))) as { error?: string } & Partial<AuthSessionPayload>;
+  assertOwner();
   if (!res.ok || !data.user || !data.session) {
     handleAuthExpired("refresh-failed");
     return null;
@@ -2050,16 +2074,43 @@ export async function fetchMySmHomeDashboard(): Promise<SmHomeDashboardPayload> 
   return (await authedFetch("/sm/dashboard", { cache: "no-store" }, 15_000)) as SmHomeDashboardPayload;
 }
 
+/** Separate namespace and the same principal guard used by the existing visit queue. */
+export async function requestSMDurcharbeitCampaign<T>(path: string, body?: unknown, method = "GET", admin = true): Promise<T> {
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const result = await authedFetch(`${admin ? "/admin/sm-smdurcharbeit-campaigns" : "/sm/smdurcharbeit"}${path}`,
+      { cache: "no-store", method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, 30_000, guard);
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return result as T;
+  } finally { guard.dispose(); }
+}
+export function fetchMySMDurcharbeitTargets(month?: string) {
+  return requestSMDurcharbeitCampaign<import("@/types/smSMDurcharbeitCampaign").SMDurcharbeitTargetList>(`/targets${month ? `?month=${encodeURIComponent(month)}` : ""}`, undefined, "GET", false);
+}
+export function fetchMySMDurcharbeitTarget(targetId: string) {
+  return requestSMDurcharbeitCampaign<SMDurcharbeitTargetPreview>(`/targets/${encodeURIComponent(targetId)}`, undefined, "GET", false);
+}
+export async function startMySMDurcharbeitTarget(targetId: string, input: { expectedRevision: number; followUp: boolean;
+  mode: "timer" | "manual"; travelMinutes: number | null; clientSubmissionToken: string }) {
+  const result = await requestSMDurcharbeitCampaign<{ visitId: string; submissionId: string; replayed: boolean }>(`/targets/${encodeURIComponent(targetId)}/start`, input, "POST", false);
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(SM_HOME_DASHBOARD_CHANGED_EVENT));
+  return result;
+}
+
 export async function requestMySmPlanningTimeChange(assignmentId: string, input: {
+  expectedRevision?: number;
   kind: "time_change" | "deletion";
   requestedStartedAt: string | null;
   requestedCompletedAt: string | null;
   reason: string;
   clientRequestToken: string;
 }): Promise<{ request: SmTimeChangeRequest; replayed: boolean }> {
-  return (await authedFetch(`/sm/planning/assignments/${encodeURIComponent(assignmentId)}/time-change-requests`, {
+  const SMDurcharbeitId = SMDurcharbeitVisitId(assignmentId);
+  if (SMDurcharbeitId && !input.expectedRevision) throw new Error("Der aktuelle Zeitstand fehlt. Bitte neu laden.");
+  const { expectedRevision, ...standardInput } = input;
+  return (await authedFetch(SMDurcharbeitId ? `/sm/smdurcharbeit-times/${encodeURIComponent(SMDurcharbeitId)}/requests` : `/sm/planning/assignments/${encodeURIComponent(assignmentId)}/time-change-requests`, {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify(SMDurcharbeitId ? input : standardInput),
   })) as { request: SmTimeChangeRequest; replayed: boolean };
 }
 
@@ -2080,7 +2131,7 @@ export async function rejectAdminSmPlanningTimeChangeRequest(requestId: string, 
 export async function fetchSmVisit(assignmentId: string): Promise<SmVisitPayload> {
   const guard = createSmRequestOwnerGuard();
   try {
-    const payload = (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}`, { cache: "no-store" })) as SmVisitPayload;
+    const payload = (await authedFetch(`${smVisitApiPath(assignmentId)}`, { cache: "no-store" })) as SmVisitPayload;
     if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
     return payload;
   } catch (error) {
@@ -2123,8 +2174,12 @@ export async function requestMySmActivitySubmissionDelete(input: { submissionId:
 }
 
 export async function fetchAdminSmActivityRequests(): Promise<{ answerRequests: SmActivityAnswerChangeRequest[]; deleteRequests: SmActivitySubmissionDeleteRequest[]; timeRequests: SmAdminTimeChangeRequest[] }> {
-  const response = (await authedFetch("/admin/sm-activity/requests", { cache: "no-store" })) as { answerRequests?: SmActivityAnswerChangeRequest[]; deleteRequests?: SmActivitySubmissionDeleteRequest[]; timeRequests?: SmAdminTimeChangeRequest[] };
-  return { answerRequests: response.answerRequests ?? [], deleteRequests: response.deleteRequests ?? [], timeRequests: response.timeRequests ?? [] };
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const response = (await authedFetch("/admin/sm-activity/requests", { cache: "no-store" })) as { answerRequests?: SmActivityAnswerChangeRequest[]; deleteRequests?: SmActivitySubmissionDeleteRequest[]; timeRequests?: SmAdminTimeChangeRequest[] };
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return { answerRequests: response.answerRequests ?? [], deleteRequests: response.deleteRequests ?? [], timeRequests: response.timeRequests ?? [] };
+  } finally { guard.dispose(); }
 }
 
 export async function reviewAdminSmAnswerChangeRequest(requestId: string, decision: "approve" | "reject", adminNote?: string): Promise<{ request: { id: string; status: string }; replayed: boolean }> {
@@ -2472,28 +2527,28 @@ export async function startSmVisit(assignmentId: string, input: {
   travelMinutes?: number | null;
   clientSubmissionToken: string;
 }): Promise<SmVisitPayload> {
-  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/start`, {
+  return (await authedFetch(`${smVisitApiPath(assignmentId)}/start`, {
     method: "POST",
     body: JSON.stringify(input),
   })) as SmVisitPayload;
 }
 
 export async function saveSmVisitAnswer(assignmentId: string, submissionQuestionId: string, answer: SmVisitAnswer, input: { expectedAnswerVersion: number; clientMutationToken: string }): Promise<{ saved: boolean; answerVersion: number }> {
-  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/answers/${encodeURIComponent(submissionQuestionId)}`, {
+  return (await authedFetch(`${smVisitApiPath(assignmentId)}/answers/${encodeURIComponent(submissionQuestionId)}`, {
     method: "PUT",
     body: JSON.stringify({ answer, ...input }),
   })) as { saved: boolean; answerVersion: number };
 }
 
 export async function updateSmVisitTiming(assignmentId: string, input: { travelMinutes?: number | null; manualVisitMinutes?: number | null }): Promise<SmVisitPayload> {
-  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/timing`, {
+  return (await authedFetch(`${smVisitApiPath(assignmentId)}/timing`, {
     method: "PATCH",
     body: JSON.stringify(input),
   })) as SmVisitPayload;
 }
 
 export async function submitSmVisit(assignmentId: string, input: { actualMinutes?: number; visitStartedAt?: string; visitCompletedAt?: string } = {}): Promise<SmVisitReceipt> {
-  const data = (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/submit`, {
+  const data = (await authedFetch(`${smVisitApiPath(assignmentId)}/submit`, {
     method: "POST",
     body: JSON.stringify({ clientMutationToken: crypto.randomUUID(), ...input }),
   })) as { receipt: SmVisitReceipt };
@@ -2504,7 +2559,7 @@ export async function submitSmVisit(assignmentId: string, input: { actualMinutes
 async function smManagementFetch(path: string, init: RequestInit = {}): Promise<unknown> {
   const guard = createSmRequestOwnerGuard();
   try {
-    const result = await authedFetch(`/admin/sm-activity/completed${path}`, { cache: "no-store", ...init }, 30_000);
+    const result = await authedFetch(`/admin/sm-activity/completed${path}`, { cache: "no-store", ...init }, 30_000, guard);
     if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
     return result;
   } finally { guard.dispose(); }
@@ -2519,7 +2574,7 @@ export const smPhotoArchiveApi: SmPhotoArchiveApi = (() => {
   const request = async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
     const guard = createSmRequestOwnerGuard();
     try {
-      const result = await authedFetch(`/admin/sm-photos${path}`, { cache: "no-store", ...init }, 30_000);
+      const result = await authedFetch(`/admin/sm-photos${path}`, { cache: "no-store", ...init }, 30_000, guard);
       if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
       return result as T;
     } finally { guard.dispose(); }
@@ -2569,21 +2624,21 @@ export async function requestGmDashboard<T>(path: string, body?: unknown): Promi
 }
 
 export async function discardSmVisit(assignmentId: string): Promise<{ ok: true; assignmentId: string; status: "planned" | "confirmed" | "open" }> {
-  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}`, {
+  return (await authedFetch(`${smVisitApiPath(assignmentId)}`, {
     method: "DELETE",
     body: JSON.stringify({ confirmation: "SOFT_DELETE_SM_VISIT" }),
   })) as { ok: true; assignmentId: string; status: "planned" | "confirmed" | "open" };
 }
 
 export async function initializeSmVisitPhoto(assignmentId: string, submissionQuestionId: string): Promise<{ answerId: string }> {
-  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/initialize`, {
+  return (await authedFetch(`${smVisitApiPath(assignmentId)}/photos/initialize`, {
     method: "POST",
     body: JSON.stringify({ submissionQuestionId }),
   })) as { answerId: string };
 }
 
 export async function presignSmVisitPhoto(assignmentId: string, answerId: string, extension: string): Promise<{ upload: { bucket: string; path: string; signedUrl: string; token: string } }> {
-  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/presign`, {
+  return (await authedFetch(`${smVisitApiPath(assignmentId)}/photos/presign`, {
     method: "POST",
     body: JSON.stringify({ answerId, extension }),
   })) as { upload: { bucket: string; path: string; signedUrl: string; token: string } };
@@ -2601,14 +2656,14 @@ export async function commitSmVisitPhotos(assignmentId: string, input: {
   answerId: string;
   photos: SmVisitPhotoCommitItem[];
 }): Promise<{ fileIds: string[] }> {
-  return (await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/commit`, {
+  return (await authedFetch(`${smVisitApiPath(assignmentId)}/photos/commit`, {
     method: "POST",
     body: JSON.stringify(input),
   }, 120_000)) as { fileIds: string[] };
 }
 
 export async function cleanupSmVisitPhotoUpload(assignmentId: string, input: { answerId: string; storageBucket: "sm-visit-photos"; storagePath: string }): Promise<void> {
-  await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/cleanup`, {
+  await authedFetch(`${smVisitApiPath(assignmentId)}/photos/cleanup`, {
     method: "POST",
     body: JSON.stringify(input),
   }, 120_000);
@@ -2670,7 +2725,7 @@ export async function uploadSmVisitPhotos(assignmentId: string, submissionQuesti
 }
 
 export async function deleteSmVisitPhoto(assignmentId: string, fileId: string): Promise<void> {
-  await authedFetch(`/sm/visits/${encodeURIComponent(assignmentId)}/photos/${encodeURIComponent(fileId)}`, { method: "DELETE" });
+  await authedFetch(`${smVisitApiPath(assignmentId)}/photos/${encodeURIComponent(fileId)}`, { method: "DELETE" });
 }
 
 export async function fetchAdminSmMessages(): Promise<SmAdminMessagesPayload> {
@@ -2691,14 +2746,45 @@ export async function sendAdminSmMessage(input: {
 }
 
 export async function fetchSmMessages(): Promise<SmInboxMessage[]> {
-  const data = (await authedFetch("/sm/messages", { cache: "no-store" })) as { messages?: SmInboxMessage[] };
-  return data.messages ?? [];
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const data = (await authedFetch("/sm/messages", { cache: "no-store" }, 30_000, guard)) as { messages?: SmInboxMessage[] };
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return data.messages ?? [];
+  } finally { guard.dispose(); }
+}
+
+export const SM_MESSAGES_CHANGED_EVENT = "sm-messages-changed";
+
+export async function fetchSmMessageUnreadCount(): Promise<number> {
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const data = (await authedFetch("/sm/messages/unread-count", { cache: "no-store" }, 30_000, guard)) as { unreadCount: number };
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    if (!Number.isSafeInteger(data.unreadCount) || data.unreadCount < 0) throw new Error("Der Nachrichtenstand ist ungültig.");
+    return data.unreadCount;
+  } finally { guard.dispose(); }
+}
+
+export async function fetchSmInbox(cursor?: string): Promise<import("@/types/smMessages").SmInboxPage> {
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const data = (await authedFetch(`/sm/messages/inbox${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { cache: "no-store" }, 30_000, guard)) as import("@/types/smMessages").SmInboxPage;
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return data;
+  } finally { guard.dispose(); }
 }
 
 export async function markSmMessageRead(messageId: string): Promise<{ messageId: string; readAt: string; alreadyRead: boolean }> {
-  return (await authedFetch(`/sm/messages/${encodeURIComponent(messageId)}/read`, {
-    method: "POST",
-  })) as { messageId: string; readAt: string; alreadyRead: boolean };
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const result = (await authedFetch(`/sm/messages/${encodeURIComponent(messageId)}/read`, {
+      method: "POST",
+    }, 30_000, guard)) as { messageId: string; readAt: string; alreadyRead: boolean };
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(SM_MESSAGES_CHANGED_EVENT));
+    return result;
+  } finally { guard.dispose(); }
 }
 
 export async function createSmPlanningAssignment(input: CreateSmPlanningAssignmentInput): Promise<{ assignmentId: string; replayed: boolean; holidayAdjustment?: SmPlanningAssignment["holidayAdjustment"] }> {
@@ -2841,13 +2927,38 @@ export async function fetchSmMarketDeactivationPreview(id: string): Promise<impo
 }
 
 export async function correctAdminSmVisitTime(id: string, input: {
+  expectedRevision?: number;
   expectedVisitId: string; expectedStartedAt: string | null; expectedCompletedAt: string | null;
   visitStartedAt: string; visitCompletedAt: string; reason: string;
 }): Promise<{ replayed: boolean; actualMinutes: number; revisionNumber: number }> {
+  const SMDurcharbeitId = SMDurcharbeitVisitId(id);
+  if (SMDurcharbeitId) {
+    if (!input.expectedRevision) throw new Error("Der aktuelle Zeitstand fehlt. Bitte neu laden.");
+    const result = await authedFetch(`/admin/sm-smdurcharbeit-times/${encodeURIComponent(SMDurcharbeitId)}`, { method: "PATCH", body: JSON.stringify(input) }) as { time: { actualMinutes: number; revisionNumber: number } };
+    return { replayed: false, actualMinutes: result.time.actualMinutes, revisionNumber: result.time.revisionNumber };
+  }
+  const { expectedRevision, ...standardInput } = input;
   return (await authedFetch(`/admin/sm-planning/assignments/${encodeURIComponent(id)}/visit-time`, {
     method: "PATCH",
-    body: JSON.stringify(input),
+    body: JSON.stringify(standardInput),
   })) as { replayed: boolean; actualMinutes: number; revisionNumber: number };
+}
+
+export async function fetchSMDurcharbeitTimes(from: string, to: string, admin = false): Promise<import("@/types/smSMDurcharbeitTime").SMDurcharbeitTimeEntry[]> {
+  const guard = createSmRequestOwnerGuard();
+  try {
+    const result = await authedFetch(`${admin ? "/admin/sm-smdurcharbeit-times" : "/sm/smdurcharbeit-times"}?${new URLSearchParams({ from, to })}`, { cache: "no-store" }) as { entries: import("@/types/smSMDurcharbeitTime").SMDurcharbeitTimeEntry[] };
+    if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return result.entries;
+  } finally { guard.dispose(); }
+}
+export async function reviewAdminSMDurcharbeitTimeRequest(requestId: string, decision: "approve" | "reject", adminNote?: string) {
+  return authedFetch(`/admin/sm-smdurcharbeit-times/requests/${encodeURIComponent(requestId)}/${decision}`, { method: "POST", body: JSON.stringify({ ...(adminNote?.trim() ? { adminNote: adminNote.trim() } : {}) }) });
+}
+export async function fetchSMDurcharbeitTimeHistory(visitId: string, admin: boolean, beforeRevision?: number) {
+  const params = new URLSearchParams();
+  if (beforeRevision) params.set("beforeRevision", String(beforeRevision));
+  return await authedFetch(`${admin ? "/admin/sm-smdurcharbeit-times" : "/sm/smdurcharbeit-times"}/${encodeURIComponent(visitId)}/history${params.size ? `?${params}` : ""}`, { cache: "no-store" }) as import("@/types/smSMDurcharbeitTime").SMDurcharbeitTimeHistory;
 }
 
 export async function fetchSmSeriesDetails(id: string): Promise<import("@/types/smPlanning").SmSeriesDetails> {
@@ -3695,6 +3806,7 @@ export type TimeEntryChangeRequestStatus = "pending" | "approved" | "rejected" |
 export type TimeEntryChangeRequestSourceKind = "day_start" | "day_end" | "day_km" | "marktbesuch" | "pause" | "zusatzzeit";
 export type TimeEntryChangeRequest = {
   id: string;
+  SMDurcharbeitVisitId?: string;
   daySessionId: string;
   gmUserId: string;
   sourceKind: TimeEntryChangeRequestSourceKind;

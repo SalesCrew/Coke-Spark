@@ -6,6 +6,11 @@ import { createPortal } from "react-dom";
 
 const RED = "#DC2626";
 const SMDurcharbeitControlTheme = createContext(false);
+const AdminControlPortalContext = createContext<HTMLElement | null>(null);
+/** Native dialogs need popup controls in their top layer, rather than document.body. */
+export function AdminControlPortal({ children, container }: { children: ReactNode; container: HTMLElement | null }) {
+  return <AdminControlPortalContext.Provider value={container}>{children}</AdminControlPortalContext.Provider>;
+}
 export function SMDurcharbeitFilterTheme({ children, enabled }: { children: ReactNode; enabled: boolean }) {
   return <SMDurcharbeitControlTheme.Provider value={enabled}>{children}</SMDurcharbeitControlTheme.Provider>;
 }
@@ -52,6 +57,7 @@ export function AdminDropdown({
   portalContainer?: HTMLElement | null;
 }) {
   const SMDurcharbeit = useContext(SMDurcharbeitControlTheme);
+  const defaultPortalContainer = useContext(AdminControlPortalContext);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -202,7 +208,7 @@ export function AdminDropdown({
         }) : <div className="sm-plan-dropdown-empty">Keine Treffer</div>}
       </div>
     </div>,
-    portalContainer ?? document.body,
+    portalContainer ?? defaultPortalContainer ?? document.body,
   ) : null;
 
   return (
@@ -242,6 +248,7 @@ export function AdminDatePicker({
   portalContainer?: HTMLElement | null;
 }) {
   const SMDurcharbeit = useContext(SMDurcharbeitControlTheme);
+  const defaultPortalContainer = useContext(AdminControlPortalContext);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -368,7 +375,7 @@ export function AdminDatePicker({
         <button type="button" disabled={todayDisabled} onClick={() => selectDate(new Date())}>Heute</button>
       </div>
     </div>,
-    portalContainer ?? document.body,
+    portalContainer ?? defaultPortalContainer ?? document.body,
   ) : null;
 
   return (

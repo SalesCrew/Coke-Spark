@@ -1,69 +1,64 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BookmarkCheck, ChevronRight, LoaderCircle, Trash2, X } from "lucide-react";
 
-import { discardSmVisit, getSmVisitStartTokenStorageKey } from "@/lib/api/backend";
+import { discardSmVisit, getSmVisitStartTokenStorageKey, getAuthPrincipalKey, readAuthSession, subscribeAuthSession } from "@/lib/api/backend";
+import { smVisitResumeHref } from "@/lib/sm/SMDurcharbeitVisitReference";
+import { isSmPausedVisitNotice, readSmPausedVisitNotice, smPausedVisitStorageKey, type SmPausedVisitNotice as PausedVisit } from "@/lib/sm/pausedVisitNotice";
 
-const STORAGE_KEY = "sm-paused-visit-notice";
+const activeOwner = () => readAuthSession()?.user.role === "sm" ? getAuthPrincipalKey(readAuthSession()) : null;
+const noOwner = () => null;
 const EVENT_NAME = "sm-paused-visit";
 const POPUP_OWNER_EVENT = "sm-questionnaire-popup-owner-change";
 const popupOwners: symbol[] = [];
 
-type PausedVisit = {
-  assignmentId: string;
-  marketName: string;
-  resumeHref: string;
-  pausedAt: number;
-};
-
 function isPausedVisit(value: unknown): value is PausedVisit {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<PausedVisit>;
-  return typeof candidate.assignmentId === "string"
-    && candidate.assignmentId.trim().length > 0
-    && typeof candidate.marketName === "string"
-    && typeof candidate.resumeHref === "string"
-    && candidate.resumeHref.startsWith("/sm/marktbesuch?")
-    && typeof candidate.pausedAt === "number";
+  const owner = activeOwner();
+  return owner !== null && isSmPausedVisitNotice(value, owner);
 }
 
 function readStoredPausedVisit(): PausedVisit | null {
   try {
-    const value = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!value) return null;
-    const parsed: unknown = JSON.parse(value);
-    return isPausedVisit(parsed) ? parsed : null;
+    const owner = activeOwner();
+    return owner ? readSmPausedVisitNotice(window.sessionStorage, owner) : null;
   } catch {
     return null;
   }
 }
 
 function readPausedVisitSignal(): PausedVisit | null {
+  const ownerKey = activeOwner();
+  if (!ownerKey) return null;
   const stored = readStoredPausedVisit();
   if (stored) return stored;
   const assignmentId = new URL(window.location.href).searchParams.get("pausedVisit")?.trim();
   if (!assignmentId) return null;
+  let resumeHref: string;
+  try { resumeHref = smVisitResumeHref(assignmentId); }
+  catch { return null; }
   return {
+    ownerKey,
     assignmentId,
     marketName: "Marktbesuch",
-    resumeHref: `/sm/marktbesuch?assignmentId=${encodeURIComponent(assignmentId)}`,
+    resumeHref,
     pausedAt: Date.now(),
   };
 }
 
 export function announcePausedVisit(assignmentId: string, marketName: string, questionId?: string | null) {
-  const resumeQuery = new URLSearchParams({ assignmentId });
-  if (questionId) resumeQuery.set("questionId", questionId);
+  const ownerKey = activeOwner();
+  if (!ownerKey) return;
   const notice: PausedVisit = {
+    ownerKey,
     assignmentId,
     marketName,
-    resumeHref: `/sm/marktbesuch?${resumeQuery.toString()}`,
+    resumeHref: smVisitResumeHref(assignmentId, questionId),
     pausedAt: Date.now(),
   };
   try {
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(notice));
+    window.sessionStorage.setItem(smPausedVisitStorageKey(ownerKey), JSON.stringify(notice));
   } catch {
     // The mounted SM layout still receives the event when storage is unavailable.
   }
@@ -87,6 +82,8 @@ function NoticePanel({ notice, open, deleting, deleteError, onOpenChange, onResu
   useEffect(() => {
     if (open) return;
     swipe.current = null;
+    // Closing the panel releases its transient pointer gesture even if no pointerup arrives.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDragging(false);
     setDragOffset(0);
   }, [open]);
@@ -190,6 +187,11 @@ function NoticePanel({ notice, open, deleting, deleteError, onOpenChange, onResu
 }
 
 export function SmPausedVisitNoticeProvider({ children }: { children: ReactNode }) {
+  const owner = useSyncExternalStore(subscribeAuthSession, activeOwner, noOwner);
+  return owner ? <PausedVisitNoticeProvider key={owner}>{children}</PausedVisitNoticeProvider> : <>{children}</>;
+}
+
+function PausedVisitNoticeProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const popupOwner = useRef(Symbol("sm-questionnaire-popup"));
@@ -243,7 +245,7 @@ export function SmPausedVisitNoticeProvider({ children }: { children: ReactNode 
   const resume = () => {
     if (!notice) return;
     try {
-      window.sessionStorage.removeItem(STORAGE_KEY);
+      window.sessionStorage.removeItem(smPausedVisitStorageKey(notice.ownerKey));
     } catch {
       // The in-memory notice is still cleared below.
     }
@@ -261,7 +263,7 @@ export function SmPausedVisitNoticeProvider({ children }: { children: ReactNode 
       await discardSmVisit(notice.assignmentId);
       try {
         window.localStorage.removeItem(getSmVisitStartTokenStorageKey(notice.assignmentId));
-        window.sessionStorage.removeItem(STORAGE_KEY);
+        window.sessionStorage.removeItem(smPausedVisitStorageKey(notice.ownerKey));
       } catch {
         // The successfully discarded visit is still removed from the current UI.
       }

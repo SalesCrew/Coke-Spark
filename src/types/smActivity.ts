@@ -6,9 +6,11 @@ export type SmRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
 export type SmCompletedActivitySummary = {
   SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope | null;
   submissionId: string;
-  assignmentId: string;
-  workDate: string;
-  plannedMinutes: number;
+  assignmentId: string | null;
+  SMDurcharbeitVisitId?: string | null;
+  SMDurcharbeitContext?: { campaignId: string; campaignName: string; month: string } | null;
+  workDate: string | null;
+  plannedMinutes: number | null;
   actualMinutes: number | null;
   questionnaireName: string;
   questionnaireVersion: number;
@@ -72,7 +74,10 @@ export type SmAdminTimeChangeRequest = {
   updatedAt: string;
   reviewedAt: string | null;
   adminNote: string | null;
-  assignmentId: string;
+  assignmentId: string | null;
+  SMDurcharbeitVisitId?: string;
+  SMDurcharbeitCampaignName?: string;
+  SMDurcharbeitMonth?: string;
   kind: "time_change" | "deletion";
   originalMinutes: number;
   requestedMinutes: number | null;

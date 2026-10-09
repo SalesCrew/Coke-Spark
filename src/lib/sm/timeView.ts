@@ -1,6 +1,8 @@
 import type { SmPlanningAssignment } from "@/types/smPlanning";
+import type { SMDurcharbeitTimeEntry } from "@/types/smSMDurcharbeitTime";
+import { SMDurcharbeitVisitReference } from "./SMDurcharbeitVisitReference";
 
-export function mapSmTimeAssignment(row: SmPlanningAssignment) {
+export function mapSmTimeAssignment(row: SmPlanningAssignment): SmTimeAssignment {
   return {
     id: row.id, date: row.effective.workDate, smId: row.effective.smUserId,
     smName: row.effective.smName, region: row.effective.region,
@@ -15,7 +17,22 @@ export function mapSmTimeAssignment(row: SmPlanningAssignment) {
   };
 }
 
-export type SmTimeAssignment = ReturnType<typeof mapSmTimeAssignment>;
+export type SmTimeAssignment = {
+  id: string; date: string; smId: string; smName: string; region: string; marketName: string; marketAddress: string;
+  internalMarketId: string; plannedMinutes: number | null; actualMinutes: number | null; travelMinutes: number; totalMinutes: number | null;
+  visitId: string | null; visitStartedAt: string | null; visitCompletedAt: string | null; submittedAt: string | null;
+  timeRevisionNumber: number | null; pendingTimeChangeRequest: SmPlanningAssignment["pendingTimeChangeRequest"];
+  questionnaireComplete: boolean; status: SmPlanningAssignment["status"];
+  SMDurcharbeitVisitId?: string; SMDurcharbeitCampaignName?: string; SMDurcharbeitMonth?: string;
+};
+export function mapSMDurcharbeitTime(row: SMDurcharbeitTimeEntry): SmTimeAssignment {
+  return { id: SMDurcharbeitVisitReference(row.visitId), SMDurcharbeitVisitId: row.visitId, SMDurcharbeitCampaignName: row.campaignName, SMDurcharbeitMonth: row.month,
+    date: row.workDate, smId: row.smUserId, smName: row.smName, region: "", marketName: row.marketName, marketAddress: row.marketAddress,
+    internalMarketId: row.marketInternalId, plannedMinutes: null, actualMinutes: row.actualMinutes, travelMinutes: row.travelMinutes,
+    totalMinutes: row.actualMinutes === null ? null : row.actualMinutes + row.travelMinutes, visitId: row.submissionId,
+    visitStartedAt: row.startedAt, visitCompletedAt: row.completedAt, submittedAt: row.submittedAt, timeRevisionNumber: row.revision,
+    pendingTimeChangeRequest: row.pendingTimeChangeRequest, questionnaireComplete: row.questionnaireComplete, status: "completed" };
+}
 export type SmTimeDay = { date: string; smId: string; smName: string; region: string; assignments: SmTimeAssignment[] };
 
 export function selectSmTimeAssignments(rows: SmPlanningAssignment[], from: string, to: string) {
@@ -28,12 +45,12 @@ export function summarizeSmTime(rows: SmTimeAssignment[]) {
   const actual = recorded.reduce((sum, row) => sum + row.actualMinutes!, 0);
   const travel = recorded.reduce((sum, row) => sum + row.travelMinutes, 0);
   return {
-    planned: rows.reduce((sum, row) => sum + row.plannedMinutes, 0),
+    planned: rows.length && rows.every(row => row.plannedMinutes === null) ? null : rows.reduce((sum, row) => sum + (row.plannedMinutes ?? 0), 0),
     actual: recorded.length ? actual : null,
     travel: recorded.length ? travel : null,
     total: recorded.length ? actual + travel : null,
     averageDay: recordedDays ? Math.round((actual + travel) / recordedDays) : null,
-    recordedDays, plannedDays: new Set(rows.map((row) => row.date)).size,
+    recordedDays, plannedDays: new Set(rows.filter(row => row.plannedMinutes !== null).map((row) => row.date)).size,
     completed: rows.filter((row) => row.status === "completed").length,
     count: rows.length,
   };

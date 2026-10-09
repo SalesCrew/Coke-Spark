@@ -39,3 +39,5 @@ export type SmInboxMessage = {
   visibleAfterReadDays: number | null;
   visibleUntil: string | null;
 };
+
+export type SmInboxPage = { messages: SmInboxMessage[]; nextCursor: string | null };

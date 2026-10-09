@@ -266,6 +266,9 @@ function withLocalSmVisitAnswer(payload: SmVisitPayload, questionId: string, ans
   return {
     ...payload,
     answers,
+    ...(payload.SMDurcharbeitContext && JSON.stringify(payload.answers[questionId]) !== JSON.stringify(answer) ? {
+      SMDurcharbeitContext: { ...payload.SMDurcharbeitContext, inheritedQuestionIds: payload.SMDurcharbeitContext.inheritedQuestionIds.filter(id => id !== questionId) },
+    } : {}),
     sections: resolveLocalSmVisitApplicability(payload, answers),
   };
 }
@@ -509,7 +512,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
   }, [currentIndex, flat.length]);
 
   const persistAnswer = useCallback((question: SmVisitQuestion, answer: SmVisitAnswer, force = false): Promise<boolean> => {
-    if (!payloadRef.current?.submission) return Promise.resolve(true);
+    if (!payloadRef.current?.submission || payloadRef.current.SMDurcharbeitContext?.readOnlyReason) return Promise.resolve(true);
     const answerSignature = stableAnswer(answer);
     let pending = readSmVisitPendingAnswers(assignmentId).find((mutation) => mutation.submissionQuestionId === question.id);
     if (!pending && !force && answerSignature === persistedAnswerSignaturesRef.current[question.id]) return Promise.resolve(true);
@@ -540,7 +543,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
     if (savedStateTimer.current) clearTimeout(savedStateTimer.current);
 
     const run = async (): Promise<boolean> => {
-      if (!payloadRef.current?.submission) return true;
+      if (!payloadRef.current?.submission || payloadRef.current.SMDurcharbeitContext?.readOnlyReason) return true;
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         if (activeRef.current?.question.id === question.id) updateSaveState("queued");
         return true;
@@ -708,12 +711,12 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
   }, [applyPayload, assignmentId, persistAnswer]);
 
   useEffect(() => {
-    if (!payload?.submission || payload.submission.status !== "draft") return;
+    if (!payload?.submission || payload.submission.status !== "draft" || payload.SMDurcharbeitContext?.readOnlyReason) return;
     const sync = () => { void syncPendingAnswers(); };
     window.addEventListener("online", sync);
     sync();
     return () => window.removeEventListener("online", sync);
-  }, [payload?.submission?.id, payload?.submission?.status, syncPendingAnswers]);
+  }, [payload?.submission?.id, payload?.submission?.status, payload?.SMDurcharbeitContext?.readOnlyReason, syncPendingAnswers]);
 
   useEffect(() => {
     const hasUnsavedWork = () => {
@@ -1158,6 +1161,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       }}
     />
   );
+  if (payload.SMDurcharbeitContext?.readOnlyReason) return <SMDurcharbeitReadOnlyVisit payload={payload} onBack={() => router.push("/sm")} />;
   if (!payload.submission) return <StartScreen payload={payload} travelInput={travelInput} onTravelInput={setTravelInput} busy={starting} error={error} onBack={() => router.push("/sm")} onStartTimer={() => void start("timer")} onManual={() => void start("manual")} />;
   if (reviewing) return <ReviewScreen payload={payload} flat={flat} error={error} timeConflict={timeConflict} busy={submitting} onBack={() => setReviewing(false)} onSubmit={(timing) => void finalize(timing)} />;
   if (!active) return <FullPageError message="Der veröffentlichte Fragebogen enthält keine sichtbaren Fragen." onBack={() => router.push("/sm")} onRetry={() => void reload(true)} />;
@@ -1171,15 +1175,25 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-4 pb-[calc(64px+env(safe-area-inset-bottom))] pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="my-auto w-full shrink-0 py-3">
+            {payload.SMDurcharbeitContext?.inheritedQuestionIds.includes(active.question.id) && (active.question.type !== "photo" || payload.photoFiles[active.question.id]?.some(file => file.SMDurcharbeitInherited)) ? <p className="mb-3 px-1 text-[11px] leading-5 text-blue-700">Aus dem vorherigen Besuch dieses Monats übernommen · bitte prüfen.</p> : null}
             <QuestionCard onPrepareComment={active.question.type === "photo" ? () => flushPendingPhotoCommit(active.question.id) : undefined} question={active.question} answer={draft ?? defaultAnswer(active.question)} onAnswer={answerCurrentQuestion} saveState={saveState} saveError={photoError ?? saveError} photoFiles={[...(payload.photoFiles[active.question.id] ?? []), ...(pendingPhotoFilesByQuestionId[active.question.id] ?? [])]} photoBusy={photoBusy} onPhotoUpload={(files) => uploadPhotos(active.question.id, files)} onPhotoDelete={(fileId) => void removePhoto(active.question.id, fileId)} questionNumber={currentIndex + 1} questionCount={flat.length} previousDisabled={currentIndex === 0} nextLabel={photoBusy ? "Fotos speichern…" : currentIndex === flat.length - 1 ? "Zur Übersicht" : "Weiter"} onPrevious={() => void goPrevious()} onNext={() => void goNext()} />
           </div>
         </section>
         <QuickNavigationFlap sectionName={active.section.name} questionText={active.question.text} currentIndex={currentIndex} questionCount={flat.length} answeredCount={flat.filter(({ question }) => isCompleteAnswer(question, question.id === active.question.id ? draft : payload.answers[question.id])).length} onOpen={() => setNavigatorOpen(true)} />
       </div>
       {navigatorOpen && typeof document !== "undefined" ? createPortal(<QuickNavigator sections={payload.sections} currentQuestionId={active.question.id} answers={{ ...payload.answers, [active.question.id]: draft }} missingRequiredIds={missingRequiredIds} onClose={() => setNavigatorOpen(false)} onSelect={(questionId) => { void goToQuestion(questionId); }} />, document.body) : null}
-      <VisitExitDialog open={exitDialogOpen} stage={exitStage} busy={exitBusy} error={exitError} onOpenChange={setExitDialogOpen} onStageChange={(stage) => { setExitStage(stage); setExitError(null); }} onContinueLater={() => void continueVisitLater()} onDiscard={() => void discardVisit()} />
+      <VisitExitDialog SMDurcharbeit={Boolean(payload.SMDurcharbeitContext)} open={exitDialogOpen} stage={exitStage} busy={exitBusy} error={exitError} onOpenChange={setExitDialogOpen} onStageChange={(stage) => { setExitStage(stage); setExitError(null); }} onContinueLater={() => void continueVisitLater()} onDiscard={() => void discardVisit()} />
     </main>
   );
+}
+
+function SMDurcharbeitReadOnlyVisit({ payload, onBack }: { payload: SmVisitPayload; onBack: () => void }) {
+  return <main className="min-h-[100dvh] bg-[#f5f5f7] px-4 py-5 text-gray-900"><div className="mx-auto max-w-[460px]">
+    <VisitHeader payload={payload} onBack={onBack} />
+    <section className="mt-4 rounded-xl bg-white p-4"><h1 className="text-[14px] font-semibold">Gespeicherter Durcharbeit-Entwurf</h1><p role="status" className="mt-2 text-[11px] leading-relaxed text-gray-500">{payload.SMDurcharbeitContext?.readOnlyReason} Deine gespeicherten Antworten bleiben erhalten. Für einen verspäteten Abschluss kontaktiere die Verwaltung.</p></section>
+    {payload.sections.map(section => <section key={section.id} className="mt-5"><h2 className="px-1 text-[11px] font-semibold text-blue-700">{section.name}</h2>{section.questions.filter(question => question.applicable).map(question => <article key={question.id} className="mt-2 rounded-xl bg-white p-4"><h3 className="text-[12px] font-semibold leading-relaxed">{question.text}</h3><fieldset disabled className="mt-3 min-w-0 border-0 p-0"><QuestionInput question={question} answer={payload.answers[question.id] ?? defaultAnswer(question)} onAnswer={() => {}} photoFiles={payload.photoFiles[question.id] ?? []} photoBusy={true} onPhotoUpload={() => {}} onPhotoDelete={() => {}} /></fieldset>{payload.answers[question.id]?.comment ? <p className="mt-3 whitespace-pre-wrap text-[11px] leading-relaxed text-gray-500">{payload.answers[question.id]?.comment}</p> : null}</article>)}</section>)}
+    <button type="button" onClick={onBack} className="mt-5 h-9 w-full rounded-lg border border-black/[.08] bg-white text-[11px] font-semibold text-gray-600">Zur Übersicht</button>
+  </div></main>;
 }
 
 function VisitHeader({ payload, onBack }: { payload: SmVisitPayload; onBack: () => void }) {
@@ -1203,7 +1217,8 @@ function TimerLabel({ startedAt }: { startedAt: string }) {
 
 type VisitExitStage = "choice" | "discard-confirm";
 
-function VisitExitDialog({ open, stage, busy, error, onOpenChange, onStageChange, onContinueLater, onDiscard }: {
+function VisitExitDialog({ SMDurcharbeit = false, open, stage, busy, error, onOpenChange, onStageChange, onContinueLater, onDiscard }: {
+  SMDurcharbeit?: boolean;
   open: boolean;
   stage: VisitExitStage;
   busy: boolean;
@@ -1215,24 +1230,24 @@ function VisitExitDialog({ open, stage, busy, error, onOpenChange, onStageChange
 }) {
   if (!open || typeof document === "undefined") return null;
   return createPortal(<div role="presentation" onMouseDown={(event) => { if (!busy && event.target === event.currentTarget) onOpenChange(false); }} className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/20 px-4 py-6 backdrop-blur-[8px]">
-    <section role="dialog" aria-modal="true" aria-label={stage === "choice" ? "Marktbesuch verlassen" : "Einsatz verwerfen bestätigen"} onMouseDown={(event) => event.stopPropagation()} className="w-full max-w-[360px] rounded-[16px] border border-black/[0.06] bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,.04),0_18px_42px_rgba(15,23,42,.12)]" aria-live="polite">
+    <section role="dialog" aria-modal="true" aria-label={stage === "choice" ? "Marktbesuch verlassen" : SMDurcharbeit ? "Besuch verwerfen bestätigen" : "Einsatz verwerfen bestätigen"} onMouseDown={(event) => event.stopPropagation()} className={`w-full max-w-[360px] rounded-[16px] border border-black/[0.06] bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,.04),0_18px_42px_rgba(15,23,42,.12)] ${SMDurcharbeit ? "[&_button]:min-h-10 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-offset-2 [&_button]:focus-visible:outline-blue-600" : ""}`} aria-live="polite">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[9px] font-extrabold uppercase tracking-[.09em] text-red-600">Marktbesuch</p>
-          <h2 className="mt-1 text-[14px] font-extrabold tracking-[-.02em] text-[#1a1a1a]">{stage === "choice" ? "Wie möchtest du fortfahren?" : "Einsatz wirklich verwerfen?"}</h2>
+          <h2 className="mt-1 text-[14px] font-extrabold tracking-[-.02em] text-[#1a1a1a]">{stage === "choice" ? "Wie möchtest du fortfahren?" : SMDurcharbeit ? "Besuch wirklich verwerfen?" : "Einsatz wirklich verwerfen?"}</h2>
         </div>
         <button type="button" disabled={!open || busy} onClick={() => onOpenChange(false)} aria-label="Hinweis schließen" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-black/[0.035] text-black/35 disabled:pointer-events-none"><X size={12} /></button>
       </div>
 
       {stage === "choice" ? <>
-        <p className="mt-2 text-[10px] leading-[1.5] text-black/45">Deine bisherigen Antworten sind gespeichert. Du kannst den Einsatz später an derselben Stelle fortsetzen oder den gestarteten Lauf vollständig verwerfen.</p>
+        <p className={SMDurcharbeit ? "mt-3 text-[12px] leading-5 text-gray-600" : "mt-2 text-[10px] leading-[1.5] text-black/45"}>Deine bisherigen Antworten sind gespeichert. Du kannst den {SMDurcharbeit ? "Besuch" : "Einsatz"} später an derselben Stelle fortsetzen oder den gestarteten Lauf vollständig verwerfen.</p>
         {error ? <p role="alert" className="mt-3 rounded-[9px] border border-red-200 bg-red-50 px-3 py-2 text-[9px] font-semibold leading-relaxed text-red-700">{error}</p> : null}
         <div className="mt-4 grid gap-2">
           <button type="button" disabled={!open || busy} onClick={onContinueLater} className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-emerald-500 to-emerald-600 text-[10px] font-bold text-white shadow-[inset_0_1px_.6px_rgba(255,255,255,.32),0_0_0_1px_#048560,0_1px_6px_rgba(5,80,50,.14)] disabled:bg-none disabled:bg-black/[0.08] disabled:text-black/25 disabled:shadow-none">{busy ? <LoaderCircle size={12} className="animate-spin" /> : <Save size={12} />} {busy ? "Speichere..." : "Später fortsetzen"}</button>
-          <button type="button" disabled={!open || busy} onClick={() => onStageChange("discard-confirm")} className="flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-100 bg-red-50/70 text-[10px] font-bold text-red-500 disabled:opacity-45"><Trash2 size={11} />Einsatz verwerfen</button>
+          <button type="button" disabled={!open || busy} onClick={() => onStageChange("discard-confirm")} className="flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-100 bg-red-50/70 text-[10px] font-bold text-red-500 disabled:opacity-45"><Trash2 size={11} />{SMDurcharbeit ? "Besuch verwerfen" : "Einsatz verwerfen"}</button>
         </div>
       </> : <>
-        <div className="mt-3 rounded-[10px] border border-red-200 bg-red-50/80 px-3 py-2.5 text-[9px] font-semibold leading-[1.5] text-red-800">Alle Antworten, Fotos und der Fortschritt dieses Laufs werden gelöscht. Der geplante Einsatz bleibt bestehen und kann danach neu gestartet werden.</div>
+        <div className={`mt-3 rounded-[10px] border border-red-200 bg-red-50/80 px-3 py-2.5 font-semibold text-red-800 ${SMDurcharbeit ? "text-[12px] leading-5" : "text-[9px] leading-[1.5]"}`}>{SMDurcharbeit ? "Dieser Besuchsentwurf wird verworfen. Frühere Besuche, ihre Fotos und ein bereits erledigtes Monatsziel bleiben erhalten." : "Alle Antworten, Fotos und der Fortschritt dieses Laufs werden gelöscht. Der geplante Einsatz bleibt bestehen und kann danach neu gestartet werden."}</div>
         {error ? <p role="alert" className="mt-3 rounded-[9px] border border-red-200 bg-red-50 px-3 py-2 text-[9px] font-semibold leading-relaxed text-red-700">{error}</p> : null}
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button type="button" disabled={!open || busy} onClick={() => onStageChange("choice")} className="h-9 rounded-lg bg-black/[0.04] text-[10px] font-semibold text-black/50 disabled:opacity-45">Zurück</button>
@@ -1597,7 +1612,7 @@ function PhotoInput({ files, busy, onUpload, onDelete }: { files: SmVisitPhotoFi
     <button type="button" disabled={busy} onClick={() => setSourceOpen((open) => !open)} className="flex min-h-[72px] w-full items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed border-black/[0.13] bg-black/[0.02] text-[11px] font-semibold text-black/50 disabled:opacity-55">{busy ? <LoaderCircle size={15} className="animate-spin text-red-600" /> : <Camera size={15} className="text-red-600" />}{busy ? "Foto wird hochgeladen…" : files.length ? "Weiteres Foto hinzufügen" : "Foto hinzufügen"}</button>
     {sourceOpen ? <div className="mt-1.5 grid grid-cols-2 gap-1.5 rounded-[10px] bg-black/[0.02] p-1.5 shadow-[inset_0_0_0_1px_rgba(0,0,0,.05)]"><label className="flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-white text-[10px] font-semibold text-black/55 shadow-[0_1px_3px_rgba(0,0,0,.05)]"><Camera size={12} className="text-red-600" />Kamera<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" onChange={(event) => { pick(event.target.files); event.currentTarget.value = ""; }} /></label><label className="flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-white text-[10px] font-semibold text-black/55 shadow-[0_1px_3px_rgba(0,0,0,.05)]"><Store size={12} />Mediathek<input type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" onChange={(event) => { pick(event.target.files); event.currentTarget.value = ""; }} /></label></div> : null}
     <p className="mt-1.5 text-center text-[8px] text-black/30">JPG, PNG oder WebP · maximal 15 MB</p>
-    {files.length ? <div className="mt-3 grid grid-cols-3 gap-1.5">{files.map((file) => <div key={file.id} className="relative aspect-square overflow-hidden rounded-lg bg-black/[0.04]">{file.signedUrl ? <img src={file.signedUrl} alt={file.fileName ?? "Besuchsfoto"} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-center text-[8px] text-black/30">Keine Vorschau</div>}<button type="button" disabled={busy} onClick={() => onDelete(file.id)} aria-label="Foto entfernen" className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white disabled:opacity-50"><X size={10} /></button></div>)}</div> : null}
+    {files.length ? <div className="mt-3 grid grid-cols-3 gap-1.5">{files.map((file) => <div key={file.id} className="relative aspect-square overflow-hidden rounded-lg bg-black/[0.04]">{file.signedUrl ? <img src={file.signedUrl} alt={file.fileName ?? "Besuchsfoto"} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-center text-[8px] text-black/30">Keine Vorschau</div>}<button type="button" disabled={busy} onClick={() => onDelete(file.id)} aria-label="Foto entfernen" className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white disabled:opacity-50"><X size={10} /></button>{file.SMDurcharbeitInherited ? <span className="absolute inset-x-0 bottom-0 bg-white/95 px-2 py-1.5 text-center text-[9px] leading-4 text-blue-800">Übernommen{file.uploadedAt ? ` · ${new Intl.DateTimeFormat("de-AT", { timeZone: "Europe/Vienna", day: "2-digit", month: "2-digit" }).format(new Date(file.uploadedAt))}` : ""}</span> : null}</div>)}</div> : null}
   </div>;
 }
 
@@ -2167,6 +2182,6 @@ export function SmVisitTemporaryQuestionnaire({ assignmentId, marketName, market
       <QuickNavigationFlap sectionName={active.section.name} questionText={active.question.text} currentIndex={index} questionCount={flat.length} answeredCount={flat.filter(({ question }) => isCompleteAnswer(question, answers[question.id])).length} onOpen={() => setNavigatorOpen(true)} />
     </div>
     {navigatorOpen && typeof document !== "undefined" ? createPortal(<QuickNavigator sections={[EDGE_CASE_SECTION]} currentQuestionId={active.question.id} answers={answers} onClose={() => setNavigatorOpen(false)} onSelect={(questionId) => { const nextIndex = flat.findIndex((entry) => entry.question.id === questionId); if (nextIndex >= 0) setIndex(nextIndex); setValidationError(null); setNavigatorOpen(false); }} />, document.body) : null}
-    <VisitExitDialog open={exitDialogOpen} stage={exitStage} busy={exitBusy} error={null} onOpenChange={setExitDialogOpen} onStageChange={setExitStage} onContinueLater={leaveTemporaryPreview} onDiscard={discardTemporaryPreview} />
+    <VisitExitDialog SMDurcharbeit={Boolean(payload.SMDurcharbeitContext)} open={exitDialogOpen} stage={exitStage} busy={exitBusy} error={null} onOpenChange={setExitDialogOpen} onStageChange={setExitStage} onContinueLater={leaveTemporaryPreview} onDiscard={discardTemporaryPreview} />
   </main>;
 }

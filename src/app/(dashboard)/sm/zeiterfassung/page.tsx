@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -20,8 +20,13 @@ import {
   User,
   X,
 } from "lucide-react";
-import { CollapsibleMenu, type MenuItem } from "@/components/ui/CollapsibleMenu";
-import { fetchMySmPlanningAssignments, logoutCurrentUser, requestMySmPlanningTimeChange } from "@/lib/api/backend";
+import type { MenuItem } from "@/components/ui/CollapsibleMenu";
+import { SmHomeMenu } from "@/components/sm/SmHomeMenu";
+import { SMDurcharbeitTimeHistory } from "@/components/sm/SMDurcharbeitTimeHistory";
+import { fetchMySmPlanningAssignments, logoutCurrentUser, requestMySmPlanningTimeChange, fetchSMDurcharbeitTimes } from "@/lib/api/backend";
+import { SMDurcharbeitVisitReference, smVisitResumeHref } from "@/lib/sm/SMDurcharbeitVisitReference";
+import { subscribeToAuthSessionChanges } from "@/lib/auth/sessionRegistry";
+import type { SMDurcharbeitTimeEntry } from "@/types/smSMDurcharbeitTime";
 import { smWorkweekProgress } from "@/lib/sm/weekProgress";
 import type { SmPlanningAssignment, SmPlanningStatus, SmTimeChangeRequest } from "@/types/smPlanning";
 
@@ -32,7 +37,10 @@ type Assignment = {
   id: string;
   market: string;
   address: string;
-  planned: number;
+  planned: number | null;
+  SMDurcharbeitVisitId?: string;
+  expectedRevision?: number;
+  SMDurcharbeitCampaignName?: string;
   actual: number | null;
   travel: number;
   total: number | null;
@@ -97,11 +105,18 @@ function mapAssignment(row: SmPlanningAssignment): Assignment {
   };
 }
 
-function buildDays(rows: SmPlanningAssignment[]): WorkDay[] {
+function buildDays(rows: SmPlanningAssignment[], monthly: SMDurcharbeitTimeEntry[]): WorkDay[] {
   const groups = new Map<string, Assignment[]>();
   for (const row of rows.filter((entry) => entry.status !== "cancelled")) {
     const date = row.effective.workDate;
     groups.set(date, [...(groups.get(date) ?? []), mapAssignment(row)]);
+  }
+  for (const row of monthly) {
+    const mapped: Assignment = { id: SMDurcharbeitVisitReference(row.visitId), SMDurcharbeitVisitId: row.visitId, expectedRevision: row.revision ?? undefined,
+      SMDurcharbeitCampaignName: row.campaignName, market: row.marketName, address: row.marketAddress, planned: null,
+      actual: row.actualMinutes, travel: row.travelMinutes, total: row.actualMinutes === null ? null : row.actualMinutes + row.travelMinutes,
+      questionnaireComplete: row.questionnaireComplete, status: "completed", visitStartedAt: row.startedAt, visitCompletedAt: row.completedAt, submittedAt: row.submittedAt };
+    groups.set(row.workDate, [...(groups.get(row.workDate) ?? []), mapped]);
   }
   const today = toDateInputValue(new Date());
   return [...groups.entries()].sort(([left], [right]) => right.localeCompare(left)).map(([date, assignments]) => {
@@ -170,7 +185,7 @@ function TimeRequestDialog({
   assignment: Assignment;
   existingRequest: SmTimeRequest | null;
   onClose: () => void;
-  onSubmit: (request: { assignmentId: string; kind: "time_change" | "deletion"; requestedStartedAt: string | null; requestedCompletedAt: string | null; reason: string; clientRequestToken: string }) => Promise<void>;
+  onSubmit: (request: { assignmentId: string; expectedRevision?: number; kind: "time_change" | "deletion"; requestedStartedAt: string | null; requestedCompletedAt: string | null; reason: string; clientRequestToken: string }) => Promise<void>;
 }) {
   const currentMinutes = assignment.actual ?? 0;
   const [kind, setKind] = useState<SmTimeRequest["kind"]>(existingRequest?.kind ?? "time_change");
@@ -203,7 +218,7 @@ function TimeRequestDialog({
     setSaving(true);
     setSubmitError(null);
     try {
-      await onSubmit({ assignmentId: assignment.id, kind, requestedStartedAt: kind === "time_change" ? requestedStartedAt : null, requestedCompletedAt: kind === "time_change" ? requestedCompletedAt : null, reason: reason.trim(), clientRequestToken });
+      await onSubmit({ assignmentId: assignment.id, ...(assignment.expectedRevision ? { expectedRevision: assignment.expectedRevision } : {}), kind, requestedStartedAt: kind === "time_change" ? requestedStartedAt : null, requestedCompletedAt: kind === "time_change" ? requestedCompletedAt : null, reason: reason.trim(), clientRequestToken });
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Die Korrekturanfrage konnte nicht gesendet werden.");
     } finally {
@@ -293,7 +308,7 @@ function AssignmentRow({ assignment, first, last, request, onRequest, onOpen }: 
   const complete = assignment.actual !== null && assignment.questionnaireComplete;
 
   return (
-    <div className="sm-zeit-assignment">
+    <div className="sm-zeit-assignment" data-sm-monthly={Boolean(assignment.SMDurcharbeitVisitId)}>
       <div className="sm-zeit-timeline">
         {!first ? <span className="line top" /> : null}
         {!last ? <span className="line bottom" /> : null}
@@ -301,10 +316,11 @@ function AssignmentRow({ assignment, first, last, request, onRequest, onOpen }: 
       </div>
 
       <div className="sm-zeit-assignment-copy">
-        <span className="sm-zeit-eyebrow">Einsatz</span>
+        <span className="sm-zeit-eyebrow" style={assignment.SMDurcharbeitVisitId ? {color: "#2563eb"} : undefined}>{assignment.SMDurcharbeitVisitId ? "Durcharbeit · Besuch" : "Einsatz"}</span>
         <strong className="sm-zeit-market">{assignment.market}</strong>
         <span className="sm-zeit-address">{assignment.address}</span>
-        <div className="sm-zeit-badges">
+        {assignment.SMDurcharbeitCampaignName ? <span className="sm-zeit-address">{assignment.SMDurcharbeitCampaignName}</span> : null}
+        {assignment.SMDurcharbeitVisitId ? <p className="sm-monthly-time-state">{complete ? "Abgeschlossen" : "Ausstehend"} · {assignment.questionnaireComplete ? "Fragebogen fertig" : "Fragebogen offen"}{assignment.travel > 0 ? ` · ${duration(assignment.travel)} Fahrt` : ""}</p> : <div className="sm-zeit-badges">
           <span className={`sm-zeit-badge${complete ? " complete" : " open"}`}>
             {complete ? <CheckCircle2 size={9} /> : <Clock size={9} />}
             {complete ? "Abgeschlossen" : "Ausstehend"}
@@ -314,13 +330,14 @@ function AssignmentRow({ assignment, first, last, request, onRequest, onOpen }: 
             {assignment.questionnaireComplete ? "Fragebogen fertig" : "Fragebogen offen"}
           </span>
           {assignment.travel > 0 ? <span className="sm-zeit-badge travel"><Clock size={9} />{duration(assignment.travel)} Fahrt</span> : null}
-        </div>
+        </div>}
+        {assignment.SMDurcharbeitVisitId ? <SMDurcharbeitTimeHistory visitId={assignment.SMDurcharbeitVisitId} revision={assignment.expectedRevision ?? null} /> : null}
       </div>
 
       <div className="sm-zeit-assignment-values">
-        <div><span>Soll</span><strong>{duration(assignment.planned)}</strong></div>
+        {assignment.planned !== null ? <div><span>Soll</span><strong>{duration(assignment.planned)}</strong></div> : null}
         <div><span>Ist gesamt</span><strong className={assignment.total !== null ? "complete" : ""}>{assignment.total === null ? "–" : duration(assignment.total)}</strong></div>
-        {!complete ? (
+        {assignment.SMDurcharbeitVisitId && assignment.actual !== null ? (request ? <button type="button" className="sm-zeit-request-pending" onClick={() => onRequest(assignment)}><Clock size={10} /> Anfrage offen</button> : <button type="button" className="sm-zeit-request-trigger" onClick={() => onRequest(assignment)} aria-label={`Korrektur für ${assignment.market} anfragen`}><MoreHorizontal size={13} /></button>) : !complete ? (
           <button type="button" className="sm-zeit-open-action" onClick={() => onOpen(assignment)}>Öffnen <span aria-hidden="true">→</span></button>
         ) : request ? (
           <button type="button" className="sm-zeit-request-pending" onClick={() => onRequest(assignment)}><Clock size={10} /> Anfrage offen</button>
@@ -335,7 +352,7 @@ function AssignmentRow({ assignment, first, last, request, onRequest, onOpen }: 
 function DayRow({ day, requests, onRequest, onOpen, expandedInitially = false }: { day: WorkDay; requests: Record<string, SmTimeRequest>; onRequest: (assignment: Assignment) => void; onOpen: (assignment: Assignment) => void; expandedInitially?: boolean }) {
   const [expanded, setExpanded] = useState(expandedInitially);
   const completed = day.assignments.filter((item) => item.actual !== null && item.questionnaireComplete).length;
-  const planned = day.assignments.reduce((sum, item) => sum + item.planned, 0);
+  const planned = day.assignments.reduce((sum, item) => sum + (item.planned ?? 0), 0);
   const actual = day.assignments.reduce((sum, item) => sum + (item.total ?? 0), 0);
   const questionnaires = day.assignments.filter((item) => item.questionnaireComplete).length;
   const allComplete = completed === day.assignments.length;
@@ -348,7 +365,7 @@ function DayRow({ day, requests, onRequest, onOpen, expandedInitially = false }:
           <small>{day.assignments.length} {day.assignments.length === 1 ? "Einsatz" : "Einsätze"}</small>
         </div>
         <Metric label="Einsätze erledigt" value={`${completed}/${day.assignments.length}`} accent={allComplete ? GREEN : RED} />
-        <Metric label="Soll-Zeit" value={duration(planned)} />
+        <Metric label="Soll-Zeit" value={day.assignments.every(item => item.planned === null) ? "—" : duration(planned)} />
         <Metric label="Ist-Zeit" value={duration(actual)} accent={allComplete ? GREEN : undefined} />
         <Metric label="Fragebögen" value={`${questionnaires}/${day.assignments.length}`} accent={questionnaires === day.assignments.length ? GREEN : RED} />
         <ChevronDown size={14} strokeWidth={2.1} style={{ transform: expanded ? "rotate(180deg)" : "none" }} />
@@ -356,7 +373,7 @@ function DayRow({ day, requests, onRequest, onOpen, expandedInitially = false }:
 
       <div className="sm-zeit-mobile-summary">
         <Metric label="Einsätze" value={`${completed}/${day.assignments.length}`} accent={allComplete ? GREEN : RED} />
-        <Metric label="Soll" value={duration(planned)} />
+        <Metric label="Soll" value={day.assignments.every(item => item.planned === null) ? "—" : duration(planned)} />
         <Metric label="Ist" value={duration(actual)} accent={allComplete ? GREEN : undefined} />
       </div>
 
@@ -387,64 +404,74 @@ export default function SmZeiterfassungPage() {
   const router = useRouter();
   const [period, setPeriod] = useState<"week" | "month" | "all">("week");
   const [rows, setRows] = useState<SmPlanningAssignment[]>([]);
+  const [monthlyRows, setMonthlyRows] = useState<SMDurcharbeitTimeEntry[]>([]), [reloadKey, setReloadKey] = useState(0);
+  const generation = useRef(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const range = useMemo(() => rangeForPeriod(period), [period]);
+  useEffect(() => subscribeToAuthSessionChanges(() => { generation.current += 1; setRows([]); setMonthlyRows([]); setSelectedAssignment(null); setReloadKey(key => key + 1); }), []);
   const loadRows = useCallback(async () => {
-    const result = await fetchMySmPlanningAssignments(range.from, range.to);
+    const request = ++generation.current;
+    const [result, monthly] = await Promise.all([fetchMySmPlanningAssignments(range.from, range.to), fetchSMDurcharbeitTimes(range.from, range.to)]);
+    if (request !== generation.current) return;
     setRows(result);
+    setMonthlyRows(monthly);
     setLoadError(null);
   }, [range.from, range.to]);
 
   useEffect(() => {
     let active = true;
+    const request = ++generation.current;
     setLoading(true);
-    fetchMySmPlanningAssignments(range.from, range.to)
-      .then((result) => {
-        if (!active) return;
+    Promise.all([fetchMySmPlanningAssignments(range.from, range.to), fetchSMDurcharbeitTimes(range.from, range.to)])
+      .then(([result, monthly]) => {
+        if (!active || request !== generation.current) return;
         setRows(result);
+        setMonthlyRows(monthly);
         setLoadError(null);
       })
       .catch((error: unknown) => {
-        if (active) setLoadError(error instanceof Error ? error.message : "Die Zeiterfassung konnte nicht geladen werden.");
+        if (active && request === generation.current) setLoadError(error instanceof Error ? error.message : "Die Zeiterfassung konnte nicht geladen werden.");
       })
-      .finally(() => { if (active) setLoading(false); });
+      .finally(() => { if (active && request === generation.current) setLoading(false); });
     return () => { active = false; };
-  }, [range.from, range.to]);
+  }, [range.from, range.to, reloadKey]);
 
-  const days = useMemo(() => buildDays(rows), [rows]);
-  const requests = useMemo(() => Object.fromEntries(rows.flatMap((row) => row.pendingTimeChangeRequest ? [[row.id, row.pendingTimeChangeRequest] as const] : [])), [rows]);
+  const days = useMemo(() => buildDays(rows, monthlyRows), [rows, monthlyRows]);
+  const requests = useMemo(() => Object.fromEntries([...rows.flatMap((row) => row.pendingTimeChangeRequest ? [[row.id, row.pendingTimeChangeRequest] as const] : []), ...monthlyRows.flatMap(row => row.pendingTimeChangeRequest ? [[SMDurcharbeitVisitReference(row.visitId),row.pendingTimeChangeRequest] as const] : [])]), [rows, monthlyRows]);
   const allAssignments = days.flatMap((day) => day.assignments);
   const completed = allAssignments.filter((item) => item.actual !== null && item.questionnaireComplete).length;
-  const planned = allAssignments.reduce((sum, item) => sum + item.planned, 0);
+  const planned = allAssignments.reduce((sum, item) => sum + (item.planned ?? 0), 0);
   const actual = allAssignments.reduce((sum, item) => sum + (item.total ?? 0), 0);
+  const scheduledActual = allAssignments.filter(item => item.planned !== null).reduce((sum,item) => sum + (item.total ?? 0),0);
   const travel = allAssignments.reduce((sum, item) => sum + item.travel, 0);
   const completion = allAssignments.length ? Math.round((completed / allAssignments.length) * 100) : 0;
-  const timeProgress = planned ? Math.min(100, Math.round((actual / planned) * 100)) : 0;
+  const timeProgress = planned ? Math.min(100, Math.round((scheduledActual / planned) * 100)) : 0;
   const week = calendarWeek(new Date());
   const workweekProgress = smWorkweekProgress();
-  const workweekEntryDates = new Set(rows.filter((row) => row.actualMinutes !== null).map((row) => row.effective.workDate));
+  const workweekEntryDates = new Set([...rows.filter((row) => row.actualMinutes !== null).map((row) => row.effective.workDate), ...monthlyRows.filter(row => row.actualMinutes !== null).map(row => row.workDate)]);
   const workweekDays = ['Mo','Di','Mi','Do','Fr'].map((label, index) => ({
     label,
     hasEntry: workweekEntryDates.has(workweekProgress.dates[index]),
     elapsed: index <= workweekProgress.currentDayIndex,
   }));
 
-  const submitTimeRequest = useCallback(async (request: { assignmentId: string; kind: "time_change" | "deletion"; requestedStartedAt: string | null; requestedCompletedAt: string | null; reason: string; clientRequestToken: string }) => {
+  const submitTimeRequest = useCallback(async (request: { assignmentId: string; expectedRevision?: number; kind: "time_change" | "deletion"; requestedStartedAt: string | null; requestedCompletedAt: string | null; reason: string; clientRequestToken: string }) => {
     await requestMySmPlanningTimeChange(request.assignmentId, {
       kind: request.kind,
       requestedStartedAt: request.requestedStartedAt,
       requestedCompletedAt: request.requestedCompletedAt,
       reason: request.reason,
       clientRequestToken: request.clientRequestToken,
+      ...(request.expectedRevision ? { expectedRevision: request.expectedRevision } : {}),
     });
     await loadRows();
     setSelectedAssignment(null);
   }, [loadRows]);
 
   const openAssignment = useCallback((assignment: Assignment) => {
-    router.push(`/sm/marktbesuch?assignmentId=${encodeURIComponent(assignment.id)}`);
+    if (!assignment.SMDurcharbeitVisitId || assignment.questionnaireComplete) router.push(smVisitResumeHref(assignment.id));
   }, [router]);
 
   return (
@@ -678,6 +705,14 @@ export default function SmZeiterfassungPage() {
           .sm-zeit-time-value strong { font-size: 17px; }
           .sm-zeit-assignment-values { grid-template-columns: 38px 38px minmax(0,1fr); gap: 3px; }
         }
+        .sm-zeit-assignment[data-sm-monthly="true"] .sm-zeit-eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+        .sm-zeit-assignment[data-sm-monthly="true"] .sm-zeit-market { font-size: 13px; line-height: 1.5; }
+        .sm-zeit-assignment[data-sm-monthly="true"] .sm-zeit-address { font-size: 11px; font-weight: 400; line-height: 1.5; color: #4b5563; white-space: normal; }
+        .sm-monthly-time-state { margin-top: 8px; font-size: 11px; line-height: 1.6; color: #4b5563; }
+        .sm-zeit-assignment[data-sm-monthly="true"] .sm-zeit-assignment-values { grid-template-columns: minmax(0,1fr) auto; gap: 12px; padding-top: 10px; }
+        .sm-zeit-assignment[data-sm-monthly="true"] .sm-zeit-assignment-values > div span { font-size: 10px; color: #4b5563; }
+        .sm-zeit-assignment[data-sm-monthly="true"] .sm-zeit-assignment-values strong { font-size: 13px; }
+        .sm-zeit-assignment[data-sm-monthly="true"] .sm-zeit-request-trigger { height: 36px; width: 36px; }
       `}</style>
 
       <div className="sm-zeit-shell">
@@ -701,10 +736,11 @@ export default function SmZeiterfassungPage() {
           <div className="sm-zeit-secondary">
             <div className="sm-zeit-time-account">
               <span className="sm-zeit-eyebrow">Zeitkonto</span>
-              <div className="sm-zeit-time-value"><strong>{duration(actual)}</strong><span>von {duration(planned)}</span></div>
+              <div className="sm-zeit-time-value"><strong>{duration(actual)}</strong><span>{allAssignments.some(item => item.planned !== null) ? (monthlyRows.length ? `von ${duration(planned)} Soll` : `von ${duration(planned)}`) : "ohne Sollvorgabe"}</span></div>
               <div className="sm-zeit-caption">Besuche inkl. {duration(travel)} Fahrtzeit</div>
-              <div className="sm-zeit-progress-copy"><span>Ist {planned ? Math.round((actual / planned) * 100) : 0}%</span><span>Soll 100%</span></div>
-              <div className="sm-zeit-progress"><span style={{ width: `${timeProgress}%` }} /></div>
+              {monthlyRows.length ? <div className="sm-zeit-caption">Durcharbeit ohne Soll · Sollvergleich nur für datierte Einsätze</div> : null}
+              {allAssignments.some(item => item.planned !== null) ? <><div className="sm-zeit-progress-copy"><span>Ist {planned ? Math.round((scheduledActual / planned) * 100) : 0}%</span><span>Soll 100%</span></div>
+              <div className="sm-zeit-progress"><span style={{ width: `${timeProgress}%` }} /></div></> : null}
             </div>
           </div>
         </section>
@@ -740,7 +776,7 @@ export default function SmZeiterfassungPage() {
       ) : null}
 
       <div className="fixed bottom-6 left-0 right-0 z-50">
-        <CollapsibleMenu
+        <SmHomeMenu
           items={MENU_ITEMS}
           enableKurti
           featureKurti={false}

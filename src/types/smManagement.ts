@@ -1,15 +1,16 @@
 import type { SmVisitAnswer, SmVisitQuestion } from "./smVisit";
 
 export type SmManagedVisit = {
+  SMDurcharbeitContext?: { visitId: string; targetId: string; campaignId: string; campaignName: string; month: string; timeRevision?: number | null } | null;
   SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope | null;
   id: string; assignmentId: string | null; workDate: string; smUserId: string; smName: string;
   marketId: string; marketName: string; address: string; questionnaireId: string; questionnaireName: string;
   questionnaireVersion: number; startedAt: string | null; completedAt: string | null; submittedAt: string | null; answeredCount: number;
 };
-export type SmManagementFacet = Pick<SmManagedVisit, "smUserId" | "smName" | "marketId" | "marketName" | "questionnaireId" | "questionnaireName">;
+export type SmManagementFacet = Pick<SmManagedVisit, "smUserId" | "smName" | "marketId" | "marketName" | "questionnaireId" | "questionnaireName"> & { SMDurcharbeitCampaignId?: string | null; SMDurcharbeitCampaignName?: string | null; SMDurcharbeitMonth?: string | null };
 export type SmManagementList = { visits: SmManagedVisit[]; nextCursor: { date: string; id: string } | null; facets: SmManagementFacet[]; facetsTruncated: boolean };
-export type SmManagementQuery = { SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope;  from: string; to: string; smUserId?: string; marketId?: string; questionnaireId?: string; search?: string; cursorDate?: string; cursorId?: string; limit?: number };
-export type SmManagementPhoto = { id: string; fileName: string | null; mimeType?: string | null; byteSize?: number | null; signedUrl: string | null };
+export type SmManagementQuery = { SMDurcharbeitCatalogScope?: import("./smSMDurcharbeit").SMDurcharbeitCatalogScope; SMDurcharbeitCampaignId?: string; SMDurcharbeitMonth?: string; from: string; to: string; smUserId?: string; marketId?: string; questionnaireId?: string; search?: string; cursorDate?: string; cursorId?: string; limit?: number };
+export type SmManagementPhoto = { id: string; fileName: string | null; mimeType?: string | null; byteSize?: number | null; signedUrl: string | null; SMDurcharbeitInherited?: boolean; uploadedAt?: string };
 export type SmManagedQuestion = SmVisitQuestion & { answer: SmVisitAnswer; answerId: string | null; answerState: string; photos: SmManagementPhoto[] };
 export type SmManagementDetail = {
   version: string;

@@ -34,12 +34,17 @@ export type SmVisitSection = {
 };
 
 export type SmVisitPayload = {
+  SMDurcharbeitContext?: {
+    visitId: string; targetId: string; campaignId: string; campaignName: string; month: string;
+    readOnlyReason?: string | null;
+    targetRevision: number; basisSubmissionId: string | null; basisRevision: number; inheritedQuestionIds: string[];
+  };
   SMDurcharbeitQuestionnaireSelection?: import("./smSMDurcharbeit").SMDurcharbeitQuestionnaireSelection;
   assignment: {
     id: string;
     status: SmPlanningStatus;
-    workDate: string;
-    plannedMinutes: number;
+    workDate: string | null;
+    plannedMinutes: number | null;
     market: {
       id: string;
       name: string;
@@ -77,6 +82,8 @@ export type SmVisitPayload = {
     mimeType: string | null;
     byteSize: number | null;
     signedUrl: string | null;
+    SMDurcharbeitInherited?: boolean;
+    uploadedAt?: string;
   }>>;
 };
 

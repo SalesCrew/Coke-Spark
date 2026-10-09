@@ -1,57 +1,26 @@
 "use client";
 
-import { Activity, Clock, Home, LogOut, User } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { CollapsibleMenu, type MenuItem } from "@/components/ui/CollapsibleMenu";
+import type { CSSProperties } from "react";
+import { SmDashboardNavigation } from "@/components/sm/SmDashboardNavigation";
 import { SmDashboardHero } from "@/components/dashboard/SmDashboardHero";
-import { NachrichtenCard } from "@/components/dashboard/NachrichtenCard";
 import { SmDashboardSchedule } from "@/components/dashboard/SmDashboardSchedule";
-import { logoutCurrentUser } from "@/lib/api/backend";
-
-const SM_MENU_ITEMS: MenuItem[] = [
-  { label: "Home", href: "/sm", icon: <Home size={11} strokeWidth={1.8} /> },
-  { label: "Aktivitäten", href: "/sm/aktivitaet", icon: <Activity size={11} strokeWidth={1.8} /> },
-  { label: "Zeiterfassung", href: "/sm/zeiterfassung", icon: <Clock size={11} strokeWidth={1.8} /> },
-  { label: "Profil", href: "/sm/profil", icon: <User size={11} strokeWidth={1.8} /> },
-  { label: "Logout", icon: <LogOut size={11} strokeWidth={1.9} />, action: "logout", tone: "danger" },
-];
+import { SmSMDurcharbeitSummary } from "@/components/dashboard/SmSMDurcharbeitSummary";
 
 export default function SMDashboard() {
-  const router = useRouter();
   return (
     <main className="min-h-screen" style={{ backgroundColor: "#f5f5f7" }}>
-      <div className="px-6 pt-6" style={{ maxWidth: 420, margin: "0 auto" }}>
-        <SmDashboardHero />
-        <SmDashboardSchedule />
-        <div className="mt-4 px-1">
-          <NachrichtenCard />
+      <div className="mx-auto flex min-h-[100svh] max-w-[420px] flex-col px-6 pb-[calc(92px+env(safe-area-inset-bottom))] pt-6">
+        <div className="max-h-[max(144px,calc(100svh-300px-env(safe-area-inset-bottom)))] shrink-0 overflow-y-auto" data-sm-dashboard-overview role="region" aria-label="Tagesübersicht und Kalender" tabIndex={0}>
+          <SmDashboardHero />
+          <SmDashboardSchedule />
         </div>
+        <div className="mt-6 flex flex-1" data-sm-durcharbeit-section><SmSMDurcharbeitSummary /></div>
       </div>
 
-      <div className="fixed bottom-6 left-0 right-0 z-50">
-        <CollapsibleMenu
-          items={SM_MENU_ITEMS}
-          enableKurti
-          featureKurti={false}
-          kurtiMaxWidth={420}
-          enableClickToggle
-          defaultIndex={0}
-          onSelect={(_index, item) => {
-            if (item.action === "logout") {
-              logoutCurrentUser();
-              if (typeof window !== "undefined") {
-                window.location.assign("/");
-                return;
-              }
-              router.replace("/");
-              router.refresh();
-              return;
-            }
-            if (item.href) {
-              router.push(item.href);
-            }
-          }}
-        />
+      <div className="fixed bottom-[max(24px,env(safe-area-inset-bottom))] left-0 right-0 z-50" data-sm-home-dock style={{
+        "--sm-menu-chat-max-height": "calc(100dvh - 80px - env(safe-area-inset-bottom))",
+      } as CSSProperties}>
+        <SmDashboardNavigation />
       </div>
     </main>
   );

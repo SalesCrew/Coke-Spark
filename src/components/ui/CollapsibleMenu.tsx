@@ -9,6 +9,7 @@ import {
   Clock,
   Home,
   LogOut,
+  Mail,
   MessageCircle,
   SendHorizontal,
   SlidersHorizontal,
@@ -40,6 +41,8 @@ interface CollapsibleMenuProps {
   featureKurti?: boolean;
   kurtiMaxWidth?: number;
   enableClickToggle?: boolean;
+  /** Opt-in supplied only by the SM Home menu. */
+  smMessages?: { unreadCount: number | null; panel: React.ReactNode };
 }
 
 const HOLD_DELAY = 300;
@@ -107,11 +110,13 @@ export function CollapsibleMenu({
   featureKurti = true,
   kurtiMaxWidth = 606,
   enableClickToggle = false,
+  smMessages,
 }: CollapsibleMenuProps) {
   const [activeIndex, setActiveIndex] = useState(defaultIndex);
   const [expanded, setExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [messagesOpen, setMessagesOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<GmKurtiMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -142,7 +147,20 @@ export function CollapsibleMenu({
   } = useGmTextScale();
   const textScaleProgress = Math.min(100, Math.max(0, textScalePercent * 2));
   const sliderDraftPercentRef = useRef(textScalePercent);
-  const utilityPanelOpen = settingsOpen || chatOpen;
+  const utilityPanelOpen = settingsOpen || chatOpen || messagesOpen;
+  const messagesEnabled = Boolean(smMessages);
+
+  useEffect(() => {
+    if (!messagesOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      // Focusing the offscreen panel during its slide must not scroll the track.
+      container.scrollLeft = 0;
+      container.querySelector<HTMLButtonElement>("[data-sm-inbox-back]")?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messagesOpen]);
 
   useEffect(() => {
     if (!expanded || typeof window === "undefined") return;
@@ -355,17 +373,18 @@ export function CollapsibleMenu({
     return [
       ...mapped.slice(0, logoutRowIndex),
       ...(enableKurti ? [{ type: "chat" as const }] : []),
+      ...(messagesEnabled ? [{ type: "messages" as const }] : []),
       { type: "settings" as const },
       ...mapped.slice(logoutRowIndex),
     ];
-  }, [enableKurti, items]);
+  }, [enableKurti, items, messagesEnabled]);
 
   const collapsedHeight = ITEM_HEIGHT + CARD_PADDING * 2;
   const activeRowIndex = Math.max(
     0,
     rows.findIndex((row) => row.type === "item" && row.itemIndex === activeIndex)
   );
-  const expandedHeight = chatOpen
+  const expandedHeight = messagesOpen ? 500 : chatOpen
     ? CHAT_PANEL_HEIGHT
     : settingsOpen
       ? SETTINGS_PANEL_HEIGHT
@@ -394,7 +413,7 @@ export function CollapsibleMenu({
       }
       return null;
     },
-    [rows.length, utilityPanelOpen]
+    [utilityPanelOpen]
   );
 
   const select = useCallback(
@@ -406,6 +425,7 @@ export function CollapsibleMenu({
         setExpanded(false);
         setSettingsOpen(false);
         setChatOpen(false);
+        setMessagesOpen(false);
         return;
       }
 
@@ -414,17 +434,25 @@ export function CollapsibleMenu({
         setExpanded(false);
         setSettingsOpen(false);
         setChatOpen(false);
+        setMessagesOpen(false);
         return;
       }
 
       if (selectedRow.type === "chat") {
+        setMessagesOpen(false);
         setExpanded(true);
         setSettingsOpen(false);
         setChatOpen(true);
         return;
       }
 
+      if (selectedRow.type === "messages") {
+        setExpanded(true); setSettingsOpen(false); setChatOpen(false); setMessagesOpen(true);
+        return;
+      }
+
       if (selectedRow.type === "settings") {
+        setMessagesOpen(false);
         setExpanded(true);
         setChatOpen(false);
         setSettingsOpen(true);
@@ -436,6 +464,7 @@ export function CollapsibleMenu({
       setExpanded(false);
       setSettingsOpen(false);
       setChatOpen(false);
+      setMessagesOpen(false);
       onSelect?.(selectedIndex, selectedItem);
 
       if (selectedItem.action === "logout") {
@@ -576,6 +605,9 @@ export function CollapsibleMenu({
 
   return (
     <>
+      {messagesOpen ? <button type="button" tabIndex={-1} aria-label="Nachrichten schließen"
+        onClick={() => { select(null); containerRef.current?.focus({ preventScroll: true }); }}
+        className="fixed inset-0 -z-10 cursor-default bg-black/10" /> : null}
       {settingsOpen && (
         <div
           data-gm-text-scale-ignore="true"
@@ -634,12 +666,42 @@ export function CollapsibleMenu({
         onPointerCancel={onPointerCancel}
         onLostPointerCapture={onPointerCancel}
         data-menu-expanded={expanded}
+        data-sm-messages-menu={smMessages ? true : undefined}
+        role={smMessages ? messagesOpen ? "dialog" : expanded ? "navigation" : "button" : undefined}
+        tabIndex={smMessages ? 0 : undefined}
+        aria-label={smMessages ? messagesOpen ? "SM Nachrichten" : expanded ? "SM Navigation" : `${items[activeIndex]?.label ?? "Home"} Menü${smMessages.unreadCount ? `, ${smMessages.unreadCount} ungelesene Nachrichten` : ""}` : undefined}
+        aria-modal={smMessages && messagesOpen ? true : undefined}
+        aria-expanded={smMessages && !expanded && !utilityPanelOpen ? false : undefined}
+        onKeyDown={smMessages ? event => {
+          if (event.key === "Escape") {
+            event.preventDefault(); event.stopPropagation(); select(null); containerRef.current?.focus({ preventScroll: true }); return;
+          }
+          if (messagesOpen && event.key === "Tab") {
+            const controls = Array.from(containerRef.current?.querySelectorAll<HTMLElement>("[data-sm-messages-panel] button:not([disabled]), [data-sm-messages-panel] a[href], [data-sm-messages-panel] input:not([disabled])") ?? []);
+            const first = controls[0], last = controls.at(-1);
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus({ preventScroll: true }); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus({ preventScroll: true }); }
+            return;
+          }
+          if (utilityPanelOpen || event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setExpanded(true); }
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault(); setExpanded(true);
+            const index = event.key === "ArrowDown" ? 0 : rows.length - 1;
+            window.requestAnimationFrame(() => containerRef.current?.querySelector<HTMLElement>(`[data-menu-row="${index}"]`)?.focus({ preventScroll: true }));
+          }
+        } : undefined}
         className={cn(
           "gm-menu-scrollbars-hidden relative w-full overflow-hidden select-none",
           "transition-all duration-[480ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
         )}
         style={{
           height: expanded ? expandedHeight : collapsedHeight,
+          ...(messagesOpen
+            ? { maxHeight: "calc(100dvh - var(--sm-menu-reserved-space, 80px))" }
+            : smMessages && chatOpen
+              ? { maxHeight: "var(--sm-menu-chat-max-height, none)" }
+              : {}),
           borderRadius: 14,
           backgroundColor: "#ffffff",
           border: "1px solid rgba(0,0,0,0.08)",
@@ -663,7 +725,7 @@ export function CollapsibleMenu({
                 : `translateX(0) translateY(-${activeRowIndex * ITEM_HEIGHT}px)`,
           }}
         >
-          <div style={{ width: "50%", paddingTop: CARD_PADDING, paddingBottom: CARD_PADDING }}>
+          <div inert={smMessages && utilityPanelOpen ? true : undefined} style={{ width: "50%", ...(smMessages ? { flex: "0 0 50%", minWidth: 0 } : {}), paddingTop: CARD_PADDING, paddingBottom: CARD_PADDING }}>
             {rows.map((row, i) => {
               const item =
                 row.type === "chat"
@@ -673,6 +735,8 @@ export function CollapsibleMenu({
                       tone: "default" as const,
                       action: undefined,
                     }
+                  : row.type === "messages"
+                  ? { label: "Nachrichten", icon: <Mail size={11} strokeWidth={1.8} />, tone: "default" as const, action: undefined }
                   : row.type === "settings"
                   ? {
                       label: "Einstellungen",
@@ -686,21 +750,29 @@ export function CollapsibleMenu({
               const isFeaturedKurti = isKurti && featureKurti;
               const isHighlighted = isSelected || isFeaturedKurti;
               const isDanger = item.tone === "danger" || item.action === "logout";
+              const Row = smMessages && expanded ? "button" : "div";
+              const showUnread = Boolean(smMessages?.unreadCount) && (row.type === "messages" || (!expanded && i === activeRowIndex));
               const dangerSoftBackground =
                 "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(254,226,226,0.94))";
               const dangerSoftShadow =
                 "inset 0 1px 0 rgba(255,255,255,0.7), 0 0 0 1px rgba(220,38,38,0.16), 0 1px 4px rgba(185,28,28,0.1)";
 
               return (
-                <div
+                <Row
                   key={row.type === "chat" ? "gm-kurti-chat" : row.type === "settings" ? "gm-text-settings" : item.label}
                   data-menu-row={i}
+                  type={Row === "button" ? "button" : undefined}
+                  tabIndex={smMessages ? expanded && !utilityPanelOpen ? 0 : -1 : undefined}
+                  aria-label={smMessages ? row.type === "messages" ? `Nachrichten${smMessages.unreadCount ? `, ${smMessages.unreadCount} ungelesen` : ""}` : item.label : undefined}
+                  aria-hidden={smMessages && (!expanded && i !== activeRowIndex || utilityPanelOpen) ? true : undefined}
+                  onClick={smMessages ? event => { if (event.detail === 0) select(i); } : undefined}
                   className={cn(
                     "relative grid cursor-pointer items-center",
                     "transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
                   )}
                   style={{
                     height: ITEM_HEIGHT,
+                    ...(smMessages ? { width: "calc(100% - 10px)" } : {}),
                     borderRadius: 10,
                     marginLeft: CARD_PADDING,
                     marginRight: CARD_PADDING,
@@ -771,22 +843,39 @@ export function CollapsibleMenu({
                       NEU
                     </span>
                   ) : null}
-                </div>
+                  {showUnread ? <span aria-hidden="true" className="absolute right-2 top-1/2 grid h-4 min-w-4 -translate-y-1/2 place-items-center rounded-full bg-red-50 px-1 text-[8px] font-semibold text-red-700">{smMessages!.unreadCount! > 99 ? "99+" : smMessages!.unreadCount}</span> : null}
+                </Row>
               );
             })}
           </div>
 
           <div
+            inert={smMessages && !utilityPanelOpen ? true : undefined}
             onPointerDown={(event) => event.stopPropagation()}
             style={{
               width: "50%",
+              ...(smMessages ? { flex: "0 0 50%", minWidth: 0 } : {}),
               height: "100%",
               boxSizing: "border-box",
               padding: "10px 12px 11px",
               fontFamily: "var(--font-inter), Inter, system-ui, sans-serif",
             }}
           >
-            {chatOpen ? (
+            {messagesOpen && smMessages ? (
+              <div data-sm-messages-panel className="flex h-full min-h-0 min-w-0 flex-col">
+                <header className="flex shrink-0 items-center gap-2 border-b border-black/[.05] pb-2">
+                  <button type="button" data-sm-inbox-back aria-label="Zurück zum Home Menü"
+                    onClick={() => {
+                      setMessagesOpen(false);
+                      window.requestAnimationFrame(() => containerRef.current?.querySelector<HTMLButtonElement>(`[data-menu-row="${rows.findIndex(row => row.type === "messages")}"]`)?.focus({ preventScroll: true }));
+                    }} className="grid h-7 w-7 place-items-center rounded-lg border border-black/[.06] bg-gray-50 text-gray-500"><ChevronLeft size={14} /></button>
+                  <Mail size={13} className="text-red-600" /><div><h2 className="text-[12px] font-semibold text-gray-800">Nachrichten</h2>
+                    <p aria-live="polite" className="mt-0.5 text-[8px] text-gray-400">{smMessages.unreadCount === null ? "Nachrichtenstand wird geladen" : smMessages.unreadCount ? `${smMessages.unreadCount} ungelesen` : "Alles gelesen"}</p>
+                  </div>
+                </header>
+                <div className="min-h-0 min-w-0 flex-1">{smMessages.panel}</div>
+              </div>
+            ) : chatOpen ? (
               <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0, position: "relative", isolation: "isolate", overflow: "hidden" }}>
                 <video
                   ref={kurtiVideoRef}

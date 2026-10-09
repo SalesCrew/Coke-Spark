@@ -3,12 +3,14 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock, LoaderCircle, Pencil, Search, Store, XCircle } from "lucide-react";
 
-import { approveAdminSmPlanningTimeChangeRequest, correctAdminSmVisitTime, fetchSmPlanningAssignments, rejectAdminSmPlanningTimeChangeRequest } from "@/lib/api/backend";
+import { approveAdminSmPlanningTimeChangeRequest, correctAdminSmVisitTime, fetchSmPlanningAssignments, rejectAdminSmPlanningTimeChangeRequest, fetchSMDurcharbeitTimes, reviewAdminSMDurcharbeitTimeRequest } from "@/lib/api/backend";
 import type { SmPlanningStatus } from "@/types/smPlanning";
 import { SmPlanningPeriodPicker } from "./SmPlanningPeriodPicker";
 import { currentSmPeriod, shiftSmPeriod, smPeriodLabel, viennaToday, type SmPlanningPeriod } from "@/lib/sm/planningPeriod";
-import { buildSmTimeDays, groupSmTimeEmployees, selectSmTimeAssignments, smVisitTimeLabel, summarizeSmTime, type SmTimeAssignment, type SmTimeDay as SmDay } from "@/lib/sm/timeView";
+import { buildSmTimeDays, groupSmTimeEmployees, selectSmTimeAssignments, mapSMDurcharbeitTime, smVisitTimeLabel, summarizeSmTime, type SmTimeAssignment, type SmTimeDay as SmDay } from "@/lib/sm/timeView";
 import { SmVisitTimeEditor } from "./SmVisitTimeEditor";
+import { SMDurcharbeitTimeHistory } from "@/components/sm/SMDurcharbeitTimeHistory";
+import { subscribeToAuthSessionChanges } from "@/lib/auth/sessionRegistry";
 
 const RED = "#DC2626";
 const ROW_GRID = "minmax(260px, 1.5fr) repeat(4, minmax(90px, .62fr)) minmax(125px, .82fr) 28px";
@@ -16,11 +18,12 @@ const ROW_GAP = 14;
 
 export type SmTimeApi = {
   load: typeof fetchSmPlanningAssignments;
+  loadSMDurcharbeit?: typeof fetchSMDurcharbeitTimes;
   correctVisit: typeof correctAdminSmVisitTime;
   approve: typeof approveAdminSmPlanningTimeChangeRequest;
   reject: typeof rejectAdminSmPlanningTimeChangeRequest;
 };
-const TIME_API: SmTimeApi = { load: fetchSmPlanningAssignments, correctVisit: correctAdminSmVisitTime, approve: approveAdminSmPlanningTimeChangeRequest, reject: rejectAdminSmPlanningTimeChangeRequest };
+const TIME_API: SmTimeApi = { load: fetchSmPlanningAssignments, loadSMDurcharbeit: fetchSMDurcharbeitTimes, correctVisit: correctAdminSmVisitTime, approve: approveAdminSmPlanningTimeChangeRequest, reject: rejectAdminSmPlanningTimeChangeRequest };
 type TimeActions = {
   correctVisit: typeof correctAdminSmVisitTime;
   onVisitSaved: () => Promise<void>;
@@ -87,7 +90,7 @@ const AssignmentRow = memo(function AssignmentRow({ assignment, correctVisit, on
   const [error, setError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<"approve" | "reject" | null>(null);
   const busy = useRef(false);
-  const hasEditableVisit = Boolean(assignment.visitId && assignment.status === "completed" && assignment.questionnaireComplete);
+  const hasEditableVisit = Boolean(assignment.visitId && assignment.status === "completed" && (assignment.questionnaireComplete || assignment.SMDurcharbeitVisitId) && (!assignment.SMDurcharbeitVisitId || assignment.timeRevisionNumber !== null));
 
   const closeEditor = () => {
     setEditing(false);
@@ -111,12 +114,14 @@ const AssignmentRow = memo(function AssignmentRow({ assignment, correctVisit, on
     <div data-assignment={assignment.id} style={{ borderTop: "1px solid rgba(0,0,0,0.04)" }}>
       <div className="sm-time-action" style={{ minHeight: 54, padding: "8px 18px", display: "grid", gridTemplateColumns: ROW_GRID, columnGap: ROW_GAP, alignItems: "center" }}>
         <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ width: 26, height: 26, borderRadius: 7, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "rgba(220,38,38,0.055)", color: RED }}><Store size={12} strokeWidth={1.8} /></span>
+          <span style={{ width: 26, height: 26, borderRadius: 7, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: assignment.SMDurcharbeitVisitId ? "rgba(37,99,235,.055)" : "rgba(220,38,38,0.055)", color: assignment.SMDurcharbeitVisitId ? "#2563eb" : RED }}><Store size={12} strokeWidth={1.8} /></span>
           <div style={{ minWidth: 0 }}>
             <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#1a1a1a", fontSize: 11, fontWeight: 650 }}>{assignment.marketName}</div>
             <div style={{ marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(0,0,0,0.35)", fontSize: 9 }}>{dateLabel} · {assignment.marketAddress} · Stammnr. {assignment.internalMarketId}</div>
             <div className="sm-time-visit-clock"><Clock size={10}/>{smVisitTimeLabel(assignment.visitStartedAt, assignment.visitCompletedAt)}</div>
+            {assignment.SMDurcharbeitCampaignName ? <div style={{marginTop:3,fontSize:9,color:"#2563eb"}}>{assignment.SMDurcharbeitCampaignName} · {assignment.SMDurcharbeitMonth?.slice(0,7)}</div> : null}
             {assignment.timeRevisionNumber !== null && assignment.timeRevisionNumber > 1 ? <div style={{ marginTop: 3, fontSize: 8, color: "#9ca3af" }}>Ist-Zeit korrigiert · Version {assignment.timeRevisionNumber}</div> : null}
+            {assignment.SMDurcharbeitVisitId ? <SMDurcharbeitTimeHistory visitId={assignment.SMDurcharbeitVisitId} revision={assignment.timeRevisionNumber} admin /> : null}
           </div>
         </div>
         <MetricCell label="Soll-Zeit" value={formatDuration(assignment.plannedMinutes)} />
@@ -136,7 +141,7 @@ const AssignmentRow = memo(function AssignmentRow({ assignment, correctVisit, on
         }} className="sm-time-edit-button"><Pencil size={11}/></button> : <span />}
       </div>
       {editing && hasEditableVisit ? <div style={{ padding: "10px 18px 12px 54px", borderTop: "1px solid rgba(0,0,0,.04)" }}>
-        <SmVisitTimeEditor assignmentId={assignment.id} visitId={assignment.visitId!} startedAt={assignment.visitStartedAt} completedAt={assignment.visitCompletedAt}
+        <SmVisitTimeEditor assignmentId={assignment.id} expectedRevision={assignment.SMDurcharbeitVisitId ? assignment.timeRevisionNumber ?? undefined : undefined} visitId={assignment.visitId!} startedAt={assignment.visitStartedAt} completedAt={assignment.visitCompletedAt}
           save={correctVisit} onCancel={closeEditor} onSaved={async () => { setEditing(false); await onVisitSaved(); }} />
       </div> : null}
       {assignment.pendingTimeChangeRequest ? <div className="sm-time-request-review">
@@ -256,9 +261,9 @@ export function SmZeiterfassungWorkspace({ api = TIME_API, initialPeriod }: { ap
     const request = ++generation.current;
     setResult((current) => ({ range: requestedRange, rows: current.range === requestedRange ? current.rows : [], loading: true, error: null }));
     try {
-      const rows = await api.load(period.from, period.to);
+      const [rows, monthly] = await Promise.all([api.load(period.from, period.to), api.loadSMDurcharbeit?.(period.from, period.to, true) ?? Promise.resolve([])]);
       if (generation.current !== request || activeRange.current !== requestedRange) return;
-      setResult({ range: requestedRange, rows: selectSmTimeAssignments(rows, period.from, period.to), loading: false, error: null });
+      setResult({ range: requestedRange, rows: [...selectSmTimeAssignments(rows, period.from, period.to), ...monthly.map(mapSMDurcharbeitTime)], loading: false, error: null });
     } catch (error) {
       if (generation.current !== request || activeRange.current !== requestedRange) return;
       setResult({ range: requestedRange, rows: [], loading: false, error: error instanceof Error ? error.message : "Die Zeiterfassung konnte nicht geladen werden." });
@@ -266,6 +271,11 @@ export function SmZeiterfassungWorkspace({ api = TIME_API, initialPeriod }: { ap
   }, [api, period.from, period.to]);
   const reloadCurrentRange = useRef(loadAssignments);
   reloadCurrentRange.current = loadAssignments;
+  useEffect(() => subscribeToAuthSessionChanges(() => {
+    generation.current += 1;
+    setResult({ range: "", rows: [], loading: true, error: null }); setNotice(null); setSearch("");
+    void reloadCurrentRange.current();
+  }), []);
 
   useEffect(() => {
     mounted.current = true;
@@ -287,6 +297,7 @@ export function SmZeiterfassungWorkspace({ api = TIME_API, initialPeriod }: { ap
   const reviewTimeRequest = useCallback(async (assignment: SmTimeAssignment, decision: "approve" | "reject") => {
     const request = assignment.pendingTimeChangeRequest;
     if (!request) return;
+    if (assignment.SMDurcharbeitVisitId) { await reviewAdminSMDurcharbeitTimeRequest(request.id, decision); await reloadCurrentRange.current(); return; }
     if (decision === "approve") await api.approve(request.id);
     else await api.reject(request.id);
     await reloadCurrentRange.current();

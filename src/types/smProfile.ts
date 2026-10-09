@@ -13,5 +13,6 @@ export type SmProfilePayload = {
     completedAssignmentCount: number;
     plannedMinutes: number;
     actualMinutes: number;
+    SMDurcharbeitVisitCount?: number;
   };
 };

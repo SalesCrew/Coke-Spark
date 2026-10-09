@@ -1,5 +1,6 @@
 "use client";
 
+import { SMDurcharbeitVisitReference } from "@/lib/sm/SMDurcharbeitVisitReference";
 import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQuestionnaireBadge";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -30,10 +31,8 @@ import {
   User,
   X,
 } from "lucide-react";
-import {
-  CollapsibleMenu,
-  type MenuItem,
-} from "@/components/ui/CollapsibleMenu";
+import type { MenuItem } from "@/components/ui/CollapsibleMenu";
+import { SmHomeMenu } from "@/components/sm/SmHomeMenu";
 import {
   fetchMySmActivityRequests,
   fetchMySmCompletedActivities,
@@ -1158,10 +1157,9 @@ function ActivityViewer({
         </div>
         <div className="sm-act-viewer-strip">
           <div>
-            <span>Ist / Soll</span>
+            <span>{summary.SMDurcharbeitVisitId ? "Besuchszeit" : "Ist / Soll"}</span>
             <strong>
-              {duration(summary.actualMinutes)} /{" "}
-              {duration(summary.plannedMinutes)}
+              {duration(summary.actualMinutes)}{summary.SMDurcharbeitVisitId ? null : <> / {duration(summary.plannedMinutes)}</>}
             </strong>
           </div>
           <div>
@@ -1345,7 +1343,9 @@ export default function SmActivityPage() {
       setPayloadLoading(true);
       setPayloadError(null);
       try {
-        const next = await fetchSmVisit(activity.assignmentId);
+        const reference = activity.SMDurcharbeitVisitId ? SMDurcharbeitVisitReference(activity.SMDurcharbeitVisitId) : activity.assignmentId;
+        if (!reference) throw new Error("Die Besuchskennung fehlt. Bitte lade die Übersicht erneut.");
+        const next = await fetchSmVisit(reference);
         if (sequence === payloadSequence.current) setPayload(next);
       } catch (cause) {
         if (sequence !== payloadSequence.current) return;
@@ -1779,10 +1779,9 @@ export default function SmActivityPage() {
                   </div>
                   <div className="sm-act-card-grid">
                     <div>
-                      <span>Ist / Soll</span>
+                      <span>{activity.SMDurcharbeitVisitId ? "Besuchszeit" : "Ist / Soll"}</span>
                       <strong>
-                        {duration(activity.actualMinutes)} /{" "}
-                        {duration(activity.plannedMinutes)}
+                        {duration(activity.actualMinutes)}{activity.SMDurcharbeitVisitId ? null : <> / {duration(activity.plannedMinutes)}</>}
                       </strong>
                     </div>
                     <div>
@@ -1876,7 +1875,7 @@ export default function SmActivityPage() {
         />
       ) : null}
       <div className="fixed bottom-6 left-0 right-0 z-50">
-        <CollapsibleMenu
+        <SmHomeMenu
           items={MENU_ITEMS}
           enableKurti
           featureKurti={false}

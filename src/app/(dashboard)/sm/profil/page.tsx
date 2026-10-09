@@ -21,7 +21,8 @@ import {
   Store,
   User,
 } from "lucide-react";
-import { CollapsibleMenu, type MenuItem } from "@/components/ui/CollapsibleMenu";
+import type { MenuItem } from "@/components/ui/CollapsibleMenu";
+import { SmHomeMenu } from "@/components/sm/SmHomeMenu";
 import {
   BackendApiError,
   fetchMySmProfile,
@@ -73,7 +74,7 @@ function ProfileMetric({
   color,
   value,
   loading,
-}: (typeof PROFILE_METRICS)[number] & { value?: string; loading: boolean }) {
+}: Omit<(typeof PROFILE_METRICS)[number], "helper"> & { helper: string; value?: string; loading: boolean }) {
   return (
     <article className="sm-profile-metric">
       <div className="sm-profile-metric-icon" style={{ color }}>
@@ -271,7 +272,9 @@ export default function SmProfilePage() {
         ) : (
           <section className="sm-profile-metric-grid" aria-label="Wochenübersicht" aria-busy={loading}>
             {PROFILE_METRICS.map((metric, index) => (
-              <ProfileMetric key={metric.label} {...metric} value={metricValues[index]} loading={loading && !profile} />
+              <ProfileMetric key={metric.label} {...metric}
+                helper={index === 3 && summary?.SMDurcharbeitVisitCount ? "diese Woche inkl. Durcharbeit" : metric.helper}
+                value={metricValues[index]} loading={loading && !profile} />
             ))}
           </section>
         )}
@@ -297,7 +300,7 @@ export default function SmProfilePage() {
       </div>
 
       <div className="sm-profile-menu">
-        <CollapsibleMenu
+        <SmHomeMenu
           items={MENU_ITEMS}
           enableKurti
           featureKurti={false}

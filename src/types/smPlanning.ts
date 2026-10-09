@@ -70,7 +70,9 @@ export type SmGlobalQuestionnaireConfiguration = {
 
 export type SmTimeChangeRequest = {
   id: string;
-  assignmentId: string;
+  assignmentId: string | null;
+  SMDurcharbeitVisitId?: string;
+  expectedRevision?: number;
   smUserId: string;
   sourceTimeSubmissionId: string;
   kind: "time_change" | "deletion";

@@ -7,8 +7,9 @@ import { fromViennaDateTimeInput, toViennaDateTimeInput } from "@/lib/sm/visitTi
 
 type Save = typeof correctAdminSmVisitTime;
 
-export function SmVisitTimeEditor({ assignmentId, visitId, startedAt, completedAt, onSaved, onCancel, save = correctAdminSmVisitTime }: {
+export function SmVisitTimeEditor({ assignmentId, visitId, startedAt, completedAt, expectedRevision, onSaved, onCancel, save = correctAdminSmVisitTime }: {
   assignmentId: string; visitId: string; startedAt: string | null; completedAt: string | null;
+  expectedRevision?: number;
   onSaved: () => Promise<void> | void; onCancel: () => void; save?: Save;
 }) {
   const [start, setStart] = useState(() => toViennaDateTimeInput(startedAt));
@@ -33,7 +34,7 @@ export function SmVisitTimeEditor({ assignmentId, visitId, startedAt, completedA
     if (!canSave || !nextStart || !nextEnd) return;
     setBusy(true); setError(null);
     try {
-      await save(assignmentId, { expectedVisitId: visitId, expectedStartedAt: startedAt, expectedCompletedAt: completedAt,
+      await save(assignmentId, { ...(expectedRevision ? { expectedRevision } : {}), expectedVisitId: visitId, expectedStartedAt: startedAt, expectedCompletedAt: completedAt,
         visitStartedAt: nextStart, visitCompletedAt: nextEnd, reason: reason.trim() });
       await onSaved();
     } catch (failure) {

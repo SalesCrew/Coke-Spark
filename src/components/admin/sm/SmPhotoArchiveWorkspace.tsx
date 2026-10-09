@@ -133,15 +133,13 @@ export function PhotoArchive({ owner, api, currentOwner = readOwner }: { owner: 
 }
 
 function PhotoPreview({ photo, url }: { photo: SmArchivePhoto; url?: SmArchivePhotoUrl }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [url?.signedUrl]);
-  return <div className={styles.preview}>{url?.signedUrl && !failed ? <img src={url.signedUrl} alt={photo.questionText} loading="lazy" decoding="async" onError={() => setFailed(true)} /> : !url ? <span className={styles.skeleton} style={{ width: "100%", height: "100%" }} /> : <span className={styles.previewText}><ImageOff size={23} strokeWidth={1.4} />Vorschau nicht verfügbar</span>}</div>;
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  return <div className={styles.preview}>{url?.signedUrl && failedUrl !== url.signedUrl ? <img src={url.signedUrl} alt={photo.questionText} loading="lazy" decoding="async" onError={() => setFailedUrl(url.signedUrl)} /> : !url ? <span className={styles.skeleton} style={{ width: "100%", height: "100%" }} /> : <span className={styles.previewText}><ImageOff size={23} strokeWidth={1.4} />Vorschau nicht verfügbar</span>}</div>;
 }
 
 function PhotoDialog({ photo, url, onClose, onStep, previousDisabled, nextDisabled }: { photo: SmArchivePhoto; url?: SmArchivePhotoUrl; onClose: () => void; onStep: (delta: number) => void; previousDisabled: boolean; nextDisabled: boolean }) {
   const dialog = useRef<HTMLDivElement>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [url?.signedUrl]);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
@@ -162,9 +160,9 @@ function PhotoDialog({ photo, url, onClose, onStep, previousDisabled, nextDisabl
       }
     }}>
       <button className={`${styles.icon} ${styles.close}`} aria-label="Foto schließen" onClick={onClose}><X size={15} /></button>
-      <div className={styles.fullImage}>{url?.signedUrl && !failed ? <img src={url.signedUrl} alt={photo.questionText} onError={() => setFailed(true)} /> : <span className={styles.previewText}><ImageOff size={28} />Vorschau nicht verfügbar. Bitte aktualisieren.</span>}<div className={styles.imageNav}><button className={styles.icon} aria-label="Vorheriges Foto" disabled={previousDisabled} onClick={() => onStep(-1)}><ChevronLeft size={16} /></button><button className={styles.icon} aria-label="Nächstes Foto" disabled={nextDisabled} onClick={() => onStep(1)}><ChevronRight size={16} /></button></div></div>
+      <div className={styles.fullImage}>{url?.signedUrl && failedUrl !== url.signedUrl ? <img src={url.signedUrl} alt={photo.questionText} onError={() => setFailedUrl(url.signedUrl)} /> : <span className={styles.previewText}><ImageOff size={28} />Vorschau nicht verfügbar. Bitte aktualisieren.</span>}<div className={styles.imageNav}><button className={styles.icon} aria-label="Vorheriges Foto" disabled={previousDisabled} onClick={() => onStep(-1)}><ChevronLeft size={16} /></button><button className={styles.icon} aria-label="Nächstes Foto" disabled={nextDisabled} onClick={() => onStep(1)}><ChevronRight size={16} /></button></div></div>
       <aside className={styles.details}><span className={photoTypeClass(photo)}>{typeLabel(photo)}</span><h2 id="sm-photo-title">{photo.marketName}</h2><p className={styles.muted}>{[photo.address, photo.postalCode, photo.city].filter(Boolean).join(" · ")}</p>
-        <dl>{[["Besuchsdatum", dateLabel(photo.workDate)], ["Shelf Merchandiser", photo.smName], ["Fragebogen", `${photo.questionnaireName} · Version ${photo.questionnaireVersion}`], ["Modul", photo.moduleName], ["Fotofrage", photo.questionText], ["Datei", photo.fileName ?? "Foto"], ["Bildgröße", photo.widthPx && photo.heightPx ? `${photo.widthPx} × ${photo.heightPx} px` : "—"]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+        <dl>{[["Besuchsdatum", dateLabel(photo.workDate)], ...(photo.SMDurcharbeitCampaignId ? [["Durcharbeit-Kampagne", photo.SMDurcharbeitCampaignName ?? "Durcharbeit"], ["Kalendermonat", photo.SMDurcharbeitMonth ? new Intl.DateTimeFormat("de-AT",{month:"long",year:"numeric",timeZone:"UTC"}).format(new Date(`${photo.SMDurcharbeitMonth}T12:00:00Z`)) : "—"], ["Original hochgeladen", new Intl.DateTimeFormat("de-AT",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",timeZone:"Europe/Vienna"}).format(new Date(photo.uploadedAt))]] : []), ["Shelf Merchandiser", photo.smName], ["Fragebogen", `${photo.questionnaireName} · Version ${photo.questionnaireVersion}`], ["Modul", photo.moduleName], ["Fotofrage", photo.questionText], ["Datei", photo.fileName ?? "Foto"], ["Bildgröße", photo.widthPx && photo.heightPx ? `${photo.widthPx} × ${photo.heightPx} px` : "—"]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         {url?.signedUrl ? <a className={styles.button} href={url.signedUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} />Original öffnen</a> : null}
         <Link className={styles.button} href={`/admin/sm/fbmanagement?submissionId=${encodeURIComponent(photo.submissionId)}&workDate=${photo.workDate}`}><ExternalLink size={12} />Fragebogen öffnen</Link>
       </aside>

@@ -1,3 +1,3 @@
 "use client";
-import { SmVerplanungWorkspace } from "@/components/admin/sm/SmVerplanungWorkspace";
-export default function SMDurcharbeitPage() { return <SmVerplanungWorkspace SMDurcharbeit />; }
+import { SmSMDurcharbeitCampaignWorkspace } from "@/components/admin/sm/SmSMDurcharbeitCampaignWorkspace";
+export default function SMDurcharbeitPage() { return <SmSMDurcharbeitCampaignWorkspace />; }

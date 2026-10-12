@@ -3,7 +3,7 @@ import { conditionText, metricUnit } from "@/lib/praemien-goals";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Award,
+  CalendarDays,
   Check,
   ChevronRight,
   Copy,
@@ -11,8 +11,8 @@ import {
   LockKeyhole,
   Plus,
   RefreshCw,
+  Search,
   Settings2,
-  Trophy,
   X,
 } from "lucide-react";
 import { requestPraemienWorkspace as api } from "@/lib/api/backend";
@@ -185,471 +185,481 @@ export function PraemienWorkspace() {
     ) ?? [];
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div className={styles.heading}>
-          <span className={styles.icon}>
-            <Gift size={22} />
-          </span>
-          <div>
-            <span className={styles.eyebrow}>GM · QUARTALSPRÄMIEN</span>
-            <h1>Prämienwelle</h1>
-            <p>Klare Ziele. Nachvollziehbare Werte. Echte Mitarbeiter.</p>
-          </div>
-        </div>
-        <div className={styles.actions}>
-          <BoniSelect
-            aria-label="Prämienwelle wählen"
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            disabled={busy}
-          >
-            {!waves.length && <option value="">Keine Welle</option>}
-            {waves.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name} · Q{w.quarter} {w.year}
-              </option>
-            ))}
-          </BoniSelect>
-          <button aria-label="Neu laden" onClick={reload} disabled={busy}>
-            <RefreshCw size={16} />
-          </button>
-          <button
-            className={styles.primary}
-            onClick={() => setCreating(true)}
-            disabled={busy || !canCreate}
-          >
-            <Plus size={16} /> Neue Welle
-          </button>
-        </div>
-      </header>
-      {error && (
-        <div role="alert" className={styles.error}>
-          {error}
-          <button onClick={reload}>Neu laden</button>
-        </div>
-      )}
-      {loading && (
-        <div role="status" className={styles.empty}>
-          Prämien werden geladen …
-        </div>
-      )}
-      {!loading && workspace && (
-        <>
-          <section className={styles.wavebar}>
-            <div>
-              <strong>{workspace.wave.name}</strong>
-              <p>
-                {new Date(workspace.wave.startDate).toLocaleDateString("de-AT")}{" "}
-                – {new Date(workspace.wave.endDate).toLocaleDateString("de-AT")}{" "}
-                · Version {workspace.revision} ·{" "}
-                {workspace.closedAt
-                  ? `Eingefroren am ${new Date(workspace.closedAt).toLocaleString("de-AT")}`
-                  : `Berechnet ${new Date(workspace.calculatedAt).toLocaleTimeString("de-AT")}`}
-              </p>
+      <div className={styles.surface}>
+        <header className={styles.header}>
+          <div className={styles.toolbar}>
+            <div className={styles.waveSelection}>
+              <span className={styles.controlLabel}>Prämienwelle</span>
+              <BoniSelect
+                aria-label="Prämienwelle wählen"
+                value={selected}
+                onChange={(e) => setSelected(e.target.value)}
+                disabled={busy}
+              >
+                {!waves.length && <option value="">Keine Welle</option>}
+                {waves.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} · Q{w.quarter} {w.year}
+                  </option>
+                ))}
+              </BoniSelect>
             </div>
             <div className={styles.actions}>
-              <span className={styles.badge}>
-                {frozen ? <LockKeyhole size={13} /> : <Check size={13} />}
-                {frozen
-                  ? "Abgeschlossen"
-                  : workspace.wave.status === "active"
-                    ? "Laufend"
-                    : "Entwurf"}
-              </span>
-              <button disabled={!canCreate} onClick={() => setCreating(true)}>
-                <Copy size={14} /> Regeln kopieren
+              <button aria-label="Neu laden" onClick={reload} disabled={busy}>
+                <RefreshCw size={14} />
               </button>
-              {workspace.model && !frozen && canEdit && (
-                <button
-                  disabled={busy}
-                  onClick={() => {
-                    setConfirming(
-                      workspace.wave.status === "active"
-                        ? "archive"
-                        : "activate",
-                    );
-                  }}
-                >
-                  {workspace.wave.status === "active"
-                    ? "Quartal abschließen"
-                    : "Welle aktivieren"}
-                </button>
-              )}
+              <button
+                className={styles.primary}
+                onClick={() => setCreating(true)}
+                disabled={busy || !canCreate}
+              >
+                <Plus size={14} /> Neue Welle
+              </button>
             </div>
-          </section>
-          {!workspace.model ? (
-            <div className={styles.empty}>
-              <Settings2 size={28} />
-              <h2>Bestehende Welle – Regeln noch nicht umgestellt</h2>
-              <p>
-                Alte Punkte bleiben unverändert. Richte die neue
-                Prozent-/Teilzielkonfiguration bewusst ein; erst Speichern
-                übernimmt sie. Abgeschlossene Altquartale werden nicht
-                umgerechnet.
-              </p>
-              {!!workspace.legacyTotals?.length && <section className={styles.card}><h2>Gespeicherter Altstand</h2><p>Bestehende Ergebnisse, nicht in Prozent umgerechnet und nicht nachträglich neu berechnet.</p><div className={styles.tableWrap}><table><thead><tr><th>GM</th><th>Alte Punkte</th><th>Gespeicherte Prämie</th></tr></thead><tbody>{workspace.legacyTotals.map(r=><tr key={r.gmId}><td>{r.name}</td><td>{decimal(r.totalPoints)}</td><td>{euro(r.earned)}</td></tr>)}</tbody></table></div></section>}
-              {!frozen && canEdit && (
-                <button
-                  className={styles.primary}
-                  onClick={async () => {
-                    try {
-                      setEditing(
-                        (await api<{ model: WaveModel }>("/templates/empty"))
-                          .model,
-                      );
-                    } catch (e) {
-                      setError((e as Error).message);
-                    }
-                  }}
-                >
-                  Neue Regeln einrichten
+          </div>
+          {!loading && workspace && (
+            <section className={styles.wavebar}>
+              <div className={styles.waveContext}>
+                <span className={styles.badge} data-status={workspace.wave.status}>
+                  {frozen ? <LockKeyhole size={11} /> : <Check size={11} />}
+                  {frozen
+                    ? "Abgeschlossen"
+                    : workspace.wave.status === "active"
+                      ? "Laufend"
+                      : "Entwurf"}
+                </span>
+                <span className={styles.period}>
+                  <CalendarDays size={12} />
+                  {new Date(workspace.wave.startDate).toLocaleDateString("de-AT")}{" "}
+                  – {new Date(workspace.wave.endDate).toLocaleDateString("de-AT")}{" "}
+                </span>
+                <span className={styles.version}>Version {workspace.revision}</span>
+                <span className={styles.calculated}>
+                  {workspace.closedAt
+                    ? `Eingefroren am ${new Date(workspace.closedAt).toLocaleString("de-AT")}`
+                    : `Berechnet ${new Date(workspace.calculatedAt).toLocaleTimeString("de-AT")}`}
+                </span>
+              </div>
+              <div className={styles.actions}>
+                <button disabled={!canCreate} onClick={() => setCreating(true)}>
+                  <Copy size={14} /> Regeln kopieren
                 </button>
-              )}
-            </div>
-          ) : (
-            <>
-              <nav className={styles.tabs} aria-label="Prämienbereiche">
-                {(
-                  [
-                    "Übersicht",
-                    "Regeln & Quellen",
-                    "Mitarbeiterwerte",
-                    "Verlauf",
-                  ] as Tab[]
-                ).map((t) => (
+                {workspace.model && !frozen && canEdit && (
                   <button
-                    key={t}
-                    aria-current={tab === t ? "page" : undefined}
-                    className={tab === t ? styles.activeTab : ""}
-                    onClick={() => setTab(t)}
+                    disabled={busy}
+                    onClick={() => {
+                      setConfirming(
+                        workspace.wave.status === "active"
+                          ? "archive"
+                          : "activate",
+                      );
+                    }}
                   >
-                    {t}
+                    {workspace.wave.status === "active"
+                      ? "Quartal abschließen"
+                      : "Welle aktivieren"}
                   </button>
-                ))}
-              </nav>
-              {tab === "Übersicht" && (
-                <>
-                  <div className={styles.pillars}>
-                    {workspace.model.pillars.map((p) => (
-                      <article className={styles.card} key={p.key}>
-                        <div className={styles.cardTitle}>
-                          <span
-                            className={styles.dot}
-                            style={{ background: p.color }}
-                          />
-                          <h2>{p.name}</h2>
+                )}
+              </div>
+            </section>
+          )}
+        </header>
+        {error && (
+          <div role="alert" className={styles.error}>
+            {error}
+            <button onClick={reload}>Neu laden</button>
+          </div>
+        )}
+        {loading && (
+          <div role="status" className={styles.empty}>
+            Prämien werden geladen …
+          </div>
+        )}
+        {!loading && workspace && (
+          <>
+            {!workspace.model ? (
+              <div className={styles.empty}>
+                <Settings2 size={28} />
+                <h2>Bestehende Welle – Regeln noch nicht umgestellt</h2>
+                <p>
+                  Alte Punkte bleiben unverändert. Richte die neue
+                  Prozent-/Teilzielkonfiguration bewusst ein; erst Speichern
+                  übernimmt sie. Abgeschlossene Altquartale werden nicht
+                  umgerechnet.
+                </p>
+                {!!workspace.legacyTotals?.length && <section className={styles.card}><h2>Gespeicherter Altstand</h2><p>Bestehende Ergebnisse, nicht in Prozent umgerechnet und nicht nachträglich neu berechnet.</p><div className={styles.tableWrap}><table><thead><tr><th>GM</th><th>Alte Punkte</th><th>Gespeicherte Prämie</th></tr></thead><tbody>{workspace.legacyTotals.map(r=><tr key={r.gmId}><td>{r.name}</td><td>{decimal(r.totalPoints)}</td><td>{euro(r.earned)}</td></tr>)}</tbody></table></div></section>}
+                {!frozen && canEdit && (
+                  <button
+                    className={styles.primary}
+                    onClick={async () => {
+                      try {
+                        setEditing(
+                          (await api<{ model: WaveModel }>("/templates/empty"))
+                            .model,
+                        );
+                      } catch (e) {
+                        setError((e as Error).message);
+                      }
+                    }}
+                  >
+                    Neue Regeln einrichten
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <nav className={styles.tabs} aria-label="Prämienbereiche">
+                  {(
+                    [
+                      "Übersicht",
+                      "Regeln & Quellen",
+                      "Mitarbeiterwerte",
+                      "Verlauf",
+                    ] as Tab[]
+                  ).map((t) => (
+                    <button
+                      key={t}
+                      aria-current={tab === t ? "page" : undefined}
+                      className={tab === t ? styles.activeTab : ""}
+                      onClick={() => setTab(t)}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </nav>
+                {tab === "Übersicht" && (
+                  <>
+                    <div className={styles.pillars}>
+                      {workspace.model.pillars.map((p) => {
+                        const reviewed = workspace.results.filter(
+                          (r) => !r.pillars.find((x) => x.key === p.key)?.pending,
+                        ).length;
+                        return <article className={`${styles.card} ${styles.pillarCard}`} key={p.key}>
+                          <div className={styles.cardTitle}>
+                            <span
+                              className={styles.dot}
+                              style={{ background: p.color }}
+                            />
+                            <h2>{p.name}</h2>
+                            <button
+                              aria-label={`${p.name} bearbeiten`}
+                              disabled={frozen || !canEdit}
+                              onClick={() => {
+                                setEditingKey(p.key);
+                                setEditing(structuredClone(workspace.model!));
+                              }}
+                            >
+                              <Settings2 size={15} />
+                            </button>
+                          </div>
+                          <div className={styles.big}>
+                            {euro(p.maxRewardEur)}
+                            <span>Maximalprämie</span>
+                          </div>
+                          <div className={styles.reviewProgress}>
+                            <div className={styles.reviewLabel}>
+                              <span><strong>{reviewed}</strong> / {workspace.results.length} bewertet</span>
+                              <span>{p.metrics.length} {p.metrics.length === 1 ? "Messgröße" : "Messgrößen"}</span>
+                            </div>
+                            <div
+                              className={styles.bar}
+                              role="progressbar"
+                              aria-label={`${p.name}: Bewertungen`}
+                              aria-valuemin={0}
+                              aria-valuemax={workspace.results.length || 1}
+                              aria-valuenow={reviewed}
+                            >
+                              <span
+                                style={{
+                                  width: `${workspace.results.length ? (reviewed / workspace.results.length) * 100 : 0}%`,
+                                  background: p.color,
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <small className={styles.pillarFootnote}>
+                            {p.payoutMode === "manual" ? p.metrics.filter(m => m.manualRewardCap !== undefined).map(m => `${m.label}: bis ${euro(m.manualRewardCap!)}`).join(" · ") : p.tiers.length
+                              ? p.tiers.map((t) => t.label).join(" · ")
+                              : "Stufen noch einzurichten"}
+                          </small>
+                        </article>;
+                      })}
+                    </div>
+                    <section className={`${styles.card} ${styles.leaderboard}`}>
+                      <div className={styles.panelHeading}>
+                        <div className={styles.panelTitle}>
+                          <h2>Leaderboard</h2>
+                          <span className={styles.count}>{scope === "total" ? totals.length : workspace.results.length} GMs</span>
+                        </div>
+                        <div className={styles.segment}>
                           <button
-                            aria-label={`${p.name} bearbeiten`}
-                            disabled={frozen || !canEdit}
-                            onClick={() => {
-                              setEditingKey(p.key);
-                              setEditing(structuredClone(workspace.model!));
-                            }}
+                            aria-pressed={scope === "quarter"}
+                            className={
+                              scope === "quarter" ? styles.activeTab : ""
+                            }
+                            onClick={() => setScope("quarter")}
                           >
-                            <Settings2 size={15} />
+                            Dieses Quartal
+                          </button>
+                          <button
+                            aria-pressed={scope === "total"}
+                            className={scope === "total" ? styles.activeTab : ""}
+                            onClick={() => setScope("total")}
+                          >
+                            Gesamt
                           </button>
                         </div>
-                        <div className={styles.big} style={{ color: p.color }}>
-                          {euro(p.maxRewardEur)}
-                          <span>Maximalprämie</span>
+                      </div>
+                      <p className={styles.panelDescription}>
+                        {scope === "total"
+                          ? "Nur eingefrorene Ergebnisse abgeschlossener Quartale. Keine Entwürfe oder laufenden Vorschauen."
+                          : "Gleiche Prämie = gleicher Rang. Offene Teilziele sind in der Summe vorläufig."}
+                      </p>
+                      <div className={styles.rosterHeading} aria-hidden="true">
+                        <span>Rang</span><span>Gebietsmanager</span><span>{scope === "total" ? "Abgeschlossene Quartale" : "Bewertung"}</span><span>Prämie</span><span />
+                      </div>
+                      {scope === "total" ? (
+                        <div className={styles.roster}>
+                          {totals.map((r) => (
+                            <div key={r.gmId}>
+                              <span className={styles.rank}>
+                                {totals.findIndex((x) => x.earned === r.earned) +
+                                  1}
+                              </span>
+                              <span className={styles.person}><strong>{r.name}</strong>{!r.active && <small>Inaktiv</small>}</span>
+                              <span className={styles.rowStatus}>{r.quarters} Quartale</span>
+                              <b>{euro(r.earned)}</b>
+                              <span />
+                            </div>
+                          ))}
+                          {!totals.length && (
+                            <p>Noch keine abgeschlossenen Quartale.</p>
+                          )}
                         </div>
-                        <div
-                          className={styles.bar}
-                          style={{
-                            borderColor: p.color,
-                            background: `${p.color}08`,
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: `${workspace.results.length ? (workspace.results.filter((r) => !r.pillars.find((x) => x.key === p.key)?.pending).length / workspace.results.length) * 100 : 0}%`,
-                              borderColor: p.color,
-                              background: `${p.color}35`,
-                            }}
-                          />
+                      ) : (
+                        <div className={styles.roster}>
+                          {workspace.results.map((r) => (
+                            <button key={r.gmId} onClick={() => setGm(r)}>
+                              <span className={styles.rank}>{r.rank}</span>
+                              <span className={styles.person}>
+                                <strong>{r.name}</strong>{!r.active && <small>Inaktiv</small>}
+                              </span>
+                              <span className={styles.rowStatus}>
+                                {r.pending
+                                  ? "Vorläufig · Bewertung offen"
+                                  : "Bewertet"}
+                              </span>
+                              <b>{euro(r.earned)}</b>
+                              <ChevronRight size={16} />
+                            </button>
+                          ))}
                         </div>
-                        <p>
-                          {
-                            workspace.results.filter(
-                              (r) =>
-                                !r.pillars.find((x) => x.key === p.key)
-                                  ?.pending,
-                            ).length
-                          }
-                          /{workspace.results.length} bewertet ·{" "}
-                          {p.metrics.length} Messgrößen
-                        </p>
-                        <small>
-                          {p.payoutMode === "manual" ? p.metrics.filter(m => m.manualRewardCap !== undefined).map(m => `${m.label}: bis ${euro(m.manualRewardCap!)}`).join(" · ") : p.tiers.length
-                            ? p.tiers.map((t) => t.label).join(" · ")
-                            : "Stufen noch einzurichten"}
-                        </small>
-                      </article>
-                    ))}
-                  </div>
+                      )}
+                    </section>
+                  </>
+                )}
+                {tab === "Regeln & Quellen" && (
                   <section className={styles.card}>
-                    <div className={styles.cardTitle}>
-                      <Trophy size={18} />
-                      <h2>Leaderboard</h2>
-                      <div className={styles.segment}>
+                    <div className={styles.panelHeading}>
+                      <div className={styles.panelTitle}><h2>Regeln & Quellen</h2><span className={styles.count}>{workspace.model.pillars.length} Säulen</span></div>
+                      {!frozen && canEdit && (
                         <button
-                          className={
-                            scope === "quarter" ? styles.activeTab : ""
+                          className={styles.primary}
+                          onClick={() =>
+                            setEditing(structuredClone(workspace.model!))
                           }
-                          onClick={() => setScope("quarter")}
                         >
-                          Dieses Quartal
+                          Alle Säulen bearbeiten
                         </button>
-                        <button
-                          className={scope === "total" ? styles.activeTab : ""}
-                          onClick={() => setScope("total")}
-                        >
-                          Gesamt
-                        </button>
+                      )}
+                    </div>
+                    <p>{workspace.model.provenance}</p>
+                    {workspace.model.pillars.map((p) => (
+                      <div key={p.key} className={styles.ruleSummary}>
+                        <h3 style={{ color: `color-mix(in srgb, ${p.color} 75%, #111827)` }}>
+                          {p.name} · bis {euro(p.maxRewardEur)}
+                        </h3>
+                        <p>
+                          {p.payoutMode === "manual" ? "Manuell festgelegte Teilprämien in Euro; leer bleibt offen, 0 € ist bewertet." : p.payoutMode === "groups"
+                            ? "Je Teilziel die höchste Stufe, danach addieren."
+                            : "Höchste erreichte Euro-Stufe; alle Bedingungen einer Stufe müssen erfüllt sein."}
+                        </p>
+                        {p.metrics.map((m) => (
+                          <div key={m.key}>
+                            <strong>{m.label}</strong>
+                            <span>
+                              {m.unit === "eur" ? "€" : m.unit === "percent"
+                                ? "%"
+                                : m.unit === "count"
+                                  ? "Anzahl"
+                                  : "Punkte"}{" "}
+                              · {m.method === "manual" ? "Manuell" : m.method}{" "}
+                              {m.target ? `· Soll ${decimal(m.target)}` : ""}
+                            </span>
+                            {m.hint && <small>{m.hint}</small>}
+                            {m.manualRewardCap !== undefined && <small>Maximale Teilprämie: {euro(m.manualRewardCap)}</small>}
+                            <small>
+                              {m.sources
+                                .map(
+                                  (s) =>
+                                    `${s.label} · ${s.section} · ${s.counting === "once" ? "einmal pro Markt/Quartal" : "letzter Stand pro Markt/Quartal"} · Frequenz ≥ ${s.minFrequency}`,
+                                )
+                                .join(" | ")}
+                            </small>
+                          </div>
+                        ))}
+                        {p.tiers.map((t) => (
+                          <p key={t.key}>
+                            {t.group ? `${t.group}: ` : ""}
+                            {t.conditions
+                              .map(
+                                (c) =>
+                                  conditionText(p, c),
+                              )
+                              .join(" UND ")}{" "}
+                            → {euro(t.rewardEur)}
+                          </p>
+                        ))}
+                      </div>
+                    ))}
+                  </section>
+                )}
+                {tab === "Mitarbeiterwerte" && (
+                  <section className={styles.card}>
+                    <div className={styles.panelHeading}>
+                      <div className={styles.panelTitle}><h2>Mitarbeiterwerte</h2><span className={styles.count}>{rows.length} GMs</span></div>
+                      <div className={styles.employeeFilters}>
+                      <div className={styles.searchField}>
+                      <Search size={13} />
+                      <input
+                        aria-label="GM suchen"
+                        placeholder="GM suchen …"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                      </div>
+                      <BoniSelect
+                        aria-label="Bewertungen filtern"
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                      >
+                        <option value="all">Alle</option>
+                        <option value="pending">Offene Bewertungen</option>
+                        <option value="manual">Manuell bearbeitet</option>
+                      </BoniSelect>
                       </div>
                     </div>
                     <p>
-                      {scope === "total"
-                        ? "Nur eingefrorene Ergebnisse abgeschlossener Quartale. Keine Entwürfe oder laufenden Vorschauen."
-                        : "Gleiche Prämie = gleicher Rang. Offene Teilziele sind in der Summe vorläufig."}
+                      Einzelne Prozent-/Teilwerte bearbeiten. Leer = automatisch
+                      bzw. offen. 0 ist eine echte Bewertung.
                     </p>
-                    {scope === "total" ? (
-                      <div className={styles.roster}>
-                        {totals.map((r) => (
-                          <div key={r.gmId}>
-                            <span>
-                              {totals.findIndex((x) => x.earned === r.earned) +
-                                1}
-                            </span>
-                            <strong>{r.name}</strong>
-                            <small>{r.quarters} Quartale</small>
-                            <b>{euro(r.earned)}</b>
-                          </div>
-                        ))}
-                        {!totals.length && (
-                          <p>Noch keine abgeschlossenen Quartale.</p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className={styles.roster}>
-                        {workspace.results.map((r) => (
-                          <button key={r.gmId} onClick={() => setGm(r)}>
-                            <span className={styles.rank}>{r.rank}</span>
-                            <strong>
-                              {r.name} {!r.active && <small>Inaktiv</small>}
-                            </strong>
-                            <small>
-                              {r.pending
-                                ? "Vorläufig · Bewertung offen"
-                                : "Bewertet"}
-                            </small>
-                            <b>{euro(r.earned)}</b>
-                            <ChevronRight size={16} />
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                </>
-              )}
-              {tab === "Regeln & Quellen" && (
-                <section className={styles.card}>
-                  <div className={styles.cardTitle}>
-                    <Settings2 size={18} />
-                    <h2>Regeln & Quellen</h2>
-                    {!frozen && canEdit && (
-                      <button
-                        className={styles.primary}
-                        onClick={() =>
-                          setEditing(structuredClone(workspace.model!))
-                        }
-                      >
-                        Alle Säulen bearbeiten
-                      </button>
-                    )}
-                  </div>
-                  <p>{workspace.model.provenance}</p>
-                  {workspace.model.pillars.map((p) => (
-                    <div key={p.key} className={styles.ruleSummary}>
-                      <h3 style={{ color: `color-mix(in srgb, ${p.color} 75%, #111827)` }}>
-                        {p.name} · bis {euro(p.maxRewardEur)}
-                      </h3>
-                      <p>
-                        {p.payoutMode === "manual" ? "Manuell festgelegte Teilprämien in Euro; leer bleibt offen, 0 € ist bewertet." : p.payoutMode === "groups"
-                          ? "Je Teilziel die höchste Stufe, danach addieren."
-                          : "Höchste erreichte Euro-Stufe; alle Bedingungen einer Stufe müssen erfüllt sein."}
-                      </p>
-                      {p.metrics.map((m) => (
-                        <div key={m.key}>
-                          <strong>{m.label}</strong>
-                          <span>
-                            {m.unit === "eur" ? "€" : m.unit === "percent"
-                              ? "%"
-                              : m.unit === "count"
-                                ? "Anzahl"
-                                : "Punkte"}{" "}
-                            · {m.method === "manual" ? "Manuell" : m.method}{" "}
-                            {m.target ? `· Soll ${decimal(m.target)}` : ""}
-                          </span>
-                          {m.hint && <small>{m.hint}</small>}
-                          {m.manualRewardCap !== undefined && <small>Maximale Teilprämie: {euro(m.manualRewardCap)}</small>}
-                          <small>
-                            {m.sources
-                              .map(
-                                (s) =>
-                                  `${s.label} · ${s.section} · ${s.counting === "once" ? "einmal pro Markt/Quartal" : "letzter Stand pro Markt/Quartal"} · Frequenz ≥ ${s.minFrequency}`,
-                              )
-                              .join(" | ")}
-                          </small>
-                        </div>
-                      ))}
-                      {p.tiers.map((t) => (
-                        <p key={t.key}>
-                          {t.group ? `${t.group}: ` : ""}
-                          {t.conditions
-                            .map(
-                              (c) =>
-                                conditionText(p, c),
-                            )
-                            .join(" UND ")}{" "}
-                          → {euro(t.rewardEur)}
-                        </p>
-                      ))}
-                    </div>
-                  ))}
-                </section>
-              )}
-              {tab === "Mitarbeiterwerte" && (
-                <section className={styles.card}>
-                  <div className={styles.cardTitle}>
-                    <Award size={18} />
-                    <h2>Mitarbeiterwerte</h2>
-                    <input
-                      aria-label="GM suchen"
-                      placeholder="GM suchen …"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <BoniSelect
-                      aria-label="Bewertungen filtern"
-                      value={filter}
-                      onChange={(e) => setFilter(e.target.value)}
-                    >
-                      <option value="all">Alle</option>
-                      <option value="pending">Offene Bewertungen</option>
-                      <option value="manual">Manuell bearbeitet</option>
-                    </BoniSelect>
-                  </div>
-                  <p>
-                    Einzelne Prozent-/Teilwerte bearbeiten. Leer = automatisch
-                    bzw. offen. 0 ist eine echte Bewertung.
-                  </p>
-                  <div className={styles.tableWrap}>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>GM</th>
-                          {workspace.model.pillars.map((p) => (
-                            <th key={p.key}>{p.name}</th>
-                          ))}
-                          <th>Prämie</th>
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((r) => (
-                          <tr key={r.gmId}>
-                            <td>
-                              <strong>{r.name}</strong>
-                              {!r.active && <small>Inaktiv</small>}
-                            </td>
-                            {r.pillars.map((p) => (
-                              <td key={p.key}>
-                                <strong>{euro(p.earned)}</strong>
+                    <div className={styles.tableWrap}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>GM</th>
+                            {workspace.model.pillars.map((p) => (
+                              <th key={p.key}>{p.name}</th>
+                            ))}
+                            <th>Prämie</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((r) => (
+                            <tr key={r.gmId}>
+                              <td>
+                                <strong>{r.name}</strong>
+                                {!r.active && <small>Inaktiv</small>}
+                              </td>
+                              {r.pillars.map((p) => (
+                                <td key={p.key}>
+                                  <strong>{euro(p.earned)}</strong>
+                                  <small>
+                                    {p.pending
+                                      ? "Bewertung offen"
+                                      : p.metrics.some(
+                                            (m) => m.origin === "manual",
+                                          )
+                                        ? "Manuell bewertet"
+                                        : "Automatisch"}
+                                    {p.metrics
+                                      .filter((m) => m.unit === "percent")
+                                      .map(
+                                        (m) =>
+                                          ` · ${m.label}: ${decimal(m.value)}${m.value !== null ? "%" : ""}`,
+                                      )
+                                      .join("")}
+                                  </small>
+                                </td>
+                              ))}
+                              <td>
+                                <b>{euro(r.earned)}</b>
                                 <small>
-                                  {p.pending
-                                    ? "Bewertung offen"
-                                    : p.metrics.some(
-                                          (m) => m.origin === "manual",
-                                        )
-                                      ? "Manuell bewertet"
-                                      : "Automatisch"}
-                                  {p.metrics
-                                    .filter((m) => m.unit === "percent")
-                                    .map(
-                                      (m) =>
-                                        ` · ${m.label}: ${decimal(m.value)}${m.value !== null ? "%" : ""}`,
-                                    )
-                                    .join("")}
+                                  {r.pending ? "Vorläufig" : "Bestätigt"}
                                 </small>
                               </td>
-                            ))}
-                            <td>
-                              <b>{euro(r.earned)}</b>
-                              <small>
-                                {r.pending ? "Vorläufig" : "Bestätigt"}
-                              </small>
-                            </td>
-                            <td>
-                              <button onClick={() => setGm(r)}>
-                                {frozen ? "Ansehen" : "Werte bearbeiten"}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {!rows.length && <p>Keine passenden Mitarbeiter.</p>}
-                </section>
-              )}
-              {tab === "Verlauf" && (
-                <section className={styles.card}>
-                  <h2>Änderungsverlauf</h2>
-                  <p>
-                    Regeln und Bewertungen mit Bearbeiter, Zeitpunkt und
-                    Regelversion.
-                  </p>
-                  {workspace.history.map((h) => (
-                    <details key={h.id} className={styles.history}>
-                      <summary>
-                        <span className={styles.badge}>V{h.revision}</span>{" "}
-                        {h.type === "rules"
-                          ? "Regeln gespeichert"
-                          : h.type === "values"
-                            ? "Werte bearbeitet"
-                            : h.type === "activate"
-                              ? "Welle aktiviert"
-                              : "Quartal abgeschlossen"}{" "}
-                        · {h.actor} · {new Date(h.at).toLocaleString("de-AT")}
-                      </summary>
-                      <pre>{JSON.stringify(h.payload, null, 2)}</pre>
-                    </details>
-                  ))}
-                  {!workspace.history.length && <p>Noch keine Änderungen.</p>}
-                </section>
-              )}
-            </>
-          )}
-        </>
-      )}
-      {!loading && !waves.length && !error && (
-        <section className={styles.empty}>
-          <Gift size={30} />
-          <h2>Neue Prämienwelle einrichten</h2>
-          <p>
-            Mit frei bearbeitbaren Regeln oder einer nachvollziehbaren
-            Quartalsvorlage starten.
-          </p>
-          <button
-            className={styles.primary}
-            disabled={!canCreate}
-            onClick={() => setCreating(true)}
-          >
-            Welle erstellen
-          </button>
-        </section>
-      )}
+                              <td>
+                                <button onClick={() => setGm(r)}>
+                                  {frozen ? "Ansehen" : "Werte bearbeiten"}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {!rows.length && <p>Keine passenden Mitarbeiter.</p>}
+                  </section>
+                )}
+                {tab === "Verlauf" && (
+                  <section className={styles.card}>
+                    <div className={styles.panelHeading}><div className={styles.panelTitle}><h2>Änderungsverlauf</h2><span className={styles.count}>{workspace.history.length} Einträge</span></div></div>
+                    <p>
+                      Regeln und Bewertungen mit Bearbeiter, Zeitpunkt und
+                      Regelversion.
+                    </p>
+                    {workspace.history.map((h) => (
+                      <details key={h.id} className={styles.history}>
+                        <summary>
+                          <span className={styles.badge}>V{h.revision}</span>{" "}
+                          {h.type === "rules"
+                            ? "Regeln gespeichert"
+                            : h.type === "values"
+                              ? "Werte bearbeitet"
+                              : h.type === "activate"
+                                ? "Welle aktiviert"
+                                : "Quartal abgeschlossen"}{" "}
+                          · {h.actor} · {new Date(h.at).toLocaleString("de-AT")}
+                        </summary>
+                        <pre>{JSON.stringify(h.payload, null, 2)}</pre>
+                      </details>
+                    ))}
+                    {!workspace.history.length && <p>Noch keine Änderungen.</p>}
+                  </section>
+                )}
+              </>
+            )}
+          </>
+        )}
+        {!loading && !waves.length && !error && (
+          <section className={styles.empty}>
+            <Gift size={30} />
+            <h2>Neue Prämienwelle einrichten</h2>
+            <p>
+              Mit frei bearbeitbaren Regeln oder einer nachvollziehbaren
+              Quartalsvorlage starten.
+            </p>
+            <button
+              className={styles.primary}
+              disabled={!canCreate}
+              onClick={() => setCreating(true)}
+            >
+              Welle erstellen
+            </button>
+          </section>
+        )}
+      </div>
       {creating && (
         <CreateWave
           model={workspace?.model ?? null}

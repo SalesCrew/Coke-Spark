@@ -23,6 +23,9 @@ let server, browser;
 try {
   const old = randomUUID();
   await f.pg.query("insert into question_bank_shared(id,text,question_type) values($1,'Old unlinked rack question','numeric')", [old]);
+  const unscored=randomUUID();
+  await f.pg.query("insert into question_bank_shared(id,text,question_type) values($1,'Active question without Boni points','numeric')",[unscored]);
+  await f.pg.query("insert into module_main_question(module_id,question_id) values($1,$2)",[f.ids.catalogModule,unscored]);
   const model = structuredClone(f.model);
   model.pillars[0].metrics[0].method = "answer_sum";
   model.pillars[0].metrics[0].sources = [{ questionId:old, label:"Old unlinked rack question", section:"standard", scoreKey:"__value__", factor:true, weight:2, minFrequency:8, chains:["Billa"], counting:"once" }];
@@ -80,7 +83,8 @@ try {
   await active.getByRole("checkbox",{name:"Permanente Racks – Testfrage"}).waitFor();
   assert.equal(await active.getByRole("checkbox").count(),1);
   assert.equal(await active.getByRole("checkbox",{name:"Old unlinked rack question"}).count(),0);
-  const retained=page.locator("details").filter({hasText:"Gespeicherte Quellen außerhalb aktiver Kampagnen"});
+  assert.equal(await active.getByRole("checkbox",{name:"Active question without Boni points"}).count(),0);
+  const retained=page.locator("details").filter({hasText:"Gespeicherte Quellen außerhalb der aktuellen Auswahl"});
   assert.equal(await retained.getAttribute("open"),null);
   await active.getByRole("checkbox").click();
   assert.equal(await active.getByRole("checkbox").getAttribute("aria-checked"),"true");

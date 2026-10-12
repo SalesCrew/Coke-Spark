@@ -34,11 +34,11 @@ export function QuestionSources({ metric, questions, onChange, loading = false, 
   }
   const renderQuestion = (q: BonusQuestion) => {
         const selected = assigned.has(q.id), open = expanded.has(q.id), panelId = `${id}-${q.id || "missing"}`;
-        const extraSection = Object.keys(sections).find((area) => ![...metric.sources, ...occupied].some((s) => s.questionId === q.id && s.section === area && s.scoreKey === sourceForQuestion(q, area).scoreKey));
+        const extraSection = (q.activeSections ?? Object.keys(sections)).find((area) => ![...metric.sources, ...occupied].some((s) => s.questionId === q.id && s.section === area && s.scoreKey === sourceForQuestion(q, area).scoreKey));
         const sources = metric.sources.map((s, index) => ({ s, index })).filter(({ s }) => s.questionId === q.id);
         return <div key={q.id} className={`${styles.questionItem} ${selected ? styles.questionSelected : ""}`}>
           <div className={styles.questionRow}>
-            <button type="button" role="checkbox" aria-checked={selected} aria-label={q.text} className={styles.questionToggle} disabled={!selected && (!canAssign(q) || !remaining)} onClick={() => toggle(q)}><span className={styles.questionCheckbox}>{selected && <Check size={12} />}</span><span><strong>{q.text}</strong><small>{q.type === "unavailable" ? "Gespeicherte Zuordnung · keine aktive Kampagne" : kinds[questionKind(q)]}{selected && ` · ${sources.length > 1 ? `${sources.length} Zuordnungen` : sections[sources[0].s.section as keyof typeof sections] ?? sources[0].s.section}`}</small></span></button>
+            <button type="button" role="checkbox" aria-checked={selected} aria-label={q.text} className={styles.questionToggle} disabled={!selected && (!canAssign(q) || !remaining)} onClick={() => toggle(q)}><span className={styles.questionCheckbox}>{selected && <Check size={12} />}</span><span><strong>{q.text}</strong><small>{q.type === "unavailable" ? "Gespeicherte Zuordnung · nicht in der aktuellen Boni-Auswahl" : kinds[questionKind(q)]}{selected && ` · ${sources.length > 1 ? `${sources.length} Zuordnungen` : sections[sources[0].s.section as keyof typeof sections] ?? sources[0].s.section}`}</small></span></button>
             <button type="button" className={styles.questionChevron} aria-label={`Einstellungen: ${q.text}`} aria-expanded={open} aria-controls={panelId} disabled={!selected} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(q.id)) next.delete(q.id); else next.add(q.id); return next; })}><ChevronDown size={16} className={open ? styles.rotated : undefined} /></button>
           </div>
           {open && selected && <div id={panelId} className={styles.questionSettings}>
@@ -60,7 +60,7 @@ export function QuestionSources({ metric, questions, onChange, loading = false, 
   };
   return <fieldset className={styles.questionPicker}>
     <legend><ListChecks size={14} /> Fragen zuordnen</legend>
-    <div className={styles.pickerHeading}><div><h3>Fragen für diese Messgröße</h3><p>Nur Fragen aus aktuell laufenden Kampagnen. Der Pfeil öffnet ihre Einstellungen.</p></div><span className={styles.selectedCount}>{assigned.size} zugeordnet</span></div>
+    <div className={styles.pickerHeading}><div><h3>Fragen für diese Messgröße</h3><p>Fragen mit hinterlegten Boni-Punkten aus aktuell laufenden Kampagnen. Der Pfeil öffnet ihre Einstellungen.</p></div><span className={styles.selectedCount}>{assigned.size} zugeordnet</span></div>
     <div className={styles.questionToolbar}>
       <div className={styles.searchField}><Search size={15} /><input aria-label="Fragen suchen" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Frage oder Produkt suchen …" /></div>
       <BoniSelect aria-label="Fragentyp filtern" value={kind} onChange={(e) => setKind(e.target.value)}><option value="all">Alle geeigneten Fragen</option><option value="yesno">Ja / Nein</option><option value="numeric">Zahlenwerte</option><option value="choice">Antwortauswahl</option></BoniSelect>
@@ -72,11 +72,11 @@ export function QuestionSources({ metric, questions, onChange, loading = false, 
     <div className={styles.questionList} role="region" aria-label="Geeignete Fragen" tabIndex={0}>
       {visible.map(renderQuestion)}
       {loading && <p className={styles.listEmpty} role="status">Fragen werden geladen …</p>}
-      {!loading && !visible.length && <div className={styles.listEmpty}><Search size={20} /><strong>Keine passenden aktiven Fragen</strong><p>{scope === "selected" ? "Keine aktive Frage für diese Auswahl zugeordnet." : "Nur Fragen aus laufenden Kampagnen werden angeboten. Text- und Fotofragen liefern keinen zählbaren Wert."}</p><button type="button" onClick={() => { setSearch(""); setKind("all"); setScope("all"); }}>Filter zurücksetzen</button></div>}
+      {!loading && !visible.length && <div className={styles.listEmpty}><Search size={20} /><strong>Keine passenden aktiven Fragen</strong><p>{scope === "selected" ? "Keine aktive Frage für diese Auswahl zugeordnet." : "Nur Fragen mit Boni-Punkten aus laufenden Kampagnen werden angeboten. Text- und Fotofragen liefern keinen zählbaren Wert."}</p><button type="button" onClick={() => { setSearch(""); setKind("all"); setScope("all"); }}>Filter zurücksetzen</button></div>}
     </div>
     {!loading && retained.length > 0 && <details className={styles.calculationDetails}>
-      <summary>Gespeicherte Quellen außerhalb aktiver Kampagnen ({retained.length})</summary>
-      <p>Diese Zuordnungen bleiben für die Prämienberechnung erhalten. Neue Zuordnungen sind nur für aktive Fragen möglich.</p>
+      <summary>Gespeicherte Quellen außerhalb der aktuellen Auswahl ({retained.length})</summary>
+      <p>Diese Zuordnungen bleiben für die Prämienberechnung erhalten. Neue Zuordnungen sind nur für aktive Fragen mit Boni-Punkten möglich.</p>
       {retained.map(renderQuestion)}
     </details>}
     {metric.method === "availability" ? <p>Eine Produktquote pro Messgröße. Für mehrere Produkte einzelne Quoten anlegen und anschließend mitteln.</p> : !remaining && <p role="status">100 Zuordnungen erreicht. Für weitere Fragen eine zusätzliche Messgröße anlegen.</p>}

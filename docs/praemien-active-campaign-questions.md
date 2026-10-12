@@ -1,6 +1,6 @@
 # Boni question selection — active campaigns
 
-The question picker now offers shared-bank questions only when they are linked
+The question picker now offers shared-bank questions with configured Boni points only when they are linked
 to the current questionnaire of a campaign running today in Europe/Vienna.
 An active, always-on campaign qualifies. Scheduled campaigns qualify only inside
 their inclusive start/end dates, including campaigns whose stored status is
@@ -12,6 +12,16 @@ are supported. Deleted questions, questionnaires, modules, links and campaigns
 are excluded. A shared question appears once, without multiplying its scores.
 Spezialfragen additionally respect their own configured period. The response
 is private and uncached.
+
+Only undeleted, non-null, nonzero Boni scores qualify. Numeric questions require
+their configured `__value__` factor; answer questions require a scored answer.
+The picker uses the configured answer and weight, without inventing points for
+unscored questions. Standard, Flex and BILLA questions share the same selection
+list and keep the existing visit-area controls.
+New selections default to the requested visit area when available, otherwise
+to an area where that question is actually used by a running campaign; a
+Flex-only question is not accidentally assigned to Standard. Shared questions
+remain single choices, with additional valid visit areas available explicitly.
 
 Previously saved bonus sources remain unchanged when a campaign ends. The
 picker keeps them in a separate, initially collapsed section; they cannot be

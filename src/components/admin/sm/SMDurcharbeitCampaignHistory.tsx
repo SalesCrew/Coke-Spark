@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getAuthPrincipalKey, readAuthSession, requestSMDurcharbeitCampaign, subscribeAuthSession } from "@/lib/api/backend";
 
+import { ChevronDown } from "lucide-react";
+import styles from "./SMDurcharbeitCampaignWorkspace.module.css";
+
 type HistoryPage = { events: Array<{ id: string; action: string; reason: string; actorName: string | null; createdAt: string }>; nextCursor: { beforeCreatedAt: string; beforeId: string } | null };
 const ownerKey = () => getAuthPrincipalKey(readAuthSession());
 const noOwner = () => null;
@@ -42,9 +45,9 @@ function History({ campaignId }: { campaignId: string }) {
     } catch (failure) { if (request === generation.current) setError(failure instanceof Error ? failure.message : "Verlauf konnte nicht geladen werden."); }
     finally { pending.current = false; if (request === generation.current) setLoading(false); }
   };
-  return <details onToggle={event => setOpen(event.currentTarget.open)} className="overflow-hidden rounded-2xl bg-white shadow-[0_2px_8px_rgba(0,0,0,.025)]">
-    <summary className="cursor-pointer px-4 py-4 text-[13px] font-semibold text-gray-800 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-600">Kampagnenverlauf</summary>
-    {open ? <div className="border-t border-black/[.05] p-4">
+  return <details onToggle={event => setOpen(event.currentTarget.open)} className={styles.disclosure}>
+    <summary className={styles.disclosureHeader}>Kampagnenverlauf<ChevronDown size={13} /></summary>
+    {open ? <div className={styles.disclosureBody}>
       {error ? <p role="alert" className="mb-3 text-[11px] text-red-700">{error} <button type="button" onClick={() => page?.nextCursor ? void more() : setRetry(value => value + 1)} className="ml-2 underline">Erneut laden</button></p> : null}
       {page ? <ol className="divide-y divide-black/[.04]">{page.events.map(event => <li key={event.id} className="py-3 first:pt-0"><div className="flex flex-wrap justify-between gap-2"><p className="text-[12px] font-semibold text-gray-800">{labels[event.action] ?? "Monatsstand aktualisiert"}</p><time dateTime={event.createdAt} className="text-[10px] tabular-nums text-gray-600">{new Intl.DateTimeFormat("de-AT", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Vienna" }).format(new Date(event.createdAt))}</time></div><p className="mt-1 break-words text-[11px] leading-5 text-gray-600">{event.reason}</p>{event.actorName ? <p className="mt-1 text-[10px] text-gray-600">{event.actorName}</p> : null}</li>)}</ol> : null}
       {!page && !loading && !error ? <p className="text-[11px] text-gray-600">Noch keine Änderungen.</p> : null}

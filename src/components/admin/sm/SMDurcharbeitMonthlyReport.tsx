@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Download, LoaderCircle } from "lucide-react";
+import { ChevronDown, Download, LoaderCircle } from "lucide-react";
 import { AdminDropdown } from "@/components/admin/AdminFilterControls";
 import { getAuthPrincipalKey, readAuthSession, requestSMDurcharbeitCampaign, subscribeAuthSession } from "@/lib/api/backend";
 import { exportSMDurcharbeitReport } from "@/lib/exports/smSMDurcharbeitReportExport";
 import type { SMDurcharbeitCampaign, SMDurcharbeitReport, SMDurcharbeitTarget } from "@/types/smSMDurcharbeitCampaign";
 
+import styles from "./SMDurcharbeitCampaignWorkspace.module.css";
+
 const ownerKey = () => getAuthPrincipalKey(readAuthSession());
 const noOwner = () => null;
-const button = "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-black/[.08] bg-gradient-to-b from-white to-gray-50 px-3 text-[10px] font-semibold text-gray-600 shadow-sm disabled:opacity-40";
+const button = styles.secondary;
 const percent = (value: number | null) => value === null ? "—" : `${value.toLocaleString("de-AT", { maximumFractionDigits: 1 })} %`;
 
 export function SMDurcharbeitMonthlyReport({ campaign, month, targets, reloadKey }: {
@@ -39,9 +41,9 @@ function Report({ campaign, month, targets }: { campaign: SMDurcharbeitCampaign;
     finally { if (version === generation.current) setExporting(false); }
   };
   const people = [...new Map(targets.flatMap(target => target.smUserId ? [[target.smUserId, { value: target.smUserId, label: target.smName }] as const] : [])).values()];
-  return <details className="overflow-hidden rounded-2xl bg-white shadow-[0_2px_8px_rgba(0,0,0,.025)]" onToggle={event => { setOpen(event.currentTarget.open); if (!event.currentTarget.open) setExporting(false); }}>
-    <summary className="cursor-pointer px-4 py-4 text-[13px] font-semibold text-gray-800 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-600">Monatsauswertung</summary>
-    {open ? <div className="border-t border-black/[.05] p-4">
+  return <details className={styles.disclosure} onToggle={event => { setOpen(event.currentTarget.open); if (!event.currentTarget.open) setExporting(false); }}>
+    <summary className={styles.disclosureHeader}>Monatsauswertung<ChevronDown size={13} /></summary>
+    {open ? <div className={styles.disclosureBody}>
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="w-[220px]"><AdminDropdown value={sm} options={[{ value: "", label: "Alle SMs" }, ...people]} onChange={value => { generation.current++; latestReport.current = null; setReport(null); setExporting(false); setSm(value); }} ariaLabel="SM für Monatsauswertung" placeholder="Alle SMs" /></div>
         <button type="button" disabled={!report || exporting} onClick={() => void exportReport()} className={button}>{exporting ? <LoaderCircle size={12} className="motion-safe:animate-spin" /> : <Download size={12} />}Excel Export</button>
@@ -50,11 +52,11 @@ function Report({ campaign, month, targets }: { campaign: SMDurcharbeitCampaign;
       {error ? <p role="alert" className="text-[11px] text-red-700">{error} <button type="button" onClick={() => setRetry(value => value + 1)} className="ml-2 underline">Erneut laden</button></p> : null}
       {!report && !error ? <div role="status" className="space-y-3 motion-safe:animate-pulse"><span className="sr-only">Monatsauswertung wird geladen</span><div className="h-10 rounded-lg bg-gray-50" /><div className="h-24 rounded-lg bg-gray-50" /></div> : null}
       {report ? <>
-        <div className="mb-5 grid grid-cols-2 gap-4 md:grid-cols-4">{[
+        <div className={styles.reportMetrics}>{[
           ["Abdeckung", `${report.summary.completed}/${report.summary.required} · ${percent(report.summary.coveragePercentage)}`],
           ["Tatsächliche Besuche", String(report.summary.physicalVisits)], ["Istzeit", `${report.summary.actualMinutes} Min`],
           ["Foto-Originale", String(report.summary.availablePhotoUploads)],
-        ].map(([label, value]) => <div key={label}><p className="text-[10px] leading-4 text-gray-600">{label}</p><p className="mt-1 text-[20px] font-semibold tracking-tight tabular-nums text-gray-900">{value}</p></div>)}</div>
+        ].map(([label, value]) => <div key={label}><p className="text-[10px] leading-4 text-gray-600">{label}</p><p className={styles.reportMetricValue}>{value}</p></div>)}</div>
         <div className="divide-y divide-black/[.06]">{report.questionResults.map(question => <div key={`${question.questionVersionId}:${question.questionCode}`} className="py-4 first:pt-0 last:pb-0">
           <div className="flex flex-wrap items-start justify-between gap-2"><h4 className="text-[12px] font-semibold leading-5 text-gray-800">{question.text}</h4><p className="text-[10px] tabular-nums text-gray-600">{question.answered}/{question.applicable} beantwortet</p></div>
           {question.distribution.length ? <div className="mt-3 space-y-2">{question.distribution.map(option => <div key={option.code} className="grid grid-cols-[minmax(60px,1fr)_minmax(60px,2fr)_75px] items-center gap-3 text-[10px]"><span className="break-words text-gray-600">{option.label}</span><div className="h-1.5 overflow-hidden rounded-full bg-gray-100"><div className="h-full rounded-full bg-blue-500" style={{ width: `${option.percentage ?? 0}%` }} /></div><span className="text-right tabular-nums text-gray-600">{option.count} · {percent(option.percentage)}</span></div>)}</div>

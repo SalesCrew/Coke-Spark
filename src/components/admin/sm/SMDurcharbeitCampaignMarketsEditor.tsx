@@ -7,8 +7,10 @@ import { requestSMDurcharbeitCampaign } from "@/lib/api/backend";
 import { filterSMDurcharbeitMarkets, updateSMDurcharbeitMarketSelection } from "@/lib/sm/SMDurcharbeitMarketSelection";
 import type { SMDurcharbeitCampaign, SMDurcharbeitCampaignOptions, SMDurcharbeitMarketEdit, SMDurcharbeitMarketEditPreview, SMDurcharbeitTarget } from "@/types/smSMDurcharbeitCampaign";
 
-const primary = "flex h-9 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-blue-600 to-blue-700 px-3 text-[11px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,.3),0_0_0_1px_#1d4ed8,0_2px_6px_rgba(37,99,235,.14)] disabled:bg-none disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none";
-const secondary = "flex h-9 items-center justify-center gap-1.5 rounded-lg border border-black/[.08] bg-gradient-to-b from-white to-gray-50 px-3 text-[11px] font-semibold text-gray-600 disabled:opacity-45";
+import styles from "./SMDurcharbeitCampaignWorkspace.module.css";
+
+const primary = styles.primary;
+const secondary = styles.secondary;
 const label = "mb-1.5 block text-[10px] font-semibold text-gray-500";
 const monthName = (month: string) => new Intl.DateTimeFormat("de-AT", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}T12:00:00Z`));
 export function SMDurcharbeitCampaignMarketsEditor({ campaign, options, months, initialMonth, onClose, onSaved }: {
@@ -76,7 +78,7 @@ export function SMDurcharbeitCampaignMarketsEditor({ campaign, options, months, 
   };
   const missingOwner = [...selected].some(id => { const row = options.markets.find(market => market.id === id); return !targetByMarket.has(id) && (!row?.assignedSmUserId || !peopleById.has(row.assignedSmUserId)); });
   const overlaps = preview ? preview.result.overlapping + preview.result.legacy : 0;
-  return <dialog ref={dialog} aria-labelledby="smdurcharbeit-markets-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} className="m-auto hidden max-h-[90dvh] w-[min(860px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl open:flex border border-black/[.06] bg-white p-0 text-gray-800 shadow-2xl backdrop:bg-slate-950/20">
+  return <dialog ref={dialog} aria-labelledby="smdurcharbeit-markets-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} className="m-auto hidden max-h-[90dvh] w-[min(860px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl open:flex border border-black/[.06] bg-white p-0 text-gray-800 shadow-2xl backdrop:bg-slate-950/20">
     <header className="flex shrink-0 items-center justify-between gap-3 border-b border-black/[.06] px-5 py-4"><div className="min-w-0"><h2 id="smdurcharbeit-markets-title" className="text-[15px] font-semibold">{preview ? "Marktauswahl prüfen" : "Märkte bearbeiten"}</h2><p className="mt-1 truncate text-[11px] text-gray-500">{campaign.name}</p></div><button type="button" disabled={busy} onClick={onClose} aria-label="Markteditor schließen" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-600"><X size={14} /></button></header>
     <AdminControlPortal container={portal}><div className="min-h-0 overflow-y-auto px-5 py-4 [scrollbar-width:thin] [scrollbar-color:#dbe1e8_transparent]">
       {error ? <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg bg-red-50 px-3 py-2.5 text-[11px] text-red-700"><span>{error}</span><button type="button" disabled={busy} className="shrink-0 font-semibold" onClick={() => setReloadKey(key => key + 1)}>Neu laden</button></div> : null}

@@ -27,12 +27,15 @@ import {
   readAuthSession,
   softDeleteMarket,
   updateMarket,
-  updateMarketUniverseMarket,
   updateMarketKuehlerUnit,
   type NormalizeMarketRegionsResult,
 } from "@/lib/api/backend";
 import { exportMarketsExcel } from "@/lib/exports/masterDataExports";
 import { useRedMonth } from "@/context/RedMonthContext";
+
+import marketEditorStyles from "@/components/admin/markets/MarketClassificationControl.module.css";
+import { MarketClassificationControl } from "@/components/admin/markets/MarketClassificationControl";
+import { marketClassificationLabels, missingMarketClassificationFields, universeRequiredFields } from "@/lib/markets/marketClassification";
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -172,164 +175,6 @@ const MARKET_ROW_H = 54; // px — must match the actual rendered row height
 const MARKET_LIST_GRID = "minmax(240px,1.55fr) minmax(82px,0.5fr) 34px minmax(140px,0.9fr) minmax(70px,0.45fr) 54px minmax(110px,0.75fr) 56px minmax(110px,0.75fr) 38px 40px";
 const MARKET_LIST_GAP = "0 10px";
 
-function UniverseMarketDropdown({
-  value,
-  disabled,
-  saving,
-  onChange,
-}: {
-  value: boolean;
-  disabled: boolean;
-  saving: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const updatePosition = () => {
-      const rect = anchorRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const width = Math.max(96, rect.width);
-      setPosition({
-        top: rect.bottom + 4,
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
-        width,
-      });
-    };
-    updatePosition();
-    window.addEventListener("scroll", updatePosition, true);
-    window.addEventListener("resize", updatePosition);
-    return () => {
-      window.removeEventListener("scroll", updatePosition, true);
-      window.removeEventListener("resize", updatePosition);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!anchorRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (disabled) setOpen(false);
-  }, [disabled]);
-
-  return (
-    <>
-      <button
-        ref={anchorRef}
-        type="button"
-        aria-label="Universumsmarkt ändern"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((current) => !current);
-        }}
-        onMouseDown={(event) => event.stopPropagation()}
-        style={{
-          width: "100%",
-          height: 28,
-          border: "none",
-          borderRadius: 7,
-          padding: "0 8px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 6,
-          background: open ? "rgba(220,38,38,0.055)" : "linear-gradient(to bottom,#fff,#f6f6f6)",
-          boxShadow: open
-            ? "inset 0 0 0 1px rgba(220,38,38,0.22), 0 1px 4px rgba(0,0,0,0.05)"
-            : "inset 0 1px 0.6px rgba(255,255,255,0.9), 0 0 0 1px rgba(0,0,0,0.09), 0 1px 3px rgba(0,0,0,0.05)",
-          color: value ? "#166534" : "#6b7280",
-          fontFamily: "inherit",
-          fontSize: 10,
-          fontWeight: 700,
-          cursor: disabled ? "wait" : "pointer",
-          opacity: disabled && !saving ? 0.55 : 1,
-        }}
-      >
-        <span>{value ? "Ja" : "Nein"}</span>
-        {saving ? <Loader2 size={11} className="animate-spin" /> : <ChevronDown size={11} strokeWidth={2} color="rgba(0,0,0,0.34)" />}
-      </button>
-      {open && position && typeof document !== "undefined" ? createPortal(
-        <div
-          ref={menuRef}
-          role="listbox"
-          aria-label="Universumsmarkt"
-          style={{
-            position: "fixed",
-            top: position.top,
-            left: position.left,
-            width: position.width,
-            zIndex: 9999,
-            padding: 4,
-            borderRadius: 9,
-            border: "1px solid rgba(0,0,0,0.08)",
-            background: "#fff",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.11), 0 2px 6px rgba(0,0,0,0.04)",
-          }}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          {([true, false] as const).map((option) => {
-            const selected = option === value;
-            return (
-              <button
-                key={String(option)}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onClick={() => {
-                  setOpen(false);
-                  if (!selected) onChange(option);
-                }}
-                style={{
-                  width: "100%",
-                  minHeight: 30,
-                  padding: "0 9px",
-                  border: "none",
-                  borderRadius: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  background: selected ? "rgba(220,38,38,0.06)" : "transparent",
-                  color: selected ? R : "#374151",
-                  fontFamily: "inherit",
-                  fontSize: 10,
-                  fontWeight: selected ? 700 : 500,
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(event) => { if (!selected) event.currentTarget.style.background = "rgba(0,0,0,0.025)"; }}
-                onMouseLeave={(event) => { if (!selected) event.currentTarget.style.background = "transparent"; }}
-              >
-                {option ? "Ja" : "Nein"}
-                {selected ? <Check size={11} strokeWidth={2.5} color={R} /> : null}
-              </button>
-            );
-          })}
-        </div>,
-        document.body,
-      ) : null}
-    </>
-  );
-}
-
 const MarketRow = React.memo(function MarketRow({
   market,
   active,
@@ -373,7 +218,7 @@ const MarketRow = React.memo(function MarketRow({
         </span>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: active ? R : "#1a1a1a", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{market.name}</div>
-          <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>{market.dbName}</div>
+          <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>{[market.dbName, marketClassificationLabels[market.marketType]].filter(Boolean).join(" · ")}</div>
         </div>
       </div>
       {/* Stammnr */}
@@ -1654,16 +1499,17 @@ function InfoSection({ label, children }: { label: string; children: React.React
   );
 }
 
-function InfoRow({ label, value, edit, editValue, onEdit }: {
+function InfoRow({ label, value, edit, editValue, onEdit, fieldKey, required, error }: {
   label: string; value: string | React.ReactNode; edit?: boolean;
   editValue?: string; onEdit?: (v: string) => void;
+  fieldKey?: string; required?: boolean; error?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "flex-start" }}>
-      <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)", paddingTop: 1 }}>{label}</span>
+      <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)", paddingTop: 1 }}>{label}{edit && required ? " *" : ""}</span>
       {edit && onEdit !== undefined ? (
-        <input value={editValue ?? ""} onChange={e => onEdit(e.target.value)}
-          style={{ fontSize: 11, fontWeight: 500, color: "#1a1a1a", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, padding: "4px 8px", outline: "none", background: "#fff", width: "100%", boxSizing: "border-box", fontFamily: "inherit" }} />
+        <input className={marketEditorStyles.field} id={fieldKey ? `market-edit-${fieldKey}` : undefined} aria-label={label} aria-required={required || undefined} aria-invalid={error || undefined} value={editValue ?? ""} onChange={e => onEdit(e.target.value)}
+          style={{ fontSize: 11, fontWeight: 500, color: "#1a1a1a", border: error ? `1px solid ${R}` : "1px solid rgba(0,0,0,0.12)", borderRadius: 6, padding: "4px 8px", outline: "none", background: "#fff", width: "100%", boxSizing: "border-box", fontFamily: "inherit" }} />
       ) : (
         <span style={{ fontSize: 11, fontWeight: 500, color: value ? "#1a1a1a" : "rgba(0,0,0,0.28)" }}>{value || "—"}</span>
       )}
@@ -2125,17 +1971,13 @@ function MarketDetailDrawer({
   currentRedPeriod,
   onClose,
   onSave,
-  onUniverseMarketChange,
-  universeMarketSaving,
   loadKuehlerUnits,
   onCreateKuehlerUnit,
   onUpdateKuehlerUnit,
 }: {
   market: MarketRecord; visits: MarketVisitLog[];
   currentRedPeriod: { start: string; end: string } | null;
-  onClose: () => void; onSave: (updated: MarketRecord) => Promise<void> | void;
-  onUniverseMarketChange: (marketId: string, value: boolean) => Promise<void> | void;
-  universeMarketSaving: boolean;
+  onClose: () => void; onSave: (updated: MarketRecord, expectedUpdatedAt?: string) => Promise<void> | void;
   loadKuehlerUnits: (marketId: string) => Promise<KuehlerUnitRecord[]>;
   onCreateKuehlerUnit: (
     input: {
@@ -2174,6 +2016,8 @@ function MarketDetailDrawer({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<MarketRecord>(market);
   const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [attemptedSave, setAttemptedSave] = useState(false);
   const [kuehlerUnits, setKuehlerUnits] = useState<KuehlerUnitRecord[]>([]);
   const [unitsLoading, setUnitsLoading] = useState(false);
   const [unitsError, setUnitsError] = useState<string | null>(null);
@@ -2199,10 +2043,7 @@ function MarketDetailDrawer({
   });
   const [unitSaving, setUnitSaving] = useState(false);
 
-  useEffect(() => { setDraft(market); setEditing(false); }, [market.id]);
-  useEffect(() => {
-    setDraft((current) => ({ ...current, universeMarket: market.universeMarket }));
-  }, [market.universeMarket]);
+  useEffect(() => { setDraft(market); setEditing(false); setEditError(null); setAttemptedSave(false); setEditError(null); setAttemptedSave(false); }, [market.id]);
 
   const redPeriodStart = useMemo(() => {
     if (!currentRedPeriod) return null;
@@ -2232,14 +2073,13 @@ function MarketDetailDrawer({
   );
   const promotionStammnr = (market.kuehlerStammnr || market.cokeMasterNumber || "").trim();
   const showKuehlerUnitSection = hasKuehlerDataset || unitEditorId === "new" || unitsError !== null;
-  const marketTypeMeta =
-    market.marketType === "both"
-      ? { label: "Beides", color: "#7c3aed", bg: "rgba(124,58,237,0.1)" }
-      : market.marketType === "kuehler"
-        ? { label: "Kühler", color: "#d97706", bg: "rgba(217,119,6,0.12)" }
-        : { label: "Universum", color: "#0891b2", bg: "rgba(8,145,178,0.1)" };
-
-  const set = (patch: Partial<MarketRecord>) => setDraft(prev => ({ ...prev, ...patch }));
+  const displayedType = editing ? draft.marketType : market.marketType;
+  const draftHasKuehler = displayedType !== "universum";
+  const enteringUniverse = market.marketType === "kuehler" && draft.marketType !== "kuehler";
+  const missingFields = missingMarketClassificationFields(market, draft);
+  const fieldProps = (key: string) => ({ fieldKey: key, required: (enteringUniverse && key in universeRequiredFields) || (key === "kuehlerStammnr" && draftHasKuehler), error: attemptedSave && missingFields.includes(key) });
+  const marketTypeBadges = market.marketType === "both" ? ["universum", "kuehler"] as const : [market.marketType];
+  const set = (patch: Partial<MarketRecord>) => { setDraft(prev => ({ ...prev, ...patch })); setEditError(null); };
 
   useEffect(() => {
     let cancelled = false;
@@ -2374,7 +2214,7 @@ function MarketDetailDrawer({
   ]);
 
   return (
-    <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 440, zIndex: 800, display: "flex", flexDirection: "column", background: "#f5f5f7", boxShadow: "-6px 0 32px rgba(0,0,0,0.12), -1px 0 0 rgba(0,0,0,0.06)", animation: "drawerIn 0.22s cubic-bezier(0.4,0,0.2,1) both" }}>
+    <div role="dialog" aria-label="Marktdetails" style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(440px, 100vw)", zIndex: 800, display: "flex", flexDirection: "column", background: "#f5f5f7", boxShadow: "-6px 0 32px rgba(0,0,0,0.12), -1px 0 0 rgba(0,0,0,0.06)", animation: "drawerIn 0.22s cubic-bezier(0.4,0,0.2,1) both" }}>
       <style>{`@keyframes drawerIn{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
       {/* Header */}
@@ -2387,7 +2227,7 @@ function MarketDetailDrawer({
             <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", marginBottom: 2 }}>{market.name}</div>
             <div style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", fontWeight: 500 }}>{market.address} · {market.postalCode} {market.city}</div>
           </div>
-          <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.4)", flexShrink: 0, transition: "background 0.12s" }}
+          <button aria-label="Marktdetails schließen" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.4)", flexShrink: 0, transition: "background 0.12s" }}
             onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,0,0,0.09)"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}>
             <X size={13} strokeWidth={2.5} />
@@ -2396,9 +2236,9 @@ function MarketDetailDrawer({
 
         {/* Badges row */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: marketTypeMeta.bg, color: marketTypeMeta.color, letterSpacing: "0.01em" }}>
-            {marketTypeMeta.label}
-          </span>
+          {marketTypeBadges.map(type => <span key={type} style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: type === "kuehler" ? "rgba(217,119,6,0.12)" : "rgba(8,145,178,0.1)", color: type === "kuehler" ? "#b45309" : "#087f9c" }}>
+            {marketClassificationLabels[type]}
+          </span>)}
           {[market.region, market.emEh].filter(Boolean).map(b => (
             <span key={b} style={{ fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 5, background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.5)", letterSpacing: "0.01em" }}>{b}</span>
           ))}
@@ -2434,6 +2274,20 @@ function MarketDetailDrawer({
       <div className="map-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
         {tab === "info" && (
           <>
+            {editing && (
+              <InfoSection label="Markt-Typ">
+                <MarketClassificationControl value={draft.marketType} disabled={saving} onChange={marketType => {
+                  set({ marketType, universeMarket: marketType !== "kuehler" });
+                  if (market.marketType === "kuehler" && marketType !== "kuehler" && !draft.flexNumber.trim()) {
+                    requestAnimationFrame(() => document.getElementById("market-edit-flexNumber")?.focus());
+                  }
+                }} />
+                {enteringUniverse && <div role="status" style={{ fontSize: 10, lineHeight: 1.5, color: "#54545e", marginTop: 4 }}>
+                  Für Universum: Flex-Nummer und vollständiger Standort. Die Zuordnung wird mit „Speichern“ übernommen.
+                </div>}
+              </InfoSection>
+            )}
+            {editing && editError && <div role="alert" style={{ fontSize: 11, lineHeight: 1.5, color: R }}>{editError}</div>}
             {(market.infoNote || editing) && (
               <>
                 <InfoSection label="Info">
@@ -2452,11 +2306,12 @@ function MarketDetailDrawer({
 
             <>
               <InfoSection label="Identität">
-                <InfoRow label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
+                <InfoRow {...fieldProps("name")} label="Name" value={market.name} edit={editing} editValue={draft.name} onEdit={v => set({ name: v })} />
                 <InfoRow label="Name f. DB" value={market.dbName} edit={editing} editValue={draft.dbName} onEdit={v => set({ dbName: v })} />
-                <InfoRow label="Flex-Nummer" value={market.flexNumber} edit={editing} editValue={draft.flexNumber} onEdit={v => set({ flexNumber: v })} />
-                {hasKuehlerDataset ? (
+                <InfoRow {...fieldProps("flexNumber")} label="Flex-Nummer" value={market.flexNumber} edit={editing} editValue={draft.flexNumber} onEdit={v => set({ flexNumber: v })} />
+                {draftHasKuehler ? (
                   <InfoRow
+                    {...fieldProps("kuehlerStammnr")}
                     label="Stammnr."
                     value={market.kuehlerStammnr || market.cokeMasterNumber}
                     edit={editing}
@@ -2483,10 +2338,10 @@ function MarketDetailDrawer({
               <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
 
               <InfoSection label="Standort">
-                <InfoRow label="Adresse" value={market.address} edit={editing} editValue={draft.address} onEdit={v => set({ address: v })} />
-                <InfoRow label="Postleitzahl" value={market.postalCode} edit={editing} editValue={draft.postalCode} onEdit={v => set({ postalCode: v })} />
-                <InfoRow label="Ort" value={market.city} edit={editing} editValue={draft.city} onEdit={v => set({ city: v })} />
-                <InfoRow label="Region" value={market.region} edit={editing} editValue={draft.region} onEdit={v => set({ region: v })} />
+                <InfoRow {...fieldProps("address")} label="Adresse" value={market.address} edit={editing} editValue={draft.address} onEdit={v => set({ address: v })} />
+                <InfoRow {...fieldProps("postalCode")} label="Postleitzahl" value={market.postalCode} edit={editing} editValue={draft.postalCode} onEdit={v => set({ postalCode: v })} />
+                <InfoRow {...fieldProps("city")} label="Ort" value={market.city} edit={editing} editValue={draft.city} onEdit={v => set({ city: v })} />
+                <InfoRow {...fieldProps("region")} label="Region" value={market.region} edit={editing} editValue={draft.region} onEdit={v => set({ region: v })} />
               </InfoSection>
 
               <div style={{ height: 1, background: "rgba(0,0,0,0.05)" }} />
@@ -2495,8 +2350,8 @@ function MarketDetailDrawer({
                 <InfoRow label="EM/EH" value={market.emEh} edit={editing} editValue={draft.emEh} onEdit={v => set({ emEh: v })} />
                 <InfoRow label="Mitarbeiter" value={market.employee} edit={editing} editValue={draft.employee} onEdit={v => set({ employee: v })} />
                 <InfoRow label="Aktuell verplant an" value={market.currentGmName} edit={editing} editValue={draft.currentGmName} onEdit={v => set({ currentGmName: v })} />
-                <InfoRow label="Markt-Typ" value={marketTypeMeta.label} />
-                {!hasKuehlerDataset && (
+                {!editing && <InfoRow label="Markt-Typ" value={marketClassificationLabels[market.marketType]} />}
+                {!editing && !hasKuehlerDataset && (
                   <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
                     <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Kühler</span>
                     <button
@@ -2556,17 +2411,6 @@ function MarketDetailDrawer({
                       {market.isActive ? "Aktiv" : "Inaktiv"}
                     </span>
                   )}
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(0,0,0,0.4)" }}>Universumsmarkt</span>
-                  <div style={{ width: 104 }}>
-                    <UniverseMarketDropdown
-                      value={market.universeMarket}
-                      disabled={universeMarketSaving}
-                      saving={universeMarketSaving}
-                      onChange={(value) => void onUniverseMarketChange(market.id, value)}
-                    />
-                  </div>
                 </div>
                 <InfoRow
                   label="Besuchsfrequenz / Jahr"
@@ -2683,19 +2527,27 @@ function MarketDetailDrawer({
         <div style={{ background: "#fff", borderTop: "1px solid rgba(0,0,0,0.06)", padding: "12px 18px", flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 8 }}>
           {editing ? (
             <>
-              <button onClick={() => { setDraft(market); setEditing(false); }}
+              <button disabled={saving} onClick={() => { setDraft(market); setEditing(false); setEditError(null); setAttemptedSave(false); }}
                 style={{ padding: "7px 14px", fontSize: 11, fontWeight: 600, borderRadius: 8, border: "1px solid rgba(0,0,0,0.09)", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 5, fontFamily: "inherit", transition: "opacity 0.15s" }}
                 onMouseEnter={e => { e.currentTarget.style.opacity = "0.75"; }} onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
                 <RotateCcw size={11} strokeWidth={2} /> Abbrechen
               </button>
               <button onClick={async () => {
                 if (saving) return;
+                setAttemptedSave(true);
+                if (missingFields.length) {
+                  const labels = missingFields.map(key => key === "kuehlerStammnr" ? "Stammnummer" : universeRequiredFields[key as keyof typeof universeRequiredFields]);
+                  setEditError(`Bitte ergänzen: ${labels.join(", ")}.`);
+                  document.getElementById(`market-edit-${missingFields[0]}`)?.focus();
+                  return;
+                }
+                setEditError(null);
                 setSaving(true);
                 try {
-                  await onSave(draft);
+                  await onSave(draft, market.updatedAt);
                   setEditing(false);
-                } catch {
-                  // The page-level save handler renders the backend error and keeps this editor open.
+                } catch (error) {
+                  setEditError(error instanceof Error ? error.message : "Markt konnte nicht gespeichert werden.");
                 } finally {
                   setSaving(false);
                 }
@@ -2707,7 +2559,7 @@ function MarketDetailDrawer({
               </button>
             </>
           ) : (
-            <button onClick={() => setEditing(true)}
+            <button onClick={() => { setDraft(market); setEditError(null); setAttemptedSave(false); setEditing(true); }}
               style={{ padding: "7px 14px", fontSize: 11, fontWeight: 600, borderRadius: 8, border: "none", cursor: "pointer", color: "rgba(0,0,0,0.45)", background: "linear-gradient(to bottom,#fff,#f5f5f5)", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.9),0 0 0 1px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 5, fontFamily: "inherit", transition: "opacity 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.opacity = "0.75"; }} onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
               <Edit2 size={11} strokeWidth={2} /> Bearbeiten
@@ -2743,7 +2595,6 @@ export default function MaerktePage() {
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [savingUniverseMarketId, setSavingUniverseMarketId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -2796,30 +2647,16 @@ export default function MaerktePage() {
     }
   }, []);
 
-  const handleSave = useCallback(async (updated: MarketRecord) => {
+  const handleSave = useCallback(async (updated: MarketRecord, expectedUpdatedAt?: string) => {
     setSaveError(null);
     try {
-      const saved = await updateMarket(updated);
+      const saved = await updateMarket(updated, expectedUpdatedAt);
       setMarkets((prev) => prev.map((m) => (m.id === saved.id ? saved : m)));
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Markt konnte nicht gespeichert werden.");
       throw err;
     }
   }, []);
-
-  const handleUniverseMarketChange = useCallback(async (marketId: string, universeMarket: boolean) => {
-    if (savingUniverseMarketId) return;
-    setSaveError(null);
-    setSavingUniverseMarketId(marketId);
-    try {
-      const saved = await updateMarketUniverseMarket(marketId, universeMarket);
-      setMarkets((prev) => prev.map((market) => market.id === saved.id ? { ...market, universeMarket: saved.universeMarket } : market));
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Universumsmarkt konnte nicht gespeichert werden.");
-    } finally {
-      setSavingUniverseMarketId(null);
-    }
-  }, [savingUniverseMarketId]);
 
   const handleLoadKuehlerUnits = useCallback(async (marketId: string) => {
     return fetchMarketKuehlerUnits(marketId);
@@ -3595,8 +3432,6 @@ export default function MaerktePage() {
           currentRedPeriod={currentRedMonth ? { start: currentRedMonth.start, end: currentRedMonth.end } : null}
           onClose={() => setSelectedId(null)}
           onSave={handleSave}
-          onUniverseMarketChange={handleUniverseMarketChange}
-          universeMarketSaving={savingUniverseMarketId === selectedMarket.id}
           loadKuehlerUnits={handleLoadKuehlerUnits}
           onCreateKuehlerUnit={handleCreateKuehlerUnit}
           onUpdateKuehlerUnit={handleUpdateKuehlerUnit}

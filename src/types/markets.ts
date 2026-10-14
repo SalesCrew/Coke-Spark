@@ -28,6 +28,7 @@ export interface MarketRecord {
   ipp: number | null;
   importSourceFileName: string;
   importedAt: string;
+  updatedAt?: string;
   plannedToId?: string | null;
   isDeleted?: boolean;
 }

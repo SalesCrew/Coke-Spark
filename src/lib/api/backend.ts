@@ -121,6 +121,7 @@ type BackendUser = {
 
 type BackendMarket = {
   id: string;
+  updatedAt?: string | null;
   standardMarketNumber?: string | null;
   cokeMasterNumber?: string | null;
   flexNumber?: string | null;
@@ -792,6 +793,7 @@ function mapBackendMarketToMarketRecord(market: BackendMarket): MarketRecord {
         : "kuehler";
   return {
     id: market.id,
+    updatedAt: market.updatedAt ?? undefined,
     name: market.name,
     dbName: market.dbName ?? "",
     address: market.address,
@@ -5474,10 +5476,11 @@ export async function createMarket(payload: MarketRecord): Promise<MarketRecord>
   return next;
 }
 
-export async function updateMarket(payload: MarketRecord): Promise<MarketRecord> {
+export async function updateMarket(payload: MarketRecord, expectedUpdatedAt?: string): Promise<MarketRecord> {
   const data = (await authedFetch(`/admin/markets/${payload.id}`, {
     method: "PATCH",
     body: JSON.stringify({
+      expectedUpdatedAt,
       standardMarketNumber: payload.standardMarketNumber,
       cokeMasterNumber: payload.cokeMasterNumber,
       flexNumber: payload.flexNumber,

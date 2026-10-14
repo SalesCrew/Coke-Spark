@@ -1,0 +1,11 @@
+.options { display: flex; gap: 8px; }
+.option { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 6px 12px; border: 1px solid #d9d9df; border-radius: 7px; background: #fff; color: #5a5a64; font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.selected { border-color: #bfc2ca; color: #1a1a1a; background: #f0f0f3; }
+.option:hover:not(:disabled) { border-color: #969ba6; }
+.option:focus-visible { outline: 2px solid #9da2ad; outline-offset: 2px; }
+.option:disabled { cursor: default; }
+.check { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: 1px solid #b8bbc4; border-radius: 3px; background: #fff; }
+.selected .check { border-color: #dc2626; background: #dc2626; color: #fff; }
+.hint { margin: 7px 0 0; font-size: 10px; line-height: 1.5; color: #64646e; }
+
+.field:focus-visible { box-shadow: 0 0 0 2px rgba(100,105,120,.15); }

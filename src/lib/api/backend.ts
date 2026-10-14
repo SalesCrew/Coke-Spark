@@ -2966,6 +2966,16 @@ export async function updateSmMarket(id: string, input: UpdateSmMarketInput): Pr
   return data.market;
 }
 
+export async function updateSMDurcharbeitMarketOwner(id: string, input: { SMDurcharbeitSmUserId: string | null; expectedUpdatedAt: string }): Promise<SmMarketRecord> {
+  const owner = createSmRequestOwnerGuard();
+  try {
+    const data = await authedFetch(`/admin/sm-markets/SMDurcharbeit/${encodeURIComponent(id)}/owner`, {
+      method: "PATCH", body: JSON.stringify(input),
+    }, 30_000, owner) as { market: SmMarketRecord };
+    return data.market;
+  } finally { owner.dispose(); }
+}
+
 export async function softDeleteSmMarket(id: string): Promise<void> {
   await authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}/delete`, {
     method: "PATCH",

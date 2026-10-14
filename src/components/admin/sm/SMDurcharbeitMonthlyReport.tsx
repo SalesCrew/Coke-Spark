@@ -38,7 +38,7 @@ function Report({ campaign, month, targets }: { campaign: SMDurcharbeitCampaign;
     catch (failure) { if (version === generation.current) setError(failure instanceof Error ? failure.message : "Export konnte nicht erstellt werden."); }
     finally { if (version === generation.current) setExporting(false); }
   };
-  const people = [...new Map(targets.map(target => [target.smUserId, { value: target.smUserId, label: target.smName }])).values()];
+  const people = [...new Map(targets.flatMap(target => target.smUserId ? [[target.smUserId, { value: target.smUserId, label: target.smName }] as const] : [])).values()];
   return <details className="overflow-hidden rounded-2xl bg-white shadow-[0_2px_8px_rgba(0,0,0,.025)]" onToggle={event => { setOpen(event.currentTarget.open); if (!event.currentTarget.open) setExporting(false); }}>
     <summary className="cursor-pointer px-4 py-4 text-[13px] font-semibold text-gray-800 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-600">Monatsauswertung</summary>
     {open ? <div className="border-t border-black/[.05] p-4">

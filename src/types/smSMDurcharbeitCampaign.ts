@@ -8,7 +8,7 @@ export type SMDurcharbeitTarget = {
   id: string; revision: number; campaignId: string; campaignName: string; campaignStatus: SMDurcharbeitCampaign["status"];
   startDate: string; endDate: string; month: string;
   market: { id: string; internalId: string; name: string; chain: string; address: string; postalCode: string; city: string; region: string };
-  smUserId: string; smName: string; eligibility: "required" | "waived"; waiverReason: string | null;
+  smUserId: string | null; smName: string; eligibility: "required" | "waived"; waiverReason: string | null;
   completed: boolean; available: boolean; draftVisitId: string | null; latestVisitId: string | null; latestSubmissionId: string | null;
   latestVisitSmUserId: string | null;
   completedAt: string | null; visitCount: number;
@@ -26,6 +26,13 @@ export type SMDurcharbeitMonthlySummary = { required: number; completed: number;
 export type SMDurcharbeitCampaignDraft = Pick<SMDurcharbeitCampaign, "name" | "startDate" | "endDate" | "questionnaireVersionId" | "rosterDraft">;
 export type SMDurcharbeitPublicationPreview = { campaign: SMDurcharbeitCampaign; months: string[]; marketCount: number; targetCount: number;
   unresolved: string[]; overlapping: Array<{ id: string; name: string; marketId: string }>; legacy: Array<{ id: string; marketId: string; workDate: string }>; previewToken: string };
+export type SMDurcharbeitMarketEdit = { expectedRevision: number; month: string; scope: "month" | "future"; reason: string;
+  roster: Array<{ smMarketId: string; smUserId?: string }> };
+export type SMDurcharbeitMarketEditPreview = {
+  previewToken: string; changedTargets: number; overlapping: number; legacy: number;
+  months: Array<{ month: string; required: number; excluded: number; added: number; included: number; removed: number; protected: number }>;
+  protected: Array<{ targetId: string; marketId: string; name: string; month: string; reason: "in_progress" | "completed" }>;
+};
 export type SMDurcharbeitReport = {
   month: string; targets: SMDurcharbeitTarget[];
   summary: SMDurcharbeitMonthlySummary & { coveragePercentage: number | null; latestSubmissions: number;

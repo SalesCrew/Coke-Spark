@@ -23,6 +23,7 @@ function TargetList() {
   const [monthSelection, setMonthSelection] = useState<string | null>(null);
   const [campaignId, setCampaignId] = useState("all");
   const [search, setSearch] = useState("");
+  const [showExcluded, setShowExcluded] = useState(false);
   const [display, setDisplay] = useState({ key: "", count: 50 });
   const { state, loaded, error, reload } = useSmSMDurcharbeitTargets(monthSelection);
   const currentMonth = state?.currentMonth ?? `${smHomeDate().slice(0, 7)}-01`;
@@ -34,8 +35,9 @@ function TargetList() {
   const selectedCampaign = campaigns.some(campaign => campaign.value === campaignId) ? campaignId : "all";
   const targets = (loaded?.targets ?? []).filter(target => selectedCampaign === "all" || target.campaignId === selectedCampaign).sort((a, b) =>
     Number(a.eligibility === "waived") - Number(b.eligibility === "waived") || Number(a.completed) - Number(b.completed) || Number(Boolean(b.draftVisitId)) - Number(Boolean(a.draftVisitId)) || a.market.name.localeCompare(b.market.name, "de-AT") || a.id.localeCompare(b.id));
-  const visibleTargets = targets.filter(target => `${target.market.name} ${target.market.address} ${target.market.postalCode} ${target.market.city}`.toLocaleLowerCase("de-AT").includes(search.trim().toLocaleLowerCase("de-AT")));
-  const displayKey = `${loaded?.month ?? ""}:${selectedCampaign}:${search}`;
+  const excludedCount = targets.filter(target => target.eligibility === "waived").length;
+  const visibleTargets = targets.filter(target => (target.eligibility === "required" || showExcluded || Boolean(loaded && loaded.month < currentMonth)) && `${target.market.name} ${target.market.address} ${target.market.postalCode} ${target.market.city}`.toLocaleLowerCase("de-AT").includes(search.trim().toLocaleLowerCase("de-AT")));
+  const displayKey = `${loaded?.month ?? ""}:${selectedCampaign}:${search}:${showExcluded}`;
   const displayCount = display.key === displayKey ? display.count : 50;
   const progress = SMDurcharbeitTargetProgress(targets);
 
@@ -49,6 +51,7 @@ function TargetList() {
       <label className="flex min-h-11 items-center gap-2.5 rounded-lg border border-black/[.08] bg-white px-3 focus-within:border-blue-500">
         <Search size={16} className="shrink-0 text-gray-500" /><input aria-label="Durcharbeit-Markt suchen" value={search} onChange={event => setSearch(event.target.value)} placeholder="Markt oder Adresse suchen" className="min-w-0 flex-1 bg-transparent text-[16px] text-gray-800 sm:text-[12px] outline-none placeholder:text-gray-500" />
       </label>
+      {excludedCount && loaded && loaded.month >= currentMonth ? <label className="flex cursor-pointer items-center gap-2 text-[11px] text-gray-500"><input type="checkbox" checked={showExcluded} onChange={event => setShowExcluded(event.target.checked)} className="accent-blue-600" />Ausgenommene Märkte anzeigen ({excludedCount})</label> : null}
     </div>
 
     {loaded ? <div className="mb-5" aria-label="Monatsfortschritt">

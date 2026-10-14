@@ -9,6 +9,8 @@ const noOwner = () => null;
 const labels: Record<string, string> = {
   draft_created: "Entwurf erstellt", draft_updated: "Entwurf bearbeitet", published: "Veröffentlicht", state_changed: "Status geändert",
   extended: "Verlängert", future_questionnaire_changed: "Fragebogen geändert", roster_changed: "Zuordnung geändert",
+  markets_updated: "Marktauswahl geändert", market_selection_changed: "Marktstatus geändert", market_added: "Markt aufgenommen",
+  owner_resolved: "SM automatisch aus Marktbestand übernommen",
   draft_cancelled_by_admin: "Entwurf durch Admin verworfen", draft_discarded: "Entwurf verworfen", visit_started: "Besuch gestartet",
   followup_started: "Folgebesuch gestartet", time_corrected: "Besuchszeit korrigiert", time_request_approved: "Zeitanfrage freigegeben", time_request_rejected: "Zeitanfrage abgelehnt",
   visit_submitted: "Besuch abgegeben", answer_corrected: "Antwort korrigiert", submission_invalidated: "Abgabe geändert",

@@ -37,7 +37,18 @@ export type AdminPageKey =
   | "maerkte"
   | "lager"
   | "gebietsmanager"
-  | "shelfmerchandiser";
+  | "shelfmerchandiser"
+  | "sm_dashboard"
+  | "sm_fragebogen"
+  | "sm_durcharbeit"
+  | "sm_fbmanagement"
+  | "sm_fotoarchiv"
+  | "sm_verplanung"
+  | "sm_durcharbeit_verplanung"
+  | "sm_zeiterfassung"
+  | "sm_maerkte"
+  | "sm_durcharbeit_maerkte"
+  | "sm_nachrichten";
 
 export type AdminWorkspace = "gm" | "sm";
 
@@ -78,7 +89,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { label: "GM Dashboard", icon: Gauge, href: "/admin/gm-dashboard", pageKey: "gm_dashboard", color: darkRed },
       { label: "IPP Berechnung", icon: TrendingUp, href: "/admin/ipp-berechnung", pageKey: "ipp_berechnung", color: darkRed },
-      { label: "SM Dashboard", icon: Gauge, href: "/admin/sm/dashboard", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: darkRed },
+      { label: "SM Dashboard", icon: Gauge, href: "/admin/sm/dashboard", pageKey: "sm_dashboard", workspace: "sm", color: darkRed },
     ],
   },
   {
@@ -96,26 +107,26 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { label: "Durcharbeit", icon: ClipboardCheck, href: "/admin/durcharbeit", pageKey: "durcharbeit", color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
       { label: "FB Management", icon: LayoutGrid, href: "/admin/fbmanagement", pageKey: "fbmanagement", color: cokeRed },
       { label: "Fotoarchiv", icon: Images, href: "/admin/fotoarchiv", pageKey: "fotoarchiv", color: cokeRed },
-      { label: "Standartfragebogen", icon: ClipboardList, href: "/admin/sm/fragebogen", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
-      { label: "Durcharbeit", icon: ClipboardCheck, href: "/admin/sm/durcharbeit", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
-      { label: "FB Management", icon: LayoutGrid, href: "/admin/sm/fbmanagement", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
-      { label: "Fotoarchiv", icon: Images, href: "/admin/sm/fotoarchiv", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
+      { label: "Standartfragebogen", icon: ClipboardList, href: "/admin/sm/fragebogen", pageKey: "sm_fragebogen", workspace: "sm", color: cokeRed },
+      { label: "Durcharbeit", icon: ClipboardCheck, href: "/admin/sm/durcharbeit", pageKey: "sm_durcharbeit", workspace: "sm", color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
+      { label: "FB Management", icon: LayoutGrid, href: "/admin/sm/fbmanagement", pageKey: "sm_fbmanagement", workspace: "sm", color: cokeRed },
+      { label: "Fotoarchiv", icon: Images, href: "/admin/sm/fotoarchiv", pageKey: "sm_fotoarchiv", workspace: "sm", color: cokeRed },
     ],
   },
   {
     label: "Management",
     items: [
-      { label: "Verplanung", icon: CalendarRange, href: "/admin/sm/verplanung", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
-      { label: "Durcharbeit Verplanung", icon: CalendarRange, href: "/admin/sm/durcharbeit-verplanung", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
-      { label: "Zeiterfassung", icon: Clock, href: "/admin/sm/zeiterfassung", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
+      { label: "Verplanung", icon: CalendarRange, href: "/admin/sm/verplanung", pageKey: "sm_verplanung", workspace: "sm", color: cokeRed },
+      { label: "Durcharbeit Verplanung", icon: CalendarRange, href: "/admin/sm/durcharbeit-verplanung", pageKey: "sm_durcharbeit_verplanung", workspace: "sm", color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
+      { label: "Zeiterfassung", icon: Clock, href: "/admin/sm/zeiterfassung", pageKey: "sm_zeiterfassung", workspace: "sm", color: cokeRed },
       { label: "Zeiterfassung", icon: Clock, href: "/admin/zeiterfassung", pageKey: "zeiterfassung", color: cokeRed },
       { label: "Märkte", icon: MapPin, href: "/admin/maerkte", pageKey: "maerkte", color: cokeRed },
       { label: "Lager", icon: Warehouse, href: "/admin/lager", pageKey: "lager", color: cokeRed },
       { label: "Gebietsmanager", icon: UserCheck, href: "/admin/gebietsmanager", pageKey: "gebietsmanager", color: cokeRed },
-      { label: "Märkte", icon: MapPin, href: "/admin/sm/maerkte", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
-      { label: "Durcharbeit Märkte", icon: MapPin, href: "/admin/sm/durcharbeit-maerkte", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
+      { label: "Märkte", icon: MapPin, href: "/admin/sm/maerkte", pageKey: "sm_maerkte", workspace: "sm", color: cokeRed },
+      { label: "Durcharbeit Märkte", icon: MapPin, href: "/admin/sm/durcharbeit-maerkte", pageKey: "sm_durcharbeit_maerkte", workspace: "sm", color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
       { label: "Shelf Merchandiser", icon: UserCheck, href: "/admin/shelfmerchandiser", pageKey: "shelfmerchandiser", workspace: "sm", color: cokeRed },
-      { label: "Nachrichten", icon: MessageSquareText, href: "/admin/sm/nachrichten", pageKey: "shelfmerchandiser", workspace: "sm", adminOnly: true, color: cokeRed },
+      { label: "Nachrichten", icon: MessageSquareText, href: "/admin/sm/nachrichten", pageKey: "sm_nachrichten", workspace: "sm", color: cokeRed },
       { label: "Datenschutz", icon: ShieldCheck, href: "/admin/datenschutzanfragen", pageKey: "datenschutzanfragen", adminOnly: true, color: cokeRed },
     ],
   },
@@ -138,8 +149,22 @@ export function getAdminWorkspaceForPath(pathname: string): AdminWorkspace {
 export function getFirstReadableAdminHref(canRead: (pageKey: AdminPageKey) => boolean): string | null {
   for (const group of ADMIN_NAV_GROUPS) {
     for (const item of group.items) {
-      if (canRead(item.pageKey)) return item.href;
+      if (!item.adminOnly && canRead(item.pageKey)) return item.href;
     }
   }
   return null;
+}
+
+/** The existing customer permission catalog, split without changing stored GM keys. */
+export function getCustomerPermissionGroups(workspace?: AdminWorkspace): AdminNavGroup[] {
+  return ADMIN_NAV_GROUPS.map(group => ({ ...group, items: group.items.filter(item => !item.adminOnly && (!workspace || (item.workspace ?? "gm") === workspace)) })).filter(group => group.items.length > 0);
+}
+
+/** Clear only the workspace currently being edited; keep the account's other grants. */
+export function clearCustomerWorkspacePermissions<T extends Record<string, unknown>>(permissions: T, workspace: AdminWorkspace): T {
+  const next = { ...permissions };
+  for (const group of getCustomerPermissionGroups(workspace)) {
+    for (const item of group.items) delete next[item.pageKey];
+  }
+  return next;
 }

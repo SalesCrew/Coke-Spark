@@ -1,5 +1,7 @@
 "use client";
 
+import { useCustomerPageAccess } from "@/hooks/useCustomerPageAccess";
+
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock, LoaderCircle, Pencil, Search, Store, XCircle } from "lucide-react";
 
@@ -84,6 +86,7 @@ const MetricCell = memo(function MetricCell({ label, value, color = "#374151" }:
 });
 
 const AssignmentRow = memo(function AssignmentRow({ assignment, correctVisit, onVisitSaved, onReviewRequest }: { assignment: SmTimeAssignment } & TimeActions) {
+  const { canUpdate } = useCustomerPageAccess("sm_zeiterfassung");
   const meta = statusMeta(assignment.status);
   const dateLabel = formatDateLabel(assignment.date).date;
   const [editing, setEditing] = useState(false);
@@ -135,7 +138,7 @@ const AssignmentRow = memo(function AssignmentRow({ assignment, correctVisit, on
             Fragebogen {assignment.questionnaireComplete ? "fertig" : "offen"}
           </span>
         </div>
-        {hasEditableVisit ? <button type="button" aria-label="Start und Endzeit bearbeiten" title="Start und Endzeit bearbeiten" disabled={Boolean(reviewing) || Boolean(assignment.pendingTimeChangeRequest)} onClick={() => {
+        {canUpdate && hasEditableVisit ? <button type="button" aria-label="Start und Endzeit bearbeiten" title="Start und Endzeit bearbeiten" disabled={Boolean(reviewing) || Boolean(assignment.pendingTimeChangeRequest)} onClick={() => {
           if (!editing) setError(null);
           setEditing((current) => !current);
         }} className="sm-time-edit-button"><Pencil size={11}/></button> : <span />}
@@ -150,8 +153,8 @@ const AssignmentRow = memo(function AssignmentRow({ assignment, correctVisit, on
           <strong>{assignment.pendingTimeChangeRequest.kind === "deletion" ? "Ist-Zeit löschen" : `${formatTimestampRange(assignment.pendingTimeChangeRequest.originalStartedAt, assignment.pendingTimeChangeRequest.originalCompletedAt, assignment.pendingTimeChangeRequest.originalMinutes)} → ${formatTimestampRange(assignment.pendingTimeChangeRequest.requestedStartedAt, assignment.pendingTimeChangeRequest.requestedCompletedAt, assignment.pendingTimeChangeRequest.requestedMinutes)}`}</strong>
           <small>{assignment.pendingTimeChangeRequest.reason}</small>
         </div>
-        <button type="button" className="reject" disabled={Boolean(reviewing)} onClick={() => { void reviewRequest("reject"); }}>{reviewing === "reject" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <XCircle size={11} />}Ablehnen</button>
-        <button type="button" className="approve" disabled={Boolean(reviewing)} onClick={() => { void reviewRequest("approve"); }}>{reviewing === "approve" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <CheckCircle2 size={11} />}Freigeben</button>
+        <button type="button" className="reject" disabled={!canUpdate || Boolean(reviewing)} onClick={() => { void reviewRequest("reject"); }}>{reviewing === "reject" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <XCircle size={11} />}Ablehnen</button>
+        <button type="button" className="approve" disabled={!canUpdate || Boolean(reviewing)} onClick={() => { void reviewRequest("approve"); }}>{reviewing === "approve" ? <LoaderCircle className="sm-time-spinner" size={11} /> : <CheckCircle2 size={11} />}Freigeben</button>
         {error ? <span className="sm-time-request-error" role="alert">{error}</span> : null}
       </div> : null}
     </div>

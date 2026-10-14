@@ -1,5 +1,8 @@
 "use client";
 
+import { useCustomerPageAccess } from "@/hooks/useCustomerPageAccess";
+import { useAdminAccess } from "@/context/AdminAccessContext";
+
 import {
   AlertCircle,
   Ban,
@@ -236,6 +239,8 @@ export function PlanningDrawer({
   onSubmit: (request: PlanningSubmitRequest) => Promise<void>;
   onSeriesSaved: (result: SmSeriesPreview, action: "edit" | "stop") => Promise<void>;
 }) {
+  const { canWrite, canUpdate } = useCustomerPageAccess();
+  const canMutate = assignment ? canUpdate : canWrite;
   const createsSeries = !assignment && mode === "series";
   const [managingSeries, setManagingSeries] = useState(false);
   const currentDate = assignment?.effective.workDate ?? defaultDate;
@@ -448,7 +453,7 @@ export function PlanningDrawer({
       </div>
 
       <div className="sm-plan-drawer-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px 24px" }}>
-        <fieldset disabled={saving} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+        <fieldset disabled={!canMutate || saving} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
         {assignment?.seriesId ? <button type="button" disabled={saving} onClick={() => setManagingSeries(true)} className="mb-4 flex w-full items-center justify-between rounded-lg border border-black/[.08] bg-white px-3 py-2.5 text-left"><span className="flex items-center gap-2 text-[11px] font-semibold"><RefreshCw size={13}/>{assignment.series?.status === "ended" ? "Gestoppte Serie ansehen" : "Serie ändern oder stoppen"}</span><ChevronRight size={13} className="text-black/35"/></button> : null}
         {assignment?.holidayAdjustment ? <div className="mb-4"><SmHolidayNote adjustment={assignment.holidayAdjustment} currentDate={assignment.effective.workDate} /></div> : null}
         {!assignment || rescheduling ? <p className={`mb-4 rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${austrianHoliday(workDate) ? "border-amber-200 bg-amber-50 text-amber-900" : "border-black/[.06] bg-white text-gray-500"}`}>{createsSeries ? "Feiertage werden je Einzeltermin auf einen benachbarten Werktag mit weniger Sollzeit verschoben. Die Serie behält ihren Rhythmus." : austrianHoliday(workDate) ? `${austrianHoliday(workDate)!.name}: ${assignment ? "Deine manuelle Datumswahl hat Vorrang und wird nicht automatisch überschrieben." : "Dieser Termin wird automatisch auf einen benachbarten Werktag mit weniger Sollzeit verschoben."}` : assignment ? "Die manuelle Datumswahl hat Vorrang vor der Feiertagsautomatik." : "Österreichische Feiertage werden automatisch berücksichtigt."}</p> : null}
@@ -548,7 +553,7 @@ export function PlanningDrawer({
 
       <div style={{ minHeight: 66, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "#fff", borderTop: "1px solid rgba(0,0,0,.06)", flexShrink: 0 }}>
         <button type="button" disabled={saving} onClick={onClose} className="sm-plan-secondary-button">Abbrechen</button>
-        <button type="button" disabled={Boolean(validationMessage) || saving || isLocked} onClick={() => { void submit(); }} className="sm-plan-primary-button">{saving ? <LoaderCircle className="sm-plan-spinner" size={12}/> : null}{assignment ? cancellationAction === "restore" ? "Wiederherstellen" : cancellationAction === "cancel" ? "Entfernen bestätigen" : "Änderung speichern" : createsSeries ? "Serie planen" : "Einsatz planen"}</button>
+        <button type="button" disabled={!canMutate || (Boolean(validationMessage) || saving || isLocked)} onClick={() => { void submit(); }} className="sm-plan-primary-button">{saving ? <LoaderCircle className="sm-plan-spinner" size={12}/> : null}{assignment ? cancellationAction === "restore" ? "Wiederherstellen" : cancellationAction === "cancel" ? "Entfernen bestätigen" : "Änderung speichern" : createsSeries ? "Serie planen" : "Einsatz planen"}</button>
       </div>
     </aside>
   );
@@ -615,6 +620,9 @@ function GmVisitDetailDrawer({ visit, onClose }: { visit: AdminGmPlanningVisit; 
 }
 
 export function SmVerplanungWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: boolean }) {
+  const { canWrite, canUpdate, isCustomer } = useCustomerPageAccess();
+  const adminAccess = useAdminAccess();
+  const canSeeGmVisits = !isCustomer || adminAccess.canRead("zeiterfassung");
   const [search, setSearch] = useState("");
   const [region, setRegion] = useState("all");
   const [smFilter, setSmFilter] = useState("all");
@@ -714,7 +722,7 @@ export function SmVerplanungWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit
   }, [rangeEndKey, rangeStartKey]);
 
   useEffect(() => {
-    if (!showGmVisits) return;
+    if (!showGmVisits || !canSeeGmVisits) { setGmVisits([]); setGmLoading(false); return; }
     let active = true;
     setGmVisits([]);
     setGmLoading(true);
@@ -724,7 +732,7 @@ export function SmVerplanungWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit
       .catch((error: unknown) => { if (active) setGmLoadError(error instanceof Error ? error.message : "Die GM-Besuche konnten nicht geladen werden."); })
       .finally(() => { if (active) setGmLoading(false); });
     return () => { active = false; };
-  }, [showGmVisits, rangeEndKey, rangeStartKey]);
+  }, [showGmVisits, canSeeGmVisits, rangeEndKey, rangeStartKey]);
 
   const SMDurcharbeitPlanningMarkets = useMemo(() => markets.filter(market => Boolean(market.SMDurcharbeitMarket) === SMDurcharbeit), [markets, SMDurcharbeit]);
   const SMDurcharbeitDrawerMarkets = useMemo(() => markets.filter(market => Boolean(market.SMDurcharbeitMarket) === SMDurcharbeit || market.id === selectedAssignment?.effective.smMarketId), [markets, SMDurcharbeit, selectedAssignment]);
@@ -912,8 +920,8 @@ export function SmVerplanungWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit
   }, [reloadAssignments]);
 
   useEffect(() => {
-    const openSingle = () => openDrawer("single");
-    const openSeries = () => { if (!SMDurcharbeit) openDrawer("series"); };
+    const openSingle = () => { if (canWrite) openDrawer("single"); };
+    const openSeries = () => { if (canWrite && !SMDurcharbeit) openDrawer("series"); };
     const resetToday = () => resetToCurrentPeriod();
     const exportExcel = async () => {
       if (periodLoading || loadError) {
@@ -957,7 +965,7 @@ export function SmVerplanungWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit
       window.removeEventListener("sm-verplanung:today", resetToday);
       window.removeEventListener("admin:sm-verplanung:export", exportHandler);
     };
-  }, [openDrawer, resetToCurrentPeriod, rows, period, periodLoading, loadError, SMDurcharbeit]);
+  }, [openDrawer, resetToCurrentPeriod, rows, period, periodLoading, loadError, SMDurcharbeit, canWrite]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1049,8 +1057,8 @@ export function SmVerplanungWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit
             <small style={{ display: "block", marginTop: 3, color: "rgba(0,0,0,.40)", fontSize: 9.1, lineHeight: 1.4 }}>Gilt für noch nicht gestartete SM-Besuche ohne eigene Auswahl. Individuelle Zuordnungen, laufende und abgeschlossene Besuche behalten ihren Stand.</small>
           </span>
         </div>
-        <SmPlanDropdown searchable ariaLabel="Zentralen SM-Fragebogen auswählen" value={questionnaireSelection} onChange={setQuestionnaireSelection} placeholder={questionnaireOptions.length ? "Fragebogen auswählen…" : "Kein veröffentlichter Fragebogen"} options={questionnaireOptions}/>
-        <button type="button" disabled={!questionnaireSelection || questionnaireSaving || questionnaireSelection === questionnaireConfiguration?.assignment?.questionnaireTemplateId} onClick={() => { void saveQuestionnaireAssignment(); }} className="sm-plan-primary-button" style={{ minWidth: 100 }}>
+        <SmPlanDropdown searchable disabled={!canUpdate} ariaLabel="Zentralen SM-Fragebogen auswählen" value={questionnaireSelection} onChange={setQuestionnaireSelection} placeholder={questionnaireOptions.length ? "Fragebogen auswählen…" : "Kein veröffentlichter Fragebogen"} options={questionnaireOptions}/>
+        <button type="button" disabled={!canUpdate || !questionnaireSelection || questionnaireSaving || questionnaireSelection === questionnaireConfiguration?.assignment?.questionnaireTemplateId} onClick={() => { void saveQuestionnaireAssignment(); }} className="sm-plan-primary-button" style={{ minWidth: 100 }}>
           {questionnaireSaving ? <LoaderCircle className="sm-plan-spinner" size={12}/> : <Check size={12} strokeWidth={2.2}/>}Übernehmen
         </button>
       </section>}
@@ -1077,7 +1085,7 @@ export function SmVerplanungWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit
               <SmPlanDropdown compact ariaLabel="Planungstyp filtern" value={typeFilter} onChange={setTypeFilter} placeholder="Planungstyp" options={TYPE_FILTER_OPTIONS} />
               <SmPlanDropdown compact ariaLabel="Status filtern" value={statusFilter} onChange={setStatusFilter} placeholder="Status" options={STATUS_FILTER_OPTIONS} />
               {hasActiveFilters ? <button type="button" className="sm-plan-reset-filters" onClick={clearFilters}><X size={10} strokeWidth={2.2} />Filter löschen</button> : null}
-              {!SMDurcharbeit ? <button type="button" aria-pressed={showGmVisits} onClick={toggleGmVisits} className={`sm-plan-gm-toggle${showGmVisits ? " is-active" : ""}`}><History size={11}/>{showGmVisits ? "GM-Besuche sichtbar" : "GM-Besuche"}</button> : null}
+              {!SMDurcharbeit && canSeeGmVisits ? <button type="button" aria-pressed={showGmVisits} onClick={toggleGmVisits} className={`sm-plan-gm-toggle${showGmVisits ? " is-active" : ""}`}><History size={11}/>{showGmVisits ? "GM-Besuche sichtbar" : "GM-Besuche"}</button> : null}
             </div>
 
             {showGmVisits ? <div style={{ minHeight: 43, padding: "6px 14px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid rgba(37,99,235,.08)", background: "rgba(37,99,235,.018)" }}>

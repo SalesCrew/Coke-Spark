@@ -70,7 +70,7 @@ function AdminAccessGate({ children }: { children: React.ReactNode }) {
       router.replace(access.firstReadableHref);
       return;
     }
-    if (access.currentPageKey && !access.canRead(access.currentPageKey)) {
+    if ((access.isKunde && !access.currentPageKey) || (access.currentPageKey && !access.canRead(access.currentPageKey))) {
       router.replace(access.firstReadableHref);
     }
   }, [access, pathname, router]);
@@ -105,6 +105,8 @@ function AdminAccessGate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
+
+  if (access.isKunde && (pathname === "/admin" || !access.currentPageKey || !access.canRead(access.currentPageKey))) return null;
 
   return <>{children}</>;
 }

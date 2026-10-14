@@ -1,5 +1,8 @@
 "use client";
 
+import { useAdminAccess } from "@/context/AdminAccessContext";
+import { useCustomerPageAccess } from "@/hooks/useCustomerPageAccess";
+
 import React, {
   memo,
   useCallback,
@@ -674,6 +677,9 @@ function MarketDetailDrawer({
   onDelete: () => Promise<void>;
   onClose: () => void;
 }) {
+  const { canUpdate, isCustomer } = useCustomerPageAccess();
+  const access = useAdminAccess();
+  const canEditWeeklyPlanning = canUpdate && (!isCustomer || (access.canRead("sm_verplanung") && access.canWrite("sm_verplanung") && access.canUpdate("sm_verplanung")));
   const [tab, setTab] = useState<"info" | "assignments">("info");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<MarketEditDraft>(() => editableMarketFields(market));
@@ -779,7 +785,7 @@ function MarketDetailDrawer({
             <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: 750, color: "#1a1a1a", letterSpacing: "-0.01em" }}>{market.name}</div>
             <div style={{ marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 9.5, color: "rgba(0,0,0,0.38)", textTransform: "uppercase", letterSpacing: "0.02em" }}>{market.address} · {market.postalCode} {market.city}</div>
           </div>
-          {!SMDurcharbeitReadOnly && tab === "info" ? <button type="button" disabled={saving} onClick={() => { if (editing) setDraft(editableMarketFields(market)); setEditing((current) => !current); }} aria-label={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} title={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} className="sm-icon-button" style={editing ? { background: "rgba(220,38,38,.07)", color: COKE_RED } : undefined}><Pencil size={12.5} strokeWidth={1.9} /></button> : null}
+          {!SMDurcharbeitReadOnly && tab === "info" ? <button type="button" disabled={!canUpdate || (saving)} onClick={() => { if (editing) setDraft(editableMarketFields(market)); setEditing((current) => !current); }} aria-label={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} title={editing ? "Bearbeitung abbrechen" : "Markt bearbeiten"} className="sm-icon-button" style={editing ? { background: "rgba(220,38,38,.07)", color: COKE_RED } : undefined}><Pencil size={12.5} strokeWidth={1.9} /></button> : null}
           <button type="button" disabled={saving || planningSaving} onClick={onClose} aria-label="Detailansicht schließen" className="sm-icon-button"><X size={13} strokeWidth={2} /></button>
         </div>
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
@@ -837,7 +843,7 @@ function MarketDetailDrawer({
               </div>
               <div className="sm-planning-actions">
                 <span className={`sm-planning-status${planningEditing ? " is-draft" : !serviceDaysPerWeek ? " is-empty" : ""}`}><i />{planningEditing ? "Bearbeitung" : serviceDaysPerWeek ? "Plan hinterlegt" : "Kein Plan"}</span>
-                {!SMDurcharbeitReadOnly && !planningEditing ? <button type="button" onClick={beginPlanningEdit} className="sm-icon-button" aria-label="Wochenplanung bearbeiten" title="Wochenplanung bearbeiten"><Pencil size={12.5} strokeWidth={1.9} /></button> : null}
+                {!SMDurcharbeitReadOnly && !planningEditing ? <button type="button" onClick={beginPlanningEdit} className="sm-icon-button" aria-label="Wochenplanung bearbeiten" title="Wochenplanung bearbeiten" disabled={!canEditWeeklyPlanning}><Pencil size={12.5} strokeWidth={1.9} /></button> : null}
               </div>
             </div>
 
@@ -918,15 +924,15 @@ function MarketDetailDrawer({
         )}
       </div>
       {!SMDurcharbeitReadOnly && tab === "info" ? <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderTop: "1px solid rgba(0,0,0,.07)", background: "#fff" }}>
-        {actionError ? <span role="alert" style={{ minWidth: 0, flex: 1, color: COKE_RED, fontSize: 9, fontWeight: 650 }}>{actionError}</span> : editing ? <span /> : <button type="button" onClick={() => void remove()} disabled={deleting} className="sm-market-edit-button is-secondary" style={{ color: confirmDelete ? "#fff" : COKE_RED, background: confirmDelete ? COKE_RED : undefined }}><Trash2 size={11} strokeWidth={2}/>{deleting ? "Wird gelöscht…" : confirmDelete ? "Löschen bestätigen" : "Markt löschen"}</button>}
+        {actionError ? <span role="alert" style={{ minWidth: 0, flex: 1, color: COKE_RED, fontSize: 9, fontWeight: 650 }}>{actionError}</span> : editing ? <span /> : <button type="button" onClick={() => void remove()} disabled={!canUpdate || (deleting)} className="sm-market-edit-button is-secondary" style={{ color: confirmDelete ? "#fff" : COKE_RED, background: confirmDelete ? COKE_RED : undefined }}><Trash2 size={11} strokeWidth={2}/>{deleting ? "Wird gelöscht…" : confirmDelete ? "Löschen bestätigen" : "Markt löschen"}</button>}
         {editing ? <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button type="button" disabled={saving} onClick={() => { setDraft(editableMarketFields(market)); setEditing(false); setActionError(null); }} className="sm-market-edit-button is-secondary">Abbrechen</button>
-          <button type="button" disabled={saving} onClick={() => void save()} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2}/> {saving ? "Speichert…" : "Speichern"}</button>
+          <button type="button" disabled={!canUpdate || (saving)} onClick={() => void save()} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2}/> {saving ? "Speichert…" : "Speichern"}</button>
         </div> : actionError ? <button type="button" onClick={() => setActionError(null)} className="sm-market-edit-button is-secondary">Schließen</button> : null}
       </div> : null}
       {tab === "assignments" && planningEditing ? <div className="sm-planning-edit-footer">
         <button type="button" disabled={planningSaving} onClick={cancelPlanningEdit} className="sm-market-edit-button is-secondary">Abbrechen</button>
-        <button type="button" aria-label="Wochenplanung speichern" disabled={planningSaving || !!planningResult.error} onClick={() => void savePlanning()} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2} />{planningSaving ? "Speichert…" : "Speichern"}</button>
+        <button type="button" aria-label="Wochenplanung speichern" disabled={!canEditWeeklyPlanning || (planningSaving || !!planningResult.error)} onClick={() => void savePlanning()} className="sm-market-edit-button is-primary"><Check size={11} strokeWidth={2.2} />{planningSaving ? "Speichert…" : "Speichern"}</button>
       </div> : null}
       {showDeactivation ? <SmMarketDeactivationModal marketId={market.id} onClose={() => setShowDeactivation(false)} onConfirmed={(result) => { updateDraft("isActive", false); onDeactivated(result.market); setShowDeactivation(false); }} /> : null}
     </aside>,
@@ -1095,6 +1101,9 @@ function PageSkeleton() {
 }
 
 export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: boolean }) {
+  const { canWrite, isCustomer } = useCustomerPageAccess();
+  const access = useAdminAccess();
+  const canLoadGmDirectory = !isCustomer || access.canRead("gebietsmanager");
   const [SMDurcharbeitReload, setSMDurcharbeitReload] = useState(0);
   const [markets, setMarkets] = useState<SmMarketPreview[]>([]);
   const [users, setUsers] = useState<SMRecord[]>([]);
@@ -1116,7 +1125,7 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
       setLoading(true);
       setLoadError(null);
       try {
-        const [smRows, gmRows, marketRows] = await Promise.all([fetchSmUsers(), fetchGmUsers(), fetchSmMarkets(SMDurcharbeit ? "SMDurcharbeit" : "standard")]);
+        const [smRows, gmRows, marketRows] = await Promise.all([fetchSmUsers(), canLoadGmDirectory ? fetchGmUsers() : Promise.resolve([]), fetchSmMarkets(SMDurcharbeit ? "SMDurcharbeit" : "standard")]);
         if (!active) return;
         const sortedUsers = [...smRows].sort((a, b) => formatSmName(a).localeCompare(formatSmName(b), "de-AT", { sensitivity: "base" }));
         const sortedGmUsers = [...gmRows].sort((a, b) => formatGmName(a).localeCompare(formatGmName(b), "de-AT", { sensitivity: "base" }));
@@ -1133,35 +1142,38 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
     return () => {
       active = false;
     };
-  }, [SMDurcharbeit, SMDurcharbeitReload]);
+  }, [SMDurcharbeit, SMDurcharbeitReload, canLoadGmDirectory]);
 
   useEffect(() => {
     if (SMDurcharbeit) return;
     const openSync = () => {
+      if (!canWrite) return;
       setSelectedId(null);
       setShowSmSync(true);
     };
     window.addEventListener("sm-maerkte:openSmSync", openSync);
     return () => window.removeEventListener("sm-maerkte:openSmSync", openSync);
-  }, [SMDurcharbeit]);
+  }, [SMDurcharbeit, canWrite]);
 
   useEffect(() => {
     const openCreate = () => {
+      if (!canWrite) return;
       setSelectedId(null);
       setShowCreate(true);
     };
     window.addEventListener("sm-maerkte:openManualCreate", openCreate);
     return () => window.removeEventListener("sm-maerkte:openManualCreate", openCreate);
-  }, [SMDurcharbeit]);
+  }, [SMDurcharbeit, canWrite]);
 
   useEffect(() => {
     const openImport = () => {
+      if (!canWrite) return;
       setSelectedId(null);
       setShowImport(true);
     };
     window.addEventListener("sm-maerkte:openImport", openImport);
     return () => window.removeEventListener("sm-maerkte:openImport", openImport);
-  }, [SMDurcharbeit]);
+  }, [SMDurcharbeit, canWrite]);
 
   const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const gmById = useMemo(() => new Map(gmUsers.map((user) => [user.id, user])), [gmUsers]);
@@ -1486,7 +1498,7 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
                 <span style={{ width: 42, height: 42, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, background: "rgba(220,38,38,.06)", color: COKE_RED }}><Store size={18} strokeWidth={1.7} /></span>
                 <strong style={{ color: "#17191d", fontSize: 12 }}>{SMDurcharbeit ? "Noch keine Durcharbeit-Märkte hinterlegt" : "Noch keine SM-Märkte importiert"}</strong>
                 <span style={{ fontSize: 9.5 }}>Importiere die Marktdatei und ordne die Spalten zu.</span>
-                <button type="button" onClick={() => setShowImport(true)} style={{ marginTop: 3, height: 30, padding: "0 13px", border: 0, borderRadius: 8, background: SMDurcharbeit ? "linear-gradient(#2563EB,#1D4ED8)" : `linear-gradient(${COKE_RED},#b91c1c)`, color: "#fff", fontFamily: "inherit", fontSize: 10, fontWeight: 800, cursor: "pointer" }}>Importieren</button>
+                <button type="button" onClick={() => setShowImport(true)} style={{ marginTop: 3, height: 30, padding: "0 13px", border: 0, borderRadius: 8, background: SMDurcharbeit ? "linear-gradient(#2563EB,#1D4ED8)" : `linear-gradient(${COKE_RED},#b91c1c)`, color: "#fff", fontFamily: "inherit", fontSize: 10, fontWeight: 800, cursor: "pointer" }} disabled={!canWrite}>Importieren</button>
               </div>
             ) : (
               <VirtualMarketList

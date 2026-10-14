@@ -1,5 +1,7 @@
 "use client";
 
+import { customerAdminReadOwner } from "@/lib/auth/customerPageKey";
+
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
@@ -10,7 +12,7 @@ import type { SmArchivePhoto, SmArchivePhotoFacets, SmArchivePhotoList, SmArchiv
 import styles from "./SmPhotoArchiveWorkspace.module.css";
 import { SmPhotoArchiveFilterDialog } from "./SmPhotoArchiveFilters";
 
-const readOwner = () => { const user = readAuthSession()?.user; return user && ["admin", "sm_admin"].includes(user.role) ? user.id : null; };
+const readOwner = () => customerAdminReadOwner(readAuthSession()?.user, "sm_fotoarchiv");
 const serverOwner = () => null;
 const dateLabel = (date: string) => new Intl.DateTimeFormat("de-AT", { timeZone: "Europe/Vienna", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(`${date}T12:00:00Z`));
 const errorText = (error: unknown) => error instanceof Error ? error.message : "Das Fotoarchiv konnte nicht geladen werden.";

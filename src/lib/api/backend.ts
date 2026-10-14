@@ -1,5 +1,7 @@
 "use client";
 
+import { getCustomerAdminPageKeyForPath } from "@/lib/auth/customerPageKey";
+
 import { visibleSmAssignments } from "@/lib/sm/assignmentVisibility";
 import { smVisitApiPath, SMDurcharbeitVisitId } from "@/lib/sm/SMDurcharbeitVisitReference";
 import type { SMDurcharbeitTarget, SMDurcharbeitTargetPreview } from "@/types/smSMDurcharbeitCampaign";
@@ -962,30 +964,9 @@ function handleAuthExpired(reason: string): void {
   emitAuthSessionChanged(reason);
 }
 
-function resolveAdminPageKeyForPath(pathname: string): string | null {
-  if (pathname.startsWith("/admin/gm-dashboard")) return "gm_dashboard";
-  if (pathname.startsWith("/admin/datenschutzanfragen")) return "datenschutzanfragen";
-  if (pathname.startsWith("/admin/ipp-berechnung")) return "ipp_berechnung";
-  if (pathname.startsWith("/admin/praemien")) return "praemien";
-  if (pathname.startsWith("/admin/flexbesuche")) return "flexbesuche";
-  if (pathname.startsWith("/admin/billa")) return "billa";
-  if (pathname.startsWith("/admin/kuehlerinventur")) return "kuehlerinventur";
-  if (pathname.startsWith("/admin/mhd")) return "mhd";
-  if (pathname.startsWith("/admin/durcharbeit")) return "durcharbeit";
-  if (pathname.startsWith("/admin/fbmanagement")) return "fbmanagement";
-  if (pathname.startsWith("/admin/fotoarchiv")) return "fotoarchiv";
-  if (pathname.startsWith("/admin/zeiterfassung")) return "zeiterfassung";
-  if (pathname.startsWith("/admin/maerkte")) return "maerkte";
-  if (pathname.startsWith("/admin/lager")) return "lager";
-  if (pathname.startsWith("/admin/shelfmerchandiser")) return "shelfmerchandiser";
-  if (pathname.startsWith("/admin/gebietsmanager")) return "gebietsmanager";
-  if (pathname.startsWith("/admin/fragebogen")) return "fragebogen";
-  return null;
-}
-
 function getKundePageKeyHeader(): Record<string, string> {
   if (typeof window === "undefined") return {};
-  const pageKey = resolveAdminPageKeyForPath(window.location.pathname);
+  const pageKey = getCustomerAdminPageKeyForPath(window.location.pathname);
   return pageKey ? { "x-coke-spark-page-key": pageKey } : {};
 }
 

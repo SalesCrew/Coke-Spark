@@ -1,5 +1,7 @@
 "use client";
 
+import { useCustomerPageAccess } from "@/hooks/useCustomerPageAccess";
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X, Copy, Check, UserCheck, Mail, Car, Eye, EyeOff, Save, ChevronDown } from "lucide-react";
@@ -272,6 +274,7 @@ function DrawerField({ label, value, onChange }: { label: string; value: string;
 }
 
 function SMDetailDrawer({ gm, onClose, onSave, assignments }: { gm: SMRecord; onClose: () => void; onSave: (updated: SMRecord) => Promise<void> | void; assignments: SmPlanningAssignment[] }) {
+  const { canUpdate } = useCustomerPageAccess("shelfmerchandiser");
   const [tab, setTab] = useState<"profil" | "besuche">("profil");
   const [draft, setDraft] = useState<SMRecord>({ ...gm });
   const [dirty, setDirty] = useState(false);
@@ -405,7 +408,7 @@ function SMDetailDrawer({ gm, onClose, onSave, assignments }: { gm: SMRecord; on
         <div className="map-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
 
           {/* Section: Kontakt */}
-          {tab === "profil" && (<>
+          {tab === "profil" && (<fieldset disabled={!canUpdate} style={{ border: 0, padding: 0, margin: 0, display: "contents" }}>
           <div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", gap: 8 }}>
@@ -480,7 +483,7 @@ function SMDetailDrawer({ gm, onClose, onSave, assignments }: { gm: SMRecord; on
               </div>
             )}
           </div>
-          </>)}
+          </fieldset>)}
 
           {/* Marktbesuche tab */}
           {tab === "besuche" && (
@@ -501,7 +504,7 @@ function SMDetailDrawer({ gm, onClose, onSave, assignments }: { gm: SMRecord; on
         <div style={{ background: "#fff", borderTop: "1px solid rgba(0,0,0,0.06)", padding: "12px 18px", flexShrink: 0 }}>
           <button
             onClick={() => { void handleSave(); }}
-            disabled={!dirty || saving}
+            disabled={!canUpdate || (!dirty || saving)}
             style={{ width: "100%", height: 36, borderRadius: 8, border: "none", cursor: dirty && !saving ? "pointer" : "default", fontSize: 11, fontWeight: 700, color: dirty && !saving ? "#fff" : "rgba(0,0,0,0.25)", fontFamily: "inherit", background: dirty && !saving ? `linear-gradient(to bottom,${R},${RD})` : "rgba(0,0,0,0.05)", boxShadow: dirty && !saving ? `inset 0 1px 0.6px rgba(255,255,255,0.33),inset 0 -1px 0 rgba(255,255,255,0.15),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)` : "none", transition: "all 0.15s", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
           >
             {saving ? <><Save size={11} strokeWidth={2} /> Speichern...</> : saved ? <><Check size={11} strokeWidth={2.5} /> Gespeichert</> : <><Save size={11} strokeWidth={2} /> Änderungen speichern</>}
@@ -703,6 +706,7 @@ function CreateModal({
 
 // ── Page ─────────────────────────────────────────────────────
 export default function ShelfMerchandiserPage() {
+  const { canWrite, canUpdate } = useCustomerPageAccess("shelfmerchandiser");
   const [gms, setGms] = useState<SMRecord[]>([]);
   const [assignments, setAssignments] = useState<SmPlanningAssignment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -752,13 +756,14 @@ export default function ShelfMerchandiserPage() {
   }, []);
 
   useEffect(() => {
-    const handler = () => setShowCreate(true);
+    const handler = () => { if (canWrite) setShowCreate(true); };
     window.addEventListener("shelfmerchandiser:openCreate", handler);
     return () => window.removeEventListener("shelfmerchandiser:openCreate", handler);
-  }, []);
+  }, [canWrite]);
 
 
   const handleCreate = useCallback(async (form: FormState) => {
+    if (!canWrite) throw new Error("Kein Schreibzugriff freigeschaltet.");
     const created = await createSmUser({
       firstName: form.firstName,
       lastName: form.lastName,
@@ -771,9 +776,10 @@ export default function ShelfMerchandiserPage() {
     setTimeout(() => setNewId(null), 600);
     setBackendError(null);
     return { sm: created, password: created.password ?? "" };
-  }, []);
+  }, [canWrite]);
 
   const handleSave = useCallback(async (updated: SMRecord) => {
+    if (!canUpdate) throw new Error("Kein Änderungszugriff freigeschaltet.");
     try {
       const saved = await updateSmUser(updated);
       setGms((prev) => prev.map((g) => (g.id === saved.id ? { ...saved, password: g.password, visitCount: g.visitCount } : g)));
@@ -783,7 +789,7 @@ export default function ShelfMerchandiserPage() {
       setBackendError(msg);
       throw err;
     }
-  }, []);
+  }, [canUpdate]);
 
 
   const handleExportGms = useCallback(async () => {
@@ -842,7 +848,7 @@ export default function ShelfMerchandiserPage() {
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", marginBottom: 6 }}>Noch keine Shelf Merchandiser angelegt</div>
                 <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", maxWidth: 300, lineHeight: 1.6 }}>Erstelle den ersten SM, um Shelf-Merchandiser-Zugänge zu verwalten.</div>
               </div>
-              <button onClick={() => setShowCreate(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 18px", fontSize: 11, fontWeight: 700, color: "#fff", background: `linear-gradient(to bottom,${R},${RD})`, border: "none", borderRadius: 8, cursor: "pointer", boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)`, fontFamily: "inherit" }}>
+              <button onClick={() => setShowCreate(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 18px", fontSize: 11, fontWeight: 700, color: "#fff", background: `linear-gradient(to bottom,${R},${RD})`, border: "none", borderRadius: 8, cursor: "pointer", boxShadow: `inset 0 1px 0.6px rgba(255,255,255,0.33),0 0 0 1px #a91b1b,0 1px 6px rgba(180,20,20,0.14)`, fontFamily: "inherit" }} disabled={!canWrite}>
                 <Plus size={11} strokeWidth={2.5} /> SM erstellen
               </button>
             </div>

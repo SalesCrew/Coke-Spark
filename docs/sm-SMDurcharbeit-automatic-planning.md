@@ -1,6 +1,6 @@
 # SM Durcharbeit automatic planning
 
-Implemented locally on 2026-10-13. No production connection, query, migration, backfill or deployment was used for this change.
+Implementation and verification completed locally on 2026-10-13. They used no production connection, query, migration or backfill. The separately authorized code release is recorded below.
 
 ## Authoritative owner
 
@@ -50,3 +50,5 @@ The user authorized releasing this exact completed scope with “push that”. N
 Targets: backend `SalesCrew/Spark-Backend:master`, Railway project `52e48407-7116-44f8-94a7-f0123891881e`, production environment `28d539cb-a359-4f9a-89f5-75fc347f4133`, service `5214a3c7-67fd-4422-8141-3ccd98c80fff`; frontend `SalesCrew/Coke-Spark:master`, Vercel project `prj_YjiNsxSXnWDMBJ7E8UXeyRY2mmWc`, team `team_1jxKZGLAXPKrEyvgqajh8OQc`, existing domain `coke-spark.vercel.app`.
 
 Backend release candidate: `78aa858695f38ce955e86049312bb5d210cdbeca`. The merge preserves the existing Billa Plus visibility release. All 32 targeted import/automatic-owner/market-edit/report/photo/transition checks passed again after merging production master, with clean environments and disposable synthetic databases; backend compilation and staged credential/whitespace checks passed.
+
+Railway deployment `48018110-bfee-4114-869d-36850f86ed1c` is **SUCCESS** for exact backend commit `78aa858695f38ce955e86049312bb5d210cdbeca` in the existing production service. The frontend records that Git pointer and follows this confirmed backend release. Its final merged application code passed a clean optimized Next build, scoped Next lint, seven selection/queue/export checks and whitespace checks. Frontend delivery is confirmed from Vercel commit/environment/alias metadata; no production-connected application request or database operation is part of verification. Environment files, dependencies, screenshots and local build/preview output are excluded from Git.

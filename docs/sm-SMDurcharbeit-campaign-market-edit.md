@@ -13,7 +13,7 @@ Changes can apply to one calendar month or that month and all remaining campaign
 - Apply acquires the same campaign lock as visit writers, recalculates the preview token, rejects stale state, and saves target changes and audit events in one transaction.
 - SM ownership now resolves automatically from the dedicated registry ID. No manual campaign assignment editor is provided. Physical visits and past months retain their recorded owners; see [automatic planning](sm-SMDurcharbeit-automatic-planning.md).
 - Excluded targets disappear from the SM's open queue and progress denominator. An explicit toggle retains access to excluded rows; past-month visibility remains unchanged.
-- No schema migration, production repair, automatic data update or deployment was performed for this change.
+- No schema migration, production repair or automatic data update is required or performed. The authorized code release is recorded in [automatic planning](sm-SMDurcharbeit-automatic-planning.md).
 
 ## Verification (2026-10-13)
 

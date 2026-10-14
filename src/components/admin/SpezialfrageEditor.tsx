@@ -1039,7 +1039,7 @@ function QuestionCard({
                 <div><span style={{ display: "block", fontSize: 10, color: "#6b7280", marginBottom: 5 }}>Bis</span><AdminDatePicker ariaLabel={`Ende für Spezialfrage ${index + 1}`} value={isSpezialfrageDate(period?.endDate) ? period.endDate : ""} minDate={isSpezialfrageDate(period?.startDate) ? period.startDate : undefined} onChange={value => onUpdate({ ...question, config: updateSpezialfragePeriod(question.config, "endDate", value) })} /></div>
               </div>
               <p style={{ fontSize: 10, color: periodError ? "#b91c1c" : "#6b7280", margin: "8px 0 0", lineHeight: 1.5 }}>
-                {periodError ?? (period ? "Automatisch verfügbar vom Beginn bis einschließlich Ende (Wien). Gilt für diese Spezialfrage in allen zugeordneten Fragebögen." : "Optional · Ohne Zeitraum bleibt die Frage immer verfügbar.")}
+                {periodError ?? (period ? "Die Frage erscheint automatisch ab dem Startdatum bis einschließlich Enddatum (österreichische Zeit). Danach wird sie in neu gestarteten Besuchen nicht mehr angezeigt. Dieser Zeitraum gilt für alle Fragebögen, in denen diese Spezialfrage aktiviert ist. Handelsketten und Bedingungen gelten weiterhin." : "Ohne Zeitraum wird die aktivierte Frage unabhängig vom Datum angezeigt. Handelsketten und Bedingungen gelten weiterhin.")}
               </p>
             </div>
             <div style={{ marginTop: 14 }}>

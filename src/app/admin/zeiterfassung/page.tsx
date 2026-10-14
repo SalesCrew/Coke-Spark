@@ -20,6 +20,8 @@ import {
   softDeleteAdminZeiterfassungDaySession,
   type AdminZeiterfassungAggregateRow,
 } from "@/lib/api/backend";
+import { AdminDatePicker, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
+import { defaultZeiterfassungRange, ZeiterfassungRangeRequests, type ZeiterfassungRange } from "@/lib/admin/zeiterfassung-range";
 import { DoctorConfirmationProofButton } from "@/components/dashboard/DoctorConfirmationProofButton";
 import { exportAdminDiaeten, MONTH_LABELS } from "@/lib/exports/diaetenExport";
 import { exportAdminZeiterfassung } from "@/lib/exports/zeiterfassungExport";
@@ -1434,6 +1436,9 @@ export default function ZeiterfassungPage() {
   const [aggregateRows, setAggregateRows] = useState<AdminZeiterfassungAggregateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [range, setRange] = useState<ZeiterfassungRange>(() => defaultZeiterfassungRange());
+  const rangeRequests = useRef(new ZeiterfassungRangeRequests(range));
   const currentDate = useMemo(() => new Date(), []);
   const currentYear = currentDate.getFullYear();
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -1457,57 +1462,75 @@ export default function ZeiterfassungPage() {
   }, []);
 
   const loadZeiterfassungData = useCallback(async (options?: { showLoader?: boolean }) => {
+    if (!rangeRequests.current.isSelected(range)) return;
     const showLoader = options?.showLoader ?? true;
     if (showLoader) setLoading(true);
     setLoadError(null);
-    try {
-      const [dayPayload, aggregatePayload] = await Promise.all([
-        fetchAdminZeiterfassungDays({ timezone: "Europe/Vienna", includeLive: true }),
-        fetchAdminZeiterfassungGmAggregates({ timezone: "Europe/Vienna", includeLive: true }),
-      ]);
-      setSessions(
-        (dayPayload.sessions ?? []).map((session) => ({
-          id: session.id,
-          date: session.date,
-          gmId: session.gmId,
-          gmName: session.gmName,
-          region: session.region,
-          status: session.status,
-          isLive: session.isLive,
-          timezone: session.timezone,
-          startTime: session.startTime,
-          endTime: session.endTime,
-          startKm: session.startKm,
-          endKm: session.endKm,
-          entries: session.entries.map((entry) => {
-            const subtype = toEntrySubtype(entry.subtype);
-            return {
-              id: entry.id,
-              kind: entry.kind,
-              startTime: entry.startTime,
-              endTime: entry.endTime,
-              durationMin: entry.durationMin,
-              ...(entry.marketName ? { marketName: entry.marketName } : {}),
-              ...(entry.marketAddress ? { marketAddress: entry.marketAddress } : {}),
-              ...(entry.questionnaireType ? { questionnaireType: entry.questionnaireType } : {}),
-              ...(subtype ? { subtype } : {}),
-              ...(entry.comment ? { comment: entry.comment } : {}),
-            };
-          }),
-          timeline: session.timeline,
-          stats: session.stats,
-        })),
-      );
-      setAggregateRows(aggregatePayload.rows ?? []);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Zeiterfassung konnte nicht geladen werden.";
-      setLoadError(message || "Zeiterfassung konnte nicht geladen werden.");
-      setSessions([]);
-      setAggregateRows([]);
-    } finally {
-      if (showLoader) setLoading(false);
-    }
-  }, []);
+    await rangeRequests.current.run(
+      range,
+      () => Promise.all([
+        fetchAdminZeiterfassungDays({ ...range, timezone: "Europe/Vienna", includeLive: true }),
+        fetchAdminZeiterfassungGmAggregates({ ...range, timezone: "Europe/Vienna", includeLive: true }),
+      ]),
+      {
+        success: ([dayPayload, aggregatePayload]) => {
+          setSessions(
+            (dayPayload.sessions ?? []).map((session) => ({
+              id: session.id,
+              date: session.date,
+              gmId: session.gmId,
+              gmName: session.gmName,
+              region: session.region,
+              status: session.status,
+              isLive: session.isLive,
+              timezone: session.timezone,
+              startTime: session.startTime,
+              endTime: session.endTime,
+              startKm: session.startKm,
+              endKm: session.endKm,
+              entries: session.entries.map((entry) => {
+                const subtype = toEntrySubtype(entry.subtype);
+                return {
+                  id: entry.id,
+                  kind: entry.kind,
+                  startTime: entry.startTime,
+                  endTime: entry.endTime,
+                  durationMin: entry.durationMin,
+                  ...(entry.marketName ? { marketName: entry.marketName } : {}),
+                  ...(entry.marketAddress ? { marketAddress: entry.marketAddress } : {}),
+                  ...(entry.questionnaireType ? { questionnaireType: entry.questionnaireType } : {}),
+                  ...(subtype ? { subtype } : {}),
+                  ...(entry.comment ? { comment: entry.comment } : {}),
+                };
+              }),
+              timeline: session.timeline,
+              stats: session.stats,
+            })),
+          );
+          setAggregateRows(aggregatePayload.rows ?? []);
+        },
+        error: (error) => {
+          const message = error instanceof Error ? error.message : "Zeiterfassung konnte nicht geladen werden.";
+          setLoadError(message || "Zeiterfassung konnte nicht geladen werden.");
+          setSessions([]);
+          setAggregateRows([]);
+        },
+        settled: () => {
+          setInitialLoadComplete(true);
+          setLoading(false);
+        },
+      },
+    );
+  }, [range]);
+
+  const changeRange = useCallback((next: ZeiterfassungRange) => {
+    if (next.from > next.to || (next.from === range.from && next.to === range.to)) return;
+    rangeRequests.current.select(next);
+    setLoading(true);
+    setSessions([]);
+    setAggregateRows([]);
+    setRange(next);
+  }, [range]);
 
   const refreshZeiterfassungSilently = useCallback(async () => {
     await loadZeiterfassungData({ showLoader: false });
@@ -1515,6 +1538,8 @@ export default function ZeiterfassungPage() {
 
   useEffect(() => {
     void loadZeiterfassungData({ showLoader: true });
+    const requests = rangeRequests.current;
+    return () => requests.invalidate();
   }, [loadZeiterfassungData]);
 
   useEffect(() => {
@@ -1651,7 +1676,7 @@ export default function ZeiterfassungPage() {
   const totalDays = dateGroups.length;
   const totalGmDays = dateGroups.reduce((s, g) => s + g.sessions.length, 0);
 
-  if (loading) {
+  if (loading && !initialLoadComplete) {
     return <ZeiterfassungPageSkeleton />;
   }
 
@@ -1659,6 +1684,7 @@ export default function ZeiterfassungPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      <AdminFilterControlStyles />
       <style>{`
         @keyframes ztFadeIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
         @keyframes ztBodyFade { from { opacity:0 } to { opacity:1 } }
@@ -1697,7 +1723,7 @@ export default function ZeiterfassungPage() {
         <div style={{ margin: "0 10px 10px", background: "#fff", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden" }}>
 
           {/* Toolbar */}
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
 
             {/* View switcher — two tabs only */}
             <div style={{ display: "flex", background: "rgba(0,0,0,0.04)", borderRadius: 8, padding: 3, gap: 2 }}>
@@ -1721,6 +1747,18 @@ export default function ZeiterfassungPage() {
                 style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, color: "#1a1a1a", fontFamily: "inherit" }} />
             </div>
 
+            <div role="group" aria-label="Zeiterfassungszeitraum" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginLeft: "auto" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(0,0,0,0.5)" }}>
+                Von
+                <AdminDatePicker value={range.from} maxDate={range.to} ariaLabel="Zeiterfassung von" onChange={(from) => changeRange({ ...range, from })} />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(0,0,0,0.5)" }}>
+                Bis
+                <AdminDatePicker value={range.to} minDate={range.from} ariaLabel="Zeiterfassung bis" onChange={(to) => changeRange({ ...range, to })} />
+              </label>
+              <button type="button" className="sm-plan-dropdown-trigger" style={{ width: "auto", whiteSpace: "nowrap" }} onClick={() => changeRange(defaultZeiterfassungRange())}>Letzte 30 Tage</button>
+            </div>
+
           </div>
 
           {/* Body — fade key forces re-mount on tab switch */}
@@ -1738,7 +1776,7 @@ export default function ZeiterfassungPage() {
                         ? "Zeiterfassung konnte nicht geladen werden."
                         : search
                           ? "Keine Einträge gefunden."
-                          : "Noch keine Zeiterfassungseinträge."}
+                          : "Keine Zeiterfassung im gewählten Zeitraum."}
                   </div>
                   <div style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", maxWidth: 320, lineHeight: 1.6 }}>
                     {loading
@@ -1747,9 +1785,14 @@ export default function ZeiterfassungPage() {
                         ? "Bitte erneut versuchen."
                         : search
                           ? "Versuche einen anderen Suchbegriff."
-                          : "Sobald GMs ihren Arbeitstag starten, erscheinen die Einträge hier."}
+                          : "Wähle einen anderen Zeitraum, um weitere Einträge zu sehen."}
                   </div>
                 </div>
+                {loadError && !loading && (
+                  <button type="button" className="sm-plan-dropdown-trigger" style={{ width: "auto" }} onClick={() => void loadZeiterfassungData({ showLoader: true })}>
+                    Erneut laden
+                  </button>
+                )}
               </div>
             ) : view === "tage" ? (
               <div style={{ padding: "4px 0 0" }}>

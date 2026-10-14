@@ -31,10 +31,11 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import { SMDurcharbeitMarketSmEditor } from "@/components/admin/sm/SMDurcharbeitMarketSmEditor";
 import { SmMarketImportModal } from "@/components/admin/sm/SmMarketImportModal";
 import { SmMarketUserSyncModal } from "@/components/admin/sm/SmMarketUserSyncModal";
 import { SmMarketDeactivationModal } from "@/components/admin/sm/SmMarketDeactivationModal";
-import { createSmMarket, fetchGmUsers, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket } from "@/lib/api/backend";
+import { createSmMarket, fetchGmUsers, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket, updateSMDurcharbeitMarketOwner } from "@/lib/api/backend";
 import type { ImportSmMarketsInput, SmMarketImportSummary, SmMarketRecord, SmMarketWeekdayHours } from "@/types/smMarkets";
 import { createSmWeeklyPlanDraft, readSmWeeklyPlanDraft, SM_PLANNING_DAYS, type SmWeeklyPlanDraft } from "@/lib/sm-market-weekly-planning";
 import type { GMRecord } from "@/types/gebietsmanager";
@@ -661,6 +662,7 @@ function MarketDetailDrawer({
   users,
   gmUsers,
   SMDurcharbeitReadOnly = false,
+  onSMDurcharbeitOwnerSave,
   onSave,
   onPlanningSave,
   onDeactivated,
@@ -671,6 +673,7 @@ function MarketDetailDrawer({
   users: SMRecord[];
   gmUsers: GMRecord[];
   SMDurcharbeitReadOnly?: boolean;
+  onSMDurcharbeitOwnerSave: (id: string | null, expectedUpdatedAt: string) => Promise<void>;
   onSave: (fields: MarketEditDraft) => Promise<void>;
   onPlanningSave: (hours: SmMarketWeekdayHours, expectedUpdatedAt?: string) => Promise<void>;
   onDeactivated: (market: SmMarketRecord) => void;
@@ -810,6 +813,7 @@ function MarketDetailDrawer({
       <div className="sm-market-scroll" style={{ minHeight: 0, flex: 1, overflowY: "auto", background: "#f5f5f7", padding: "16px" }}>
         {tab === "info" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            {SMDurcharbeitReadOnly ? <><InfoSection label="Durcharbeit"><EditInfoRow label="Standard-SM"><SMDurcharbeitMarketSmEditor market={market} users={users} canUpdate={canUpdate} onSave={onSMDurcharbeitOwnerSave} /></EditInfoRow></InfoSection><div className="sm-drawer-divider" /></> : null}
             {market.SMDurcharbeitSourceValues ? <><InfoSection label="Importdaten">{Object.entries(market.SMDurcharbeitSourceValues).map(([label, value]) => <InfoRow key={label} label={label} value={value || "—"} />)}</InfoSection><div className="sm-drawer-divider" /></> : null}
             <InfoSection label="Identität">
               {editing ? <EditInfoRow label="Name"><input className="sm-market-edit-field" value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></EditInfoRow> : <InfoRow label="Name" value={market.name} />}
@@ -827,7 +831,7 @@ function MarketDetailDrawer({
             </InfoSection>
             <div className="sm-drawer-divider" />
             <InfoSection label="Zuordnung & Klassifikation">
-              {editing ? <EditInfoRow label="Stammmarkt von"><AccountAssignmentSelect value={draft.assignedSmUserId} users={assignableSmUsers} onChange={(value) => updateDraft("assignedSmUserId", value)} /></EditInfoRow> : <InfoRow label="Stammmarkt von" value={ownerDisplayName} />}
+              {SMDurcharbeitReadOnly ? null : editing ? <EditInfoRow label="Stammmarkt von"><AccountAssignmentSelect value={draft.assignedSmUserId} users={assignableSmUsers} onChange={(value) => updateDraft("assignedSmUserId", value)} /></EditInfoRow> : <InfoRow label="Stammmarkt von" value={ownerDisplayName} />}
               {linkedSmUser && importedSmName && normalize(importedSmName) !== normalize(ownerDisplayName) ? <InfoRow label="Importierter SM-Name" value={importedSmName} /> : null}
               {editing ? <EditInfoRow label="Field Service Gebietsleiter"><AccountAssignmentSelect value={draft.fieldServiceManagerUserId} users={assignableGmUsers} onChange={(value) => updateDraft("fieldServiceManagerUserId", value)} /></EditInfoRow> : <InfoRow label="Field Service Gebietsleiter" value={fieldServiceDisplayName} />}
               {editing ? <EditInfoRow label="Markt"><input className="sm-market-edit-field" value={draft.chain} onChange={(event) => updateDraft("chain", event.target.value)} /></EditInfoRow> : <InfoRow label="Markt" value={marketChain(market)} />}
@@ -1518,6 +1522,10 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
           key={selectedMarket.id}
           market={selectedMarket}
           SMDurcharbeitReadOnly={SMDurcharbeit}
+          onSMDurcharbeitOwnerSave={async (SMDurcharbeitSmUserId, expectedUpdatedAt) => {
+            const updated = await updateSMDurcharbeitMarketOwner(selectedMarket.id, { SMDurcharbeitSmUserId, expectedUpdatedAt });
+            setMarkets(current => current.map(market => market.id === selectedMarket.id ? updated : market));
+          }}
           users={users}
           gmUsers={gmUsers}
           onSave={(fields) => handleMarketSave(selectedMarket.id, fields)}

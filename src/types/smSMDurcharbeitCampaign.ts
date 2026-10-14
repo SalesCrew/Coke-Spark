@@ -9,6 +9,7 @@ export type SMDurcharbeitTarget = {
   startDate: string; endDate: string; month: string;
   market: { id: string; internalId: string; name: string; chain: string; address: string; postalCode: string; city: string; region: string };
   smUserId: string | null; smName: string; eligibility: "required" | "waived"; waiverReason: string | null;
+  SMDurcharbeitSmOverride?: boolean;
   completed: boolean; available: boolean; draftVisitId: string | null; latestVisitId: string | null; latestSubmissionId: string | null;
   latestVisitSmUserId: string | null;
   completedAt: string | null; visitCount: number;

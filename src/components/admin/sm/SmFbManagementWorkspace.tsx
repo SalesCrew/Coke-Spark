@@ -1,5 +1,9 @@
 "use client";
 
+import { customerAdminReadOwner } from "@/lib/auth/customerPageKey";
+
+import { useCustomerPageAccess } from "@/hooks/useCustomerPageAccess";
+
 import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQuestionnaireBadge";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -18,7 +22,7 @@ import { SMDurcharbeitTimeHistory } from "@/components/sm/SMDurcharbeitTimeHisto
 import { SMDurcharbeitVisitReference } from "@/lib/sm/SMDurcharbeitVisitReference";
 import styles from "./SmFbManagementWorkspace.module.css";
 
-const readOwner = () => { const user = readAuthSession()?.user; return user && ["admin", "sm_admin"].includes(user.role) ? user.id : null; };
+const readOwner = () => customerAdminReadOwner(readAuthSession()?.user, "sm_fbmanagement");
 const serverOwner = () => null;
 const dateLabel = (date: string) => new Intl.DateTimeFormat("de-AT", { timeZone: "Europe/Vienna", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(date.length === 10 ? `${date}T12:00:00Z` : date));
 const errorText = (error: unknown) => error instanceof Error ? error.message : "Die Anfrage ist fehlgeschlagen. Bitte erneut versuchen.";
@@ -111,6 +115,7 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
 }
 
 function SmManagementDrawer({ id, api, onClose, onSaved, onTimeSaved }: { id: string; api: SmManagementApi; onClose: () => void; onSaved: () => void; onTimeSaved: () => void }) {
+  const { canUpdate } = useCustomerPageAccess("sm_fbmanagement");
   const [detail, setDetail] = useState<SmManagementDetail | null>(null), [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true), [editing, setEditing] = useState(false), [timeEditing, setTimeEditing] = useState(false), [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Record<string, SmVisitAnswer>>({}), [reason, setReason] = useState("");
@@ -197,7 +202,7 @@ function SmManagementDrawer({ id, api, onClose, onSaved, onTimeSaved }: { id: st
   return createPortal(<div className={styles.backdrop} onClick={event => { if (event.target === event.currentTarget) close(); }}>
     <div ref={dialog} className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="sm-management-title" tabIndex={-1}>
       <header className={styles.drawerHeader}><div className={styles.headerLine}><div><p className={styles.eyebrow}>Fragebogen · {editing ? "Korrektur" : "Abgeschlossen"}</p><h2 id="sm-management-title">{visit?.marketName ?? "Fragebogen laden"}</h2><p className={styles.hint}>{visit?.address}</p>{visit?.SMDurcharbeitContext ? <p className={styles.hint} style={{ color: "#2563eb" }}>{visit.SMDurcharbeitContext.campaignName} · {new Intl.DateTimeFormat("de-AT", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${visit.SMDurcharbeitContext.month}T12:00:00Z`))}</p> : null}</div><button className={styles.iconButton} aria-label="Fragebogen schließen" disabled={busy || uploading} onClick={close}><X size={15} /></button></div>
-        {visit ? <div className={styles.meta}><div><small>SM</small><span>{visit.smName}</span></div><div><small>Besuch</small><span>{visit.startedAt ? dateLabel(visit.startedAt) : "Datum nicht erfasst"}</span></div><div><small>Start – Ende</small><span className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</span>{timeExecution && visit.startedAt && visit.completedAt && !editing ? <button type="button" className={styles.timeEditButton} onClick={() => setTimeEditing(value => !value)} disabled={busy || uploading} aria-label="Start und Endzeit bearbeiten"><Pencil size={11} /> Bearbeiten</button> : null}</div><div><small>Fragebogen</small><span>{visit.questionnaireName} · V{visit.questionnaireVersion}</span><SMDurcharbeitQuestionnaireBadge scope={visit.SMDurcharbeitCatalogScope} /></div></div> : null}
+        {visit ? <div className={styles.meta}><div><small>SM</small><span>{visit.smName}</span></div><div><small>Besuch</small><span>{visit.startedAt ? dateLabel(visit.startedAt) : "Datum nicht erfasst"}</span></div><div><small>Start – Ende</small><span className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</span>{canUpdate && timeExecution && visit.startedAt && visit.completedAt && !editing ? <button type="button" className={styles.timeEditButton} onClick={() => setTimeEditing(value => !value)} disabled={busy || uploading} aria-label="Start und Endzeit bearbeiten"><Pencil size={11} /> Bearbeiten</button> : null}</div><div><small>Fragebogen</small><span>{visit.questionnaireName} · V{visit.questionnaireVersion}</span><SMDurcharbeitQuestionnaireBadge scope={visit.SMDurcharbeitCatalogScope} /></div></div> : null}
         {visit?.SMDurcharbeitContext ? <SMDurcharbeitTimeHistory visitId={visit.SMDurcharbeitContext.visitId} revision={visit.SMDurcharbeitContext.timeRevision ?? null} admin /> : null}
         {timeEditing && timeExecution && visit?.startedAt && visit.completedAt ? <div className={styles.timeEditor}>
           <SmVisitTimeEditor assignmentId={timeExecution} expectedRevision={visit.SMDurcharbeitContext?.timeRevision ?? undefined} visitId={visit.id} startedAt={visit.startedAt} completedAt={visit.completedAt}
@@ -226,7 +231,7 @@ function SmManagementDrawer({ id, api, onClose, onSaved, onTimeSaved }: { id: st
         {editing ? <><label className={styles.field}>Änderungsgrund · nicht der Antwortkommentar<textarea aria-label="Änderungsgrund" rows={2} maxLength={2000} disabled={busy || uploading || uncertain} value={reason} onChange={event => setReason(event.target.value)} placeholder="Warum wird die Antwort korrigiert?" /></label><div className={styles.actions}>
           <button className={styles.secondary} disabled={busy || uploading || uncertain} onClick={() => dirty ? setConfirm("cancel") : setEditing(false)}>Abbrechen</button>
           <button className={styles.primary} disabled={busy || uploading || (!uncertain && (!changes.length || reason.trim().length < 3))} onClick={() => void save()}>{busy || uploading ? <LoaderCircle size={13} className="animate-spin" /> : <Check size={13} />}{uploading ? "Fotos laden …" : uncertain ? "Speichern prüfen" : "Korrektur speichern"}</button>
-        </div></> : <div className={styles.actions}><span className={styles.hint}>Originaldaten bleiben im Verlauf erhalten.</span><button className={styles.primary} disabled={!detail || loading || needsReload || timeEditing} onClick={() => { setEditing(true); setSaved(false); setError(null); }}><Pencil size={12} />Antworten bearbeiten</button></div>}
+        </div></> : <div className={styles.actions}><span className={styles.hint}>Originaldaten bleiben im Verlauf erhalten.</span><button className={styles.primary} disabled={!canUpdate || !detail || loading || needsReload || timeEditing} onClick={() => { setEditing(true); setSaved(false); setError(null); }}><Pencil size={12} />Antworten bearbeiten</button></div>}
       </footer>
     </div>
   </div>, document.body);

@@ -1,5 +1,7 @@
 "use client";
 
+import { useCustomerPageAccess } from "@/hooks/useCustomerPageAccess";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -135,6 +137,7 @@ function SmModuleCard({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
+  const { canWrite, canUpdate } = useCustomerPageAccess();
   const [expanded, setExpanded] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -174,9 +177,9 @@ function SmModuleCard({
     <div className="sm-module-card" onContextMenu={openContextMenu}>
       {menuPosition && typeof document !== "undefined" ? createPortal(
         <div ref={menuRef} className="sm-context-menu" style={{ left: menuPosition.x, top: menuPosition.y }}>
-          <button type="button" onClick={() => { onDuplicate(); setMenuPosition(null); }}><FileText size={12} />Duplizieren</button>
+          <button type="button" onClick={() => { onDuplicate(); setMenuPosition(null); }} disabled={!canWrite}><FileText size={12} />Duplizieren</button>
           <div />
-          <button type="button" className="danger" onClick={() => { onDelete(); setMenuPosition(null); }}><Trash2 size={12} />Löschen</button>
+          <button type="button" className="danger" onClick={() => { onDelete(); setMenuPosition(null); }} disabled={!canUpdate}><Trash2 size={12} />Löschen</button>
         </div>,
         document.body,
       ) : null}
@@ -200,7 +203,7 @@ function SmModuleCard({
           <span>{row.questions.length} {row.questions.length === 1 ? "Frage" : "Fragen"}</span>
           <span className={questionnaireCount > 0 ? "is-used" : ""}>{questionnaireCount > 0 ? `In ${questionnaireCount} Fragebogen` : "Nicht verwendet"}</span>
         </div>
-        <button type="button" className="sm-edit-icon" aria-label={`${row.name} bearbeiten`} onClick={(event) => { event.stopPropagation(); onEdit(); }}><Pencil size={12} strokeWidth={1.8} /></button>
+        <button type="button" className="sm-edit-icon" aria-label={`${row.name} bearbeiten`} onClick={(event) => { event.stopPropagation(); onEdit(); }} disabled={!canUpdate}><Pencil size={12} strokeWidth={1.8} /></button>
         <ChevronDown className={expanded ? "is-open" : ""} size={14} strokeWidth={1.8} />
       </div>
       {!expanded && fingerprints.length > 0 ? (
@@ -216,7 +219,7 @@ function SmModuleCard({
               {item.required ? <span className="sm-required">Pflicht</span> : null}
             </div>
           ))}
-          <div className="sm-card-footer"><button type="button" className="sm-dark-button" onClick={onEdit}><Pencil size={10} strokeWidth={2} />Bearbeiten</button></div>
+          <div className="sm-card-footer"><button type="button" className="sm-dark-button" onClick={onEdit} disabled={!canUpdate}><Pencil size={10} strokeWidth={2} />Bearbeiten</button></div>
         </div>
       </div>
     </div>
@@ -236,6 +239,7 @@ function SmQuestionnaireCard({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
+  const { canWrite, canUpdate } = useCustomerPageAccess();
   const [expanded, setExpanded] = useState(false);
   const assignedModules = row.moduleIds.map((id) => modules.find((moduleRow) => moduleRow.id === id)).filter((moduleRow): moduleRow is SmModule => Boolean(moduleRow));
   const count = assignedModules.reduce((sum, moduleRow) => sum + moduleRow.questions.length, 0);
@@ -246,7 +250,7 @@ function SmQuestionnaireCard({
           <strong>{row.name}</strong>
           <span className={`sm-status-pill ${row.status}`}>{row.status === "active" ? "Aktiv" : "Inaktiv"}</span>
           <span className="sm-version-pill">Version {row.version}</span>
-          <button type="button" className="sm-plain-icon" aria-label={`${row.name} bearbeiten`} onClick={onEdit}><Pencil size={13} /></button>
+          <button type="button" className="sm-plain-icon" aria-label={`${row.name} bearbeiten`} onClick={onEdit} disabled={!canUpdate}><Pencil size={13} /></button>
           <button type="button" className="sm-plain-icon" aria-label={`${row.name} aufklappen`} onClick={() => setExpanded((value) => !value)}><ChevronDown className={expanded ? "is-open" : ""} size={14} /></button>
         </div>
         <div className="sm-module-pills">{assignedModules.map((moduleRow) => <span key={moduleRow.id}>{moduleRow.name}</span>)}</div>
@@ -255,8 +259,8 @@ function SmQuestionnaireCard({
           <span>{count} Fragen</span>
           <span>SM Einsatzfragebogen</span>
           <div className="sm-questionnaire-actions">
-            <button type="button" onClick={onDuplicate}>Duplizieren</button>
-            <button type="button" className="danger" onClick={onDelete}>Löschen</button>
+            <button type="button" onClick={onDuplicate} disabled={!canWrite}>Duplizieren</button>
+            <button type="button" className="danger" onClick={onDelete} disabled={!canUpdate}>Löschen</button>
           </div>
         </div>
       </div>
@@ -278,6 +282,7 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
   ModuleEditor?: typeof SmModuleEditor;
   QuestionnaireEditor?: typeof SmFragebogenEditor;
 } = {}) {
+  const { canWrite, canUpdate } = useCustomerPageAccess();
   const eventNamespace = scope === "SMDurcharbeit" ? "SMDurcharbeit" : "sm-fragebogen";
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("module");
   const [search, setSearch] = useState("");
@@ -339,8 +344,8 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
   }, [isExporting, modules, questionnaires, scope]);
 
   useEffect(() => {
-    const openModule = () => setEditingModule(null);
-    const openQuestionnaire = () => setEditingQuestionnaire(null);
+    const openModule = () => { if (canWrite) setEditingModule(null); };
+    const openQuestionnaire = () => { if (canWrite) setEditingQuestionnaire(null); };
     const exportWorkspaceEvent = () => { void exportWorkspace(); };
     window.addEventListener(`${eventNamespace}:openModuleCreate`, openModule);
     window.addEventListener(`${eventNamespace}:openQuestionnaireCreate`, openQuestionnaire);
@@ -350,7 +355,7 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
       window.removeEventListener(`${eventNamespace}:openQuestionnaireCreate`, openQuestionnaire);
       window.removeEventListener(`admin:${eventNamespace}:export`, exportWorkspaceEvent);
     };
-  }, [exportWorkspace, eventNamespace]);
+  }, [exportWorkspace, eventNamespace, canWrite]);
 
   useEffect(() => {
     if (!typeMenuOpen) return;
@@ -379,6 +384,7 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
   };
 
   const duplicateModule = async (row: SmModule) => {
+    if (!canWrite) return;
     try {
       const saved = await saveSmQuestionnaireModule({
         ...structuredClone(row),
@@ -394,6 +400,7 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
   };
 
   const removeModule = async (row: SmModule) => {
+    if (!canUpdate) return;
     if (!window.confirm(`Modul „${row.name}“ wirklich löschen?`)) return;
     try {
       await deleteSmQuestionnaireModule(row.id, scope);
@@ -404,6 +411,7 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
   };
 
   const duplicateQuestionnaire = async (row: SmQuestionnaire) => {
+    if (!canWrite) return;
     try {
       const saved = await persistSmQuestionnaire({
         ...row,
@@ -420,6 +428,7 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
   };
 
   const removeQuestionnaire = async (row: SmQuestionnaire) => {
+    if (!canUpdate) return;
     if (!window.confirm(`Fragebogen „${row.name}“ wirklich löschen?`)) return;
     try {
       await deleteSmQuestionnaire(row.id, scope);
@@ -470,7 +479,7 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
               key={row.id}
               row={row}
               questionnaireCount={questionnaires.filter((item) => item.moduleIds.includes(row.id)).length}
-              onEdit={() => setEditingModule(row)}
+              onEdit={() => { if (canUpdate) setEditingModule(row); }}
               onDuplicate={() => { void duplicateModule(row); }}
               onDelete={() => { void removeModule(row); }}
             />
@@ -486,7 +495,7 @@ export function SmFragebogenWorkspace({ scope = "standard", ModuleEditor = SmMod
             key={row.id}
             row={row}
             modules={modules}
-            onEdit={() => setEditingQuestionnaire(row)}
+            onEdit={() => { if (canUpdate) setEditingQuestionnaire(row); }}
             onDuplicate={() => { void duplicateQuestionnaire(row); }}
             onDelete={() => { void removeQuestionnaire(row); }}
           />)}</div> : <div className="sm-empty-card"><ClipboardList size={22} /><strong>Keine Fragebogen vorhanden</strong><span>Erstelle einen Fragebogen um SM-Module zusammenzufassen.</span></div>

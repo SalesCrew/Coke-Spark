@@ -1,5 +1,7 @@
 "use client";
 
+import { useCustomerPageAccess } from "@/hooks/useCustomerPageAccess";
+
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -213,6 +215,7 @@ function RecipientActionMenu({
   recipient: Recipient;
   onCompose: () => void;
 }) {
+  const { canWrite } = useCustomerPageAccess("sm_nachrichten");
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -272,7 +275,7 @@ function RecipientActionMenu({
       </button>
       {open && position && typeof document !== "undefined" ? createPortal(
         <div ref={menuRef} className="sm-message-recipient-menu" style={position} role="menu">
-          <button type="button" role="menuitem" onClick={() => { onCompose(); setOpen(false); }}>Neue Nachricht schreiben</button>
+          <button type="button" role="menuitem" onClick={() => { onCompose(); setOpen(false); }} disabled={!canWrite}>Neue Nachricht schreiben</button>
         </div>,
         document.body,
       ) : null}
@@ -361,6 +364,7 @@ function RecipientTable({
 }
 
 function ReadSummary({ message, messages, selectedRecipientId, onResend }: { message: MessageCampaign; messages: MessageCampaign[]; selectedRecipientId: string | null; onResend: () => void }) {
+  const { canWrite } = useCustomerPageAccess("sm_nachrichten");
   const read = readCount(message);
   const total = message.recipients.length;
   const percent = readPercent(message);
@@ -388,7 +392,7 @@ function ReadSummary({ message, messages, selectedRecipientId, onResend }: { mes
         </div>
         <div className="sm-message-visibility-summary">{visibilityLabel(message.visibleAfterReadDays)}</div>
         <div className="sm-message-summary-actions">
-          <button type="button" onClick={onResend}><RotateCcw size={11} /> Erneut senden</button>
+          <button type="button" onClick={onResend} disabled={!canWrite}><RotateCcw size={11} /> Erneut senden</button>
           <button type="button" aria-label="Weitere Aktionen"><MoreHorizontal size={13} /></button>
         </div>
       </section>
@@ -420,6 +424,7 @@ function Composer({
   recipients: Recipient[];
   onSend: (subject: string, body: string, recipientIds: string[], idempotencyKey: string, visibleAfterReadDays: number) => Promise<void>;
 }) {
+  const { canWrite } = useCustomerPageAccess("sm_nachrichten");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [recipientIds, setRecipientIds] = useState<string[]>([]);
@@ -434,7 +439,7 @@ function Composer({
 
   const displayedIds = recipientIds.slice(0, 2);
   const remaining = recipientIds.length - displayedIds.length;
-  const canSend = !sending && subject.trim().length > 0 && body.trim().length > 0 && recipientIds.length > 0;
+  const canSend = canWrite && !sending && subject.trim().length > 0 && body.trim().length > 0 && recipientIds.length > 0;
 
   useEffect(() => {
     idempotencyKeyRef.current = null;
@@ -534,13 +539,14 @@ function Composer({
               </div>
             ) : null}
           </div>
-          <button type="button" className="sm-message-send-button" disabled={!canSend} onClick={() => void submit()}><Send size={12} /> {sending ? "Wird gesendet…" : "Nachricht senden"}</button>
+          <button type="button" className="sm-message-send-button" disabled={!canWrite || (!canSend)} onClick={() => void submit()}><Send size={12} /> {sending ? "Wird gesendet…" : "Nachricht senden"}</button>
       </div>
     </section>
   );
 }
 
 export function SmNachrichtenWorkspace() {
+  const { canWrite } = useCustomerPageAccess();
   const [messages, setMessages] = useState<MessageCampaign[]>([]);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -607,11 +613,13 @@ export function SmNachrichtenWorkspace() {
   };
 
   const composeForRecipient = (recipientId: string) => {
+    if (!canWrite) return;
     setSelectedRecipientId(recipientId);
     window.dispatchEvent(new CustomEvent("sm-nachrichten:openComposer", { detail: { recipientId } }));
   };
 
   const handleSend = async (subject: string, body: string, recipientIds: string[], idempotencyKey: string, visibleAfterReadDays: number) => {
+    if (!canWrite) return;
     setError(null);
     setNotice(null);
     try {

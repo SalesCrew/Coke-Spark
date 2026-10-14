@@ -2,7 +2,7 @@
 
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Check, ChevronDown, Copy, Download, Eye, FileSpreadsheet, KeyRound, Loader2, PenLine, Plus, RefreshCw, Search, ShieldCheck, Upload, X } from "lucide-react";
-import { ADMIN_NAV_GROUPS } from "@/components/ui/adminNavigation";
+import { getCustomerPermissionGroups, clearCustomerWorkspacePermissions, type AdminWorkspace } from "@/components/ui/adminNavigation";
 import { buildPreviewGrid, excelColToIndex, getColHeader, getColSample, isValidColLetter, readWorkbook } from "@/utils/marketImport";
 import {
   BackendApiError,
@@ -58,7 +58,7 @@ const PERMISSION_ACTIONS: Array<{ label: string; value: PermissionAction; icon: 
 
 const ADMIN_FONT_STACK = "var(--font-inter), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
-const PAGE_CATALOG = ADMIN_NAV_GROUPS.flatMap((group) =>
+const PAGE_CATALOG = getCustomerPermissionGroups().flatMap((group) =>
   group.items
     .filter((item) => !item.adminOnly)
     .map((item) => ({
@@ -67,6 +67,7 @@ const PAGE_CATALOG = ADMIN_NAV_GROUPS.flatMap((group) =>
       label: item.label,
       route: item.href,
       icon: item.icon,
+      workspace: item.workspace ?? "gm",
     })),
 );
 
@@ -112,7 +113,18 @@ function normalizePermissions(value: unknown): Record<string, PermissionAction[]
   }, {});
 }
 
+function PermissionWorkspaceSwitch({ value, onChange }: { value: AdminWorkspace; onChange: (value: AdminWorkspace) => void }) {
+  return <div role="tablist" aria-label="Bereich der Kundenrechte" style={{ display: "inline-flex", gap: 3, padding: 3, marginBottom: 12, borderRadius: 8, background: "rgba(15,23,42,.045)", border: "1px solid rgba(15,23,42,.06)" }}>
+    {(["gm", "sm"] as const).map(workspace => <button key={workspace} type="button" role="tab" aria-selected={value === workspace} tabIndex={value === workspace ? 0 : -1} onClick={() => onChange(workspace)} onKeyDown={event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault(); const next = event.key === "Home" ? "gm" : event.key === "End" ? "sm" : value === "gm" ? "sm" : "gm"; onChange(next);
+      (event.currentTarget.parentElement?.querySelector(`[data-workspace="${next}"]`) as HTMLButtonElement | null)?.focus();
+    }} data-workspace={workspace} style={{ height: 27, minWidth: 50, padding: "0 12px", border: 0, borderRadius: 6, background: value === workspace ? "#fff" : "transparent", color: value === workspace ? "#0f172a" : "rgba(15,23,42,.48)", boxShadow: value === workspace ? "0 1px 3px rgba(15,23,42,.08)" : undefined, fontSize: 11, fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>{workspace.toUpperCase()}</button>)}
+  </div>;
+}
+
 export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAccessPanelProps) {
+  const [permissionWorkspace, setPermissionWorkspace] = useState<AdminWorkspace>("gm");
   const [customers, setCustomers] = useState<CustomerAccessUser[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<CustomerAccessForm>(() => emptyForm());
@@ -901,7 +913,7 @@ export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAcces
                 </div>
                 <button
                   type="button"
-                  onClick={() => setForm((prev) => ({ ...prev, permissions: {} }))}
+                  onClick={() => setForm(prev => ({ ...prev, permissions: clearCustomerWorkspacePermissions(prev.permissions, permissionWorkspace) }))}
                   style={{
                     height: 28,
                     borderRadius: 8,
@@ -919,8 +931,9 @@ export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAcces
                 </button>
               </div>
 
+              <PermissionWorkspaceSwitch value={permissionWorkspace} onChange={setPermissionWorkspace} />
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {ADMIN_NAV_GROUPS.map((group) => (
+                {getCustomerPermissionGroups(permissionWorkspace).map((group) => (
                   <section key={group.label}>
                     <div style={{ marginBottom: 7, fontSize: 10, fontWeight: 900, color: "rgba(15,23,42,0.42)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                       {group.label}
@@ -990,6 +1003,8 @@ export function CustomerAccessPanel({ open, anchorRect, onClose }: CustomerAcces
                                   <button
                                     key={option.value}
                                     type="button"
+                                    aria-pressed={active}
+                                    aria-label={`${page.label}: ${option.label}`}
                                     onClick={() => togglePermissionAction(page.pageKey, option.value)}
                                     style={{
                                       border: "none",
@@ -1186,7 +1201,7 @@ function describePermissions(permissions: Record<string, PermissionAction[]>): s
     .filter(([, actions]) => actions.length > 0)
     .map(([pageKey, actions]) => {
       const page = PAGE_CATALOG.find((entry) => entry.pageKey === pageKey);
-      const label = page?.label ?? pageKey;
+      const label = page ? `${page.workspace.toUpperCase()} · ${page.label}` : pageKey;
       return `${label}: ${actions.map(getPermissionActionLabel).join(", ")}`;
     });
   return rows.length > 0 ? rows.join(" | ") : "Keine Rechte";
@@ -1253,6 +1268,7 @@ async function exportCustomerAccessUsers(
 }
 
 function CustomerAccessImportModal({ onClose, onImported }: { onClose: () => void; onImported: (createdUsers: CustomerAccessUser[]) => void }) {
+  const [permissionWorkspace, setPermissionWorkspace] = useState<AdminWorkspace>("gm");
   const [step, setStep] = useState<CustomerImportStep>("upload");
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1747,8 +1763,9 @@ function CustomerAccessImportModal({ onClose, onImported }: { onClose: () => voi
                             ))}
                           </div>
 
+                          <PermissionWorkspaceSwitch value={permissionWorkspace} onChange={setPermissionWorkspace} />
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-                            {ADMIN_NAV_GROUPS.map((group) => (
+                            {getCustomerPermissionGroups(permissionWorkspace).map((group) => (
                               <section key={`${row.id}-${group.label}`} style={{ minWidth: 0 }}>
                                 <div style={{ marginBottom: 7, fontSize: 9, fontWeight: 900, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(15,23,42,0.38)" }}>{group.label}</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -1775,6 +1792,8 @@ function CustomerAccessImportModal({ onClose, onImported }: { onClose: () => voi
                                               <button
                                                 key={option.value}
                                                 type="button"
+                                                aria-pressed={active}
+                                                aria-label={`${item.label}: ${option.label}`}
                                                 onClick={() => toggleImportedPermissionAction(row.id, item.pageKey, option.value)}
                                                 style={{ border: "none", borderRadius: 6, background: active ? "linear-gradient(180deg,#0f172a,#020617)" : "transparent", color: active ? "#fff" : "rgba(15,23,42,0.55)", fontSize: 9, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3, boxShadow: active ? "inset 0 1px 0 rgba(255,255,255,0.20),0 2px 4px rgba(15,23,42,0.14)" : undefined }}
                                               >

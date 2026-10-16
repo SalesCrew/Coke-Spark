@@ -49,6 +49,14 @@ export type SmOosConfig = {
   nichtBehobenAnswer?: string;
 };
 
+export type SmBasicActivityOutcome = "yes" | "partial" | "no";
+export type SmBasicActivityConfig = {
+  enabled: boolean;
+  answerOutcomes?: Record<string, SmBasicActivityOutcome>;
+  answeredOutcome?: SmBasicActivityOutcome;
+  rules?: Array<{ kind: "text"; value: string; outcome: SmBasicActivityOutcome } | { kind: "range"; min: number; max: number; outcome: SmBasicActivityOutcome }>;
+};
+
 export type SmQuestion = {
   id: string;
   text: string;

@@ -1,19 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import {
   AlertCircle,
-  CalendarDays,
-  CheckCircle2,
-  ClipboardCheck,
   RefreshCw,
-  Store,
 } from "lucide-react";
 
 import { BackendApiError, fetchSmDashboard } from "@/lib/api/backend";
 import { AdminDatePicker, AdminDropdown, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
 import { SmDashboardSkeleton } from "./SmDashboardSkeleton";
+import { smDashboardOverviewExportRows } from "@/lib/sm/dashboardOverviewExport";
+import { SmDashboardOverview } from "./SmDashboardOverview";
+import { reconcileSmDashboardFilters, smDashboardFilterOptions, type SmDashboardDimension } from "@/lib/sm/dashboardFilters";
 import type {
   SmDashboardDimensionRow,
   SmDashboardFilterOption,
@@ -27,7 +25,6 @@ const GREEN = "#11965a";
 const AMBER = "#d97706";
 
 type DashboardFilters = {
-  SMDurcharbeitCatalogScope: "" | "standard" | "SMDurcharbeit";
   from: string;
   to: string;
   region: string;
@@ -49,7 +46,7 @@ function viennaToday(): string {
 
 function initialFilters(): DashboardFilters {
   const to = viennaToday();
-  return { SMDurcharbeitCatalogScope: "", from: `${to.slice(0, 7)}-01`, to, region: "", chain: "", smUserId: "", marketId: "" };
+  return { from: `${to.slice(0, 7)}-01`, to, region: "", chain: "", smUserId: "", marketId: "" };
 }
 
 function formatNumber(value: number): string {
@@ -86,53 +83,24 @@ function progressWidth(value: number | null): string {
   return `${Math.max(0, Math.min(100, value ?? 0))}%`;
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  subdetail,
-  tone = "neutral",
-  progress,
-  icon,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  subdetail?: string;
-  tone?: "neutral" | "red" | "green" | "amber";
-  progress: number | null;
-  icon: ReactNode;
-}) {
-  return (
-    <article className={`sm-live-metric is-${tone}`}>
-      <div className="sm-live-metric-top">
-        <span className="sm-live-metric-icon">{icon}</span>
-        <span className="sm-live-metric-label">{label}</span>
-      </div>
-      <strong className="sm-live-metric-value">{value}</strong>
-      <p>{detail}</p>
-      {subdetail ? <small>{subdetail}</small> : null}
-      <span className="sm-live-progress" aria-hidden="true"><i style={{ width: progressWidth(progress) }} /></span>
-    </article>
-  );
-}
-
 function FilterSelect({
   label,
   value,
   options,
   placeholder,
   onChange,
+  wide = false,
 }: {
   label: string;
   value: string;
   options: SmDashboardFilterOption[];
   placeholder: string;
   onChange: (value: string) => void;
+  wide?: boolean;
 }) {
   const filterOptions = useMemo(() => [{ value: "", label: placeholder }, ...options], [options, placeholder]);
   return (
-    <div className="sm-live-filter">
+    <div className={`sm-live-filter${wide ? " is-market" : ""}`}>
       <span>{label}</span>
       <AdminDropdown ariaLabel={label} value={value} options={filterOptions} placeholder={placeholder} onChange={onChange} searchable={options.length > 10} />
     </div>
@@ -180,22 +148,32 @@ function DimensionTable({ title, subtitle, rows, emptyLabel }: {
 async function exportDashboardWorkbook(payload: SmDashboardPayload) {
   const XLSX = await import("xlsx-js-style");
   const workbook = XLSX.utils.book_new();
-  const { summary } = payload;
+  const rows = smDashboardOverviewExportRows(payload);
+  const filterLabels = (["region", "chain", "smUserId", "marketId"] as const).map(key => {
+    const options = key === "region" ? payload.filterOptions.regions : key === "chain" ? payload.filterOptions.chains : key === "smUserId" ? payload.filterOptions.sms : payload.filterOptions.markets;
+    const selected = payload.meta.filters[key];
+    return [key === "region" ? "Region" : key === "chain" ? "Handelskette" : key === "smUserId" ? "Merchandiser" : "Markt", selected ? options.find(option => option.value === selected)?.label ?? selected : "Alle"];
+  });
   const overview = XLSX.utils.aoa_to_sheet([
-    ["Shelf Merchandising · Live OOS-Auswertung"],
+    ["Shelf Merchandising · Dashboard"],
     ["Zeitraum", `${formatDate(payload.meta.from)} – ${formatDate(payload.meta.to)}`],
     ["Berechnet", new Date(payload.meta.generatedAt).toLocaleString("de-AT", { timeZone: payload.meta.timezone })],
+    ...filterLabels,
     [],
-    ["Kennzahl", "Wert", "Zähler", "Nenner"],
-    ["Abgeschlossene Besuche", summary.completedVisits, summary.completedVisits, "—"],
-    ["Besuchte Märkte", summary.submittedMarkets, summary.submittedMarkets, "—"],
-    ["OOS gefunden", summary.foundCases, summary.foundCases, summary.classifiedChecks],
-    ["OOS-Quote", summary.foundRate === null ? "nicht verfügbar" : summary.foundRate / 100, summary.foundCases, summary.classifiedChecks],
-    ["OOS behoben", summary.fixedRate === null ? "nicht erforderlich" : summary.fixedRate / 100, summary.fixedCases, summary.foundCases],
-    ["Märkte mit OOS", summary.affectedMarketRate === null ? "nicht verfügbar" : summary.affectedMarketRate / 100, summary.marketsWithOos, summary.observedMarkets],
-    ["Offene Behebungsdokumentation", summary.openRemediationDocumentation, summary.openRemediationDocumentation, summary.foundCases],
+    ["Kennzahl", "Wert", "Zähler", "Nenner", "Einheit"],
+    ...rows.map(row => [row.label, row.value == null ? "nicht verfügbar" : row.unit.startsWith("%") ? row.value / 100 : row.value, row.numerator ?? "—", row.denominator ?? "—", row.unit]),
+    [],
+    ["ZE-Abdeckung", `${payload.overview?.activity.timedVisits ?? 0} von ${payload.overview?.activity.visits ?? 0} Besuchen`],
+    ["Kategorieprüfungen", payload.overview?.performance.categoryChecks ?? 0],
+    ["Fehlende Behebungsantworten", payload.overview?.performance.missingRemediationCases ?? 0],
+    ["Steigerung", "Zurückgewonnener Anteil aller Kategorieprüfungen; kein relativer Vorher-/Nachher-Vergleich."],
+    ["Leistungsstunden", "Summe dokumentierter ZE; Stunden/Besuch nur bei vollständiger ZE-Abdeckung."],
   ]);
-  overview["!cols"] = [{ wch: 32 }, { wch: 24 }, { wch: 14 }, { wch: 14 }];
+  rows.forEach((row, index) => {
+    const cell = overview[XLSX.utils.encode_cell({ r: 9 + index, c: 1 })];
+    if (cell?.t === "n") cell.z = row.unit.startsWith("%") ? "0.0%" : row.unit === "Anzahl" ? "#,##0" : "0.0";
+  });
+  overview["!cols"] = [{ wch: 45 }, { wch: 58 }, { wch: 14 }, { wch: 14 }, { wch: 22 }];
   const categories = XLSX.utils.json_to_sheet(payload.categories.map((row) => ({
     Kategorie: row.label,
     "OOS-Prüfungen": row.classifiedChecks,
@@ -231,15 +209,22 @@ async function exportDashboardWorkbook(payload: SmDashboardPayload) {
 export function SmDashboardWorkspace() {
   const [filters, setFilters] = useState<DashboardFilters>(() => initialFilters());
   const [payload, setPayload] = useState<SmDashboardPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const requestKey = useMemo(() => JSON.stringify({ filters, refreshKey }), [filters, refreshKey]);
+  const [requestState, setRequestState] = useState<{ key: string; error: string | null }>({ key: "", error: null });
+  const pending = requestState.key !== requestKey;
+  const loading = pending && !payload;
+  const refreshing = pending && Boolean(payload);
+  const error = pending ? null : requestState.error;
   const requestIdRef = useRef(0);
   const payloadRef = useRef<SmDashboardPayload | null>(null);
 
   const updateFilter = useCallback(<K extends keyof DashboardFilters>(key: K, value: DashboardFilters[K]) => {
-    setFilters((current) => ({ ...current, [key]: value }));
+    setFilters((current) => {
+      const next = { ...current, [key]: value };
+      const contexts = payloadRef.current?.filterOptions.marketContexts;
+      return contexts && key !== "from" && key !== "to" ? reconcileSmDashboardFilters(next, contexts, key as SmDashboardDimension) : next;
+    });
   }, []);
 
   useEffect(() => {
@@ -249,7 +234,7 @@ export function SmDashboardWorkspace() {
   useEffect(() => {
     const requestId = ++requestIdRef.current;
     const query: SmDashboardQuery = {
-      SMDurcharbeitCatalogScope: filters.SMDurcharbeitCatalogScope || undefined,
+      SMDurcharbeitCatalogScope: "standard",
       from: filters.from,
       to: filters.to,
       ...(filters.region ? { region: filters.region } : {}),
@@ -257,37 +242,42 @@ export function SmDashboardWorkspace() {
       ...(filters.smUserId ? { smUserId: filters.smUserId } : {}),
       ...(filters.marketId ? { marketId: filters.marketId } : {}),
     };
-    setError(null);
-    if (payloadRef.current) setRefreshing(true);
-    else setLoading(true);
     void fetchSmDashboard(query)
       .then((nextPayload) => {
         if (requestId !== requestIdRef.current) return;
+        const contexts = nextPayload.filterOptions.marketContexts;
+        const reconciled = contexts ? reconcileSmDashboardFilters(filters, contexts) : filters;
+        if (["region", "chain", "smUserId", "marketId"].some(key => reconciled[key as SmDashboardDimension] !== filters[key as SmDashboardDimension])) {
+          setFilters(reconciled);
+          return;
+        }
         setPayload(nextPayload);
+        setRequestState({ key: requestKey, error: null });
       })
       .catch((nextError: unknown) => {
         if (requestId !== requestIdRef.current) return;
-        setError(apiErrorMessage(nextError));
-      })
-      .finally(() => {
-        if (requestId !== requestIdRef.current) return;
-        setLoading(false);
-        setRefreshing(false);
+        setRequestState({ key: requestKey, error: apiErrorMessage(nextError) });
       });
-  }, [filters, refreshKey]);
+    return () => { if (requestIdRef.current === requestId) requestIdRef.current += 1; };
+  }, [filters, refreshKey, requestKey]);
 
   useEffect(() => {
-    const excelHandler = () => {
-      if (payloadRef.current) void exportDashboardWorkbook(payloadRef.current);
+    const ready = () => {
+      const current = payloadRef.current;
+      return !loading && !refreshing && !error && current && current.meta.from === filters.from && current.meta.to === filters.to
+        && (["region", "chain", "smUserId", "marketId"] as const).every(key => (current.meta.filters[key] ?? "") === filters[key]);
     };
-    const reportHandler = () => window.print();
+    const excelHandler = () => {
+      if (ready() && payloadRef.current) void exportDashboardWorkbook(payloadRef.current).catch(() => setRequestState({ key: requestKey, error: "Der Excel-Export konnte nicht erstellt werden." }));
+    };
+    const reportHandler = () => { if (ready()) window.print(); };
     window.addEventListener("admin:sm-dashboard:export", excelHandler);
     window.addEventListener("sm-dashboard:export-report", reportHandler);
     return () => {
       window.removeEventListener("admin:sm-dashboard:export", excelHandler);
       window.removeEventListener("sm-dashboard:export-report", reportHandler);
     };
-  }, []);
+  }, [filters, loading, refreshing, error, requestKey]);
 
   const resetFilters = () => {
     setFilters(initialFilters());
@@ -299,22 +289,24 @@ export function SmDashboardWorkspace() {
     || filters.region
     || filters.chain
     || filters.smUserId
-    || filters.marketId
-    || filters.SMDurcharbeitCatalogScope,
+    || filters.marketId,
   );
+  const filterOptions = payload?.filterOptions.marketContexts
+    ? smDashboardFilterOptions(payload.filterOptions.marketContexts, filters)
+    : payload?.filterOptions;
   const summary: SmDashboardMetricSummary | null = payload?.summary ?? null;
 
   return (
-    <div className="sm-live-page">
+    <div className="sm-live-page" aria-busy={pending}>
       <AdminFilterControlStyles />
       <style>{`
         .sm-live-page{min-width:980px;color:#172033;font-variant-numeric:tabular-nums}.sm-live-page *{box-sizing:border-box}
         .sm-live-shell{overflow:hidden;border:1px solid rgba(15,23,42,.07);border-radius:15px;background:#f6f7f9;box-shadow:0 1px 2px rgba(15,23,42,.02)}
         .sm-live-shell-head{min-height:58px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid rgba(15,23,42,.055);background:rgba(255,255,255,.74)}
         .sm-live-eyebrow{display:block;margin-bottom:3px;color:${RED};font-size:9px;font-weight:800;letter-spacing:.085em;text-transform:uppercase}.sm-live-shell-head h1{margin:0;font-size:17px;font-weight:760;letter-spacing:-.02em}.sm-live-freshness{display:flex;align-items:center;gap:9px;color:#7b8494;font-size:10px;font-weight:650}.sm-live-refresh{width:30px;height:30px;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;color:#667085;display:grid;place-items:center;cursor:pointer;box-shadow:0 1px 3px rgba(15,23,42,.04)}.sm-live-refresh:hover{color:${RED};border-color:rgba(220,38,38,.18)}.sm-live-refresh:disabled{cursor:wait;opacity:.65}.sm-live-refresh.is-spinning svg{animation:sm-live-spin .8s linear infinite}@keyframes sm-live-spin{to{transform:rotate(360deg)}}
-        .sm-live-content{padding:11px;display:flex;flex-direction:column;gap:11px}.sm-live-toolbar{padding:12px 13px;display:grid;grid-template-columns:repeat(2,138px) repeat(4,minmax(145px,1fr)) auto;align-items:end;gap:8px;border:1px solid rgba(15,23,42,.06);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}
+        .sm-live-content{padding:11px;display:flex;flex-direction:column;gap:11px}.sm-live-toolbar{padding:12px 13px;display:grid;grid-template-columns:repeat(2,106px) minmax(90px,180px) minmax(100px,180px) minmax(160px,260px) minmax(118px,180px) minmax(max-content,1fr);align-items:end;gap:6px;border:1px solid rgba(15,23,42,.06);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}
         .sm-live-filter,.sm-live-date{min-width:0}.sm-live-filter>span,.sm-live-date>span{display:block;margin-bottom:5px;color:#8b93a1;font-size:8.5px;font-weight:760;letter-spacing:.065em;text-transform:uppercase}
-        .sm-live-toolbar-actions{height:32px;display:flex;gap:6px}.sm-live-reset{height:32px;padding:0 10px;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;color:#667085;font-family:inherit;font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer}.sm-live-reset:disabled{opacity:.4;cursor:default}
+        .sm-live-toolbar-actions{height:32px;display:flex;justify-content:flex-end;gap:6px}.sm-live-reset{height:32px;padding:0 10px;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;color:#667085;font-family:inherit;font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer}.sm-live-reset:disabled{opacity:.4;cursor:default}
         .sm-live-error{min-height:48px;padding:10px 13px;border:1px solid rgba(220,38,38,.15);border-radius:10px;background:#fff7f7;color:#9f1f24;display:flex;align-items:center;gap:9px;font-size:10.5px;font-weight:650}.sm-live-error button{margin-left:auto;border:0;background:transparent;color:${RED};font:750 10px/1 inherit;cursor:pointer}
         .sm-live-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.sm-live-metric{position:relative;min-height:151px;padding:14px 14px 13px;overflow:hidden;border:1px solid rgba(15,23,42,.06);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}.sm-live-metric:before{content:"";position:absolute;inset:0 0 auto;height:2px;background:#cbd0d8}.sm-live-metric.is-red:before{background:${RED}}.sm-live-metric.is-green:before{background:${GREEN}}.sm-live-metric.is-amber:before{background:${AMBER}}.sm-live-metric-top{display:flex;align-items:center;gap:7px}.sm-live-metric-icon{width:24px;height:24px;border-radius:7px;background:#f3f4f6;color:#7a8493;display:grid;place-items:center}.sm-live-metric.is-red .sm-live-metric-icon{background:#fff0f1;color:${RED}}.sm-live-metric.is-green .sm-live-metric-icon{background:#eaf9f1;color:${GREEN}}.sm-live-metric.is-amber .sm-live-metric-icon{background:#fff7e9;color:${AMBER}}.sm-live-metric-label{color:#7a8493;font-size:9px;font-weight:790;letter-spacing:.06em;text-transform:uppercase}.sm-live-metric-value{display:block;margin-top:12px;color:#111827;font-size:27px;font-weight:770;line-height:1;letter-spacing:-.035em}.sm-live-metric p{height:16px;margin:10px 0 0;overflow:hidden;color:#586174;font-size:10.5px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}.sm-live-metric small{display:block;height:14px;margin-top:2px;overflow:hidden;color:#98a2b3;font-size:9px;font-weight:580;white-space:nowrap;text-overflow:ellipsis}.sm-live-progress{position:absolute;left:14px;right:14px;bottom:12px;height:4px;overflow:hidden;border-radius:99px;background:#eef0f3}.sm-live-progress i{display:block;height:100%;border-radius:inherit;background:#9ca3af}.sm-live-metric.is-red .sm-live-progress i{background:${RED}}.sm-live-metric.is-green .sm-live-progress i{background:${GREEN}}.sm-live-metric.is-amber .sm-live-progress i{background:${AMBER}}
         .sm-live-card{min-width:0;overflow:hidden;border:1px solid rgba(15,23,42,.06);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}.sm-live-card-head{min-height:59px;padding:13px 15px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(15,23,42,.05)}.sm-live-card-head h2{margin:0;color:#172033;font-size:14px;font-weight:750;letter-spacing:-.012em}.sm-live-card-head p{margin:4px 0 0;color:#8a93a2;font-size:9.5px;font-weight:570}
@@ -325,15 +317,15 @@ export function SmDashboardWorkspace() {
         .sm-live-skeleton{display:block;max-width:100%;flex-shrink:0;border-radius:4px;background:linear-gradient(100deg,#e9ecf1 15%,#f3f5f8 45%,#e9ecf1 75%);background-size:220% 100%;animation:sm-live-shimmer 1.8s ease-in-out infinite}
         .sm-live-loading .sm-live-metric p,.sm-live-loading .sm-live-metric small{display:flex;align-items:center}.sm-live-loading .sm-live-progress .sm-live-skeleton,.sm-live-loading .sm-live-rate>i .sm-live-skeleton{border-radius:inherit}
         @keyframes sm-live-shimmer{from{background-position:220% 0}to{background-position:-220% 0}}@media(prefers-reduced-motion:reduce){.sm-live-skeleton{animation:none}}
-        @media(max-width:1450px){.sm-live-toolbar{grid-template-columns:repeat(4,minmax(145px,1fr))}.sm-live-bottom{grid-template-columns:1fr}.sm-live-page{min-width:920px}}@media(max-width:1180px){.sm-live-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+        @media(max-width:1450px){.sm-live-bottom{grid-template-columns:1fr}.sm-live-page{min-width:920px}}@media(max-width:1180px){.sm-live-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media print{nav,header,.sm-live-toolbar,.sm-live-refresh{display:none!important}.sm-live-page{min-width:0}.sm-live-shell{border:0;background:#fff}.sm-live-content{padding:0}.sm-live-bottom{grid-template-columns:1fr}.sm-live-card,.sm-live-metric{break-inside:avoid}}
       `}</style>
 
       <section className="sm-live-shell">
         <header className="sm-live-shell-head">
-          <div><span className="sm-live-eyebrow">Shelf Merchandising</span><h1>OOS Dashboard</h1></div>
+          <div><span className="sm-live-eyebrow">Shelf Merchandising</span><h1>Besuche &amp; Marktleistung</h1></div>
           <div className="sm-live-freshness">
-            {payload ? <span>{formatDate(payload.meta.from)} – {formatDate(payload.meta.to)} · berechnet {formatGeneratedAt(payload.meta.generatedAt)}</span> : <span>Live aus SM-Fragebögen</span>}
+            {refreshing ? <span role="status">Auswertung wird aktualisiert …</span> : payload ? <span>{formatDate(payload.meta.from)} – {formatDate(payload.meta.to)} · berechnet {formatGeneratedAt(payload.meta.generatedAt)}</span> : <span>Live aus SM-Fragebögen</span>}
             <button type="button" className={`sm-live-refresh${refreshing ? " is-spinning" : ""}`} onClick={() => setRefreshKey((value) => value + 1)} disabled={refreshing} aria-label="Dashboard aktualisieren" title="Dashboard aktualisieren">
               <RefreshCw size={13} strokeWidth={2.2} />
             </button>
@@ -344,11 +336,10 @@ export function SmDashboardWorkspace() {
           <div className="sm-live-toolbar">
             <div className="sm-live-date"><span>Von</span><AdminDatePicker ariaLabel="Von" value={filters.from} maxDate={filters.to} onChange={(value) => updateFilter("from", value)} /></div>
             <div className="sm-live-date"><span>Bis</span><AdminDatePicker ariaLabel="Bis" value={filters.to} minDate={filters.from} onChange={(value) => updateFilter("to", value)} /></div>
-            <FilterSelect label="Region" value={filters.region} options={payload?.filterOptions.regions ?? []} placeholder="Alle Regionen" onChange={(value) => updateFilter("region", value)} />
-            <FilterSelect label="Handelskette" value={filters.chain} options={payload?.filterOptions.chains ?? []} placeholder="Alle Handelsketten" onChange={(value) => updateFilter("chain", value)} />
-            <FilterSelect label="Shelf Merchandiser" value={filters.smUserId} options={payload?.filterOptions.sms ?? []} placeholder="Alle SMs" onChange={(value) => updateFilter("smUserId", value)} />
-            <FilterSelect label="Fragebogentyp" value={filters.SMDurcharbeitCatalogScope} options={[{ value: "standard", label: "Standard" }, { value: "SMDurcharbeit", label: "Durcharbeit" }]} placeholder="Alle Fragebögen" onChange={(value) => updateFilter("SMDurcharbeitCatalogScope", value as DashboardFilters["SMDurcharbeitCatalogScope"])} />
-            <FilterSelect label="Markt" value={filters.marketId} options={payload?.filterOptions.markets ?? []} placeholder="Alle Märkte" onChange={(value) => updateFilter("marketId", value)} />
+            <FilterSelect label="Region" value={filters.region} options={filterOptions?.regions ?? []} placeholder="Alle Regionen" onChange={(value) => updateFilter("region", value)} />
+            <FilterSelect label="Handelskette" value={filters.chain} options={filterOptions?.chains ?? []} placeholder="Alle Handelsketten" onChange={(value) => updateFilter("chain", value)} />
+            <FilterSelect wide label="Markt" value={filters.marketId} options={filterOptions?.markets ?? []} placeholder="Alle Märkte" onChange={(value) => updateFilter("marketId", value)} />
+            <FilterSelect label="Shelf Merchandiser" value={filters.smUserId} options={filterOptions?.sms ?? []} placeholder="Alle SMs" onChange={(value) => updateFilter("smUserId", value)} />
             <div className="sm-live-toolbar-actions"><button type="button" className="sm-live-reset" onClick={resetFilters} disabled={!hasDimensionFilters}>Filter zurücksetzen</button></div>
           </div>
 
@@ -358,13 +349,7 @@ export function SmDashboardWorkspace() {
             <SmDashboardSkeleton />
           ) : summary ? (
             <>
-              <div className="sm-live-metrics">
-                <MetricCard label="OOS gefunden" value={formatNumber(summary.foundCases)} detail={`${formatNumber(summary.foundCases)} von ${formatNumber(summary.classifiedChecks)} Prüfungen`} subdetail={`OOS-Quote ${formatPercent(summary.foundRate)}`} tone="red" progress={summary.foundRate} icon={<AlertCircle size={13} strokeWidth={2.3} />} />
-                <MetricCard label="OOS behoben" value={formatPercent(summary.fixedRate)} detail={summary.foundCases ? `${formatNumber(summary.fixedCases)} von ${formatNumber(summary.foundCases)} Fällen` : "Nicht erforderlich"} subdetail={summary.foundCases ? "Nur nachgewiesene Behebung" : "Kein OOS im gewählten Bereich"} tone="green" progress={summary.fixedRate} icon={<CheckCircle2 size={13} strokeWidth={2.3} />} />
-                <MetricCard label="Märkte mit OOS" value={formatPercent(summary.affectedMarketRate)} detail={`${formatNumber(summary.marketsWithOos)} von ${formatNumber(summary.observedMarkets)} geprüften Märkten`} subdetail="Nur Märkte mit klassifizierter OOS-Prüfung" tone="red" progress={summary.affectedMarketRate} icon={<Store size={13} strokeWidth={2.3} />} />
-                <MetricCard label="Abgeschlossene Besuche" value={formatNumber(summary.completedVisits)} detail={`${formatNumber(summary.submittedMarkets)} besuchte Märkte`} subdetail={payload?.SMDurcharbeitBreakdown ? `${formatNumber(payload.SMDurcharbeitBreakdown.standard.completedVisits)} Standard · ${formatNumber(payload.SMDurcharbeitBreakdown.SMDurcharbeit.completedVisits)} Durcharbeit` : "Eingereichte SM-Fragebögen"} progress={summary.completedVisits ? 100 : 0} icon={<CalendarDays size={13} strokeWidth={2.3} />} />
-                <MetricCard label="Dokumentation offen" value={formatNumber(summary.openRemediationDocumentation)} detail={`${formatNumber(summary.documentedRemediations)} von ${formatNumber(summary.foundCases)} OOS-Fällen dokumentiert`} subdetail={summary.openRemediationDocumentation ? "Behebungsantwort fehlt" : "Keine offene Behebungsdokumentation"} tone={summary.openRemediationDocumentation ? "amber" : "green"} progress={summary.foundCases ? (summary.documentedRemediations / summary.foundCases) * 100 : null} icon={<ClipboardCheck size={13} strokeWidth={2.3} />} />
-              </div>
+              <SmDashboardOverview overview={payload?.overview} summary={summary} loading={refreshing} />
 
               <article className="sm-live-card">
                 <div className="sm-live-card-head"><div><h2>OOS & Behebung nach Kategorie</h2><p>Fallzahl, Besuchsquote und Marktbetroffenheit aus denselben aktuellen Antworten</p></div></div>

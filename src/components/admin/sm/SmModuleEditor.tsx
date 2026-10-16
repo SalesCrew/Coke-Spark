@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 
 import type {
+  SmBasicActivityConfig,
+  SmBasicActivityOutcome,
   SmConditionalRule,
   SmModule,
   SmOosAnswerOutcome,
@@ -143,11 +145,12 @@ function cloneQuestion(source: SmQuestion): SmQuestion {
   };
 }
 
-function Toggle({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
+function Toggle({ value, onChange, label }: { value: boolean; onChange: (value: boolean) => void; label?: string }) {
   return (
     <button
       type="button"
       aria-pressed={value}
+      aria-label={label}
       onClick={() => onChange(!value)}
       style={{
         width: 32,
@@ -333,12 +336,27 @@ function SmLogicDropdown({
     };
   }, [open, updateMenuPosition]);
 
+  useEffect(() => {
+    if (!open || !menuPosition.width) return;
+    const frame = requestAnimationFrame(() => {
+      const selected = menuRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]');
+      (selected ?? menuRef.current?.querySelector<HTMLButtonElement>('[role="option"]'))?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, menuPosition.width]);
+  const closeMenu = () => { setOpen(false); ref.current?.querySelector("button")?.focus(); };
   const label = options.find((option) => option.value === value)?.label;
 
   return (
     <div ref={ref} style={{ position: "relative", flex: 1 }}>
       <button
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onKeyDown={event => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); updateMenuPosition(); setOpen(true); }
+          if (event.key === "Escape") { event.preventDefault(); closeMenu(); }
+        }}
         onClick={(event) => {
           event.stopPropagation();
           if (!open) updateMenuPosition();
@@ -369,6 +387,17 @@ function SmLogicDropdown({
       {open && menuPosition.width > 0 ? createPortal(
         <div
           ref={menuRef}
+          role="listbox"
+          aria-label={label || placeholder || "Antwortzuordnung"}
+          onKeyDown={event => {
+            if (event.key === "Escape") { event.preventDefault(); closeMenu(); return; }
+            if (event.key === "Tab") { closeMenu(); return; }
+            const buttons = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
+            if (!buttons.length) return;
+            const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+            const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : event.key === "ArrowDown" ? (index + 1) % buttons.length : event.key === "ArrowUp" ? (index - 1 + buttons.length) % buttons.length : null;
+            if (next != null) { event.preventDefault(); buttons[next]?.focus(); }
+          }}
           className="sm-logic-dropdown"
           style={{
             ...menuTheme,
@@ -396,10 +425,13 @@ function SmLogicDropdown({
               <button
                 type="button"
                 key={`${option.value}-${option.label}`}
+                role="option"
+                aria-selected={selected}
+                tabIndex={-1}
                 onClick={(event) => {
                   event.stopPropagation();
                   onChange(option.value);
-                  setOpen(false);
+                  closeMenu();
                 }}
                 style={{
                   width: "100%",
@@ -655,6 +687,62 @@ const SM_OOS_REMEDIATION_OUTCOMES: Array<{ value: SmOosAnswerOutcome | ""; label
   { value: "not_resolved", label: "OOS nicht behoben" },
   { value: "not_applicable", label: "Nicht anwendbar" },
 ];
+
+const BASIC_ACTIVITY_OPTIONS = [
+  { value: "", label: "Nicht auswerten" },
+  { value: "yes", label: "Ja · durchgeführt (1)" },
+  { value: "partial", label: "Teilweise · durchgeführt (0,5)" },
+  { value: "no", label: "Nein · nicht durchgeführt (0)" },
+];
+
+function SmBasicActivityEditor({ question, onUpdate }: { question: SmQuestion; onUpdate: (question: SmQuestion) => void }) {
+  const config = (question.config.basicActivity as SmBasicActivityConfig | undefined) ?? { enabled: false };
+  const choice = ["single", "multiple", "yesno", "yesnomulti", "likert", "matrix"].includes(question.type);
+  const options = question.type === "matrix" ? ((question.config.columns as string[]) ?? []).filter(Boolean) : smQuestionOptions(question) ?? [];
+  const update = (patch: Partial<SmBasicActivityConfig>) => onUpdate({ ...question, config: { ...question.config, basicActivity: { ...config, ...patch } } });
+  const rules = config.rules ?? [];
+  const rowStyle: CSSProperties = { display: "grid", gridTemplateColumns: "240px minmax(0,1fr)", alignItems: "center", gap: 12, minHeight: 38, borderTop: "1px solid rgba(0,0,0,.035)" };
+  const dropdown = (value: string, onChange: (value: string) => void) => <SmLogicDropdown value={value} options={BASIC_ACTIVITY_OPTIONS} onChange={onChange} />;
+  return <section aria-label="Basistätigkeiten-Zuordnung" style={{ marginTop: 14, borderTop: "1px solid rgba(0,0,0,.04)" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 40 }}>
+      <ListChecks size={12} color={config.enabled ? "var(--module-accent,#DC2626)" : "#9ca3af"} />
+      <span style={{ flex: 1, fontSize: 11, fontWeight: 600, color: config.enabled ? "#374151" : "#9ca3af" }}>Basistätigkeiten-Zuordnung</span>
+      <span style={{ color: "#9ca3af", fontSize: 9 }}>Zuordnung aktivieren</span>
+      <Toggle label="Basistätigkeiten-Zuordnung aktivieren" value={config.enabled} onChange={enabled => update({ enabled })} />
+    </div>
+    {config.enabled && <div style={{ paddingBottom: 6 }}>
+      <p style={{ color: "#9ca3af", fontSize: 10, lineHeight: 1.5, margin: "0 0 10px" }}>Ordne Antworten unabhängig von ihrem Wortlaut zu. Ja zählt 1, teilweise 0,5, Nein 0. Nicht zugeordnete Antworten werden nicht gewertet.</p>
+      {choice ? options.map((label, index) => <div key={index} style={rowStyle}>
+        <span title={label} style={{ color: "#4b5563", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        {dropdown(config.answerOutcomes?.[label] ?? "", value => {
+          const answerOutcomes = { ...config.answerOutcomes };
+          if (value) answerOutcomes[label] = value as SmBasicActivityOutcome; else delete answerOutcomes[label];
+          update({ answerOutcomes });
+        })}
+      </div>) : <>
+        <div style={rowStyle}><span style={{ color: "#4b5563", fontSize: 10 }}>{question.type === "photo" ? "Mindestens ein gespeichertes Foto" : "Sonstige beantwortete Werte"}</span>
+          {dropdown(config.answeredOutcome ?? "", value => update({ answeredOutcome: value ? value as SmBasicActivityOutcome : undefined }))}
+        </div>
+        {question.type !== "photo" && <>
+          {rules.map((rule, index) => <div key={index} style={{ ...rowStyle, gridTemplateColumns: "minmax(0,240px) minmax(0,1fr) 24px", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              {rule.kind === "text" ? <input aria-label="Exakter Antworttext" placeholder="Exakter Antworttext" value={rule.value} onChange={event => update({ rules: rules.map((item, i) => i === index ? { ...rule, value: event.target.value } : item) })} style={{ ...fieldInputStyle, minWidth: 0 }} /> : <>
+                <input type="number" aria-label="Basistätigkeiten ab Wert" value={rule.min} onChange={event => update({ rules: rules.map((item, i) => i === index ? { ...rule, min: Number(event.target.value) } : item) })} style={{ ...fieldInputStyle, minWidth: 0 }} />
+                <span style={{ color: "#9ca3af", fontSize: 9 }}>bis</span>
+                <input type="number" aria-label="Basistätigkeiten bis Wert" value={rule.max} onChange={event => update({ rules: rules.map((item, i) => i === index ? { ...rule, max: Number(event.target.value) } : item) })} style={{ ...fieldInputStyle, minWidth: 0 }} />
+              </>}
+            </div>
+            {dropdown(rule.outcome, value => update({ rules: value ? rules.map((item, i) => i === index ? { ...rule, outcome: value as SmBasicActivityOutcome } : item) : rules.filter((_, i) => i !== index) }))}
+            <button type="button" aria-label="Basistätigkeiten-Regel entfernen" onClick={() => update({ rules: rules.filter((_, i) => i !== index) })} style={{ border: 0, background: "none", cursor: "pointer", color: "#9ca3af", padding: 2 }}><X size={12} /></button>
+          </div>)}
+          <button type="button" onClick={() => update({ rules: [...rules, question.type === "text" ? { kind: "text", value: "", outcome: "yes" } : { kind: "range", min: 0, max: 0, outcome: "yes" }] })} style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 8, border: 0, background: "none", color: "var(--module-accent,#DC2626)", fontFamily: "inherit", fontSize: 10, cursor: "pointer" }}><Plus size={12} />{question.type === "text" ? "Exakten Antworttext zuordnen" : "Wertebereich zuordnen"}</button>
+          <p style={{ color: "#9ca3af", fontSize: 9, lineHeight: 1.5 }}>Wertebereiche einschließlich ihrer Grenzen. Regeln dürfen sich nicht überschneiden; ohne passende Regel gilt die Zuordnung für sonstige beantwortete Werte.</p>
+        </>}
+      </>}
+      {choice && <p style={{ color: "#9ca3af", fontSize: 9, lineHeight: 1.5 }}>Eine Wertung pro Frage. Bei mehreren zugeordneten Auswahlen zählt der niedrigste Wert. Leere oder ausgeblendete Antworten zählen nicht.</p>}
+    </div>}
+  </section>;
+}
 
 function SmOosQuestionEditor({
   question,
@@ -1243,6 +1331,18 @@ function TypeConfig({ question, onUpdate }: { question: SmQuestion; onUpdate: (q
       }
       oos = { ...oos, answerOutcomes: nextOutcomes };
     }
+    const basic = config.basicActivity as SmBasicActivityConfig | undefined;
+    if (basic?.enabled && basic.answerOutcomes) {
+      const before = question.type === "matrix" ? ((question.config.columns as string[]) ?? []) : (smQuestionOptions(question) ?? []);
+      const after = question.type === "matrix" ? ((config.columns as string[]) ?? []) : (smQuestionOptions({ ...question, config, options }) ?? []);
+      const mappings: Record<string, SmBasicActivityOutcome> = {};
+      for (const [index, label] of after.entries()) {
+        const old = before.length === after.length ? before[index] : label;
+        const outcome = basic.answerOutcomes[label] ?? (old ? basic.answerOutcomes[old] : undefined);
+        if (label && outcome) mappings[label] = outcome;
+      }
+      config.basicActivity = { ...basic, answerOutcomes: mappings };
+    }
     onUpdate({ ...question, config, options, oos });
   };
 
@@ -1505,6 +1605,7 @@ function QuestionCard({
             <TypeConfig question={question} onUpdate={onUpdate} />
             <SmCommentTriggerEditor question={question} onUpdate={onUpdate} />
             <SmOosQuestionEditor question={question} allQuestions={allQuestions} onUpdate={onUpdate} />
+            <SmBasicActivityEditor question={question} onUpdate={onUpdate} />
 
             <div style={{ marginTop: 14 }}>
               <button

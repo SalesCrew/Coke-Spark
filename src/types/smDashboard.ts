@@ -34,7 +34,31 @@ export type SmDashboardFilterOption = {
   label: string;
 };
 
+export type SmDashboardMarketContext = SmDashboardFilterOption & {
+  region: string;
+  chain: string;
+  sms: SmDashboardFilterOption[];
+};
+
+export type SmDashboardOverviewMetrics = {
+  activity: {
+    visitedMarkets: number; visits: number; merchandisers: number;
+    visitsPerMarket: number | null; marketMinutes: number; timedVisits: number;
+    missingTimeVisits: number; marketHours: number | null; hoursPerVisit: number | null;
+  };
+  performance: {
+    basicActivityRate: number | null; basicActivityAnswers: number; basicActivityPoints: number;
+    basicActivityYes: number; basicActivityPartial: number; basicActivityNo: number;
+    affectedMarketRate: number | null; affectedMarkets: number; observedMarkets: number;
+    foundCategoryCases: number; fixedCategoryCases: number; categoryChecks: number;
+    remediationRate: number | null; availabilityBefore: number | null;
+    availabilityGain: number | null; availabilityAfter: number | null;
+    missingRemediationCases: number;
+  };
+};
+
 export type SmDashboardPayload = {
+  overview?: SmDashboardOverviewMetrics;
   SMDurcharbeitBreakdown?: Record<import("./smSMDurcharbeit").SMDurcharbeitCatalogScope, { completedVisits: number; answeredQuestions: number }>;
   meta: {
     from: string;
@@ -58,6 +82,7 @@ export type SmDashboardPayload = {
     chains: SmDashboardFilterOption[];
     markets: SmDashboardFilterOption[];
     sms: SmDashboardFilterOption[];
+    marketContexts?: SmDashboardMarketContext[];
   };
 };
 

@@ -10,27 +10,29 @@ import ts from "typescript";
 
 // Render the real TSX in memory without a browser, API calls or an extra test runtime.
 const componentUrl = new URL("../src/components/admin/sm/SmDashboardSkeleton.tsx", import.meta.url);
-const source = await readFile(componentUrl, "utf8");
-const { outputText } = ts.transpileModule(source, {
-  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-  fileName: fileURLToPath(componentUrl),
-});
-const componentModule = { exports: {} };
-runInNewContext(outputText, {
-  module: componentModule,
-  exports: componentModule.exports,
-  require: createRequire(componentUrl),
-});
+const nativeRequire = createRequire(componentUrl);
+function loadComponent(url) {
+  const source = nativeRequire("node:fs").readFileSync(url, "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    fileName: fileURLToPath(url),
+  });
+  const module = { exports: {} };
+  const require = name => name.endsWith(".module.css") ? { __esModule: true, default: new Proxy({}, { get: (_, key) => String(key) }) } : name === "./SmDashboardOverview" ? loadComponent(new URL("./SmDashboardOverview.tsx", url)) : nativeRequire(name);
+  runInNewContext(outputText, { module, exports: module.exports, require });
+  return module.exports;
+}
+const componentModule = { exports: loadComponent(componentUrl) };
 const { SmDashboardSkeleton } = componentModule.exports;
 const markup = renderToStaticMarkup(createElement(SmDashboardSkeleton));
 const classLists = [...markup.matchAll(/class="([^"]*)"/g)].map((match) => match[1].split(" "));
 const countClass = (name) => classLists.filter((classes) => classes.includes(name)).length;
 
-test("Loading mirrors all five metric cards, details and progress tracks", () => {
-  for (const className of ["sm-live-metric", "sm-live-metric-icon", "sm-live-metric-label", "sm-live-metric-value", "sm-live-progress"]) {
-    assert.equal(countClass(className), 5, className);
-  }
-  assert.equal([...markup.matchAll(/<small>/g)].length, 5);
+test("Loading mirrors the unified activity card and six performance values", () => {
+  assert.ok(markup.includes("Besuchsübersicht"));
+  assert.equal(countClass("activity"), 1); assert.equal(countClass("performance"), 1);
+  assert.equal(countClass("metric"), 5); assert.equal(countClass("resultPanel"), 1); assert.equal(countClass("placeholder"), 10);
+  assert.ok(markup.includes("Leistungsstunden")); assert.ok(markup.includes("Stunden / Besuch"));
 });
 
 test("Loading includes category and both comparison tables with their rate bars", () => {
@@ -43,7 +45,7 @@ test("Loading includes category and both comparison tables with their rate bars"
 });
 
 test("Loading uses the live responsive grids and accessible, non-interactive placeholders", () => {
-  assert.equal(countClass("sm-live-metrics"), 1);
+  assert.equal(countClass("overview"), 1);
   assert.equal(countClass("sm-live-bottom"), 1);
   assert.ok(markup.includes('role="status"'));
   assert.ok(markup.includes('aria-hidden="true"'));

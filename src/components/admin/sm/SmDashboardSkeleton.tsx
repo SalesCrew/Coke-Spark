@@ -1,12 +1,5 @@
 import type { CSSProperties } from "react";
-
-const METRIC_LABELS = [
-  "OOS gefunden",
-  "OOS behoben",
-  "Märkte mit OOS",
-  "Abgeschlossene Besuche",
-  "Dokumentation offen",
-];
+import { SmDashboardOverview } from "./SmDashboardOverview";
 
 function SkeletonBlock({ width = "100%", height = 9 }: Pick<CSSProperties, "width" | "height">) {
   return <span className="sm-live-skeleton" style={{ width, height }} />;
@@ -51,20 +44,7 @@ export function SmDashboardSkeleton() {
     <div className="sm-live-loading" role="status">
       <span className="sm-live-loading-label">SM-Dashboard wird geladen</span>
       <div className="sm-live-loading-layout" aria-hidden="true">
-        <div className="sm-live-metrics">
-          {METRIC_LABELS.map((label, index) => (
-            <article className="sm-live-metric" key={label}>
-              <div className="sm-live-metric-top">
-                <span className="sm-live-metric-icon"><SkeletonBlock width={12} height={12} /></span>
-                <span className="sm-live-metric-label">{label}</span>
-              </div>
-              <strong className="sm-live-metric-value"><SkeletonBlock width={index % 2 ? 88 : 64} height={27} /></strong>
-              <p><SkeletonBlock width="78%" /></p>
-              <small><SkeletonBlock width="61%" height={7} /></small>
-              <span className="sm-live-progress"><SkeletonBlock width={`${48 + index * 9}%`} height="100%" /></span>
-            </article>
-          ))}
-        </div>
+        <SmDashboardOverview loading />
 
         <article className="sm-live-card">
           <div className="sm-live-card-head">

@@ -32,10 +32,12 @@ import {
   X,
 } from "lucide-react";
 import { SMDurcharbeitMarketSmEditor } from "@/components/admin/sm/SMDurcharbeitMarketSmEditor";
+import { SMDurcharbeitOwnerTransfer } from "@/components/admin/sm/SMDurcharbeitOwnerTransfer";
+import type { SMDurcharbeitTransferInput, SMDurcharbeitTransferPreview } from "@/types/smSMDurcharbeitTransfer";
 import { SmMarketImportModal } from "@/components/admin/sm/SmMarketImportModal";
 import { SmMarketUserSyncModal } from "@/components/admin/sm/SmMarketUserSyncModal";
 import { SmMarketDeactivationModal } from "@/components/admin/sm/SmMarketDeactivationModal";
-import { createSmMarket, fetchGmUsers, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket, updateSMDurcharbeitMarketOwner } from "@/lib/api/backend";
+import { createSmMarket, fetchGmUsers, fetchSmMarkets, fetchSmUsers, importSmMarkets, softDeleteSmMarket, updateSmMarket, updateSMDurcharbeitMarketOwner, requestSMDurcharbeitDefaultOwnerTransfer } from "@/lib/api/backend";
 import type { ImportSmMarketsInput, SmMarketImportSummary, SmMarketRecord, SmMarketWeekdayHours } from "@/types/smMarkets";
 import { createSmWeeklyPlanDraft, readSmWeeklyPlanDraft, SM_PLANNING_DAYS, type SmWeeklyPlanDraft } from "@/lib/sm-market-weekly-planning";
 import type { GMRecord } from "@/types/gebietsmanager";
@@ -1105,7 +1107,7 @@ function PageSkeleton() {
 }
 
 export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: boolean }) {
-  const { canWrite, isCustomer } = useCustomerPageAccess();
+  const { canWrite, canUpdate, isCustomer } = useCustomerPageAccess();
   const access = useAdminAccess();
   const canLoadGmDirectory = !isCustomer || access.canRead("gebietsmanager");
   const [SMDurcharbeitReload, setSMDurcharbeitReload] = useState(0);
@@ -1122,6 +1124,7 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showSmSync, setShowSmSync] = useState(false);
+  const [transfer, setTransfer] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -1219,6 +1222,9 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
   const selectedMarket = useMemo(() => markets.find((market) => market.id === selectedId) ?? null, [markets, selectedId]);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
   const assignedCount = useMemo(() => markets.filter((market) => market.assignedSmUserId).length, [markets]);
+  const defaultTransferInput = (input: SMDurcharbeitTransferInput) => ({ SMDurcharbeitSmUserId: input.SMDurcharbeitSmUserId, reason: input.reason,
+    ...(input.sourceSmUserId ? { sourceSmUserId: input.sourceSmUserId } : {}),
+    markets: input.marketIds.map(id => ({ id, expectedUpdatedAt: markets.find(market => market.id === id)?.updatedAt ?? "" })) });
 
   const handleMarketSave = useCallback(async (marketId: string, fields: MarketEditDraft) => {
     setMutationError(null);
@@ -1458,6 +1464,7 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
               <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.34)" }}>Shelf Merchandising</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {SMDurcharbeit && canUpdate ? <button type="button" className="sm-market-edit-button is-secondary" disabled={loading || !markets.length} onClick={() => { setSelectedId(null); setTransfer(true); }}>SM austauschen</button> : null}
               <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "rgba(0,0,0,0.34)" }}><UsersRound size={10} strokeWidth={1.8} /> {assignedCount} SM-verknüpft</span>
               <span style={{ fontSize: 9, color: "rgba(0,0,0,0.34)" }}>{markets.length.toLocaleString("de-AT")} Märkte</span>
             </div>
@@ -1538,6 +1545,11 @@ export function SmMarketsWorkspace({ SMDurcharbeit = false }: { SMDurcharbeit?: 
       {showCreate ? <SmMarketCreateModal SMDurcharbeit={SMDurcharbeit} users={users} existingInternalIds={existingInternalIds} onCreate={handleCreateMarket} onClose={() => setShowCreate(false)} /> : null}
       {showImport ? <SmMarketImportModal SMDurcharbeit={SMDurcharbeit} onImport={handleImport} onClose={() => setShowImport(false)} /> : null}
       {showSmSync ? <SmMarketUserSyncModal initialUsers={users} onMarketsChange={setMarkets} onUsersChange={(freshUsers) => setUsers([...freshUsers].sort((left, right) => formatSmName(left).localeCompare(formatSmName(right), "de-AT", { sensitivity: "base" })))} onClose={() => setShowSmSync(false)} /> : null}
+      {transfer && SMDurcharbeit && canUpdate ? <SMDurcharbeitOwnerTransfer context="default"
+        rows={markets.map(market => ({ id: market.id, name: market.name, detail: `${market.address} · ${market.city}`, smUserId: market.assignedSmUserId ?? null, smName: marketOwnerDisplayName(market, market.assignedSmUserId ? userById.get(market.assignedSmUserId) : undefined) }))}
+        people={users.filter(person => person.isActive).map(person => ({ id: person.id, name: formatSmName(person) }))} onClose={() => setTransfer(false)}
+        onPreview={input => requestSMDurcharbeitDefaultOwnerTransfer<SMDurcharbeitTransferPreview>(defaultTransferInput(input), true)}
+        onSave={async (input, previewToken) => { await requestSMDurcharbeitDefaultOwnerTransfer({ ...defaultTransferInput(input), previewToken }); setTransfer(false); setSMDurcharbeitReload(value => value + 1); }} /> : null}
     </div>
   );
 }

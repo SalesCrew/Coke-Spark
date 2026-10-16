@@ -2978,6 +2978,20 @@ export async function updateSMDurcharbeitMarketOwner(id: string, input: { SMDurc
   } finally { owner.dispose(); }
 }
 
+export async function requestSMDurcharbeitDefaultOwnerTransfer<T>(input: {
+  SMDurcharbeitSmUserId: string; sourceSmUserId?: string; reason: string;
+  markets: Array<{ id: string; expectedUpdatedAt: string }>; previewToken?: string;
+}, preview = false): Promise<T> {
+  const owner = createSmRequestOwnerGuard();
+  try {
+    const result = await authedFetch(`/admin/sm-markets/SMDurcharbeit/owners${preview ? "/preview" : ""}`, {
+      method: preview ? "POST" : "PATCH", body: JSON.stringify(input),
+    }, 30_000, owner) as T;
+    if (!owner.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
+    return result;
+  } finally { owner.dispose(); }
+}
+
 export async function softDeleteSmMarket(id: string): Promise<void> {
   await authedFetch(`/admin/sm-markets/${encodeURIComponent(id)}/delete`, {
     method: "PATCH",

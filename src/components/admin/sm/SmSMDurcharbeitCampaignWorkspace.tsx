@@ -14,6 +14,8 @@ import { SMDurcharbeitCampaignHistory } from "./SMDurcharbeitCampaignHistory";
 import { SMDurcharbeitCampaignMarketsEditor } from "./SMDurcharbeitCampaignMarketsEditor";
 import { filterSMDurcharbeitMarkets, updateSMDurcharbeitMarketSelection } from "@/lib/sm/SMDurcharbeitMarketSelection";
 import styles from "./SMDurcharbeitCampaignWorkspace.module.css";
+import { SMDurcharbeitOwnerTransfer } from "./SMDurcharbeitOwnerTransfer";
+import type { SMDurcharbeitTransferPreview } from "@/types/smSMDurcharbeitTransfer";
 
 const primary = styles.primary;
 const secondary = styles.secondary;
@@ -67,6 +69,7 @@ export function SmSMDurcharbeitCampaignWorkspace() {
   const [marketEditor, setMarketEditor] = useState(false), [marketChain, setMarketChain] = useState("");
   const [targetFilter, setTargetFilter] = useState("required");
   const [changeSmTarget, setChangeSmTarget] = useState<SMDurcharbeitTarget | null>(null), [monthSm, setMonthSm] = useState("automatic");
+  const [transfer, setTransfer] = useState(false);
   const pending = useRef(false), selected = campaigns.find(campaign => campaign.id === selectedId) ?? null;
   const reload = useCallback(() => setReloadKey(key => key + 1), []);
   useEffect(() => subscribeToAuthSessionChanges(() => { setCampaigns([]); setOptions(null); setResult(null); setDraft(null); setSelectedId(null); setPreview(null); setMarketEditor(false); setChangeSmTarget(null); reload(); }), [reload]);
@@ -194,6 +197,7 @@ export function SmSMDurcharbeitCampaignWorkspace() {
                 <div className={styles.monthControl}><AdminDropdown value={month} options={campaignMonths(selected).map(value => ({ value, label: monthName(value) }))} onChange={setMonth} ariaLabel="Kampagnenmonat" placeholder="Monat auswählen" /></div>
                 <div className={styles.actions}>
                   <AdminDropdown compact value={targetFilter} options={[{ value: "required", label: "Aktive Märkte" }, { value: "waived", label: "Ausgenommene Märkte" }, { value: "all", label: "Alle Märkte" }]} onChange={setTargetFilter} ariaLabel="Marktstatus der Monatsziele" placeholder="Marktstatus" />
+                  {canUpdate && ["published", "paused"].includes(selected.status) && selected.endDate >= today() && month >= `${today().slice(0, 7)}-01` ? <button type="button" className={secondary} disabled={busy || !result?.targets.length} onClick={() => setTransfer(true)}>SM austauschen</button> : null}
                   {month > `${today().slice(0, 7)}-01` && selected.status !== "archived" ? <button type="button" disabled={busy} onClick={() => { setPeriodEdit(true); setFutureVersion(""); setReason(""); }} className={secondary}>Fragebogen für diesen Monat</button> : null}
                 </div>
               </div>
@@ -247,5 +251,11 @@ export function SmSMDurcharbeitCampaignWorkspace() {
     {stateAction && selected ? <CampaignDialog error={error} title={stateAction === "archived" ? "Kampagne archivieren" : stateAction === "paused" ? "Kampagne pausieren" : "Kampagne fortsetzen"} onClose={() => { if (!busy) setStateAction(null); }}><Field label="Begründung"><input aria-label="Grund der Statusänderung" value={reason} onChange={event => setReason(event.target.value)} className={field} /></Field><p className="mt-3 text-[11px] leading-relaxed text-gray-500">Der Verlauf, gespeicherte Antworten, Fotos und Zeiten bleiben erhalten.</p><footer className="mt-5 flex justify-end gap-2"><button type="button" disabled={busy} onClick={() => setStateAction(null)} className={secondary}>Abbrechen</button><button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void act(async () => { await requestSMDurcharbeitCampaign(`/${selected.id}/state`, { expectedRevision: selected.revision, status: stateAction, reason }, "PATCH"); setStateAction(null); reload(); })} className={primary}>Bestätigen</button></footer></CampaignDialog> : null}
     {periodEdit && selected ? <CampaignDialog error={error} title={`Fragebogen · ${monthName(month)}`} onClose={() => { if (!busy) setPeriodEdit(false); }}><div className="space-y-4"><Field label="Neue veröffentlichte Version"><AdminDropdown value={futureVersion} options={questionnaires} onChange={setFutureVersion} ariaLabel="Zukünftiger Fragebogen" placeholder="Fragebogen wählen" searchable /></Field><Field label="Begründung"><input value={reason} aria-label="Grund des Fragebogenwechsels" onChange={event => setReason(event.target.value)} className={field} /></Field></div><p className="mt-3 text-[10px] leading-relaxed text-gray-600">Der Wechsel ist nur möglich, solange in diesem zukünftigen Monat noch kein Besuch gestartet wurde.</p><footer className="mt-5 flex justify-end gap-2"><button type="button" disabled={busy} onClick={() => setPeriodEdit(false)} className={secondary}>Abbrechen</button><button type="button" disabled={!canUpdate || (busy || !futureVersion || reason.trim().length < 3)} onClick={() => void act(async () => { const data = await requestSMDurcharbeitCampaign<{ periods: Array<{ id: string; month: string }> }>(`/${selected.id}/periods`); const period = data.periods.find(period => period.month === month); if (!period) throw new Error("Kalendermonat nicht gefunden."); await requestSMDurcharbeitCampaign(`/${selected.id}/periods/${period.id}/questionnaire`, { expectedRevision: selected.revision, questionnaireVersionId: futureVersion, reason }, "PATCH"); setPeriodEdit(false); reload(); })} className={primary}>Speichern</button></footer></CampaignDialog> : null}
     {marketEditor && selected && options && editableMonths.length ? <SMDurcharbeitCampaignMarketsEditor campaign={selected} options={options} months={editableMonths} initialMonth={editableMonths.includes(month) ? month : editableMonths[0]} onClose={() => setMarketEditor(false)} onSaved={() => { setMarketEditor(false); reload(); }} /> : null}
+    {transfer && canUpdate && selected && options && result ? <SMDurcharbeitOwnerTransfer key={`${selected.id}:${month}`} context="campaign" campaignName={selected.name} month={month}
+      rows={result.targets.map(target => ({ id: target.market.id, name: target.market.name, detail: `${target.market.address} · ${target.market.city}`, smUserId: target.smUserId, smName: target.smName,
+        unavailableReason: target.completed ? "Bereits erledigt" : target.draftVisitId ? "Besuch läuft" : target.eligibility !== "required" ? "Markt ausgenommen" : null }))}
+      people={options.people.map(person => ({ id: person.id, name: `${person.firstName} ${person.lastName}`.trim() }))} onClose={() => setTransfer(false)}
+      onPreview={input => requestSMDurcharbeitCampaign<SMDurcharbeitTransferPreview>(`/${selected.id}/owners/preview`, { ...input, expectedRevision: selected.revision, month }, "POST")}
+      onSave={async (input, previewToken) => { await requestSMDurcharbeitCampaign(`/${selected.id}/owners`, { ...input, expectedRevision: selected.revision, month, previewToken }, "PATCH"); setTransfer(false); reload(); }} /> : null}
   </div></SMDurcharbeitFilterTheme>;
 }

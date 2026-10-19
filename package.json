@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:sm-durcharbeit-export": "node backend/node_modules/tsx/dist/cli.mjs --test tests/sm-SMDurcharbeit-report-export.test.ts tests/sm-SMDurcharbeit-export.integration.test.ts src/lib/exports/smQuestionnaireExport.test.ts backend/src/SMDurcharbeit-report.integration.test.ts",
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",

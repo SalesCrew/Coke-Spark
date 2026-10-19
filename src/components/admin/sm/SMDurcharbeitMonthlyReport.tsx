@@ -35,8 +35,13 @@ function Report({ campaign, month, targets }: { campaign: SMDurcharbeitCampaign;
   }, [campaign.id, month, open, retry, sm]);
   const exportReport = async () => {
     if (!report || exporting) return;
-    const version = generation.current; setExporting(true);
-    try { await exportSMDurcharbeitReport(report, campaign.name, () => version === generation.current && latestReport.current === report); }
+    const version = generation.current, owner = ownerKey(); setExporting(true); setError(null);
+    const isCurrent = () => version === generation.current && ownerKey() === owner && latestReport.current !== null;
+    try {
+      // Export a fresh, complete visit history; the on-screen distributions remain monthly.
+      const exportData = await requestSMDurcharbeitCampaign<SMDurcharbeitReport>(`/${campaign.id}/results?month=${encodeURIComponent(month)}&includeVisitAnswers=true${sm ? `&smUserId=${encodeURIComponent(sm)}` : ""}`);
+      if (isCurrent()) await exportSMDurcharbeitReport(exportData, campaign.name, isCurrent);
+    }
     catch (failure) { if (version === generation.current) setError(failure instanceof Error ? failure.message : "Export konnte nicht erstellt werden."); }
     finally { if (version === generation.current) setExporting(false); }
   };
@@ -46,9 +51,10 @@ function Report({ campaign, month, targets }: { campaign: SMDurcharbeitCampaign;
     {open ? <div className={styles.disclosureBody}>
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="w-[220px]"><AdminDropdown value={sm} options={[{ value: "", label: "Alle SMs" }, ...people]} onChange={value => { generation.current++; latestReport.current = null; setReport(null); setExporting(false); setSm(value); }} ariaLabel="SM für Monatsauswertung" placeholder="Alle SMs" /></div>
-        <button type="button" disabled={!report || exporting} onClick={() => void exportReport()} className={button}>{exporting ? <LoaderCircle size={12} className="motion-safe:animate-spin" /> : <Download size={12} />}Excel Export</button>
+        <button type="button" disabled={!report || exporting} onClick={() => void exportReport()} className={button}>{exporting ? <LoaderCircle size={12} className="motion-safe:animate-spin" /> : <Download size={12} />}Antworten exportieren</button>
       </header>
       <p className="mb-4 text-[11px] leading-5 text-gray-600">Antworten: letzte gültige Abgabe je erforderlichem Markt. Tatsächliche Besuche und Zeiten bleiben einzeln erhalten.</p>
+      <p className="mb-4 text-[11px] leading-5 text-gray-600">Excel: eine Zeile je Besuch mit Markt, SM und lesbaren Antworten in Frage-Spalten. Monatsstand und Antwortverteilung bleiben separat enthalten.</p>
       {error ? <p role="alert" className="text-[11px] text-red-700">{error} <button type="button" onClick={() => setRetry(value => value + 1)} className="ml-2 underline">Erneut laden</button></p> : null}
       {!report && !error ? <div role="status" className="space-y-3 motion-safe:animate-pulse"><span className="sr-only">Monatsauswertung wird geladen</span><div className="h-10 rounded-lg bg-gray-50" /><div className="h-24 rounded-lg bg-gray-50" /></div> : null}
       {report ? <>

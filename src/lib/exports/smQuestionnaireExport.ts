@@ -294,7 +294,7 @@ export function buildSmQuestionnaireWorkbook(input: SmQuestionnaireExportInput, 
 
 export async function exportSmQuestionnaireExcel(input: SmQuestionnaireExportInput): Promise<void> {
   await buildAndDownloadWorkbook({
-    filename: `CokeSpark_SM_Fragebogen_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`,
+    filename: `CokeSpark_SM_${input.SMDurcharbeitCatalogScope === "SMDurcharbeit" ? "Durcharbeit_Fragenkatalog" : "Fragebogen"}_${fileSafeName(new Date().toISOString().slice(0, 10))}.xlsx`,
     build: ({ XLSX, wb }) => buildSheets(input, XLSX, wb),
   });
 }

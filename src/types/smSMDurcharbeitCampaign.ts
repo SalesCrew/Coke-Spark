@@ -42,6 +42,13 @@ export type SMDurcharbeitMarketEditPreview = {
   months: Array<{ month: string; required: number; excluded: number; added: number; included: number; removed: number; protected: number }>;
   protected: Array<{ targetId: string; marketId: string; name: string; month: string; reason: "in_progress" | "completed" }>;
 };
+export type SMDurcharbeitReportAnswer = {
+  targetId: string; smName: string; sourceSubmissionId: string | null; sourceAnswerId: string | null;
+  question: { id: string; submissionId: string; questionVersionId: string; questionCodeSnapshot: string;
+    questionTypeSnapshot: string; questionTextSnapshot: string; answerOptionsSnapshot: Array<Record<string, unknown>>;
+    configSnapshot?: Record<string, unknown>; isApplicable?: boolean };
+  answer: { id: string; answerState: string; answerVersion: number; valueJson: import("./smVisit").SmVisitAnswer | null; answeredAt: string | null } | null;
+};
 export type SMDurcharbeitReport = {
   month: string; targets: SMDurcharbeitTarget[];
   summary: SMDurcharbeitMonthlySummary & { coveragePercentage: number | null; latestSubmissions: number;
@@ -49,11 +56,11 @@ export type SMDurcharbeitReport = {
   questionResults: Array<{ questionVersionId: string; questionCode: string; text: string; type: string;
     applicable: number; answered: number; unanswered: number; average: number | null;
     distribution: Array<{ code: string; label: string; count: number; percentage: number | null }> }>;
-  answers: Array<{ targetId: string; smName: string; sourceSubmissionId: string | null; sourceAnswerId: string | null;
-    question: { id: string; submissionId: string; questionVersionId: string; questionCodeSnapshot: string;
-      questionTypeSnapshot: string; questionTextSnapshot: string; answerOptionsSnapshot: Array<Record<string, unknown>> };
-    answer: { id: string; answerState: string; answerVersion: number; valueJson: import("./smVisit").SmVisitAnswer | null; answeredAt: string | null } | null }>;
+  answers: SMDurcharbeitReportAnswer[];
+  /** Opt-in export data; every valid physical visit, not just the latest monthly submission. */
+  visitAnswers?: SMDurcharbeitReportAnswer[];
   physicalVisits: Array<{ id: string; targetId: string; submissionId: string; smUserId: string; smName: string; marketName: string;
+    marketAddress?: string; marketPostalCode?: string; marketCity?: string; questionnaireName?: string; questionnaireVersion?: number;
     questionnaireValid: boolean; submittedAt: string; originalStartedAt: string | null; originalCompletedAt: string | null;
     startedAt: string | null; completedAt: string | null; actualMinutes: number | null; travelMinutes: number | null; timeRevision: number | null }>;
 };

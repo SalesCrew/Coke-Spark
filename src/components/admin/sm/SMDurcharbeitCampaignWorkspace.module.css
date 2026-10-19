@@ -84,6 +84,30 @@
 .disclosureBody { border-top: 1px solid #0000000c; padding: 16px 17px; }
 .reportMetrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; border-top: 1px solid #0000000a; border-bottom: 1px solid #0000000a; padding: 15px 0; margin-bottom: 18px; }
 .reportMetricValue { margin-top: 4px; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.questionnaireNotice { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 15px; border-bottom:1px solid #0000000b; background:#fff; }
+.questionnaireNoticeTitle { margin:0; font-size:11px; font-weight:650; line-height:18px; color:#343d47; }
+.questionnaireNoticeDetail { margin:3px 0 0; font-size:10px; line-height:16px; color:#747d88; overflow-wrap:anywhere; }
+.questionnaireNotice .secondary { flex-shrink:0; }
+.questionnaireDialog { margin:auto; width:min(480px,calc(100vw - 48px)); max-height:90dvh; overflow:auto; padding:24px; border:1px solid #0000000d; border-radius:12px; background:white; color:#374151; box-shadow:0 16px 64px #17203326; scrollbar-width:thin; scrollbar-color:#d4d8de transparent; }
+.questionnaireDialog::backdrop { background:#17203333; }
+.questionnaireDialogHeader { display:flex; justify-content:space-between; align-items:start; gap:16px; }
+.questionnaireDialogHeader h2 { margin:0; font-size:15px; font-weight:700; line-height:22px; color:#172033; }
+.questionnaireDialogHeader p { margin:5px 0 0; color:#737c88; font-size:10px; line-height:17px; }
+.questionnaireClose { display:grid; place-items:center; flex-shrink:0; width:27px; height:27px; border-radius:6px; background:#f7f8fa; color:#7b8490; cursor:pointer; }
+.questionnaireName { margin:23px 0 12px; color:#4b5563; font-size:11px; font-weight:550; line-height:18px; overflow-wrap:anywhere; }
+.questionnaireComparison { display:grid; grid-template-columns:minmax(0,1fr) 32px minmax(0,1fr); align-items:center; gap:14px; padding:19px 0; border-top:1px solid #edf0f3; border-bottom:1px solid #edf0f3; }
+.questionnaireComparison h3 { margin:0; color:#7b8490; font-size:10px; font-weight:500; }
+.questionnaireComparison p { margin:8px 0 4px; color:#69717c; font-size:11px; }
+.questionnaireComparison strong { margin-right:4px; color:#202938; font-size:30px; font-weight:650; line-height:1.1; letter-spacing:-.04em; font-variant-numeric:tabular-nums; }
+.questionnaireComparison section:last-child strong { color:#2563eb; }
+.questionnaireComparison section>span { color:#7b8490; font-size:9px; }
+.questionnaireArrow { color:#a1a8b2; justify-self:center; }
+.questionnaireChanges { margin:12px 0 0; color:#65707c; font-size:10px; line-height:18px; }
+.questionnaireScope { margin-top:20px; font-size:11px; line-height:18px; color:#69717c; }
+.questionnaireScope p { margin:0 0 8px; }.questionnaireScope strong { font-weight:600; color:#475161; }.questionnaireScope>span { display:block; margin-top:11px; color:#7b8490; font-size:10px; }
+.questionnaireError { margin:8px 0 0; color:#b4232a; font-size:10px; line-height:17px; }.questionnaireError p { margin:0; }.questionnaireError button { margin-top:6px; border-bottom:1px solid currentColor; cursor:pointer; }
+.questionnaireDialogFooter { display:flex; justify-content:flex-end; gap:8px; margin-top:24px; padding-top:18px; border-top:1px solid #edf0f3; }
+.questionnaireClose:focus-visible,.questionnaireError button:focus-visible { outline:1px solid #2563eb; outline-offset:3px; }
 @media (max-width: 1179px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .campaigns, .toolbar > .eyebrow { display: none; }

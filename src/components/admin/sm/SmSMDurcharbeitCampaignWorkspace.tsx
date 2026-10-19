@@ -15,6 +15,7 @@ import { SMDurcharbeitCampaignMarketsEditor } from "./SMDurcharbeitCampaignMarke
 import { filterSMDurcharbeitMarkets, updateSMDurcharbeitMarketSelection } from "@/lib/sm/SMDurcharbeitMarketSelection";
 import styles from "./SMDurcharbeitCampaignWorkspace.module.css";
 import { SMDurcharbeitOwnerTransfer } from "./SMDurcharbeitOwnerTransfer";
+import { SMDurcharbeitQuestionnaireUpdate } from "./SMDurcharbeitQuestionnaireUpdate";
 import type { SMDurcharbeitTransferPreview } from "@/types/smSMDurcharbeitTransfer";
 
 const primary = styles.primary;
@@ -201,6 +202,7 @@ export function SmSMDurcharbeitCampaignWorkspace() {
                   {month > `${today().slice(0, 7)}-01` && selected.status !== "archived" ? <button type="button" disabled={busy} onClick={() => { setPeriodEdit(true); setFutureVersion(""); setReason(""); }} className={secondary}>Fragebogen für diesen Monat</button> : null}
                 </div>
               </div>
+              {canUpdate && ["published", "paused"].includes(selected.status) && selected.endDate >= today() && month >= `${today().slice(0, 7)}-01` ? <SMDurcharbeitQuestionnaireUpdate key={`${selected.id}:${month}`} campaignId={selected.id} campaignName={selected.name} month={month} revision={selected.revision} canUpdate={canUpdate} onUpdated={reload} onBusyChange={setBusy} /> : null}
               <div className={styles.metrics} aria-live="polite">
                 {result ? <>
                   <span className={styles.metric}><strong>{result.summary.completed}/{result.summary.required}</strong> erledigt</span>

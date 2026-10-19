@@ -24,6 +24,14 @@ export type SMDurcharbeitCampaignOptions = {
 export type SMDurcharbeitTargetPreview = { target: SMDurcharbeitTarget; questionnaire: { name: string; versionNumber: number };
   profile: { travelTimeEnabled: boolean } };
 export type SMDurcharbeitMonthlySummary = { required: number; completed: number; waived: number; physicalVisits: number };
+export type SMDurcharbeitQuestionnaireUpdatePreview = {
+  campaignId: string; campaignRevision: number; month: string; available: boolean; previewToken: string;
+  current: { id: string; name: string; versionNumber: number; questionCount: number };
+  next: { id: string | null; name: string; versionNumber: number; questionCount: number };
+  requiresPublication: boolean;
+  changes: { added: number; removed: number; changed: number };
+  preserved: { drafts: number; completed: number };
+};
 export type SMDurcharbeitCampaignDraft = Pick<SMDurcharbeitCampaign, "name" | "startDate" | "endDate" | "questionnaireVersionId" | "rosterDraft">;
 export type SMDurcharbeitPublicationPreview = { campaign: SMDurcharbeitCampaign; months: string[]; marketCount: number; targetCount: number;
   unresolved: string[]; overlapping: Array<{ id: string; name: string; marketId: string }>; legacy: Array<{ id: string; marketId: string; workDate: string }>; previewToken: string };

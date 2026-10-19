@@ -11,7 +11,7 @@ const ownerKey = () => getAuthPrincipalKey(readAuthSession());
 const noOwner = () => null;
 const labels: Record<string, string> = {
   draft_created: "Entwurf erstellt", draft_updated: "Entwurf bearbeitet", published: "Veröffentlicht", state_changed: "Status geändert",
-  extended: "Verlängert", future_questionnaire_changed: "Fragebogen geändert", roster_changed: "Zuordnung geändert",
+  extended: "Verlängert", future_questionnaire_changed: "Fragebogen geändert", questionnaire_update_adopted: "Neue Fragebogenfassung übernommen", roster_changed: "Zuordnung geändert",
   markets_updated: "Marktauswahl geändert", market_selection_changed: "Marktstatus geändert", market_added: "Markt aufgenommen",
   owner_resolved: "SM automatisch aus Marktbestand übernommen",
   SMDurcharbeit_owner_override: "SM für einen Monat geändert", SMDurcharbeit_owner_automatic: "Marktstandard wiederhergestellt",

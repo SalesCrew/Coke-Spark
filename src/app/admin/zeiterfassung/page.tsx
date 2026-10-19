@@ -31,6 +31,7 @@ import {
   getZeitenaufstellungWeekRange,
   type ZeitenaufstellungExportRange,
 } from "@/lib/exports/zeitenaufstellungExport";
+import { MileageCorrectionButton } from "@/components/admin/zeiterfassung/MileageCorrection";
 import type { RedMonthPeriod } from "@/types/red-month";
 import type { EntrySubtype, TimeDaySession } from "@/types/zeiterfassung";
 
@@ -1081,6 +1082,7 @@ const GMDayRow = React.memo(function GMDayRow({
   onSegmentPatched: () => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [mileageRequest, setMileageRequest] = useState(0);
   const [kmEditing, setKmEditing] = useState(false);
   const [kmStartDraft, setKmStartDraft] = useState("");
   const [kmEndDraft, setKmEndDraft] = useState("");
@@ -1090,6 +1092,7 @@ const GMDayRow = React.memo(function GMDayRow({
   const timeline = useMemo(() => (expanded ? deriveTimeline(session) : []), [expanded, session]);
   const av = gmAvatarColor(session.gmName);
   const openKmEditor = () => {
+    if (session.mileage) { setMileageRequest(value => value + 1); return; }
     setKmStartDraft(session.startKm == null ? "" : String(session.startKm));
     setKmEndDraft(session.endKm == null ? "" : String(session.endKm));
     setKmError(null);
@@ -1180,6 +1183,7 @@ const GMDayRow = React.memo(function GMDayRow({
               <StatTile label="Reine AZ" value={fmtDur(stats.reineArbeitszeit)} color="#16a34a" />
               <StatTile label="Pause" value={fmtDur(stats.pauseMin)} color="#D97706" />
             </div>
+            <MileageCorrectionButton sessionId={session.id} date={session.date} gmName={session.gmName} openRequest={mileageRequest} onSaved={onSegmentPatched} />
             {kmEditing ? (
               <div style={{ marginTop: 7, borderRadius: 10, border: "1px solid rgba(0,0,0,0.06)", background: "#fff", padding: 9 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 7, alignItems: "end" }}>
@@ -1488,6 +1492,7 @@ export default function ZeiterfassungPage() {
               endTime: session.endTime,
               startKm: session.startKm,
               endKm: session.endKm,
+              mileage: session.mileage ?? null,
               entries: session.entries.map((entry) => {
                 const subtype = toEntrySubtype(entry.subtype);
                 return {

@@ -28,6 +28,7 @@ export interface TimeEntry {
 }
 
 export interface TimeDaySession {
+  mileage?: import("@/types/gmMileage").MileageState | null;
   id: string;
   date: string;      // "YYYY-MM-DD"
   gmId: string;

@@ -4087,6 +4087,7 @@ export type TimeTrackingEntry = {
 export type DaySessionStatus = "draft" | "started" | "ended" | "submitted" | "cancelled";
 
 export type DaySession = {
+  mileage?: import("@/types/gmMileage").MileageState | null;
   id: string;
   gmUserId: string;
   workDate: string;
@@ -4442,6 +4443,7 @@ export type AdminZeiterfassungTimelineSegment = {
 };
 
 export type AdminZeiterfassungSession = {
+  mileage?: import("@/types/gmMileage").MileageState | null;
   id: string;
   date: string;
   gmId: string;
@@ -7130,4 +7132,17 @@ export async function saveSmQuestionnaire(questionnaire: SmQuestionnaire, scope:
 export async function deleteSmQuestionnaire(id: string, scope: SmQuestionnaireCatalogScope = "standard"): Promise<void> {
   await authedFetch(`/admin/sm-questionnaires/questionnaires/${id}/delete${smCatalogQuery(scope)}`, { method: "PATCH" });
   SMDurcharbeitOptionCache.clear();
+}
+
+export async function fetchMileageContext(input: { sessionId: string; from: string; to: string }): Promise<import("@/types/gmMileage").MileageContext> {
+  return await authedFetch(`/admin/zeiterfassung/mileage/context?${new URLSearchParams(input)}`) as import("@/types/gmMileage").MileageContext;
+}
+export async function previewMileageCorrection(input: import("@/types/gmMileage").MileageCorrection): Promise<import("@/types/gmMileage").MileagePreview> {
+  return await authedFetch("/admin/zeiterfassung/mileage/preview", { method: "POST", body: JSON.stringify(input) }) as import("@/types/gmMileage").MileagePreview;
+}
+export async function applyMileageCorrection(input: import("@/types/gmMileage").MileageCorrection): Promise<{ ok: boolean; count: number }> {
+  return await authedFetch("/admin/zeiterfassung/mileage/apply", { method: "POST", body: JSON.stringify(input) }) as { ok: boolean; count: number };
+}
+export async function saveDayVehicleChange(input: { segments: import("@/types/gmMileage").MileageSegment[]; beforeWork: boolean }): Promise<{ session: DaySession }> {
+  return await authedFetch("/day-session/vehicle-change", { method: "POST", body: JSON.stringify(input) }) as { session: DaySession };
 }

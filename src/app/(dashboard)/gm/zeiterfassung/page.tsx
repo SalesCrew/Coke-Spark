@@ -471,7 +471,7 @@ function GmZeitStatsPanel({ stats }: {
                   <span style={{ fontSize: 30, fontWeight: 750, letterSpacing: "-0.02em", lineHeight: 1, color: "rgba(15,23,42,0.92)", fontVariantNumeric: "tabular-nums" }}>{stats.drivenKm} km</span>
                   <span style={{ fontSize: 11, fontWeight: 700, color: R, fontVariantNumeric: "tabular-nums" }}>{stats.privateKm} km privat</span>
                 </div>
-                <div style={{ marginTop: 5, fontSize: 10, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>Gesamtstrecke</div>
+                <div style={{ marginTop: 5, fontSize: 10, fontWeight: 650, color: "rgba(15,23,42,0.42)" }}>Dienstliche Kilometer</div>
               </div>
             </div>
             <div style={{ position: "absolute", top: 16, right: 15, width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center" }}>

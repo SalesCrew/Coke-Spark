@@ -31,6 +31,7 @@ import {
   saveLocalDaySessionStartSnapshot,
   type LocalDaySessionSnapshot,
 } from "@/lib/gm/daySessionPersistence";
+import { VehicleChangeDialog } from "./VehicleChangeDialog";
 import { GmSkeletonTimelineRows } from "./GmDashboardSkeleton";
 
 interface TimeTrackerProps {
@@ -360,7 +361,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
   const [activeKmField, setActiveKmField]       = useState<"start" | "end" | null>(null);
 
   // New-car flow
-  const [newCarSlot, setNewCarSlot]           = useState<"input" | "confirm">("input");
+  const [vehicleDialog, setVehicleDialog] = useState(false);
   const [newCarConfirmed, setNewCarConfirmed] = useState(false);
 
   // ── Day summary ───────────────────────────────────────────────────────────
@@ -374,7 +375,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
   const [forgotEndTime, setForgotEndTime]           = useState("");
   const [forgotEndClockOpen, setForgotEndClockOpen] = useState(false);
   const [hasTriggeredForgotEnd, setHasTriggeredForgotEnd] = useState(false);
-  // newCarSlot / newCarConfirmed / endKmInput are reused in forgotEnd too
+  // Vehicle confirmation and end input are reused for retrospective day end.
 
   // ── Phase ────────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<TimeTrackerPhase>("idle");
@@ -440,7 +441,6 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     setHasTriggeredForgotEnd(true);
     setStartKmInput("");
     setEndKmInput("");
-    setNewCarSlot("input");
     setNewCarConfirmed(false);
     setActiveKmField(null);
     setForgotEndTime("");
@@ -699,7 +699,6 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     setConfirmedStartKm(null);
     setEndKmInput("");
     setNewCarConfirmed(false);
-    setNewCarSlot("input");
     setSeconds(0);
     setDaySummarySnapshot(null);
     setSummaryProgress(1);
@@ -725,7 +724,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     const zusatzCount = sourceStats?.zusatz ?? sourceItems.filter((item) => item.kind === "zusatz").length;
     const trackedSeconds = sourceStats?.arbeitstag != null ? sourceStats.arbeitstag * 60 : seconds;
     const snapshot: DaySummarySnapshot = {
-      startKm, endKm, deltaKm: endKm - startKm,
+      startKm, endKm, deltaKm: sourceStats?.kmGefahren ?? Math.max(0, endKm - startKm),
       marketCount,
       zusatzCount,
       trackedSeconds,
@@ -1094,7 +1093,6 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
       setConfirmedStartKm(session.startKm ?? null);
       if (session.startKm == null) setStartKmInput("");
       setEndKmInput(session.endKm != null ? String(session.endKm) : "");
-      setNewCarSlot("input");
       setNewCarConfirmed(false);
       setActiveKmField(null);
       setRunning(false);
@@ -1177,15 +1175,15 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
   const startKmReadyForEnd = !needsStartKmForEnd || (startKmInput.length > 0 && pendingStartKmForEnd > 0);
   const compareStartKmForEnd = needsStartKmForEnd ? (startKmReadyForEnd ? pendingStartKmForEnd : null) : knownStartKmForEnd;
   const endKmNum   = parseInt(endKmInput, 10);
-  const endKmValid = startKmReadyForEnd && endKmInput.length > 0 && endKmNum > 0 &&
-    (newCarConfirmed || compareStartKmForEnd === null || endKmNum > compareStartKmForEnd);
+  const endKmValid = startKmReadyForEnd && endKmInput.length > 0 && endKmNum >= 0 &&
+    (newCarConfirmed || daySession?.endKm === endKmNum || compareStartKmForEnd === null || endKmNum >= compareStartKmForEnd);
 
   const handleEndKmConfirm = useCallback(async () => {
     const num = parseInt(endKmInput, 10);
-    if (!num || num <= 0 || persistBusy) return;
+    if (!Number.isInteger(num) || num < 0 || persistBusy) return;
     const startNum = needsStartKmForEnd ? parseInt(startKmInput, 10) : knownStartKmForEnd;
     if (needsStartKmForEnd && (!startNum || startNum <= 0)) return;
-    if (!newCarConfirmed && startNum !== null && num <= startNum) return;
+    if (!newCarConfirmed && daySession?.endKm !== num && startNum !== null && num < startNum) return;
     setPersistBusy(true);
     setPersistError(null);
     try {
@@ -1195,7 +1193,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
         setDaySession(startResult.session);
         setConfirmedStartKm(startNum);
       }
-      const endResult = await setDaySessionEndKm(num);
+      const endResult = daySession?.endKm === num ? { session: daySession } : await setDaySessionEndKm(num);
       persistLocalDaySessionFromBackend(endResult.session);
       setDaySession(endResult.session);
       if (openEndKmOnly) {
@@ -1212,7 +1210,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     } finally {
       setPersistBusy(false);
     }
-  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, needsStartKmForEnd, startKmInput, knownStartKmForEnd, hydrateTodaySubmissions, openEndKmOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notifyDaySessionUpdated, persistBusy, endKmInput, newCarConfirmed, needsStartKmForEnd, startKmInput, knownStartKmForEnd, hydrateTodaySubmissions, openEndKmOnly, daySession]); // eslint-disable-line react-hooks/exhaustive-deps
   const handleEndKmDefer = useCallback(async () => {
     if (persistBusy) return;
     setPersistBusy(true);
@@ -1240,7 +1238,6 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
     setConfirmedStartKm(daySession?.startKm ?? confirmedStartKm);
     if ((daySession?.startKm ?? confirmedStartKm) == null) setStartKmInput("");
     setEndKmInput(daySession?.endKm != null ? String(daySession.endKm) : "");
-    setNewCarSlot("input");
     setNewCarConfirmed(false);
     setActiveKmField(null);
     transitionTo("endKm");
@@ -1249,10 +1246,10 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
   // ── forgotEnd confirm ─────────────────────────────────────────────────────
   const handleForgotEndConfirm = useCallback(async () => {
     const num = parseInt(endKmInput, 10);
-    if (!num || num <= 0 || persistBusy) return;
+    if (!Number.isInteger(num) || num < 0 || persistBusy) return;
     const startNum = needsStartKmForEnd ? parseInt(startKmInput, 10) : knownStartKmForEnd;
     if (needsStartKmForEnd && (!startNum || startNum <= 0)) return;
-    if (!newCarConfirmed && startNum !== null && num <= startNum) return;
+    if (!newCarConfirmed && daySession?.endKm !== num && startNum !== null && num < startNum) return;
     if (!forgotEndTime) return;
     setPersistBusy(true);
     setPersistError(null);
@@ -1265,7 +1262,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
       }
       const ended = await endDaySession({ endTime: forgotEndTime });
       persistLocalDaySessionFromBackend(ended.session);
-      const endResult = await setDaySessionEndKm(num);
+      const endResult = daySession?.endKm === num ? { session: daySession } : await setDaySessionEndKm(num);
       persistLocalDaySessionFromBackend(endResult.session);
       setDaySession(endResult.session);
       notifyDaySessionUpdated();
@@ -1282,9 +1279,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
   const forgotEndValid = endKmValid && !!forgotEndTime;
 
   // ── New-car ───────────────────────────────────────────────────────────────
-  const handleNewCarPress   = useCallback(() => { setNewCarSlot("confirm"); }, []);
-  const handleNewCarCancel  = useCallback(() => { setNewCarSlot("input"); setTimeout(() => endKmRef.current?.focus(), 120); }, []);
-  const handleNewCarConfirm = useCallback(() => { setNewCarConfirmed(true); setNewCarSlot("input"); setEndKmInput(""); setTimeout(() => endKmRef.current?.focus(), 120); }, []);
+  const handleNewCarPress   = useCallback(() => { setVehicleDialog(true); }, []);
 
   const handlePause = useCallback(async () => {
     if (!running || persistBusy) return;
@@ -1313,7 +1308,7 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
   // ── Debug: force forgotEnd ────────────────────────────────────────────────
   const forceDebugForgotEnd = useCallback(() => {
     setHasTriggeredForgotEnd(true);
-    setEndKmInput(""); setNewCarSlot("input"); setNewCarConfirmed(false);
+    setEndKmInput(""); setNewCarConfirmed(false);
     setActiveKmField(null); setForgotEndTime(""); setForgotEndClockOpen(false);
     if (phase === "recording") { setRunning(false); setPaused(false); }
     transitionTo("forgotEnd");
@@ -1388,36 +1383,20 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
 
   // ── Shared new-car slot (reused in both endKm and forgotEnd) ──────────────
   function NewCarSlotContent() {
-    return (
-      <div style={{ position: "relative", width: "100%", height: 48, display: "flex", alignItems: "center" }}>
-        {/* Input */}
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", opacity: newCarSlot === "input" ? 1 : 0, transform: newCarSlot === "input" ? "translateY(0)" : "translateY(-5px)", transition: "opacity 0.18s ease, transform 0.18s ease", pointerEvents: newCarSlot === "input" ? "auto" : "none" }}>
-          <KmInput inputRef={endKmRef} rawValue={endKmInput} isValid={endKmValid}
-            isFocused={activeKmField === "end"} onChange={v => setEndKmInput(v)}
-            onFocus={() => setActiveKmField("end")} onBlur={() => setActiveKmField(null)}
-            onKeyDown={e => { if (e.key === "Enter" && endKmValid) { if (phase === "endKm") handleEndKmConfirm(); else handleForgotEndConfirm(); } if (e.key === "Escape") { if (phase === "endKm") handleEndKmCancel(); } }} />
-        </div>
-        {/* New-car confirm */}
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", opacity: newCarSlot === "confirm" ? 1 : 0, transform: newCarSlot === "confirm" ? "translateY(0)" : "translateY(5px)", transition: "opacity 0.18s ease, transform 0.18s ease", pointerEvents: newCarSlot === "confirm" ? "auto" : "none" }}>
-          <div style={{ width: "100%", padding: "7px 10px", borderRadius: 9, background: "rgba(220,38,38,0.04)", border: "1px solid rgba(220,38,38,0.14)", display: "flex", flexDirection: "column", gap: 6, boxSizing: "border-box" }}>
-            <span style={{ fontSize: 9, color: "rgba(0,0,0,0.5)", lineHeight: 1.4, fontWeight: 500 }}>Neues Fahrzeug erfassen?</span>
-            <div style={{ display: "flex", gap: 5 }}>
-              <button onClick={handleNewCarCancel} style={{ flex: 1, padding: "3px 0", fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.4)", background: "rgba(0,0,0,0.05)", border: "none", borderRadius: 5, cursor: "pointer", transition: "all 0.12s" }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.08)"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.05)"; }}>Abbrechen</button>
-              <button onClick={handleNewCarConfirm} style={{ flex: 1, padding: "3px 0", fontSize: 9, fontWeight: 700, color: "#DC2626", background: "rgba(220,38,38,0.08)", border: "none", borderRadius: 5, cursor: "pointer", transition: "all 0.12s" }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(220,38,38,0.14)"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(220,38,38,0.08)"; }}>Ja, weiter</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <div style={{ width: "100%", height: 48, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <KmInput inputRef={endKmRef} rawValue={endKmInput} isValid={endKmValid}
+        isFocused={activeKmField === "end"} onChange={setEndKmInput}
+        onFocus={() => setActiveKmField("end")} onBlur={() => setActiveKmField(null)}
+        onKeyDown={e => { if (e.key === "Enter" && endKmValid) { if (phase === "endKm") void handleEndKmConfirm(); else void handleForgotEndConfirm(); } if (e.key === "Escape" && phase === "endKm") handleEndKmCancel(); }} />
+    </div>;
   }
 
   // ── RENDER ────────────────────────────────────────────────────────────────
   return (
     <>
+      {vehicleDialog && <VehicleChangeDialog dayStartKm={knownStartKmForEnd} onClose={() => setVehicleDialog(false)} onSaved={session => {
+        persistLocalDaySessionFromBackend(session); setDaySession(session); setConfirmedStartKm(session.startKm); setNewCarConfirmed(true); setEndKmInput(String(session.endKm ?? "")); setVehicleDialog(false); notifyDaySessionUpdated();
+      }} />}
       {/* ── Hidden debug panel ─────────────────────────────── */}
       {debugOpen && (
         <div
@@ -1886,22 +1865,19 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
                     <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.55)", fontVariantNumeric: "tabular-nums" }}>{knownStartKmForEnd.toLocaleString("de-AT")} km</span>
                   </div>
                 )}
-                {newCarConfirmed && (
+                {(newCarConfirmed || daySession?.mileage) && (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 7, background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.14)", marginBottom: 10, width: "100%", maxWidth: 200, boxSizing: "border-box" }}>
                     <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#DC2626", flexShrink: 0 }} />
                     <span style={{ fontSize: 9, color: "#DC2626", fontWeight: 600 }}>Neues Fahrzeug</span>
-                    <button onClick={() => { setNewCarConfirmed(false); setEndKmInput(""); setTimeout(() => endKmRef.current?.focus(), 60); }}
-                      style={{ marginLeft: "auto", fontSize: 8, fontWeight: 600, color: "rgba(220,38,38,0.5)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#DC2626"; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "rgba(220,38,38,0.5)"; }}>Rückgängig</button>
+                    <span style={{ marginLeft: "auto", fontSize: 8, color: "#8b93a1" }}>Gespeichert</span>
                   </div>
                 )}
                 {NewCarSlotContent()}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", maxWidth: 200, marginTop: 6, minHeight: 16 }}>
                   <span style={{ fontSize: 9, color: "rgba(0,0,0,0.28)", letterSpacing: "0.01em" }}>
-                    {newCarConfirmed ? "neuer Startwert für morgen" : "wird als Endwert gespeichert"}
+                    {newCarConfirmed ? "Fahrzeugwechsel gespeichert" : "wird als Endwert gespeichert"}
                   </span>
-                  {!newCarConfirmed && newCarSlot === "input" && (
+                  {!newCarConfirmed && !daySession?.mileage && (
                     <button onClick={handleNewCarPress} style={{ fontSize: 8, fontWeight: 600, color: "rgba(0,0,0,0.28)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
                       onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#DC2626"; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "rgba(0,0,0,0.28)"; }}>Neues Fahrzeug?</button>
@@ -1970,14 +1946,11 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
                       <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.55)", fontVariantNumeric: "tabular-nums" }}>{knownStartKmForEnd.toLocaleString("de-AT")} km</span>
                     </div>
                   )}
-                  {newCarConfirmed && (
+                  {(newCarConfirmed || daySession?.mileage) && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 7, background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.14)", marginBottom: 10, width: "100%", maxWidth: 200, boxSizing: "border-box" }}>
                       <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#DC2626", flexShrink: 0 }} />
                       <span style={{ fontSize: 9, color: "#DC2626", fontWeight: 600 }}>Neues Fahrzeug</span>
-                      <button onClick={() => { setNewCarConfirmed(false); setEndKmInput(""); setTimeout(() => endKmRef.current?.focus(), 60); }}
-                        style={{ marginLeft: "auto", fontSize: 8, fontWeight: 600, color: "rgba(220,38,38,0.5)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#DC2626"; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "rgba(220,38,38,0.5)"; }}>Rückgängig</button>
+                      <span style={{ marginLeft: "auto", fontSize: 8, color: "#8b93a1" }}>Gespeichert</span>
                     </div>
                   )}
 
@@ -1996,9 +1969,9 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
                   {/* Sub row */}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", maxWidth: 200, marginTop: 6, minHeight: 16 }}>
                     <span style={{ fontSize: 9, color: "rgba(0,0,0,0.28)", letterSpacing: "0.01em" }}>
-                      {newCarConfirmed ? "neuer Startwert für morgen" : "wird als Endwert gespeichert"}
+                      {newCarConfirmed ? "Fahrzeugwechsel gespeichert" : "wird als Endwert gespeichert"}
                     </span>
-                    {!newCarConfirmed && newCarSlot === "input" && (
+                    {!newCarConfirmed && !daySession?.mileage && (
                       <button onClick={handleNewCarPress} style={{ fontSize: 8, fontWeight: 600, color: "rgba(0,0,0,0.28)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
                         onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#DC2626"; }}
                         onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "rgba(0,0,0,0.28)"; }}>Neues Fahrzeug?</button>

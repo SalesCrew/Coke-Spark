@@ -17,7 +17,7 @@ import {
   Warehouse,
   X,
 } from "lucide-react";
-import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
+import { GmHomeMenu } from "@/components/gm/GmHomeMenu";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import Aurora from "@/components/ui/Aurora";
 import { DoctorConfirmationProofButton } from "@/components/dashboard/DoctorConfirmationProofButton";
@@ -1744,7 +1744,7 @@ export default function GmZeiterfassungPage() {
       ) : null}
 
       <div className="fixed bottom-6 left-0 right-0 z-50">
-        <CollapsibleMenu
+        <GmHomeMenu
           items={GM_MENU_ITEMS}
           enableKurti
           enableClickToggle

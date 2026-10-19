@@ -15,6 +15,7 @@ export function getCustomerAdminPageKeyForPath(pathname: string): string | null 
   ];
   const smPage = smPages.find(([href]) => pathname === href || pathname.startsWith(`${href}/`));
   if (smPage) return smPage[1];
+  if (pathname.startsWith("/admin/wochenschwerpunkte")) return "wochenschwerpunkte";
   if (pathname.startsWith("/admin/gm-dashboard")) return "gm_dashboard";
   if (pathname.startsWith("/admin/datenschutzanfragen")) return "datenschutzanfragen";
   if (pathname.startsWith("/admin/ipp-berechnung")) return "ipp_berechnung";

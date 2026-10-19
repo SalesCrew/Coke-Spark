@@ -7146,3 +7146,14 @@ export async function applyMileageCorrection(input: import("@/types/gmMileage").
 export async function saveDayVehicleChange(input: { segments: import("@/types/gmMileage").MileageSegment[]; beforeWork: boolean }): Promise<{ session: DaySession }> {
   return await authedFetch("/day-session/vehicle-change", { method: "POST", body: JSON.stringify(input) }) as { session: DaySession };
 }
+
+/** GM briefings retain the initiating account through authentication refreshes and retries. */
+export async function requestGmBriefings<T>(path: string, body?: unknown, method = "GET"): Promise<T> {
+  const owner = getAuthPrincipalKey(readAuthSession());
+  return authedFetch(path, { method, cache: "no-store", ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, 30_000, { isCurrent: () => !!owner && owner === getAuthPrincipalKey(readAuthSession()) });
+}
+export async function uploadGmBriefingPdf(file: File, operationId: string, replace?: { id: string; revision: number }): Promise<import('@/types/gmBriefings').BriefingDraft> {
+  const owner = getAuthPrincipalKey(readAuthSession());
+  return authedFetch(replace ? `/admin/gm-briefings/${replace.id}/pdf` : '/admin/gm-briefings/upload', { method: replace ? 'PATCH' : 'POST', cache: 'no-store', body: file,
+    headers: { 'Content-Type': 'application/pdf', 'x-pdf-filename': encodeURIComponent(file.name), 'x-operation-id': operationId, ...(replace ? { 'x-draft-revision': String(replace.revision) } : {}) } }, 120_000, { isCurrent: () => !!owner && owner === getAuthPrincipalKey(readAuthSession()) });
+}

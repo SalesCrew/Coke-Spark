@@ -7,3 +7,6 @@ node_modules/
 *.tsbuildinfo
 next-env.d.ts
 .codex/TEST_ACCOUNTS.local.md
+
+# Generated local PDF.js worker/fonts for the pinned renderer
+/public/pdfjs/

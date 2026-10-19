@@ -22,7 +22,7 @@ import {
   User,
 } from "lucide-react";
 import Aurora from "@/components/ui/Aurora";
-import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
+import { GmHomeMenu } from "@/components/gm/GmHomeMenu";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import {
   BackendApiError,
@@ -922,7 +922,7 @@ export default function GmProfilPage() {
       </div>
 
       <div className="fixed bottom-6 left-0 right-0 z-50">
-        <CollapsibleMenu
+        <GmHomeMenu
           items={GM_MENU_ITEMS}
           enableKurti
           enableClickToggle

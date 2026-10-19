@@ -20,7 +20,7 @@ export function useSmSMDurcharbeitTargets(monthSelection: string | null = null) 
     if (!owner) return;
     let current = true;
     fetchMySMDurcharbeitTargets(monthSelection ?? undefined)
-      .then(result => { if (current) { setState({ ...result, requestedMonth: monthSelection, owner }); setFailure(null); } })
+      .then(result => { if (current) { setState({ ...result, targets: result.targets.filter(target => target.campaignStatus !== "paused"), requestedMonth: monthSelection, owner }); setFailure(null); } })
       .catch(error => { if (current) setFailure({ owner, month: monthSelection, message: error instanceof Error ? error.message : "Durcharbeit konnte nicht geladen werden." }); });
     return () => { current = false; };
   }, [owner, reloadKey, monthSelection]);
@@ -31,7 +31,7 @@ export function useSmSMDurcharbeitTargets(monthSelection: string | null = null) 
     window.addEventListener("focus", visible);
     window.addEventListener("online", visible);
     document.addEventListener("visibilitychange", visible);
-    const refresh = window.setInterval(visible, 300_000);
+    const refresh = window.setInterval(visible, 30_000);
     let knownMonth = smHomeDate().slice(0, 7);
     let boundary: ReturnType<typeof setTimeout>;
     const atMidnight = () => {

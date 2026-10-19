@@ -1365,7 +1365,6 @@ export default function SmActivityPage() {
     const [nextActivities] = await Promise.all([
       loadActivities(),
       loadRequests(),
-      ...(selected ? [loadPayload(selected)] : []),
     ]);
     if (selected && !nextActivities.some((activity) => activity.submissionId === selected.submissionId)) {
       payloadSequence.current += 1;
@@ -1373,7 +1372,7 @@ export default function SmActivityPage() {
       setPayload(null);
       setSelectedQuestion(null);
       setDeleteOpen(false);
-    }
+    } else if (selected) await loadPayload(selected);
   }, [loadActivities, loadPayload, loadRequests, selected]);
   useEffect(() => {
     const refresh = () => {
@@ -1387,10 +1386,12 @@ export default function SmActivityPage() {
     window.addEventListener("focus", refresh);
     window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refreshWhenVisible);
+    const timer = window.setInterval(refreshWhenVisible, 30_000);
     return () => {
       window.removeEventListener("focus", refresh);
       window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.clearInterval(timer);
     };
   }, [refreshRequestsAndPayload]);
   const openActivity = (activity: SmCompletedActivitySummary) => {

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowLeft, ArrowRight, Clock, LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { fetchMySMDurcharbeitTarget, getSmVisitStartTokenStorageKey, startMySMDurcharbeitTarget, getAuthPrincipalKey, readAuthSession, subscribeAuthSession } from "@/lib/api/backend";
+import { BackendApiError, fetchMySMDurcharbeitTarget, getSmVisitStartTokenStorageKey, startMySMDurcharbeitTarget, getAuthPrincipalKey, readAuthSession, subscribeAuthSession } from "@/lib/api/backend";
 import { SMDurcharbeitVisitReference, smVisitResumeHref } from "@/lib/sm/SMDurcharbeitVisitReference";
 import type { SMDurcharbeitTargetPreview } from "@/types/smSMDurcharbeitCampaign";
 
@@ -27,9 +27,16 @@ function VisitStart({ targetId }: { targetId: string }) {
       if (!current) return;
       if (result.target.draftVisitId) { router.replace(smVisitResumeHref(SMDurcharbeitVisitReference(result.target.draftVisitId))); return; }
       setContext(result);
-    }).catch(error => { if (current) setError(error instanceof Error ? error.message : "Der Besuch konnte nicht vorbereitet werden."); });
+      setError(null);
+    }).catch(error => { if (current) { if (error instanceof BackendApiError && error.code === "smdurcharbeit_campaign_paused") setContext(null); setError(error instanceof Error ? error.message : "Der Besuch konnte nicht vorbereitet werden."); } });
     return () => { current = false; };
   }, [targetId, reloadKey, router]);
+  useEffect(() => {
+    const refresh = () => { if (!document.hidden && !pending.current) setReloadKey(key => key + 1); };
+    window.addEventListener("focus", refresh); window.addEventListener("online", refresh); document.addEventListener("visibilitychange", refresh);
+    const timer = window.setInterval(refresh, 30_000);
+    return () => { window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", refresh); window.clearInterval(timer); };
+  }, []);
   const start = async () => {
     if (!context || pending.current || !context.target.available) return;
     const travelMinutes = travel.trim() ? Number(travel) : null;
@@ -43,7 +50,7 @@ function VisitStart({ targetId }: { targetId: string }) {
         mode, travelMinutes: context.profile.travelTimeEnabled ? travelMinutes : null, clientSubmissionToken: token });
       try { window.localStorage.removeItem(key); } catch { /* Optional cache. */ }
       router.replace(smVisitResumeHref(SMDurcharbeitVisitReference(result.visitId)));
-    } catch (error) { setError(error instanceof Error ? error.message : "Der Besuch konnte nicht gestartet werden."); pending.current = false; setBusy(false); }
+    } catch (error) { if (error instanceof BackendApiError && error.code === "smdurcharbeit_campaign_paused") setContext(null); setError(error instanceof Error ? error.message : "Der Besuch konnte nicht gestartet werden."); pending.current = false; setBusy(false); }
   };
   const month = context ? new Intl.DateTimeFormat("de-AT", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${context.target.month}T12:00:00Z`)) : "";
   return <main className="min-h-screen bg-[#f5f5f7] px-6 pb-12 pt-6"><div className="mx-auto max-w-[380px]">

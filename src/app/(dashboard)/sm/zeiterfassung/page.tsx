@@ -417,6 +417,7 @@ export default function SmZeiterfassungPage() {
     if (request !== generation.current) return;
     setRows(result);
     setMonthlyRows(monthly);
+    setSelectedAssignment(current => current?.SMDurcharbeitVisitId && !monthly.some(row => row.visitId === current.SMDurcharbeitVisitId) ? null : current);
     setLoadError(null);
   }, [range.from, range.to]);
 
@@ -429,6 +430,7 @@ export default function SmZeiterfassungPage() {
         if (!active || request !== generation.current) return;
         setRows(result);
         setMonthlyRows(monthly);
+        setSelectedAssignment(current => current?.SMDurcharbeitVisitId && !monthly.some(row => row.visitId === current.SMDurcharbeitVisitId) ? null : current);
         setLoadError(null);
       })
       .catch((error: unknown) => {
@@ -437,6 +439,13 @@ export default function SmZeiterfassungPage() {
       .finally(() => { if (active && request === generation.current) setLoading(false); });
     return () => { active = false; };
   }, [range.from, range.to, reloadKey]);
+
+  useEffect(() => {
+    const refresh = () => { if (!document.hidden) void loadRows().catch(error => setLoadError(error instanceof Error ? error.message : "Die Zeiterfassung konnte nicht geladen werden.")); };
+    window.addEventListener("focus", refresh); window.addEventListener("online", refresh); document.addEventListener("visibilitychange", refresh);
+    const timer = window.setInterval(refresh, 30_000);
+    return () => { window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", refresh); window.clearInterval(timer); };
+  }, [loadRows]);
 
   const days = useMemo(() => buildDays(rows, monthlyRows), [rows, monthlyRows]);
   const requests = useMemo(() => Object.fromEntries([...rows.flatMap((row) => row.pendingTimeChangeRequest ? [[row.id, row.pendingTimeChangeRequest] as const] : []), ...monthlyRows.flatMap(row => row.pendingTimeChangeRequest ? [[SMDurcharbeitVisitReference(row.visitId),row.pendingTimeChangeRequest] as const] : [])]), [rows, monthlyRows]);

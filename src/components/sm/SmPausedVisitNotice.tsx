@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as
 import { usePathname, useRouter } from "next/navigation";
 import { BookmarkCheck, ChevronRight, LoaderCircle, Trash2, X } from "lucide-react";
 
-import { discardSmVisit, getSmVisitStartTokenStorageKey, getAuthPrincipalKey, readAuthSession, subscribeAuthSession } from "@/lib/api/backend";
+import { discardSmVisit, fetchSmVisit, getSmVisitStartTokenStorageKey, getAuthPrincipalKey, readAuthSession, subscribeAuthSession } from "@/lib/api/backend";
 import { smVisitResumeHref } from "@/lib/sm/SMDurcharbeitVisitReference";
 import { isSmPausedVisitNotice, readSmPausedVisitNotice, smPausedVisitStorageKey, type SmPausedVisitNotice as PausedVisit } from "@/lib/sm/pausedVisitNotice";
 
@@ -200,6 +200,7 @@ function PausedVisitNoticeProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [monthlyVisibility, setMonthlyVisibility] = useState<{ id: string; visible: boolean } | null>(null);
 
   useEffect(() => {
     const owner = popupOwner.current;
@@ -230,7 +231,27 @@ function PausedVisitNoticeProvider({ children }: { children: ReactNode }) {
     setNotice((current) => current ?? readPausedVisitSignal());
   }, [pathname]);
 
-  const visible = ownsPopup && pathname === "/sm" && notice !== null;
+  const monthlyId = notice?.assignmentId.startsWith("SMDurcharbeit:") ? notice.assignmentId : null;
+  useEffect(() => {
+    if (!monthlyId || pathname !== "/sm") return;
+    let current = true, sequence = 0;
+    const refresh = async () => {
+      if (document.hidden) return;
+      const request = ++sequence;
+      try {
+        await fetchSmVisit(monthlyId);
+        if (current && request === sequence) setMonthlyVisibility({ id: monthlyId, visible: true });
+      } catch {
+        // Retain the saved notice and answers; only its visibility changes.
+        if (current && request === sequence) setMonthlyVisibility({ id: monthlyId, visible: false });
+      }
+    };
+    void refresh();
+    window.addEventListener("focus", refresh); window.addEventListener("online", refresh); document.addEventListener("visibilitychange", refresh);
+    const timer = window.setInterval(refresh, 30_000);
+    return () => { current = false; window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", refresh); window.clearInterval(timer); };
+  }, [monthlyId, pathname]);
+  const visible = ownsPopup && pathname === "/sm" && notice !== null && (!monthlyId || (monthlyVisibility?.id === monthlyId && monthlyVisibility.visible));
 
   useEffect(() => {
     if (visible) setOpen(true);

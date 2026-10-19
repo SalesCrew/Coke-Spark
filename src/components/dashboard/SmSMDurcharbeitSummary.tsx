@@ -8,6 +8,7 @@ import { SMDurcharbeitMonthLabel, SMDurcharbeitTargetProgress } from "@/lib/sm/S
 export function SmSMDurcharbeitSummary() {
   const { loaded, error } = useSmSMDurcharbeitTargets();
   const progress = loaded ? SMDurcharbeitTargetProgress(loaded.targets) : null;
+  if (loaded && !error && loaded.targets.length === 0) return null;
   return <Link href="/sm/durcharbeit" aria-label="Durcharbeit-Märkte öffnen" aria-describedby="sm-durcharbeit-summary" data-sm-durcharbeit-entry
     className="flex min-h-[160px] w-full flex-1 flex-col justify-between gap-6 rounded-xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,.04)] transition-colors hover:bg-blue-50/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 [@media(max-height:700px)]:min-h-[108px] [@media(max-height:700px)]:gap-2 [@media(max-height:700px)]:py-3">
     <span className="flex items-center gap-3">

@@ -422,11 +422,12 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       return next;
     } catch (loadError) {
       if (sequence !== loadSequence.current) return null;
-      if (loadError instanceof BackendApiError && loadError.code === "sm_visit_assignment_cancelled") {
+      if (loadError instanceof BackendApiError && ["sm_visit_assignment_cancelled", "smdurcharbeit_campaign_paused"].includes(loadError.code ?? "")) {
         // Keep unsynchronized answers in their separate queue; retire only the visible preload.
         payloadRef.current = null;
         setPayload(null);
         setReceipt(null);
+        clearSmVisitPreloadCache(assignmentId);
       }
       setError(loadError instanceof Error ? loadError.message : "Der Marktbesuch konnte nicht geladen werden.");
       return null;
@@ -438,7 +439,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
   useEffect(() => {
     const cachedPayload = readSmVisitPreloadCache(assignmentId);
     const cached = cachedPayload ? withPendingSmVisitAnswers(cachedPayload, assignmentId) : null;
-    if (cached) {
+    if (cached && !assignmentId.startsWith("SMDurcharbeit:")) {
       applyPayload(cached);
       setLoading(false);
     } else {
@@ -451,6 +452,16 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       loadSequence.current += 1;
     };
   }, [applyPayload, assignmentId, reload]);
+
+  useEffect(() => {
+    if (!assignmentId.startsWith("SMDurcharbeit:")) return;
+    const refresh = () => { if (!document.hidden) void reload(); };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const timer = window.setInterval(refresh, 30_000);
+    return () => { window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", refresh); window.clearInterval(timer); };
+  }, [assignmentId, reload]);
 
   const flat = useMemo(() => flattenQuestions(payload?.sections ?? []), [payload?.sections]);
   const active = flat[currentIndex] ?? null;
@@ -576,6 +587,10 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
           }
           return true;
         } catch (saveFailure) {
+          if (saveFailure instanceof BackendApiError && saveFailure.code === "smdurcharbeit_campaign_paused") {
+            await reload();
+            return false;
+          }
           if (saveFailure instanceof BackendApiError && saveFailure.code === "sm_visit_answer_version_conflict" && !retriedAfterConflict) {
             try {
               const serverPayload = await fetchSmVisit(assignmentId);
@@ -616,7 +631,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       if (exactSaves.current.get(exactKey) === result) exactSaves.current.delete(exactKey);
     });
     return result;
-  }, [applyPayload, assignmentId, updateSaveState]);
+  }, [applyPayload, assignmentId, reload, updateSaveState]);
 
   const saveCurrent = useCallback((answer = draftRef.current, force = false) => {
     const current = activeRef.current;
@@ -1118,6 +1133,7 @@ export function SmVisitWorkspace({ assignmentId, resumeQuestionId = null }: { as
       setMissingRequiredIds(new Set());
       setReviewing(false);
     } catch (submitError) {
+      if (submitError instanceof BackendApiError && submitError.code === "smdurcharbeit_campaign_paused") await reload();
       if (submitError instanceof BackendApiError && submitError.code === "sm_visit_travel_time_disabled") {
         // Refresh only authoritative visit/profile data; keep the saved answers and pending queue.
         await reload(false);

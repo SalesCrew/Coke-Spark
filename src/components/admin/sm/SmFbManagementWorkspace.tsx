@@ -12,6 +12,7 @@ import { Check, ChevronLeft, ChevronRight, ClipboardCheck, History, LoaderCircle
 import { AdminDropdown, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
 import { BackendApiError, readAuthSession, smManagementApi, subscribeAuthSession } from "@/lib/api/backend";
 import { currentSmPeriod, shiftSmPeriod, smMonthPeriod, type SmPlanningPeriod } from "@/lib/sm/planningPeriod";
+import { smManagementHistoryEntries } from "@/lib/sm/managementHistory";
 import { smManagementAnswerComplete, smManagementAnswerLabel, smManagementHidden, smManagementTime } from "@/lib/sm/management";
 import type { SmAdminCorrection, SmAdminPhotoReceipt, SmManagedQuestion, SmManagementApi, SmManagementDetail, SmManagementHistory, SmManagementList, SmManagementPhoto, SmManagementQuery } from "@/types/smManagement";
 import type { SmVisitAnswer } from "@/types/smVisit";
@@ -114,8 +115,8 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
   </div>;
 }
 
-function SmManagementDrawer({ id, api, onClose, onSaved, onTimeSaved }: { id: string; api: SmManagementApi; onClose: () => void; onSaved: () => void; onTimeSaved: () => void }) {
-  const { canUpdate } = useCustomerPageAccess("sm_fbmanagement");
+export function SmManagementDrawer({ id, api, onClose, onSaved, onTimeSaved, campaignReview = false }: { id: string; api: SmManagementApi; onClose: () => void; onSaved: () => void; onTimeSaved: () => void; campaignReview?: boolean }) {
+  const { canUpdate } = useCustomerPageAccess(campaignReview ? "sm_durcharbeit_verplanung" : "sm_fbmanagement");
   const [detail, setDetail] = useState<SmManagementDetail | null>(null), [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true), [editing, setEditing] = useState(false), [timeEditing, setTimeEditing] = useState(false), [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Record<string, SmVisitAnswer>>({}), [reason, setReason] = useState("");
@@ -200,10 +201,10 @@ function SmManagementDrawer({ id, api, onClose, onSaved, onTimeSaved }: { id: st
   const visit = detail?.visit;
   const timeExecution = visit?.assignmentId ?? (visit?.SMDurcharbeitContext?.timeRevision ? SMDurcharbeitVisitReference(visit.SMDurcharbeitContext.visitId) : null);
   return createPortal(<div className={styles.backdrop} onClick={event => { if (event.target === event.currentTarget) close(); }}>
-    <div ref={dialog} className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="sm-management-title" tabIndex={-1}>
+    <div ref={dialog} className={`${styles.drawer} ${campaignReview ? styles.campaignReview : ""}`} role="dialog" aria-modal="true" aria-labelledby="sm-management-title" tabIndex={-1}>
       <header className={styles.drawerHeader}><div className={styles.headerLine}><div><p className={styles.eyebrow}>Fragebogen · {editing ? "Korrektur" : "Abgeschlossen"}</p><h2 id="sm-management-title">{visit?.marketName ?? "Fragebogen laden"}</h2><p className={styles.hint}>{visit?.address}</p>{visit?.SMDurcharbeitContext ? <p className={styles.hint} style={{ color: "#2563eb" }}>{visit.SMDurcharbeitContext.campaignName} · {new Intl.DateTimeFormat("de-AT", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${visit.SMDurcharbeitContext.month}T12:00:00Z`))}</p> : null}</div><button className={styles.iconButton} aria-label="Fragebogen schließen" disabled={busy || uploading} onClick={close}><X size={15} /></button></div>
-        {visit ? <div className={styles.meta}><div><small>SM</small><span>{visit.smName}</span></div><div><small>Besuch</small><span>{visit.startedAt ? dateLabel(visit.startedAt) : "Datum nicht erfasst"}</span></div><div><small>Start – Ende</small><span className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</span>{canUpdate && timeExecution && visit.startedAt && visit.completedAt && !editing ? <button type="button" className={styles.timeEditButton} onClick={() => setTimeEditing(value => !value)} disabled={busy || uploading} aria-label="Start und Endzeit bearbeiten"><Pencil size={11} /> Bearbeiten</button> : null}</div><div><small>Fragebogen</small><span>{visit.questionnaireName} · V{visit.questionnaireVersion}</span><SMDurcharbeitQuestionnaireBadge scope={visit.SMDurcharbeitCatalogScope} /></div></div> : null}
-        {visit?.SMDurcharbeitContext ? <SMDurcharbeitTimeHistory visitId={visit.SMDurcharbeitContext.visitId} revision={visit.SMDurcharbeitContext.timeRevision ?? null} admin /> : null}
+        {visit ? <div className={styles.meta}><div><small>SM</small><span>{visit.smName}</span></div><div><small>Besuch</small><span>{visit.startedAt ? dateLabel(visit.startedAt) : "Datum nicht erfasst"}</span></div><div><small>Start – Ende</small><span className={styles.time}>{smManagementTime(visit.startedAt)} – {smManagementTime(visit.completedAt)}</span>{!campaignReview && canUpdate && timeExecution && visit.startedAt && visit.completedAt && !editing ? <button type="button" className={styles.timeEditButton} onClick={() => setTimeEditing(value => !value)} disabled={busy || uploading} aria-label="Start und Endzeit bearbeiten"><Pencil size={11} /> Bearbeiten</button> : null}</div><div><small>Fragebogen</small><span>{visit.questionnaireName} · V{visit.questionnaireVersion}</span><SMDurcharbeitQuestionnaireBadge scope={visit.SMDurcharbeitCatalogScope} /></div></div> : null}
+        {!campaignReview && visit?.SMDurcharbeitContext ? <SMDurcharbeitTimeHistory visitId={visit.SMDurcharbeitContext.visitId} revision={visit.SMDurcharbeitContext.timeRevision ?? null} admin /> : null}
         {timeEditing && timeExecution && visit?.startedAt && visit.completedAt ? <div className={styles.timeEditor}>
           <SmVisitTimeEditor assignmentId={timeExecution} expectedRevision={visit.SMDurcharbeitContext?.timeRevision ?? undefined} visitId={visit.id} startedAt={visit.startedAt} completedAt={visit.completedAt}
             onCancel={() => setTimeEditing(false)} onSaved={async () => { setTimeEditing(false); onTimeSaved(); await load(); }} />
@@ -248,7 +249,7 @@ function QuestionHistory({ api, submissionId, question }: { api: SmManagementApi
   };
   return <div className={styles.history}><button className={styles.textButton} aria-expanded={open} onClick={() => { setOpen(value => !value); if (!data && !busy) void load(); }}><History size={12} />{open ? "Verlauf schließen" : "Änderungsverlauf"}</button>
     {open ? <div>{busy && !data ? <span className={styles.hint}>Verlauf wird geladen …</span> : null}{error ? <p role="alert" className={styles.hint}>{error} <button className={styles.textButton} onClick={() => void load()}>Erneut laden</button></p> : null}
-      {data?.entries.map(entry => <div key={entry.id} className={styles.historyItem}><strong>Version {entry.version}{entry.current ? " · Aktuell" : ""} · {entry.actor} · {dateLabel(entry.at)} {smManagementTime(entry.at)}</strong><p>{smManagementAnswerLabel(question, entry.value)}</p>{entry.value.comment ? <p>Kommentar: {entry.value.comment}</p> : null}{entry.reason ? <p>Grund: {entry.reason}</p> : null}<SmManagementPhotos photos={entry.photos} /></div>)}
-      {data && !data.entries.length ? <p className={styles.hint}>Noch keine gespeicherte Antwort.</p> : null}{data?.nextCursor ? <button className={styles.textButton} disabled={busy} onClick={() => void load(data.nextCursor!)}>Ältere Versionen laden</button> : null}</div> : null}
+      {smManagementHistoryEntries(data?.entries ?? []).map(entry => <div key={entry.id} className={styles.historyItem}><strong>{entry.current ? "Aktueller Stand" : entry.version === 1 ? "Originalantwort" : entry.reason ? "Korrektur" : "Vorheriger Stand"} · {entry.actor} · {dateLabel(entry.at)} {smManagementTime(entry.at)}</strong><p>{smManagementAnswerLabel(question, entry.value)}</p>{entry.value.comment ? <p>Kommentar: {entry.value.comment}</p> : null}{entry.reason ? <p>Grund: {entry.reason}</p> : null}<SmManagementPhotos photos={entry.photos} /></div>)}
+      {data && !data.entries.length ? <p className={styles.hint}>Noch keine gespeicherte Antwort.</p> : null}{data?.nextCursor ? <button className={styles.textButton} disabled={busy} onClick={() => void load(data.nextCursor!)}>Ältere Änderungen laden</button> : null}</div> : null}
   </div>;
 }

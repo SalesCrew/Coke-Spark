@@ -76,3 +76,14 @@
 .historyItem p { font-size:11px; color:#667180; margin:5px 0; white-space:pre-wrap; }
 .confirm { padding:14px; border:1px solid #e6d9c0; background:#fffaf1; border-radius:10px; color:#866127; }
 @media(max-width:700px) { .workspace { padding:12px; } .intro,.filters { padding:16px; } .drawerHeader { padding:18px 16px 14px; } .drawerContent { padding:16px; } .footer { padding:14px 16px max(14px,env(safe-area-inset-bottom)); } .question { padding:14px; } }
+
+/* Durcharbeit review inherits the campaign workspace's blue, compact admin treatment. */
+.campaignReview { width:min(760px,calc(100vw - 240px)); background:#f6f7f9; }
+.campaignReview .drawerHeader { padding:24px 28px 18px; }
+.campaignReview .drawerContent { padding:22px 28px; }
+.campaignReview .eyebrow { color:#64748b; }
+.campaignReview .primary { background:linear-gradient(#2563eb,#1d4ed8); border-color:#1d4ed8; }
+.campaignReview .optionSelected { background:#eff5ff; color:#1d4ed8; border-color:#bdd1fa; }
+.campaignReview input { accent-color:#2563eb; }
+.campaignReview button:focus-visible { outline-color:#2563eb; }
+.campaignReview .field textarea:focus,.campaignReview .editor>textarea:focus { border-color:#2563eb80; box-shadow:0 0 0 3px #2563eb08; }

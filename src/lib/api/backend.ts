@@ -2539,10 +2539,10 @@ export async function submitSmVisit(assignmentId: string, input: { actualMinutes
   return data.receipt;
 }
 
-async function smManagementFetch(path: string, init: RequestInit = {}): Promise<unknown> {
+async function smManagementFetch(path: string, init: RequestInit = {}, base = "/admin/sm-activity/completed"): Promise<unknown> {
   const guard = createSmRequestOwnerGuard();
   try {
-    const result = await authedFetch(`/admin/sm-activity/completed${path}`, { cache: "no-store", ...init }, 30_000, guard);
+    const result = await authedFetch(`${base}${path}`, { cache: "no-store", ...init }, 30_000, guard);
     if (!guard.isCurrent()) throw new Error("Der angemeldete Zugang hat sich geändert.");
     return result;
   } finally { guard.dispose(); }
@@ -2570,22 +2570,24 @@ export const smPhotoArchiveApi: SmPhotoArchiveApi = (() => {
   };
 })();
 
-export const smManagementApi: SmManagementApi = {
+export function createSmManagementApi(base = "/admin/sm-activity/completed", campaignReview = false): SmManagementApi {
+const request = (path: string, init?: RequestInit) => smManagementFetch(path, init, base);
+return {
   list: async query => {
     const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "") params.set(key, String(value));
-    return await smManagementFetch(`?${params}`) as SmManagementList;
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "" && !(campaignReview && ["from", "to", "SMDurcharbeitCampaignId", "SMDurcharbeitMonth", "SMDurcharbeitCatalogScope"].includes(key))) params.set(key, String(value));
+    return await request(`?${params}`) as SmManagementList;
   },
-  detail: async id => await smManagementFetch(`/${encodeURIComponent(id)}`) as SmManagementDetail,
-  history: async (id, questionId, cursor) => await smManagementFetch(`/${encodeURIComponent(id)}/history?questionId=${encodeURIComponent(questionId)}${cursor ? `&cursorVersion=${cursor}` : ""}`) as SmManagementHistory,
-  correct: async (id, input) => await smManagementFetch(`/${encodeURIComponent(id)}/corrections`, { method: "POST", body: JSON.stringify(input) }) as Awaited<ReturnType<SmManagementApi["correct"]>>,
+  detail: async id => await request(`/${encodeURIComponent(id)}`) as SmManagementDetail,
+  history: async (id, questionId, cursor) => await request(`/${encodeURIComponent(id)}/history?questionId=${encodeURIComponent(questionId)}${cursor ? `&cursorVersion=${cursor}` : ""}`) as SmManagementHistory,
+  correct: async (id, input) => await request(`/${encodeURIComponent(id)}/corrections`, { method: "POST", body: JSON.stringify(input) }) as Awaited<ReturnType<SmManagementApi["correct"]>>,
   upload: async (id, questionId, file) => {
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size <= 0 || file.size > 20 * 1024 * 1024) {
       throw new Error("Bitte wähle ein JPG-, PNG- oder WebP-Foto mit maximal 20 MB.");
     }
     const guard = createSmRequestOwnerGuard();
     try {
-    const prepared = await smManagementFetch(`/${encodeURIComponent(id)}/photos/upload-url`, { method: "POST",
+    const prepared = await request(`/${encodeURIComponent(id)}/photos/upload-url`, { method: "POST",
       body: JSON.stringify({ questionId, originalFileName: file.name, mimeType: file.type, byteSize: file.size }) }) as {
         receipt: SmAdminPhotoReceipt; upload: { signedUrl: string; path: string; token: string; bucket: string };
       };
@@ -2597,6 +2599,8 @@ export const smManagementApi: SmManagementApi = {
     } finally { guard.dispose(); }
   },
 };
+}
+export const smManagementApi = createSmManagementApi();
 
 export async function requestPraemienWorkspace<T>(path: string, body?: unknown, method = 'GET'): Promise<T> {
   return await authedFetch(`/admin/praemien/workspace${path}`, body === undefined ? undefined : { method, body: JSON.stringify(body) }) as T;

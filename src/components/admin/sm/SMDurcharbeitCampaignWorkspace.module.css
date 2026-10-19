@@ -132,3 +132,21 @@
 }
 @media (prefers-reduced-motion: reduce) { .workspace *, .disclosureHeader svg { transition: none; } }
 @media (forced-colors: active) { .status::before { background: CanvasText; } }
+
+.reviewTabs { display:flex; gap:3px; padding:3px; border:1px solid #e4e7ec; border-radius:8px; background:#e9ecf04d; }
+.reviewTabs button { padding:6px 10px; border-radius:5px; color:#747d88; font-size:10px; font-weight:600; cursor:pointer; white-space:nowrap; }
+.reviewTabs button[aria-pressed=true] { color:#1d4ed8; background:white; box-shadow:0 1px 4px #17203312; }
+.reviewFilters { display:flex; align-items:center; gap:9px; padding:14px; }
+.reviewSearch { display:flex; flex:1; align-items:center; gap:8px; min-width:180px; padding:8px 10px; border:1px solid #e6e9ee; border-radius:7px; color:#8b94a1; background:#fafbfc; }
+.reviewSearch:focus-within { border-color:#2563eb; }
+.reviewSearch input { width:100%; min-width:0; outline:0; color:#374151; font-size:10.5px; background:transparent; }
+.reviewSearch button { display:grid; place-items:center; cursor:pointer; }
+.reviewPerson { width:145px; flex-shrink:0; }.reviewMarket { width:185px; flex-shrink:0; }
+.reviewReset { color:#6b7480; font-size:10px; cursor:pointer; white-space:nowrap; }.reviewReset:disabled { color:#a7adb6; cursor:default; }
+.reviewIntro { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 14px 13px; color:#8b929d; font-size:9.5px; }
+.reviewOpen { display:inline-flex; align-items:center; gap:7px; text-align:left; cursor:pointer; }.reviewOpen svg { color:#a0a8b3; flex-shrink:0; }.reviewOpen:hover .marketName { color:#1d4ed8; }
+.reviewTable td:last-child { text-align:right; white-space:nowrap; }.reviewTable td:last-child button { font-size:9.5px; min-height:28px; padding:4px 9px; }
+.reviewQuestionnaire { display:block; max-width:210px; overflow-wrap:anywhere; }.reviewDate { white-space:nowrap; font-variant-numeric:tabular-nums; }
+.reviewPagination { display:flex; justify-content:center; padding:15px; border-top:1px solid #edf0f3; }
+.reviewEmpty { display:flex; align-items:center; flex-direction:column; gap:9px; padding:52px 20px; color:#8b94a0; font-size:10.5px; text-align:center; }.reviewEmpty strong { margin-top:5px; color:#4b5563; font-weight:600; font-size:12px; }
+.reviewError { padding:12px 14px; color:#b4232a; background:#fffafa; font-size:11px; }.reviewError button { margin-left:8px; text-decoration:underline; cursor:pointer; }

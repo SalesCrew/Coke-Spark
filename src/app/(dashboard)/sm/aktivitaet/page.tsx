@@ -737,7 +737,7 @@ function ChangeRequestSheet({
                 ) : null}
               </label>
               {smCommentTriggerKey(question, answer) ? <button type="button" className="text-left text-[11px] text-red-600" onClick={() => setCommentOpen(true)}>{answer.comment?.trim() ? "Kommentar bearbeiten" : "Kommentar ergänzen *"}</button> : null}
-              {commentOpen ? <SmAnswerCommentDialog questionText={question.text} value={answer.comment ?? ""} onChange={(comment) => setAnswer((current) => ({ ...current, comment }))} onClose={() => setCommentOpen(false)} onSave={() => setCommentOpen(false)} /> : null}
+              {commentOpen ? <SmAnswerCommentDialog questionText={question.text} value={answer.comment ?? ""} onClose={() => setCommentOpen(false)} onSave={(comment) => { setAnswer((current) => ({ ...current, comment })); setCommentOpen(false); }} /> : null}
               <label className="sm-act-field">
                 <span>Grund für die Änderung</span>
                 <textarea

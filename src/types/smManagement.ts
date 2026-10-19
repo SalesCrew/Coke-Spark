@@ -24,7 +24,7 @@ export type SmAdminPhotoReceipt = {
 export type SmAdminCorrection = { expectedVersion: string; clientMutationToken: string; reason: string;
   changes: Array<{ questionId: string; answer: SmVisitAnswer }>; uploads: SmAdminPhotoReceipt[] };
 export type SmManagementHistory = { entries: Array<{ id: string; version: number; current: boolean; state: string;
-  value: SmVisitAnswer; at: string; actor: string; reason: string | null; photos: SmManagementPhoto[] }>; nextCursor: number | null };
+  value: SmVisitAnswer; at: string; actorId?: string | null; actor: string; reason: string | null; photos: SmManagementPhoto[] }>; nextCursor: number | null };
 export type SmManagementApi = {
   list: (query: SmManagementQuery) => Promise<SmManagementList>;
   detail: (id: string) => Promise<SmManagementDetail>;

@@ -6,9 +6,11 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import Link from "next/link";
 import { CalendarDays, Check, ChevronRight, ClipboardCheck, LoaderCircle, Plus, Search, X } from "lucide-react";
 import { AdminControlPortal, AdminDatePicker, AdminDropdown, AdminFilterControlStyles, SMDurcharbeitFilterTheme } from "@/components/admin/AdminFilterControls";
-import { requestSMDurcharbeitCampaign } from "@/lib/api/backend";
+import { createSmManagementApi, requestSMDurcharbeitCampaign } from "@/lib/api/backend";
 import { subscribeToAuthSessionChanges } from "@/lib/auth/sessionRegistry";
 import type { SMDurcharbeitCampaign, SMDurcharbeitCampaignDraft, SMDurcharbeitCampaignOptions, SMDurcharbeitMonthlySummary, SMDurcharbeitPublicationPreview, SMDurcharbeitTarget } from "@/types/smSMDurcharbeitCampaign";
+import { SMDurcharbeitVisitReview } from "./SMDurcharbeitVisitReview";
+import { SmManagementDrawer } from "./SmFbManagementWorkspace";
 import { SMDurcharbeitMonthlyReport } from "./SMDurcharbeitMonthlyReport";
 import { SMDurcharbeitCampaignHistory } from "./SMDurcharbeitCampaignHistory";
 import { SMDurcharbeitCampaignMarketsEditor } from "./SMDurcharbeitCampaignMarketsEditor";
@@ -68,12 +70,16 @@ export function SmSMDurcharbeitCampaignWorkspace() {
   const [stateAction, setStateAction] = useState<SMDurcharbeitCampaign["status"] | null>(null);
   const [periodEdit, setPeriodEdit] = useState(false), [futureVersion, setFutureVersion] = useState("");
   const [marketEditor, setMarketEditor] = useState(false), [marketChain, setMarketChain] = useState("");
+  const [view, setView] = useState("targets");
+  const [review, setReview] = useState<{ campaignId: string; month: string; id: string } | null>(null);
+  const closeReview = useCallback(() => setReview(null), []);
+  const reviewApi = useMemo(() => createSmManagementApi(`/admin/sm-smdurcharbeit-campaigns/${selectedId}/review/${month}`, true), [selectedId, month]);
   const [targetFilter, setTargetFilter] = useState("required");
   const [changeSmTarget, setChangeSmTarget] = useState<SMDurcharbeitTarget | null>(null), [monthSm, setMonthSm] = useState("automatic");
   const [transfer, setTransfer] = useState(false);
   const pending = useRef(false), selected = campaigns.find(campaign => campaign.id === selectedId) ?? null;
   const reload = useCallback(() => setReloadKey(key => key + 1), []);
-  useEffect(() => subscribeToAuthSessionChanges(() => { setCampaigns([]); setOptions(null); setResult(null); setDraft(null); setSelectedId(null); setPreview(null); setMarketEditor(false); setChangeSmTarget(null); reload(); }), [reload]);
+  useEffect(() => subscribeToAuthSessionChanges(() => { setReview(null); setCampaigns([]); setOptions(null); setResult(null); setDraft(null); setSelectedId(null); setPreview(null); setMarketEditor(false); setChangeSmTarget(null); reload(); }), [reload]);
   useEffect(() => {
     let current = true; setLoading(true);
     Promise.all([requestSMDurcharbeitCampaign<{ campaigns: SMDurcharbeitCampaign[] }>(""), requestSMDurcharbeitCampaign<SMDurcharbeitCampaignOptions>("/options")])
@@ -95,6 +101,7 @@ export function SmSMDurcharbeitCampaignWorkspace() {
     finally { pending.current = false; setBusy(false); }
   };
   const choose = (campaign: SMDurcharbeitCampaign) => {
+    setReview(null);
     setSelectedId(campaign.id); setDraft(campaign.status === "draft" && (canWrite || canUpdate) ? { name: campaign.name, startDate: campaign.startDate, endDate: campaign.endDate, questionnaireVersionId: campaign.questionnaireVersionId, rosterDraft: campaign.rosterDraft } : null);
     const months = campaignMonths(campaign), currentMonth = `${today().slice(0, 7)}-01`; setMonth(months.includes(currentMonth) ? currentMonth : months[0] ?? currentMonth); setError(null);
   };
@@ -188,20 +195,21 @@ export function SmSMDurcharbeitCampaignWorkspace() {
             </div>
             {selected.status === "draft" ? <p className="mt-4 text-[11px] leading-5 text-gray-600">Der Entwurf ist für SMs noch nicht sichtbar. Vor der Veröffentlichung werden Zuordnungen und Überschneidungen geprüft.</p> : null}
           </div>
-          {selected.status !== "draft" ? <section className={styles.tableFrame} aria-labelledby="SMDurcharbeit-monthly-targets">
+          {selected.status !== "draft" ? <section className={styles.tableFrame} aria-label="Kampagnenmonat">
             <header className={styles.frameHeader}>
-              <h3 id="SMDurcharbeit-monthly-targets" className={styles.sectionTitle}>Monatsziele</h3>
-              <span className={styles.count}>{result ? `${result.summary.required} erforderliche Märkte` : "Wird geladen…"}</span>
+              <div className={styles.reviewTabs} role="group" aria-label="Ansicht im Kampagnenmonat"><button type="button" aria-pressed={view === "targets"} onClick={() => setView("targets")}>Monatsziele</button><button type="button" aria-pressed={view === "visits"} onClick={() => setView("visits")}>Abgeschlossene Besuche</button></div>
+              {view === "targets" ? <span className={styles.count}>{result ? `${result.summary.required} erforderliche Märkte` : "Wird geladen…"}</span> : null}
             </header>
             <div className={styles.tableSurface}>
               <div className={styles.tableToolbar}>
-                <div className={styles.monthControl}><AdminDropdown value={month} options={campaignMonths(selected).map(value => ({ value, label: monthName(value) }))} onChange={setMonth} ariaLabel="Kampagnenmonat" placeholder="Monat auswählen" /></div>
-                <div className={styles.actions}>
+                <div className={styles.monthControl}><AdminDropdown value={month} options={campaignMonths(selected).map(value => ({ value, label: monthName(value) }))} onChange={value => { setReview(null); setMonth(value); }} ariaLabel="Kampagnenmonat" placeholder="Monat auswählen" /></div>
+                {view === "targets" ? <div className={styles.actions}>
                   <AdminDropdown compact value={targetFilter} options={[{ value: "required", label: "Aktive Märkte" }, { value: "waived", label: "Ausgenommene Märkte" }, { value: "all", label: "Alle Märkte" }]} onChange={setTargetFilter} ariaLabel="Marktstatus der Monatsziele" placeholder="Marktstatus" />
                   {canUpdate && ["published", "paused"].includes(selected.status) && selected.endDate >= today() && month >= `${today().slice(0, 7)}-01` ? <button type="button" className={secondary} disabled={busy || !result?.targets.length} onClick={() => setTransfer(true)}>SM austauschen</button> : null}
                   {month > `${today().slice(0, 7)}-01` && selected.status !== "archived" ? <button type="button" disabled={busy} onClick={() => { setPeriodEdit(true); setFutureVersion(""); setReason(""); }} className={secondary}>Fragebogen für diesen Monat</button> : null}
-                </div>
+                </div> : <span className={styles.count}>Antworten prüfen und korrigieren</span>}
               </div>
+              {view === "targets" ? <>
               {canUpdate && ["published", "paused"].includes(selected.status) && selected.endDate >= today() && month >= `${today().slice(0, 7)}-01` ? <SMDurcharbeitQuestionnaireUpdate key={`${selected.id}:${month}`} campaignId={selected.id} campaignName={selected.name} month={month} revision={selected.revision} canUpdate={canUpdate} onUpdated={reload} onBusyChange={setBusy} /> : null}
               <div className={styles.metrics} aria-live="polite">
                 {result ? <>
@@ -221,7 +229,7 @@ export function SmSMDurcharbeitCampaignWorkspace() {
                       <td className={styles.visits}>{target.visitCount}</td>
                       <td><div className={styles.rowActions}>
                         {selected.status !== "archived" && selected.endDate >= today() && target.month >= `${today().slice(0, 7)}-01` && !target.completed && !target.draftVisitId ? <button type="button" disabled={!canUpdate || busy} className={secondary} aria-label={`SM für ${target.market.name} wechseln`} onClick={() => { setChangeSmTarget(target); setMonthSm(target.SMDurcharbeitSmOverride ? target.smUserId ?? "automatic" : "automatic"); setReason(""); setError(null); }}>SM wechseln</button> : null}
-                        {target.latestSubmissionId ? <Link href={`/admin/sm/fbmanagement?submissionId=${encodeURIComponent(target.latestSubmissionId)}`} className={secondary}>Antworten</Link> : null}
+                        {target.latestSubmissionId ? <button type="button" className={secondary} onClick={() => setReview({ campaignId: selected.id, month, id: target.latestSubmissionId! })}>Antworten prüfen</button> : null}
                         {target.draftVisitId ? <button type="button" disabled={!canUpdate || busy} onClick={() => { setCancelTarget(target); setReason(""); }} className={secondary}>Entwurf verwerfen</button> : null}
                         {selected.status !== "archived" && target.month >= `${today().slice(0, 7)}-01` ? <button type="button" disabled={!canUpdate || busy} onClick={() => { setEditTarget(target); setEditEligibility(target.eligibility); setEditScope("month"); setReason(""); }} className={secondary}>Marktstatus</button> : null}
                       </div></td>
@@ -230,6 +238,7 @@ export function SmSMDurcharbeitCampaignWorkspace() {
                   {visibleTargets.length > targetDisplayCount ? <div className="p-4"><button type="button" className={secondary} onClick={() => setTargetDisplay({ key: targetDisplayKey, count: targetDisplayCount + 100 })}>Weitere Monatsziele · {targetDisplayCount}/{visibleTargets.length}</button></div> : null}
                   {!visibleTargets.length ? <p className={styles.empty}>Keine Monatsziele in diesem Zeitraum.</p> : null}
                 </div>}
+              </> : <SMDurcharbeitVisitReview key={`${selected.id}:${month}`} api={reviewApi} month={month} reloadKey={reloadKey} onOpen={id => setReview({ campaignId: selected.id, month, id })} />}
             </div>
           </section> : null}
           {selected.status !== "draft" && result ? <SMDurcharbeitMonthlyReport campaign={selected} month={month} targets={result.targets} reloadKey={reloadKey} /> : null}
@@ -237,6 +246,7 @@ export function SmSMDurcharbeitCampaignWorkspace() {
         </> : !draft && !loading ? <div className={`${styles.surface} ${styles.empty}`}>Kampagne auswählen oder einen neuen Entwurf erstellen.</div> : null}
       </section>
     </div>
+    {review && selectedId === review.campaignId && month === review.month ? <SmManagementDrawer key={`${review.campaignId}:${review.month}:${review.id}`} campaignReview id={review.id} api={reviewApi} onClose={closeReview} onSaved={reload} onTimeSaved={reload} /> : null}
     {preview ? <CampaignDialog error={error} title="Kampagne veröffentlichen" onClose={() => { if (!busy) setPreview(null); }}><p className="text-[12px] font-semibold text-gray-800">{preview.campaign.name}</p><p className="mt-2 text-[11px] leading-relaxed text-gray-500">{preview.marketCount} Märkte · {preview.months.map(monthName).join(", ")} · {preview.targetCount} Monatsziele</p>{preview.unresolved.length ? <p className="mt-4 text-[11px] text-red-700">{preview.unresolved.length} Märkten fehlt ein aktiver SM. Bitte die Verplanung im Durcharbeit-Marktbestand prüfen.</p> : null}{preview.overlapping.length || preview.legacy.length ? <label className="mt-4 flex items-start gap-2 text-[11px] leading-relaxed text-gray-600"><input type="checkbox" checked={confirmOverlap} onChange={event => setConfirmOverlap(event.target.checked)} className="mt-0.5 accent-blue-600" />{preview.overlapping.length} Überschneidungen mit Kampagnen und {preview.legacy.length} offenen datierten Einsätzen. Ich bestätige, dass dies separate Verpflichtungen sind.</label> : null}<p className="mt-4 text-[10px] leading-relaxed text-gray-600">Nach der Veröffentlichung sehen zugewiesene SMs ihre Märkte. Die Kampagne erzeugt keine geplanten Besuchstage oder Sollzeiten.</p><footer className="mt-5 flex justify-end gap-2"><button type="button" disabled={busy} onClick={() => setPreview(null)} className={secondary}>Abbrechen</button><button type="button" disabled={!canUpdate || (busy || Boolean(preview.unresolved.length) || Boolean((preview.overlapping.length || preview.legacy.length) && !confirmOverlap))} onClick={() => void act(async () => { await requestSMDurcharbeitCampaign(`/${preview.campaign.id}/publish`, { expectedRevision: preview.campaign.revision, previewToken: preview.previewToken, confirmOverlap }, "POST"); setPreview(null); reload(); })} className={primary}>Veröffentlichen</button></footer></CampaignDialog> : null}
     {editTarget ? <CampaignDialog error={error} title="Marktstatus bearbeiten" onClose={() => { if (!busy) setEditTarget(null); }}><p className="mb-4 text-[11px] text-gray-500">{editTarget.market.name} · {monthName(editTarget.month)}</p><div className="space-y-4"><Field label="Verpflichtung"><AdminDropdown value={editEligibility} options={[{ value: "required", label: "Besuch erforderlich" }, { value: "waived", label: "Markt ausnehmen" }]} onChange={value => setEditEligibility(value as "required" | "waived")} ariaLabel="Monatsverpflichtung" placeholder="Status" /></Field><Field label="Zeitraum"><AdminDropdown value={editScope} options={[{ value: "month", label: "Nur dieser Kalendermonat" }, { value: "future", label: "Ab diesem Kalendermonat" }]} onChange={setEditScope} ariaLabel="Änderungszeitraum" placeholder="Zeitraum" /></Field><Field label="Begründung"><input aria-label="Grund der Marktstatusänderung" value={reason} onChange={event => setReason(event.target.value)} className={field} /></Field></div><p className="mt-4 text-[10px] leading-relaxed text-gray-600">Laufende Entwürfe sind geschützt. Frühere Besuche behalten ihren ursprünglichen SM und ihre Antworten.</p><footer className="mt-5 flex justify-end gap-2"><button type="button" disabled={busy} onClick={() => setEditTarget(null)} className={secondary}>Abbrechen</button><button type="button" disabled={!canUpdate || (busy || reason.trim().length < 3)} onClick={() => void act(async () => { await requestSMDurcharbeitCampaign(`/targets/${editTarget.id}`, { expectedRevision: editTarget.revision, eligibility: editEligibility, scope: editScope, reason }, "PATCH"); setEditTarget(null); reload(); })} className={primary}>Speichern</button></footer></CampaignDialog> : null}
     {changeSmTarget && options ? <CampaignDialog error={error} title={`SM wechseln · ${monthName(changeSmTarget.month)}`} onClose={() => { if (!busy) setChangeSmTarget(null); }}>

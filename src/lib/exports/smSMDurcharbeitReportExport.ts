@@ -5,6 +5,19 @@ import { smExportAnswerComment, smExportAnswerValue } from "./smAnswerValue";
 type XlsxModule = typeof import("xlsx-js-style");
 type Workbook = ReturnType<XlsxModule["utils"]["book_new"]>;
 
+function applyLightBackground(XLSX: XlsxModule, wb: Workbook) {
+  // An unspecified fill lets dark spreadsheet viewers paint the table black.
+  for (const sheet of Object.values(wb.Sheets)) {
+    const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
+    for (let row = range.s.r; row <= range.e.r; row++) for (let col = range.s.c; col <= range.e.c; col++) {
+      const address = XLSX.utils.encode_cell({ r: row, c: col });
+      const cell = sheet[address] ?? (sheet[address] = { t: "s", v: "" });
+      cell.s = { ...cell.s, font: cell.s?.font ?? { name: "Inter", sz: 10, color: { rgb: "111827" } },
+        fill: cell.s?.fill ?? { patternType: "solid", fgColor: { rgb: "FFFFFF" } } };
+    }
+  }
+}
+
 function visitDateTime(value: string | null, part: "date" | "time") {
   if (!value || !Number.isFinite(Date.parse(value))) return "";
   return new Intl.DateTimeFormat("de-AT", { timeZone: "Europe/Vienna", ...(part === "date"
@@ -140,6 +153,7 @@ export function buildSMDurcharbeitReportWorkbook(XLSX: XlsxModule, wb: Workbook,
     { header: "Aktuelles Ende", value: r => r.completedAt, width: 26 }, { header: "Istzeit (Min)", value: r => r.actualMinutes },
     { header: "Fahrtzeit (Min)", value: r => r.travelMinutes }, { header: "Zeitrevision", value: r => r.timeRevision },
   ] });
+  applyLightBackground(XLSX, wb);
 }
 export async function exportSMDurcharbeitReport(report: SMDurcharbeitReport, campaignName: string, isCurrent: () => boolean) {
   // Lazy dependency loading is also guarded against an account/filter switch.

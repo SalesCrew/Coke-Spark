@@ -8,6 +8,8 @@ Answers use immutable submission snapshots rather than the current authoring cat
 
 The existing six audit/summary sheets remain. Letzte Antworten gains a readable answer, comment and market column while retaining raw JSON, IDs and provenance. Monthly coverage and distributions continue to count the latest valid submission per required market. Einsätze includes earlier/follow-up physical visits separately. Invalidated or withdrawn submissions retain their time row and explicit invalid status, with no answer contents.
 
+Every cell in the used range has an explicit light background, including otherwise blank cells, so spreadsheet dark themes cannot turn the data table black. The dark column headers and pale metadata labels retain their existing intentional colors.
+
 ## UI and API
 
 - SM → Durcharbeit Verplanung → campaign → selected month → Monatsauswertung → **Antworten exportieren**.

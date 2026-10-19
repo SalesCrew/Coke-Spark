@@ -21,7 +21,13 @@ test("serialized monthly workbook reconciles market coverage, latest answers and
     answer: { ...report.answers[0]!.answer!, id: "historical-answer", valueJson: { kind: "choice", optionCode: "yes" } } }];
   const before = JSON.stringify(report), wb = XLSX.utils.book_new();
   buildSMDurcharbeitReportWorkbook(XLSX, wb, report, "Synthetic campaign");
-  const saved = XLSX.read(XLSX.write(wb, { bookType: "xlsx", type: "buffer", cellStyles: true }), { type: "buffer", cellFormula: true });
+  const saved = XLSX.read(XLSX.write(wb, { bookType: "xlsx", type: "buffer", cellStyles: true }), { type: "buffer", cellFormula: true, cellStyles: true });
+  assert.equal(wb.Sheets["Einsätze"]!.A5!.s.font.color.rgb, "111827");
+  assert.equal(saved.Sheets["Einsätze"]!.A5!.s.fgColor.rgb, "FFFFFF", "Body background is explicitly white, including in dark viewers");
+  assert.equal(saved.Sheets["Einsätze"]!.A3!.s.fgColor.rgb, "FFFFFF", "Blank cells within the exported table also have a white background");
+  assert.equal(saved.Sheets["Einsätze"]!.A4!.s.fgColor.rgb, "111827", "Only the intentional header remains dark");
+  assert.equal(saved.Sheets.Meta!.B3!.s.fgColor.rgb, "FFFFFF");
+  assert.equal(saved.Sheets["Letzte Antworten"]!.A5!.s.fgColor.rgb, "FFFFFF");
   assert.deepEqual(saved.SheetNames, ["Einsätze", "Meta", "Monatsmärkte", "Fragen", "Antwortverteilung", "Letzte Antworten", "Tatsächliche Besuche"]);
   const table = (name: string) => XLSX.utils.sheet_to_json<unknown[]>(saved.Sheets[name]!, { header: 1, range: 4 });
   const meta = XLSX.utils.sheet_to_json<unknown[]>(saved.Sheets.Meta!, { header: 1 });

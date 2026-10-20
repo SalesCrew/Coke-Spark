@@ -6780,19 +6780,24 @@ export async function fetchGmDashboardCritical(): Promise<GmDashboardCriticalPay
   return (await authedFetch("/gm/dashboard/critical", { cache: "no-store" })) as GmDashboardCriticalPayload;
 }
 
+function kurtiRequestOwner() {
+  const owner = getAuthPrincipalKey(readAuthSession());
+  return { isCurrent: () => !!owner && owner === getAuthPrincipalKey(readAuthSession()) };
+}
+
 export async function fetchGmKurtiMessages(workspace: "gm" | "sm" = "gm"): Promise<GmKurtiMessagesPayload> {
-  return (await authedFetch(`/${workspace}/kurti/messages`, { cache: "no-store" })) as GmKurtiMessagesPayload;
+  return (await authedFetch(`/${workspace}/kurti/messages`, { cache: "no-store" }, 30000, kurtiRequestOwner())) as GmKurtiMessagesPayload;
 }
 
 export async function sendGmKurtiMessage(message: string, workspace: "gm" | "sm" = "gm"): Promise<GmKurtiReplyPayload> {
   return (await authedFetch(`/${workspace}/kurti/messages`, {
     method: "POST",
     body: JSON.stringify({ message }),
-  }, 60000)) as GmKurtiReplyPayload;
+  }, 60000, kurtiRequestOwner())) as GmKurtiReplyPayload;
 }
 
 export async function fetchAdminKurtiMessages(workspace: "gm" | "sm" = "gm"): Promise<AdminKurtiMessagesPayload> {
-  return (await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", { cache: "no-store" })) as AdminKurtiMessagesPayload;
+  return (await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", { cache: "no-store" }, 30000, kurtiRequestOwner())) as AdminKurtiMessagesPayload;
 }
 
 export async function fetchAdminKurtiWindowLayout(): Promise<AdminKurtiWindowLayoutPayload> {
@@ -6812,7 +6817,7 @@ export async function sendAdminKurtiMessage(message: string, workspace: "gm" | "
   return (await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", {
     method: "POST",
     body: JSON.stringify({ message }),
-  }, 120000)) as AdminKurtiReplyPayload;
+  }, 120000, kurtiRequestOwner())) as AdminKurtiReplyPayload;
 }
 
 export async function fetchTodaySubmissions(): Promise<TodaySubmissionsPayload> {
@@ -7126,7 +7131,7 @@ export type SmKurtiExport = {
  search:string|null;region:string|null;chain:string|null;campaignId:string|null;month:string|null};
 };
 export async function fetchSmKurtiExport(spec:SmKurtiExport):Promise<{title:string;filters:SmKurtiExport["filters"];generatedAt:string;rows:Record<string,unknown>[]}>
- {return await authedFetch("/admin/sm-kurti/export",{method:"POST",body:JSON.stringify(spec)},120000) as {title:string;filters:SmKurtiExport["filters"];generatedAt:string;rows:Record<string,unknown>[]};}
+ {return await authedFetch("/admin/sm-kurti/export",{method:"POST",body:JSON.stringify(spec)},120000,kurtiRequestOwner()) as {title:string;filters:SmKurtiExport["filters"];generatedAt:string;rows:Record<string,unknown>[]};}
 /** GM briefings retain the initiating account through authentication refreshes and retries. */
 export async function requestGmBriefings<T>(path: string, body?: unknown, method = "GET"): Promise<T> {
   const owner = getAuthPrincipalKey(readAuthSession());

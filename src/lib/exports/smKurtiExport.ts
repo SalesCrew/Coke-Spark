@@ -1,4 +1,4 @@
-import { fetchSmKurtiExport, type SmKurtiExport } from "@/lib/api/backend";
+import { fetchSmKurtiExport, getAuthPrincipalKey, readAuthSession, type SmKurtiExport } from "@/lib/api/backend";
 import { appendMetaSheet, appendTableSheet, buildAndDownloadWorkbook, fileSafeName } from "./workbook";
 export function describeSmKurtiExport(spec:SmKurtiExport):string[]{
  const f=spec.filters;
@@ -11,9 +11,11 @@ const labels:Record<string,string>={name:"Name",market:"Markt",smName:"SM",date:
  chain:"Handelskette",address:"Adresse",postalCode:"PLZ",city:"Ort",region:"Region",plannedMinutes:"Sollminuten",completed:"Erledigt",
  eligibility:"Zielstatus",campaignName:"Kampagne",month:"Monat",smUserId:"SM-ID",marketId:"Markt-ID",visitCount:"Besuche"};
 export async function runSmKurtiExport(spec:SmKurtiExport){
+ const owner=getAuthPrincipalKey(readAuthSession());
  const data=await fetchSmKurtiExport(spec);
  const keys=[...new Set(data.rows.flatMap(Object.keys))].filter(key=>key!=="totalMatches");
  await buildAndDownloadWorkbook({filename:fileSafeName(spec.title)+".xlsx",build:({XLSX,wb})=>{
+  if(!owner || owner!==getAuthPrincipalKey(readAuthSession()))throw new Error("Der angemeldete Zugang hat sich geändert.");
   appendMetaSheet(XLSX,wb,[{label:"Auswertung",value:data.title},{label:"Bereich",value:"SM"},
    {label:"Erstellt",value:new Date(data.generatedAt).toLocaleString("de-AT",{timeZone:"Europe/Vienna"})},
    {label:"Filter",value:JSON.stringify(data.filters)},{label:"Zeilen",value:data.rows.length}]);

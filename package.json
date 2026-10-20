@@ -29,7 +29,8 @@
     "test:gm-availability": "node --import ./backend/node_modules/tsx/dist/loader.mjs --import ./tests/gm-dashboard-react-setup.mjs --test tests/gm-availability-export.test.ts backend/src/gm-availability.integration.test.ts",
     "prebuild": "node scripts/copy-pdf-assets.mjs",
     "predev": "node scripts/copy-pdf-assets.mjs",
-    "test:gm-briefings": "node backend/node_modules/tsx/dist/cli.mjs --test backend/src/gm-briefings.integration.test.ts"
+    "test:gm-briefings": "node backend/node_modules/tsx/dist/cli.mjs --test backend/src/gm-briefings.integration.test.ts",
+    "test:sm-photo-upload": "node --import ./backend/node_modules/tsx/dist/loader.mjs --test tests/sm-photo-upload.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

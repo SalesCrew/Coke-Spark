@@ -1,5 +1,7 @@
 "use client";
 
+import { saveSmPhotoJob, type SmPhotoUploadJob } from "@/lib/sm/photoUpload";
+
 import { getCustomerAdminPageKeyForPath } from "@/lib/auth/customerPageKey";
 
 import { visibleSmAssignments } from "@/lib/sm/assignmentVisibility";
@@ -2656,59 +2658,29 @@ export async function cleanupSmVisitPhotoUpload(assignmentId: string, input: { a
   }, 120_000);
 }
 
-export async function stageSmVisitPhotos(assignmentId: string, submissionQuestionId: string, files: File[]): Promise<{ answerId: string; photos: SmVisitPhotoCommitItem[] }> {
-  const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-  if (!files.length) throw new Error("Es wurden keine Fotos ausgewählt.");
-  if (files.length > 20) throw new Error("Es können höchstens 20 Fotos pro Frage hochgeladen werden.");
-  for (const file of files) {
-    if (!allowedMimeTypes.has(file.type)) throw new Error(`„${file.name}“ hat kein unterstütztes Bildformat.`);
-    if (file.size > 15 * 1024 * 1024) throw new Error(`„${file.name}“ ist größer als 15 MB.`);
-  }
-  const { answerId } = await initializeSmVisitPhoto(assignmentId, submissionQuestionId);
-  const photos: SmVisitPhotoCommitItem[] = [];
+export async function saveSmVisitPhotoJob(assignmentId: string, questionId: string, job: SmPhotoUploadJob, onRetry?: (attempt: number) => void): Promise<void> {
+  const principal = getAuthPrincipalKey(readAuthSession());
+  if (!principal) throw new Error("Nicht eingeloggt. Bitte erneut anmelden.");
+  job.ownerKey ??= principal;
+  if (job.ownerKey !== principal) throw new Error("Der angemeldete Zugang hat sich geändert.");
+  const guard = createSmRequestOwnerGuard();
+  const path = smVisitApiPath(assignmentId);
   try {
-    for (const file of files) {
-      const extension = (file.name.split(".").pop() ?? (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg")).toLowerCase();
-      const presigned = await presignSmVisitPhoto(assignmentId, answerId, extension);
-      const photo: SmVisitPhotoCommitItem = {
-        storageBucket: "sm-visit-photos",
-        storagePath: presigned.upload.path,
-        originalFileName: file.name,
-        mimeType: file.type as SmVisitPhotoCommitItem["mimeType"],
-        byteSize: file.size,
-      };
-      photos.push(photo);
-      const uploadResponse = await fetch(presigned.upload.signedUrl, {
-        method: "PUT",
-        headers: { "content-type": file.type },
-        body: file,
-      });
-      if (!uploadResponse.ok) throw new Error(`„${file.name}“ konnte nicht hochgeladen werden.`);
-    }
-    return { answerId, photos };
-  } catch (uploadError) {
-    await Promise.allSettled(photos.map((photo) => cleanupSmVisitPhotoUpload(assignmentId, {
-      answerId,
-      storageBucket: photo.storageBucket,
-      storagePath: photo.storagePath,
-    })));
-    throw uploadError;
-  }
-}
-
-export async function uploadSmVisitPhotos(assignmentId: string, submissionQuestionId: string, files: File[]): Promise<{ fileIds: string[] }> {
-  if (!files.length) return { fileIds: [] };
-  const staged = await stageSmVisitPhotos(assignmentId, submissionQuestionId, files);
-  try {
-    return await commitSmVisitPhotos(assignmentId, staged);
-  } catch (commitError) {
-    await Promise.allSettled(staged.photos.map((photo) => cleanupSmVisitPhotoUpload(assignmentId, {
-      answerId: staged.answerId,
-      storageBucket: photo.storageBucket,
-      storagePath: photo.storagePath,
-    })));
-    throw commitError;
-  }
+    await saveSmPhotoJob(job, {
+      isCurrent: guard.isCurrent,
+      initialize: () => authedFetch(`${path}/photos/initialize`, { method: "POST", body: JSON.stringify({ submissionQuestionId: questionId }) }, 30_000, guard) as Promise<{ answerId: string }>,
+      presign: (answerId, extension) => authedFetch(`${path}/photos/presign`, { method: "POST", body: JSON.stringify({ answerId, extension }) }, 30_000, guard) as Promise<{ upload: { path: string; signedUrl: string } }>,
+      commit: (answerId, photo) => authedFetch(`${path}/photos/commit`, { method: "POST", body: JSON.stringify({ answerId, photos: [photo] }) }, 120_000, guard),
+      onRetry,
+    });
+  } catch (error) {
+    if (guard.isCurrent()) emitClientTelemetry({ backendUrl: BACKEND_URL, accessToken: getAccessToken() ?? "", event: {
+      event: "ui_sm_visit_photo_transfer_failed", action: "SM photo upload", result: "failure",
+      details: { assignmentId, questionId, phase: job.uploaded ? "commit" : job.photo ? "transfer" : "prepare",
+        byteSize: job.prepared?.size ?? job.source.size, errorName: error instanceof Error ? error.name : typeof error },
+    } });
+    throw error;
+  } finally { guard.dispose(); }
 }
 
 export async function deleteSmVisitPhoto(assignmentId: string, fileId: string): Promise<void> {

@@ -6798,11 +6798,14 @@ export async function fetchGmKurtiMessages(workspace: "gm" | "sm" = "gm"): Promi
   return displayKurtiReply(await authedFetch(`/${workspace}/kurti/messages`, { cache: "no-store" }, 30000, kurtiRequestOwner())) as GmKurtiMessagesPayload;
 }
 
+// Allow the server's five-minute budget plus a short buffer for its response.
+const KURTI_CHAT_TIMEOUT_MS = 310_000;
+
 export async function sendGmKurtiMessage(message: string, workspace: "gm" | "sm" = "gm"): Promise<GmKurtiReplyPayload> {
   return displayKurtiReply(await authedFetch(`/${workspace}/kurti/messages`, {
     method: "POST",
     body: JSON.stringify({ message }),
-  }, 60000, kurtiRequestOwner())) as GmKurtiReplyPayload;
+  }, KURTI_CHAT_TIMEOUT_MS, kurtiRequestOwner())) as GmKurtiReplyPayload;
 }
 
 export async function fetchAdminKurtiMessages(workspace: "gm" | "sm" = "gm"): Promise<AdminKurtiMessagesPayload> {
@@ -6826,7 +6829,7 @@ export async function sendAdminKurtiMessage(message: string, workspace: "gm" | "
   return displayKurtiReply(await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", {
     method: "POST",
     body: JSON.stringify({ message }),
-  }, 120000, kurtiRequestOwner())) as AdminKurtiReplyPayload;
+  }, KURTI_CHAT_TIMEOUT_MS, kurtiRequestOwner())) as AdminKurtiReplyPayload;
 }
 
 export async function fetchTodaySubmissions(): Promise<TodaySubmissionsPayload> {

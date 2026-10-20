@@ -25,7 +25,7 @@ export const KurtiMessageInput=forwardRef<HTMLTextAreaElement,Props>(function Ku
   requestAnimationFrame(()=>{ref.current?.focus({preventScroll:true});ref.current?.setSelectionRange(next,next);});
  }
  return <div style={{position:"relative",flex:1,minWidth:0}}>
-  {open&&<div ref={listRef} style={{position:"absolute",bottom:"calc(100% + 6px)",left:0,width:"min(260px,100%)",maxHeight:240,overflowY:"auto",scrollbarWidth:"thin",border:"1px solid #e5e7eb",borderRadius:10,background:"#fff",boxShadow:"0 4px 16px #0f172a1c",padding:4,zIndex:5}}>
+  {open&&<div ref={listRef} className="map-scroll" style={{position:"absolute",bottom:"calc(100% + 6px)",left:0,width:"min(260px,100%)",maxHeight:240,overflowY:"auto",border:"1px solid #e5e7eb",borderRadius:10,background:"#fff",boxShadow:"0 4px 16px #0f172a1c",padding:4,zIndex:5}}>
    <div id={listId} role="listbox" aria-label="Personenvorschläge">
     {options.map((person,index)=><button key={person.id} id={`${listId}-${index}`} type="button" role="option" aria-selected={index===selected} onMouseDown={e=>e.preventDefault()} onClick={()=>choose(person)} onPointerMove={()=>setActive(index)} style={{display:"flex",alignItems:"center",gap:9,width:"100%",minHeight:34,padding:"5px 8px",border:0,borderRadius:6,textAlign:"left",background:index===selected?"#f1f2f4":"transparent",color:"#1f2937",cursor:"pointer"}}>
      <span aria-hidden="true" style={{width:24,height:24,flex:"0 0 24px",borderRadius:"50%",display:"grid",placeItems:"center",fontSize:9,fontWeight:600,color:"#64748b",background:"#e5e7eb"}}>{person.label.split(/\s+/).map(p=>p[0]).slice(0,2).join("")}</span>

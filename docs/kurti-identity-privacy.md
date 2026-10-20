@@ -4,7 +4,7 @@ Implemented 20 October 2026 for GM, SM, GM Admin and SM Admin. This extends the 
 
 ## Follow-up: employee experience and transparency
 
-The follow-up in [kurti-ai-transparency.md](kurti-ai-transparency.md) supersedes the employee mention workflow described in this original release record. SMs/GMs use the ordinary input and their automatically authenticated own ID; they never need @. Admins keep the compact mention picker. A `[user:UUID:first]` greeting is resolved to the first name only in the browser. Names are still withheld from provider requests. New AI disclosures and reporting rules are additive; the original verification below records the preceding release.
+The follow-up in [kurti-ai-transparency.md](kurti-ai-transparency.md) supersedes the employee mention workflow described in this original release record. SMs/GMs use the ordinary input and their automatically authenticated own ID; they never need @. Admins keep the compact mention picker. A `[user:UUID:first]` greeting is resolved to the first name only in the browser. Known account names and supported personal-text patterns are withheld from provider requests. New AI disclosures and reporting rules are additive; the original verification below records the preceding release.
 
 ## Original release: intended experience
 

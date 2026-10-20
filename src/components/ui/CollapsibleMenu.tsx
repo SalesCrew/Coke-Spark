@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import {
+  BookOpen,
   ChevronLeft,
   Clock,
   Home,
@@ -44,6 +45,7 @@ interface CollapsibleMenuProps {
   enableClickToggle?: boolean;
   /** Opt-in supplied only by the SM Home menu. */
   smMessages?: { unreadCount: number | null; panel: React.ReactNode };
+  gmBriefings?: { unreadCount: number | null; available: boolean; loading: boolean; error: boolean; onOpen: (rect: DOMRect) => void };
 }
 
 const HOLD_DELAY = 300;
@@ -109,10 +111,11 @@ export function CollapsibleMenu({
   onLogout,
   enableKurti = false,
   kurtiWorkspace = "gm",
-  featureKurti = true,
+  featureKurti = false,
   kurtiMaxWidth = 606,
   enableClickToggle = false,
   smMessages,
+  gmBriefings,
 }: CollapsibleMenuProps) {
   const [activeIndex, setActiveIndex] = useState(defaultIndex);
   const [expanded, setExpanded] = useState(false);
@@ -376,10 +379,11 @@ export function CollapsibleMenu({
       ...mapped.slice(0, logoutRowIndex),
       ...(enableKurti ? [{ type: "chat" as const }] : []),
       ...(messagesEnabled ? [{ type: "messages" as const }] : []),
+      ...(gmBriefings ? [{ type: "briefings" as const }] : []),
       { type: "settings" as const },
       ...mapped.slice(logoutRowIndex),
     ];
-  }, [enableKurti, items, messagesEnabled]);
+  }, [enableKurti, items, messagesEnabled, gmBriefings]);
 
   const collapsedHeight = ITEM_HEIGHT + CARD_PADDING * 2;
   const activeRowIndex = Math.max(
@@ -453,6 +457,11 @@ export function CollapsibleMenu({
         return;
       }
 
+      if (selectedRow.type === "briefings") {
+        if (gmBriefings?.available || gmBriefings?.error) { const rect = containerRef.current?.getBoundingClientRect(); setExpanded(false); if (rect) gmBriefings.onOpen(rect); }
+        return;
+      }
+
       if (selectedRow.type === "settings") {
         setMessagesOpen(false);
         setExpanded(true);
@@ -480,7 +489,7 @@ export function CollapsibleMenu({
         setActiveIndex(selectedIndex);
       }
     },
-    [activeIndex, onLogout, onSelect, rows]
+    [activeIndex, onLogout, onSelect, rows, gmBriefings]
   );
 
   // One pointer stream handles mouse, touch and pen. A phone's compatibility
@@ -669,12 +678,13 @@ export function CollapsibleMenu({
         onLostPointerCapture={onPointerCancel}
         data-menu-expanded={expanded}
         data-sm-messages-menu={smMessages ? true : undefined}
-        role={smMessages ? messagesOpen ? "dialog" : expanded ? "navigation" : "button" : undefined}
-        tabIndex={smMessages ? 0 : undefined}
-        aria-label={smMessages ? messagesOpen ? "SM Nachrichten" : expanded ? "SM Navigation" : `${items[activeIndex]?.label ?? "Home"} Menü${smMessages.unreadCount ? `, ${smMessages.unreadCount} ungelesene Nachrichten` : ""}` : undefined}
+        data-gm-briefings-menu={gmBriefings ? true : undefined}
+        role={smMessages || gmBriefings ? messagesOpen ? "dialog" : expanded ? "navigation" : "button" : undefined}
+        tabIndex={smMessages || gmBriefings ? 0 : undefined}
+        aria-label={smMessages || gmBriefings ? messagesOpen ? "SM Nachrichten" : expanded ? (gmBriefings ? "GM Navigation" : "SM Navigation") : `${items[activeIndex]?.label ?? "Home"} Menü${(smMessages?.unreadCount ?? gmBriefings?.unreadCount) ? `, ${smMessages?.unreadCount ?? gmBriefings?.unreadCount} ungelesen` : ""}` : undefined}
         aria-modal={smMessages && messagesOpen ? true : undefined}
-        aria-expanded={smMessages && !expanded && !utilityPanelOpen ? false : undefined}
-        onKeyDown={smMessages ? event => {
+        aria-expanded={(smMessages || gmBriefings) && !expanded && !utilityPanelOpen ? false : undefined}
+        onKeyDown={smMessages || gmBriefings ? event => {
           if (event.key === "Escape") {
             event.preventDefault(); event.stopPropagation(); select(null); containerRef.current?.focus({ preventScroll: true }); return;
           }
@@ -727,7 +737,7 @@ export function CollapsibleMenu({
                 : `translateX(0) translateY(-${activeRowIndex * ITEM_HEIGHT}px)`,
           }}
         >
-          <div inert={smMessages && utilityPanelOpen ? true : undefined} style={{ width: "50%", ...(smMessages ? { flex: "0 0 50%", minWidth: 0 } : {}), paddingTop: CARD_PADDING, paddingBottom: CARD_PADDING }}>
+          <div inert={(smMessages || gmBriefings) && utilityPanelOpen ? true : undefined} style={{ width: "50%", ...(smMessages ? { flex: "0 0 50%", minWidth: 0 } : {}), paddingTop: CARD_PADDING, paddingBottom: CARD_PADDING }}>
             {rows.map((row, i) => {
               const item =
                 row.type === "chat"
@@ -739,6 +749,8 @@ export function CollapsibleMenu({
                     }
                   : row.type === "messages"
                   ? { label: "Nachrichten", icon: <Mail size={11} strokeWidth={1.8} />, tone: "default" as const, action: undefined }
+                  : row.type === "briefings"
+                  ? { label: gmBriefings?.loading ? "Wochenschwerpunkte laden …" : gmBriefings?.error ? "Wochenschwerpunkte · erneut laden" : "Wochenschwerpunkte", icon: <BookOpen size={11} strokeWidth={1.8} />, tone: "default" as const, action: undefined }
                   : row.type === "settings"
                   ? {
                       label: "Einstellungen",
@@ -752,8 +764,10 @@ export function CollapsibleMenu({
               const isFeaturedKurti = isKurti && featureKurti;
               const isHighlighted = isSelected || isFeaturedKurti;
               const isDanger = item.tone === "danger" || item.action === "logout";
-              const Row = smMessages && expanded ? "button" : "div";
-              const showUnread = Boolean(smMessages?.unreadCount) && (row.type === "messages" || (!expanded && i === activeRowIndex));
+              const Row = (smMessages || gmBriefings) && expanded ? "button" : "div";
+              const count = smMessages?.unreadCount ?? gmBriefings?.unreadCount;
+              const showUnread = Boolean(count) && (row.type === "messages" || row.type === "briefings" || (!expanded && i === activeRowIndex));
+              const briefingDisabled = row.type === "briefings" && !gmBriefings?.available && !gmBriefings?.error;
               const dangerSoftBackground =
                 "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(254,226,226,0.94))";
               const dangerSoftShadow =
@@ -764,17 +778,20 @@ export function CollapsibleMenu({
                   key={row.type === "chat" ? "gm-kurti-chat" : row.type === "settings" ? "gm-text-settings" : item.label}
                   data-menu-row={i}
                   type={Row === "button" ? "button" : undefined}
-                  tabIndex={smMessages ? expanded && !utilityPanelOpen ? 0 : -1 : undefined}
-                  aria-label={smMessages ? row.type === "messages" ? `Nachrichten${smMessages.unreadCount ? `, ${smMessages.unreadCount} ungelesen` : ""}` : item.label : undefined}
-                  aria-hidden={smMessages && (!expanded && i !== activeRowIndex || utilityPanelOpen) ? true : undefined}
-                  onClick={smMessages ? event => { if (event.detail === 0) select(i); } : undefined}
+                  aria-disabled={briefingDisabled || undefined}
+                  title={briefingDisabled ? gmBriefings?.loading ? "Wird geladen" : "Derzeit keine Wochenschwerpunkte" : undefined}
+                  tabIndex={smMessages || gmBriefings ? expanded && !utilityPanelOpen ? 0 : -1 : undefined}
+                  aria-label={smMessages || gmBriefings ? row.type === "messages" ? `Nachrichten${smMessages?.unreadCount ? `, ${smMessages.unreadCount} ungelesen` : ""}` : briefingDisabled ? `${item.label}, derzeit keine Wochenschwerpunkte` : item.label : undefined}
+                  aria-hidden={(smMessages || gmBriefings) && (!expanded && i !== activeRowIndex || utilityPanelOpen) ? true : undefined}
+                  onClick={smMessages || gmBriefings ? event => { if (event.detail === 0) select(i); } : undefined}
                   className={cn(
                     "relative grid cursor-pointer items-center",
                     "transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
                   )}
                   style={{
+                    opacity: briefingDisabled ? .45 : 1,
                     height: ITEM_HEIGHT,
-                    ...(smMessages ? { width: "calc(100% - 10px)" } : {}),
+                    ...(smMessages || gmBriefings ? { width: "calc(100% - 10px)" } : {}),
                     borderRadius: 10,
                     marginLeft: CARD_PADDING,
                     marginRight: CARD_PADDING,
@@ -845,14 +862,14 @@ export function CollapsibleMenu({
                       NEU
                     </span>
                   ) : null}
-                  {showUnread ? <span aria-hidden="true" className="absolute right-2 top-1/2 grid h-4 min-w-4 -translate-y-1/2 place-items-center rounded-full bg-red-50 px-1 text-[8px] font-semibold text-red-700">{smMessages!.unreadCount! > 99 ? "99+" : smMessages!.unreadCount}</span> : null}
+                  {showUnread ? <span aria-hidden="true" className="absolute right-2 top-1/2 grid h-4 min-w-4 -translate-y-1/2 place-items-center rounded-full bg-red-50 px-1 text-[8px] font-semibold text-red-700">{count! > 99 ? "99+" : count}</span> : null}
                 </Row>
               );
             })}
           </div>
 
           <div
-            inert={smMessages && !utilityPanelOpen ? true : undefined}
+            inert={(smMessages || gmBriefings) && !utilityPanelOpen ? true : undefined}
             onPointerDown={(event) => event.stopPropagation()}
             style={{
               width: "50%",

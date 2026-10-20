@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CollapsibleMenu } from "@/components/ui/CollapsibleMenu";
+import { GmHomeMenu } from "@/components/gm/GmHomeMenu";
 import { GMStatusCard } from "@/components/dashboard/GMStatusCard";
 import { BonusCircles } from "@/components/dashboard/BonusCircles";
 import { BonusDetailModal } from "@/components/dashboard/BonusDetailModal";
@@ -587,7 +587,7 @@ function GMDashboardContent() {
       </div>
 
       <div className="fixed bottom-6 left-0 right-0 z-50">
-        <CollapsibleMenu
+        <GmHomeMenu
           items={GM_MENU_ITEMS}
           enableKurti
           enableClickToggle

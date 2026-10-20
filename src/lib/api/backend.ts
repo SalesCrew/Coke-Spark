@@ -7127,3 +7127,13 @@ export type SmKurtiExport = {
 };
 export async function fetchSmKurtiExport(spec:SmKurtiExport):Promise<{title:string;filters:SmKurtiExport["filters"];generatedAt:string;rows:Record<string,unknown>[]}>
  {return await authedFetch("/admin/sm-kurti/export",{method:"POST",body:JSON.stringify(spec)},120000) as {title:string;filters:SmKurtiExport["filters"];generatedAt:string;rows:Record<string,unknown>[]};}
+/** GM briefings retain the initiating account through authentication refreshes and retries. */
+export async function requestGmBriefings<T>(path: string, body?: unknown, method = "GET"): Promise<T> {
+  const owner = getAuthPrincipalKey(readAuthSession());
+  return authedFetch(path, { method, cache: "no-store", ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, 30_000, { isCurrent: () => !!owner && owner === getAuthPrincipalKey(readAuthSession()) });
+}
+export async function uploadGmBriefingPdf(file: File, operationId: string, replace?: { id: string; revision: number }): Promise<import('@/types/gmBriefings').BriefingDraft> {
+  const owner = getAuthPrincipalKey(readAuthSession());
+  return authedFetch(replace ? `/admin/gm-briefings/${replace.id}/pdf` : '/admin/gm-briefings/upload', { method: replace ? 'PATCH' : 'POST', cache: 'no-store', body: file,
+    headers: { 'Content-Type': 'application/pdf', 'x-pdf-filename': encodeURIComponent(file.name), 'x-operation-id': operationId, ...(replace ? { 'x-draft-revision': String(replace.revision) } : {}) } }, 600_000, { isCurrent: () => !!owner && owner === getAuthPrincipalKey(readAuthSession()) });
+}

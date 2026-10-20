@@ -1,0 +1,326 @@
+.srOnly {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.spinner {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.pdfPage {
+  position: relative;
+  width: 100%;
+  min-height: 120px;
+  background: #fff;
+  overflow: hidden;
+}
+.pdfPage canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.pdfLoading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  color: #a1a1aa;
+  min-height: 100px;
+}
+.pdfError {
+  position: absolute;
+  inset: 0;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fafafa;
+  font-size: 13px;
+  color: #71717a;
+}
+.pdfError button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #b91c1c;
+}
+.reader {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: #f5f5f7;
+  color: #262629;
+  overflow: hidden;
+  transform-origin: top left;
+  font-family: var(--font-inter), Inter, system-ui, sans-serif;
+}
+.reader::backdrop {
+  background: rgba(24, 24, 27, 0.2);
+}
+.readerInner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.readerHeader {
+  min-height: 72px;
+  padding: 14px max(20px, env(safe-area-inset-right)) 14px
+    max(16px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border-bottom: 1px solid #e9e9ed;
+  flex-shrink: 0;
+}
+.back {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: #f7f7f8;
+  border: 1px solid #e9e9ed;
+  color: #52525b;
+  flex-shrink: 0;
+}
+.readerHeading {
+  min-width: 0;
+  flex: 1;
+}
+.readerHeading h2 {
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.35;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+.readerHeading p {
+  margin: 4px 0 0;
+  color: #92929b;
+  font-size: 11px;
+}
+.readerPager {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #71717a;
+  white-space: nowrap;
+}
+.carousel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  scroll-behavior: smooth;
+}
+.carousel::-webkit-scrollbar {
+  display: none;
+}
+.slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-snap-align: start;
+  scrollbar-width: thin;
+  scrollbar-color: #dedee3 transparent;
+  padding: 14px max(14px, env(safe-area-inset-left)) 26px;
+  touch-action: pan-x pan-y pinch-zoom;
+  box-sizing: border-box;
+}
+.pageContent {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+.caption {
+  padding: 18px 8px 4px;
+  max-width: 760px;
+}
+.caption h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+.caption p {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #62626c;
+  white-space: pre-wrap;
+  margin: 0 0 10px;
+}
+.pdfFrame {
+  background: #fff;
+  border: 1px solid #e7e7ec;
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px #18181b05;
+}
+.readerFooter {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #fff;
+  border-top: 1px solid #e9e9ed;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 70vw;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dot {
+  width: 23px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.dot span {
+  height: 5px;
+  width: 5px;
+  background: #d9d9df;
+  border-radius: 10px;
+  transition:
+    width 0.2s,
+    background 0.2s;
+}
+.dot[aria-current="true"] span {
+  width: 17px;
+  background: #dc2626;
+}
+.arrow {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: #8b8b94;
+}
+.arrow:disabled {
+  opacity: 0.25;
+}
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 240px;
+  color: #84848f;
+  font-size: 13px;
+  padding: 30px;
+  text-align: center;
+}
+.status button {
+  color: #b91c1c;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.readState {
+  font-size: 10px;
+  color: #96969f;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.errorToast {
+  position: absolute;
+  bottom: 53px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 9px 13px;
+  background: #fff;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  box-shadow: 0 3px 12px #00000008;
+  font-size: 11px;
+  color: #b91c1c;
+  z-index: 5;
+}
+.errorToast button {
+  margin-left: 8px;
+  text-decoration: underline;
+}
+.reader button:focus-visible {
+  outline: 2px solid #dc262670;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+  .carousel {
+    scroll-behavior: auto;
+  }
+  .reader * {
+    transition: none !important;
+  }
+}
+.chooser {
+  position: absolute;
+  right: 0;
+  top: 46px;
+  min-width: 250px;
+  max-width: 65vw;
+  background: #fff;
+  border: 1px solid #e5e5eb;
+  border-radius: 13px;
+  padding: 5px;
+  z-index: 8;
+  box-shadow: 0 8px 28px #18181b12;
+}
+.chooser button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  text-align: left;
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  color: #63636d;
+}
+.chooser button[aria-current="true"] {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+.chooser i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #dc2626;
+  flex-shrink: 0;
+}

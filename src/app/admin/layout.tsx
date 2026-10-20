@@ -144,6 +144,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const isLager = pathname.startsWith("/admin/lager");
   const isGebietsmanager = pathname.startsWith("/admin/gebietsmanager");
   const isShelfMerchandiser = pathname.startsWith("/admin/shelfmerchandiser");
+  const isWochenschwerpunkte = pathname.startsWith("/admin/wochenschwerpunkte");
   const isZeiterfassung  = pathname.startsWith("/admin/zeiterfassung");
   const isIppBerechnung  = pathname.startsWith("/admin/ipp-berechnung");
   const isGmDashboard    = pathname.startsWith("/admin/gm-dashboard");
@@ -806,7 +807,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const flexExistingQuestions = sharedPoolExistingQuestions;
   const billaExistingQuestions = sharedPoolExistingQuestions;
 
-  const pageTitle = isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv || isSmFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmDashboard ? "SM Dashboard" : isSmFbManagement ? "Fragebogen-Management" : isSMDurcharbeitMaerkte ? "Durcharbeit Märkte" : isSMDurcharbeitVerplanung ? "Durcharbeit Verplanung" : isSMDurcharbeit ? "Durcharbeit" : isSmFragebogen ? "Standartfragebogen" : isSmVerplanung ? "Verplanung" : isSmZeiterfassung ? "Zeiterfassung" : isSmNachrichten ? "Nachrichten" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
+  const pageTitle = isWochenschwerpunkte ? "Wochenschwerpunkte" : isDurcharbeit ? "Durcharbeit" : isMhd ? "MHD" : isKuehler ? "Kühlerinventur" : isFlex ? "Flexbesuche" : isBilla ? "Billa" : isFbNeu ? "Neue Kampagne" : isFbManagement ? "FB Management" : isFotoarchiv || isSmFotoarchiv ? "Fotoarchiv" : isPraemien ? "Prämien" : isSmDashboard ? "SM Dashboard" : isSmFbManagement ? "Fragebogen-Management" : isSMDurcharbeitMaerkte ? "Durcharbeit Märkte" : isSMDurcharbeitVerplanung ? "Durcharbeit Verplanung" : isSMDurcharbeit ? "Durcharbeit" : isSmFragebogen ? "Standartfragebogen" : isSmVerplanung ? "Verplanung" : isSmZeiterfassung ? "Zeiterfassung" : isSmNachrichten ? "Nachrichten" : isSmMaerkte ? "Märkte" : isMaerkte ? "Märkte" : isLager ? "Lager" : isGebietsmanager ? "Gebietsmanager" : isShelfMerchandiser ? "Shelf Merchandiser" : isZeiterfassung ? "Zeiterfassung" : isIppBerechnung ? "IPP Berechnung" : isGmDashboard ? "GM Dashboard" : isDatenschutzAnfragen ? "Datenschutzanfragen" : "Standardbesuch";
   const exportEventName =
     isDurcharbeit ? "admin:durcharbeit:export"
     : isMhd ? "admin:mhd:export"
@@ -864,7 +865,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
           <header style={{ height: 80, backgroundColor: "#ffffff", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", flexShrink: 0, position: "relative" }}>
             <div>
               <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em", margin: 0 }}>{pageTitle}</h1>
-              {isSmDashboard ? (
+              {isWochenschwerpunkte ? <p style={{ margin: "6px 0 0", fontSize: 11, color: "rgba(0,0,0,0.42)" }}>PDFs und Wochenfokus für Gebietsmanager</p> : isSmDashboard ? (
                 <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", color: "rgba(0,0,0,0.38)", backgroundColor: "#ffffff", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 999, fontSize: 9, fontWeight: 600, lineHeight: 1, letterSpacing: "0.01em" }}>
                   <CalendarDays size={10} strokeWidth={1.8} />
                   Live · aktueller Monat
@@ -1068,7 +1069,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
                     Neue Kampagne
                   </button>
                 </Link>
-              ) : isFotoarchiv ? null : isPraemien ? null : isGmDashboard ? null : isDatenschutzAnfragen ? null : isZeiterfassung ? (
+              ) : isWochenschwerpunkte ? null : isFotoarchiv ? null : isPraemien ? null : isGmDashboard ? null : isDatenschutzAnfragen ? null : isZeiterfassung ? (
                 <button
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", fontSize: 11, fontWeight: 600, color: "#ffffff", background: "linear-gradient(to bottom, #DC2626, #b91c1c)", border: "none", borderRadius: 7, cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.01em", boxShadow: "inset 0 1px 0.6px rgba(255,255,255,0.33), inset 0 -1px 0 rgba(255,255,255,0.15), 0 0 0 1px #a91b1b, 0 1px 6px rgba(180,20,20,0.14)" }}
                   onClick={() => window.dispatchEvent(new CustomEvent("zeiterfassung:openExport"))}

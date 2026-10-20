@@ -27,6 +27,9 @@
     "test:sm-management": "node --test tests/sm-management.test.mjs tests/sm-employee-visibility.test.mjs tests/sm-planning-cache.test.mjs",
     "test:gm-dashboard": "node --import ./backend/node_modules/tsx/dist/loader.mjs --import ./tests/gm-dashboard-react-setup.mjs --test tests/gm-dashboard-*.test.ts tests/gm-dashboard-*.test.tsx tests/gm-dashboard-contracts.test.mjs",
     "test:gm-availability": "node --import ./backend/node_modules/tsx/dist/loader.mjs --import ./tests/gm-dashboard-react-setup.mjs --test tests/gm-availability-export.test.ts backend/src/gm-availability.integration.test.ts",
+    "prebuild": "node scripts/copy-pdf-assets.mjs",
+    "predev": "node scripts/copy-pdf-assets.mjs",
+    "test:gm-briefings": "node backend/node_modules/tsx/dist/cli.mjs --test backend/src/gm-briefings.integration.test.ts",
     "test:sm-photo-upload": "node --import ./backend/node_modules/tsx/dist/loader.mjs --test tests/sm-photo-upload.test.ts"
   },
   "dependencies": {
@@ -38,6 +41,7 @@
     "motion": "^12.39.0",
     "next": "^16.1.6",
     "ogl": "^1.0.11",
+    "pdfjs-dist": "6.4.299",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",

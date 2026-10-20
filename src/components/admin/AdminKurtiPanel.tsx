@@ -1029,8 +1029,8 @@ export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, admin
         {error ? <div role="alert" className="admin-kurti-notice">{error}</div> : null}
       </div>
 
-      <div style={{ position: "relative", zIndex: 3, padding: "10px 12px 12px", borderTop: "1px solid rgba(15,23,42,0.065)", background: "rgba(255,255,255,0.55)" }}>
-        <KurtiInputNotice admin />
+      <KurtiInputNotice admin />
+      <div style={{ position: "relative", zIndex: 3, padding: "7px 12px 12px" }}>
         <form
           onSubmit={(event) => {
             event.preventDefault();

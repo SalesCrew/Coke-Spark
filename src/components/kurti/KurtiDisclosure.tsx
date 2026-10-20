@@ -9,7 +9,7 @@ export function KurtiAiLabel() {
 }
 
 export function KurtiInputNotice({ admin = false }: { admin?: boolean }) {
-  return <p data-kurti-ai-notice style={{ position: "relative", zIndex: 2, flexShrink: 0, margin: 0, padding: admin ? "0 1px 7px" : "4px 1px 6px", color: "#475569", fontSize: admin ? 10 : 9.5, lineHeight: 1.45 }}>KI kann Fehler machen. Prüfe wichtige Angaben in Coke Spark.</p>;
+  return <p data-kurti-ai-notice style={{ position: "relative", zIndex: 2, flexShrink: 0, margin: 0, padding: admin ? "10px 13px 0" : "4px 1px 6px", background: "transparent", border: 0, boxShadow: "none", color: "#475569", fontSize: admin ? 10 : 9.5, lineHeight: 1.45 }}>KI kann Fehler machen. Prüfe wichtige Angaben in Coke Spark.</p>;
 }
 
 /** Portal keeps the disclosure outside the chat's clipped/animated panels. */

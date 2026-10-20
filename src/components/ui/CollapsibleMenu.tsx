@@ -109,7 +109,7 @@ export function CollapsibleMenu({
   onSelect,
   onLogout,
   enableKurti = false,
-  featureKurti = true,
+  featureKurti = false,
   kurtiMaxWidth = 606,
   enableClickToggle = false,
   smMessages,

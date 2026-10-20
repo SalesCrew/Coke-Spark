@@ -38,6 +38,7 @@ interface CollapsibleMenuProps {
   onSelect?: (index: number, item: MenuItem) => void;
   onLogout?: () => void;
   enableKurti?: boolean;
+  kurtiWorkspace?: "gm" | "sm";
   featureKurti?: boolean;
   kurtiMaxWidth?: number;
   enableClickToggle?: boolean;
@@ -107,6 +108,7 @@ export function CollapsibleMenu({
   onSelect,
   onLogout,
   enableKurti = false,
+  kurtiWorkspace = "gm",
   featureKurti = true,
   kurtiMaxWidth = 606,
   enableClickToggle = false,
@@ -214,7 +216,7 @@ export function CollapsibleMenu({
     let cancelled = false;
     setChatLoading(true);
     setChatError(null);
-    fetchGmKurtiMessages()
+    fetchGmKurtiMessages(kurtiWorkspace)
       .then((payload) => {
         if (cancelled) return;
         setChatMessages(payload.messages ?? []);
@@ -231,7 +233,7 @@ export function CollapsibleMenu({
     return () => {
       cancelled = true;
     };
-  }, [chatOpen, enableKurti]);
+  }, [chatOpen, enableKurti, kurtiWorkspace]);
 
   useEffect(() => {
     if (!chatExpiresAt) return;
@@ -581,7 +583,7 @@ export function CollapsibleMenu({
     setChatSending(true);
     setChatError(null);
     try {
-      const payload = await sendGmKurtiMessage(text);
+      const payload = await sendGmKurtiMessage(text, kurtiWorkspace);
       const nextMessages = payload.messages ?? [];
       const assistantMessage = payload.assistantMessage
         ?? [...nextMessages].reverse().find((message) => message.role === "assistant" && message.content.trim());
@@ -601,7 +603,7 @@ export function CollapsibleMenu({
     } finally {
       setChatSending(false);
     }
-  }, [chatConfigured, chatInput, chatLoading, chatSending, chatTyping]);
+  }, [chatConfigured, chatInput, chatLoading, chatSending, chatTyping, kurtiWorkspace]);
 
   return (
     <>

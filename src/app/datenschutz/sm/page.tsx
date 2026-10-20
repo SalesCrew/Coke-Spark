@@ -8,6 +8,14 @@ export const metadata: Metadata = {
 
 const sections: PrivacyNoticeSection[] = [
   {
+    title: "Frag Kurti im SM-Bereich",
+    body: [
+      "Frag Kurti ist eine freiwillige Lese- und Navigationshilfe. Für deine Anfrage werden dein Text, der aktive Chatverlauf und ausgewählte eigene SM-Daten (Profil, effektive Einsätze, sichtbare Monatsziele, Besuchsfortschritt, eigene Besuchs-/Fahrtzeiten, offene Anfragezahlen und Anzahl ungelesener Nachrichten) an den serverseitig konfigurierten KI-Dienst übermittelt. Es werden keine Foto-Dateien, Passwörter oder Daten anderer Mitarbeiter mitgesendet.",
+      "Kurti kann nichts speichern, ändern oder absenden. Die API-Anfrage fordert keine dauerhafte Antwortspeicherung beim Anbieter an. Der Verlauf in Coke Spark bleibt 15 Minuten nach der letzten erfolgreichen Unterhaltung aktiv; für den Anbieter gelten dessen vertragliche Datenkontrollen. Bitte gib keine Zugangsdaten oder unnötigen privaten beziehungsweise sensiblen Angaben ein.",
+      "Berechtigte interne Admins und SM-Admins können deinen noch aktiven Verlauf für einen konkreten Support-, Qualitäts- oder Fehlerklärungsfall lesen. Das verlängert die 15-Minuten-Frist nicht. Kunden erhalten keinen Zugriff auf diese Chats. Maßgeblich bleiben die App-Daten und die Prüfung durch das zuständige Team.",
+    ],
+  },
+  {
     title: "1. Verantwortlicher und Kontakt",
     body: [
       "Verantwortlicher: Institut für Verkaufsförderung GmbH, Wagenseilgasse 5, 1120 Wien.",

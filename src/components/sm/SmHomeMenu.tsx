@@ -7,7 +7,7 @@ import { subscribeToAuthSessionChanges } from "@/lib/auth/sessionRegistry";
 import { SmMessagesPanel } from "./SmMessagesPanel";
 
 /** SM-only opt-in: GM callers keep the original menu and perform no inbox requests. */
-export function SmHomeMenu(props: Omit<ComponentProps<typeof CollapsibleMenu>, "smMessages">) {
+export function SmHomeMenu(props: Omit<ComponentProps<typeof CollapsibleMenu>, "smMessages" | "kurtiWorkspace">) {
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [owner, setOwner] = useState(() => getAuthPrincipalKey(readAuthSession()));
   const requestSequence = useRef(0);
@@ -41,5 +41,5 @@ export function SmHomeMenu(props: Omit<ComponentProps<typeof CollapsibleMenu>, "
     };
   }, []);
   return <><style>{`@media (prefers-reduced-motion: reduce) { [data-sm-messages-menu], [data-sm-messages-menu] * { transition: none !important; animation: none !important; } }`}</style><CollapsibleMenu key={owner ?? "signed-out"} {...props}
-    smMessages={{ unreadCount, panel: <SmMessagesPanel /> }} /></>;
+    kurtiWorkspace="sm" smMessages={{ unreadCount, panel: <SmMessagesPanel /> }} /></>;
 }

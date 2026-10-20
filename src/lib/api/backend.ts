@@ -4322,6 +4322,7 @@ export type AdminKurtiMessage = GmKurtiMessage & {
   charts?: AdminKurtiChartSpec[];
   visualizations?: AdminKurtiVisualization[];
   exports?: AdminKurtiExcelExport[];
+  smExports?: SmKurtiExport[];
 };
 
 export type AdminKurtiMessagesPayload = {
@@ -6779,19 +6780,19 @@ export async function fetchGmDashboardCritical(): Promise<GmDashboardCriticalPay
   return (await authedFetch("/gm/dashboard/critical", { cache: "no-store" })) as GmDashboardCriticalPayload;
 }
 
-export async function fetchGmKurtiMessages(): Promise<GmKurtiMessagesPayload> {
-  return (await authedFetch("/gm/kurti/messages", { cache: "no-store" })) as GmKurtiMessagesPayload;
+export async function fetchGmKurtiMessages(workspace: "gm" | "sm" = "gm"): Promise<GmKurtiMessagesPayload> {
+  return (await authedFetch(`/${workspace}/kurti/messages`, { cache: "no-store" })) as GmKurtiMessagesPayload;
 }
 
-export async function sendGmKurtiMessage(message: string): Promise<GmKurtiReplyPayload> {
-  return (await authedFetch("/gm/kurti/messages", {
+export async function sendGmKurtiMessage(message: string, workspace: "gm" | "sm" = "gm"): Promise<GmKurtiReplyPayload> {
+  return (await authedFetch(`/${workspace}/kurti/messages`, {
     method: "POST",
     body: JSON.stringify({ message }),
   }, 60000)) as GmKurtiReplyPayload;
 }
 
-export async function fetchAdminKurtiMessages(): Promise<AdminKurtiMessagesPayload> {
-  return (await authedFetch("/admin/kurti/messages", { cache: "no-store" })) as AdminKurtiMessagesPayload;
+export async function fetchAdminKurtiMessages(workspace: "gm" | "sm" = "gm"): Promise<AdminKurtiMessagesPayload> {
+  return (await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", { cache: "no-store" })) as AdminKurtiMessagesPayload;
 }
 
 export async function fetchAdminKurtiWindowLayout(): Promise<AdminKurtiWindowLayoutPayload> {
@@ -6807,8 +6808,8 @@ export async function saveAdminKurtiWindowLayout(
   })) as AdminKurtiWindowLayoutPayload;
 }
 
-export async function sendAdminKurtiMessage(message: string): Promise<AdminKurtiReplyPayload> {
-  return (await authedFetch("/admin/kurti/messages", {
+export async function sendAdminKurtiMessage(message: string, workspace: "gm" | "sm" = "gm"): Promise<AdminKurtiReplyPayload> {
+  return (await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", {
     method: "POST",
     body: JSON.stringify({ message }),
   }, 120000)) as AdminKurtiReplyPayload;
@@ -7118,3 +7119,11 @@ export async function applyMileageCorrection(input: import("@/types/gmMileage").
 export async function saveDayVehicleChange(input: { segments: import("@/types/gmMileage").MileageSegment[]; beforeWork: boolean }): Promise<{ session: DaySession }> {
   return await authedFetch("/day-session/vehicle-change", { method: "POST", body: JSON.stringify(input) }) as { session: DaySession };
 }
+
+export type SmKurtiExport = {
+ id:string; dataset:"markets"|"planning"|"targets"|"visits"|"times"|"answers";title:string;
+ filters:{from:string|null;to:string|null;smUserId:string|null;marketId:string|null;scope:"standard"|"SMDurcharbeit"|null;
+ search:string|null;region:string|null;chain:string|null;campaignId:string|null;month:string|null};
+};
+export async function fetchSmKurtiExport(spec:SmKurtiExport):Promise<{title:string;filters:SmKurtiExport["filters"];generatedAt:string;rows:Record<string,unknown>[]}>
+ {return await authedFetch("/admin/sm-kurti/export",{method:"POST",body:JSON.stringify(spec)},120000) as {title:string;filters:SmKurtiExport["filters"];generatedAt:string;rows:Record<string,unknown>[]};}

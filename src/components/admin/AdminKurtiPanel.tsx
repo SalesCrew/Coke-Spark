@@ -32,6 +32,7 @@ const KURTI_THINKING_VIDEO = "/kurti-thinking.mp4";
 
 type AdminKurtiPanelProps = {
   open: boolean;
+  workspace?: "gm" | "sm";
   sidebarExpanded: boolean;
   adminUserId: string | null;
   onOpen: () => void;
@@ -197,7 +198,7 @@ function inferVisualizationSkeletonKind(message: string): AdminKurtiVisualizatio
   return "series";
 }
 
-export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, onClose }: AdminKurtiPanelProps) {
+export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, adminUserId, onOpen, onClose }: AdminKurtiPanelProps) {
   const [messages, setMessages] = useState<AdminKurtiMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -430,7 +431,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchAdminKurtiMessages()
+    fetchAdminKurtiMessages(workspace)
       .then((payload) => {
         if (cancelled) return;
         setMessages(payload.messages ?? []);
@@ -449,7 +450,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, workspace]);
 
   useEffect(() => {
     if (!open) return;
@@ -539,7 +540,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
     return () => video.removeEventListener("canplay", play);
   }, [motion, open, videoSource]);
 
-  const renderedMessages = messages.length > 0 ? messages : [WELCOME_MESSAGE];
+  const renderedMessages = messages.length > 0 ? messages : [{...WELCOME_MESSAGE, content: workspace === "sm" ? "Servus! Was soll ich für dich über SMs, Einsätze, Durcharbeit oder Ergebnisse herausfinden?" : WELCOME_MESSAGE.content}];
   const interactionLocked = loading || sending || Boolean(typing);
   const canSubmit = Boolean(input.trim()) && configured && !interactionLocked;
 
@@ -707,7 +708,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
     setSending(true);
     setError(null);
     try {
-      const payload = await sendAdminKurtiMessage(text);
+      const payload = await sendAdminKurtiMessage(text, workspace);
       const nextMessages = payload.messages ?? [];
       const assistantMessage = payload.assistantMessage
         ?? [...nextMessages].reverse().find((message) => message.role === "assistant" && message.content.trim());
@@ -724,7 +725,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
       setSending(false);
       setPendingVisualizationKind(null);
     }
-  }, [configured, input, loading, sending, typing]);
+  }, [configured, input, loading, sending, typing, workspace]);
 
   const shouldRender = open || (serverLayoutLoaded && collapsed && !bubbleDismissed);
   if (!shouldRender || !panelRect || !bubblePoint) return null;
@@ -913,10 +914,10 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
           <Bot size={19} strokeWidth={2} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, lineHeight: 1.15, fontWeight: 800, color: "#111827" }}>Kurti Admin</div>
+          <div style={{ fontSize: 14, lineHeight: 1.15, fontWeight: 800, color: "#111827" }}>Kurti {workspace === "sm" ? "SM" : "GM"} Admin</div>
           <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, fontWeight: 650, color: "rgba(15,23,42,0.46)" }}>
             <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 999, background: "#22a06b" }} />
-            Dein Spark Daten-Assistent
+            {workspace === "sm" ? "SM · Planung und Ergebnisse" : "Dein Spark Daten-Assistent"}
           </div>
         </div>
         <div className="admin-kurti-capabilities" style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -971,7 +972,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
           const isTypingMessage = !isUser && typing?.messageId === message.id;
           const showCharts = !isUser && !isTypingMessage && Boolean(message.charts?.length);
           const showVisualizations = !isUser && !isTypingMessage && Boolean(message.visualizations?.length);
-          const showExports = !isUser && !isTypingMessage && Boolean(message.exports?.length);
+          const showExports = !isUser && !isTypingMessage && Boolean(message.exports?.length || message.smExports?.length);
           const visibleContent = isTypingMessage ? typing.content.slice(0, typing.visibleLength) : message.content;
           return (
             <div
@@ -1004,7 +1005,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
                   {showVisualizations ? message.visualizations?.map((visualization, index) => (
                     <AdminKurtiVisualization key={`${message.id}-${index}-${visualization.kind}-${visualization.title}`} visualization={visualization} />
                   )) : null}
-                  {showExports ? message.exports?.map((exportSpec) => (
+                  {showExports ? [...(message.exports ?? []), ...(message.smExports ?? [])].map((exportSpec) => (
                     <AdminKurtiExportCard key={exportSpec.id} exportSpec={exportSpec} />
                   )) : null}
                 </>
@@ -1054,7 +1055,7 @@ export function AdminKurtiPanel({ open, sidebarExpanded, adminUserId, onOpen, on
             rows={1}
             maxLength={4000}
             disabled={interactionLocked || !configured}
-            placeholder="Frag Kurti über alle GMs, Märkte oder Berechnungen..."
+            placeholder={workspace === "sm" ? "Frag Kurti über SMs, Durcharbeit oder Ergebnisse..." : "Frag Kurti über alle GMs, Märkte oder Berechnungen..."}
             aria-label="Nachricht an Admin-Kurti"
             style={{
               minWidth: 0,

@@ -2,22 +2,25 @@
 
 import { useState } from "react";
 import { Check, Download, FileSpreadsheet, LoaderCircle, TriangleAlert } from "lucide-react";
-import { type AdminKurtiExcelExport } from "@/lib/api/backend";
+import { type AdminKurtiExcelExport, type SmKurtiExport } from "@/lib/api/backend";
+import { describeSmKurtiExport, runSmKurtiExport } from "@/lib/exports/smKurtiExport";
 import { describeAdminKurtiExcelExport, runAdminKurtiExcelExport } from "@/lib/exports/adminKurtiExport";
 
 type ExportState = "idle" | "loading" | "success" | "error";
 
-export function AdminKurtiExportCard({ exportSpec }: { exportSpec: AdminKurtiExcelExport }) {
+export function AdminKurtiExportCard({ exportSpec }: { exportSpec: AdminKurtiExcelExport | SmKurtiExport }) {
   const [state, setState] = useState<ExportState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const filterSummary = describeAdminKurtiExcelExport(exportSpec);
+  const isSm = "dataset" in exportSpec;
+  const filterSummary = isSm ? describeSmKurtiExport(exportSpec) : describeAdminKurtiExcelExport(exportSpec);
 
   async function download() {
     if (state === "loading") return;
     setState("loading");
     setError(null);
     try {
-      await runAdminKurtiExcelExport(exportSpec);
+      if (isSm) await runSmKurtiExport(exportSpec);
+      else await runAdminKurtiExcelExport(exportSpec);
       setState("success");
     } catch (caught) {
       setState("error");
@@ -64,7 +67,7 @@ export function AdminKurtiExportCard({ exportSpec }: { exportSpec: AdminKurtiExc
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ color: "rgba(15,23,42,0.9)", fontSize: 12.5, fontWeight: 760, lineHeight: 1.28 }}>{exportSpec.title}</div>
-          {exportSpec.description ? (
+          {!isSm && exportSpec.description ? (
             <div style={{ marginTop: 3, color: "rgba(71,85,105,0.76)", fontSize: 10.5, fontWeight: 530, lineHeight: 1.42 }}>
               {exportSpec.description}
             </div>

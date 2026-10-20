@@ -589,7 +589,8 @@ export function AdminSidenav() {
       />
       {adminAccess.isAdmin ? (
         <AdminKurtiPanel
-          key={authUser?.id ?? "admin-kurti"}
+          key={`${authUser?.id ?? "admin-kurti"}:${activeWorkspace}`}
+          workspace={activeWorkspace}
           open={kurtiOpen}
           sidebarExpanded={isSidebarExpanded}
           adminUserId={authUser?.id ?? null}

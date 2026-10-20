@@ -62,6 +62,8 @@ export function GmHomeMenu(
       setError("");
       void load();
     });
+    // The inbox updates only after the external request settles.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     window.addEventListener("focus", visible);
     window.addEventListener("online", visible);

@@ -188,3 +188,10 @@ The existing native document button now has a stretched hit target covering its 
 Six focused checks passed on the isolated fixture: status cell, visibility cell, publication-date cell, arrow, blank row area and Enter on the native document button. No backend or schema change was needed.
 
 A dedicated GM preview uses synthetic data on 3037/4037. Its optimized frontend is built without production environment files and connects only to the isolated API. The human 3000/4000 app is not used for this preview.
+
+
+## Final release refinements — 20 October
+
+Aktuell/Archiv now use the existing admin tab convention: transparent surface, 24 px separation, Coke-red 2 px active underline and neutral inactive text. The row click target and keyboard navigation are unchanged. Kurti no longer receives its promotional badge/tinted row by default.
+
+The upload cap is 500 MB in app validation and the private bucket migration, with the existing 80-page cap retained. The hosting global-cap prerequisite and the actual isolated checks are recorded in `gm-wochenschwerpunkte-verification.md`; do not infer that an updated bucket alone raises Supabase's global limit.

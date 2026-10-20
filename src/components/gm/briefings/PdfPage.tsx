@@ -90,6 +90,8 @@ export function PdfPage({
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
+    // A new external canvas render invalidates the previous render status.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReady(false);
     setError("");
     if (!pdf || !width || !canvas.current) return;

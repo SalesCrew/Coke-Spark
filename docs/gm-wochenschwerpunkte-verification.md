@@ -69,3 +69,18 @@ Screenshots liegen unter:
 - `gm-reader-portrait.png`
 
 Normaler menschlicher localhost:3000/4000 blieb unverändert. Die Vorschau startet keine geplanten Jobs und lädt keine Produktionsumgebung.
+
+
+## Release preparation — 20.10.2026
+
+This dated addendum supersedes the original 19 October local-only status above.
+
+- The original schema/private bucket migration was explicitly authorized and applied earlier in this conversation (registered as `20261020123857_gm_wochenschwerpunkte`).
+- The 500 MB limit migration was separately authorized and applied through the Supabase plugin (registered as `20261020135103_gm_briefing_500mb_upload_limit`). It changes only the existing private PDF bucket cap; publications, read receipts, files and business answers are untouched.
+- Client validation, HTTP raw-body parsing and server-side PDF inspection accept up to 500 × 1024 × 1024 bytes; the 80-page limit remains. Upload requests have a 10-minute client timeout. Railway still imposes its own request-duration limits. No full 500 MB production transfer was attempted.
+- **Remaining hosting prerequisite:** Supabase's global storage ceiling is below 500 MB. Its Storage API rejected the bucket update before the SQL migration with HTTP 413. The plugin supports the bucket migration but does not expose the project-level storage configuration endpoint; the available CLI/browser are not signed in. Raising that global ceiling is authorized but remains unapplied. The bucket migration alone does not bypass the global ceiling.
+- Refined admin document table/editor, whole-row opening and current/archive underline tabs are included. Kurti uses the normal unfeatured menu style; its feature badge is off by default.
+- The release merges the current production branches, retaining the existing SM visit-answer and photo-upload recovery fixes. The original project checkout's unrelated working changes were not included.
+- Isolated checks: 8 backend briefing/SM-history integration tests; 9 SM photo-upload regression tests; backend TypeScript check; React component lint; optimized frontend builds; 6 laptop browser checks at 1280 and 1440 pixels. A real PDF above the former 25 MB cap was uploaded through the actual isolated route/service. The fixture applies both migrations with synthetic users and storage.
+- The GM Home menu was visually inspected in the synthetic preview: Kurti has no Neu badge or special tint. No human localhost or production business endpoint was used for agent verification.
+- Production release status is tracked separately in the persistent project-context release record; inspect the deployment providers for the live commit and final rollout status.

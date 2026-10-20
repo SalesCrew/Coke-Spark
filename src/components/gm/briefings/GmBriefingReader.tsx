@@ -109,6 +109,8 @@ export function GmBriefingReader({
   }, [origin]);
   useEffect(() => {
     let cancelled = false;
+    // Clear the previous signed asset while synchronizing the selected PDF.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFileUrl(null);
     setFileError("");
     setRendered(new Set());

@@ -1,9 +1,9 @@
-export type KurtiPerson = {id:string;label:string;role:string};
-const refs=/\[user:([0-9a-f-]{36})\]/gi;
+export type KurtiPerson = {id:string;label:string;role:string;firstName?:string};
+const refs=/\[user:([0-9a-f-]{36})(:first)?\]/gi;
 export function kurtiDisplayText(text:string, people:readonly KurtiPerson[]):string {
-  const names=new Map(people.map(p=>[p.id.toLowerCase(),p.label]));
-  return text.replace(refs,(original,id:string)=>names.get(id.toLowerCase())??original)
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,(id)=>names.get(id.toLowerCase())??id);
+  const names=new Map(people.map(p=>[p.id.toLowerCase(),p]));
+  return text.replace(refs,(original,id:string,first:string)=>{const p=names.get(id.toLowerCase());return p ? (first ? p.firstName || p.label : p.label) : original;})
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,(id)=>names.get(id.toLowerCase())?.label??id);
 }
 /** Display copies only: IDs, export filters, URLs and machine keys retain their exact values. */
 export function kurtiDisplayPayload<T>(value:T, people:readonly KurtiPerson[], key=""):T {

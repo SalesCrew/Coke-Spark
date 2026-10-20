@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
-import { KurtiMessageInput } from "@/components/kurti/KurtiMessageInput";
+import { KurtiAiLabel, KurtiInformation, KurtiInputNotice } from "@/components/kurti/KurtiDisclosure";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -124,7 +124,6 @@ export function CollapsibleMenu({
   const [chatOpen, setChatOpen] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
-  const [chatInputDisplay, setChatInputDisplay] = useState("");
   const [chatMessages, setChatMessages] = useState<GmKurtiMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
@@ -585,7 +584,7 @@ export function CollapsibleMenu({
       {
         id: optimisticId,
         role: "user",
-        content: chatInputDisplay,
+        content: chatInput,
         createdAt: new Date().toISOString(),
         expiresAt: "",
       },
@@ -614,7 +613,7 @@ export function CollapsibleMenu({
     } finally {
       setChatSending(false);
     }
-  }, [chatConfigured, chatInputDisplay, chatInput, chatLoading, chatSending, chatTyping, kurtiWorkspace]);
+  }, [chatConfigured, chatInput, chatLoading, chatSending, chatTyping, kurtiWorkspace]);
 
   return (
     <>
@@ -974,8 +973,8 @@ export function CollapsibleMenu({
                     <MessageCircle size={14} strokeWidth={2.1} />
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12, lineHeight: 1.1, fontWeight: 850, color: "#111827" }}>
-                      Frag Kurti...
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, lineHeight: 1.1, fontWeight: 850, color: "#111827" }}>
+                      <span>Frag Kurti...</span> <KurtiAiLabel />
                     </div>
                     <div
                       style={{
@@ -995,6 +994,7 @@ export function CollapsibleMenu({
                       Dein Spark Assistent
                     </div>
                   </div>
+                  <KurtiInformation workspace={kurtiWorkspace} />
                 </div>
 
                 <div
@@ -1151,6 +1151,7 @@ export function CollapsibleMenu({
                   )}
                 </div>
 
+                <KurtiInputNotice />
                 <form
                   onSubmit={submitKurtiMessage}
                   style={{
@@ -1166,15 +1167,12 @@ export function CollapsibleMenu({
                     boxShadow: "inset 0 1px 0 rgba(255,255,255,0.85), 0 4px 12px rgba(15,23,42,0.035)",
                   }}
                 >
-                  <KurtiMessageInput
+                  <input
                     value={chatInput}
-                    workspace={kurtiWorkspace}
-                    audience="worker"
-                    onDisplayChange={setChatInputDisplay}
-                    onChange={setChatInput}
+                    onChange={event => setChatInput(event.target.value)}
                     maxLength={1500}
                     disabled={chatInteractionLocked || !chatConfigured}
-                    placeholder="Frag Kurti · Personen mit @"
+                    placeholder="Frag Kurti..."
                     aria-label="Nachricht an Kurti"
                     style={{
                       minWidth: 0,

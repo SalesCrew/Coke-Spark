@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {decodeKurtiDraft,encodeKurtiDraft,editKurtiMentions,kurtiDisplayPayload} from "../src/lib/kurti-identity";
+import {decodeKurtiDraft,encodeKurtiDraft,editKurtiMentions,kurtiDisplayPayload,kurtiDisplayText} from "../src/lib/kurti-identity";
 const id="07542750-2848-4091-8240-927350000001",ref=`[user:${id}]`,people=[{id,label:"Annika Musterfrau",role:"sm"}];
 test("mentions survive adjacent editing and become plain text when modified or pasted",()=>{
  const draft=decodeKurtiDraft(`Was macht ${ref}?`,people);assert.equal(draft.display,"Was macht Annika Musterfrau?");
@@ -21,4 +21,10 @@ test("editing one mention preserves another identity and its shifted position",(
  const second="07542750-2848-4091-8240-927350000002",users=[...people,{id:second,label:"Carolin Beispielsm",role:"sm"}];
  const draft=decodeKurtiDraft(`${ref} und [user:${second}]`,users),after=draft.display.replace("Annika","Anni");
  assert.equal(encodeKurtiDraft(after,editKurtiMentions(draft.display,after,draft.mentions)),`Anni Musterfrau und [user:${second}]`);
+});
+
+test("employee greetings resolve first names only in the browser",()=>{
+  const people=[{id:"12345678-1234-1234-1234-123456789012",label:"Hannah Beispiel",firstName:"Hannah",role:"sm"}];
+  assert.equal(kurtiDisplayText("Hallo [user:12345678-1234-1234-1234-123456789012:first]!",people),"Hallo Hannah!");
+  assert.equal(kurtiDisplayText("12345678-1234-1234-1234-123456789012",people),"Hannah Beispiel");
 });

@@ -2,7 +2,11 @@
 
 Implemented 20 October 2026 for GM, SM, GM Admin and SM Admin. This extends the SM Kurti implementation in [sm-kurti.md](sm-kurti.md).
 
-## Intended experience
+## Follow-up: employee experience and transparency
+
+The follow-up in [kurti-ai-transparency.md](kurti-ai-transparency.md) supersedes the employee mention workflow described in this original release record. SMs/GMs use the ordinary input and their automatically authenticated own ID; they never need @. Admins keep the compact mention picker. A `[user:UUID:first]` greeting is resolved to the first name only in the browser. Names are still withheld from provider requests. New AI disclosures and reporting rules are additive; the original verification below records the preceding release.
+
+## Original release: intended experience
 
 Type `@` and select a person in the compact composer list. It shows a round initial avatar and one name per row, with the best prefix match selected. Arrow keys move, Enter selects without sending, Escape dismisses, and a second Enter sends. Clicking/tapping also selects. Employees can select themselves; internal full admins can select users they already administer. Customers cannot access either chat or directory.
 
@@ -21,7 +25,7 @@ Before each provider call:
 - Pre-change conversations remain readable in Spark and keep their existing TTL, but are excluded from future model history. New exchanges carry an internal identity-policy marker. No old records are rewritten.
 - Strict tool schemas, function names, IDs, role enums and opaque encrypted reasoning remain structurally intact. Provider errors do not log echoed request text.
 
-A known account name typed without a selected mention receives a local response asking for `@`; that input does not go to OpenAI. Forged, unavailable or malformed mention IDs are rejected. The identity rule is prepended prominently to every employee/admin system prompt. Named real-person examples in those prompts have been generalized.
+In admin chat, a known account name typed without a selected mention receives a local response asking for `@`; that input does not go to OpenAI. Forged, unavailable or malformed mention IDs are rejected. The identity rule is prepended prominently to every employee/admin system prompt. Named real-person examples in those prompts have been generalized.
 
 ## Model
 

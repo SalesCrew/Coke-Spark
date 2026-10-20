@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { Bot, ChevronLeft, Database, MessageCircle, Minimize2, SendHorizontal, ShieldCheck } from "lucide-react";
+import { KurtiAiLabel, KurtiInformation, KurtiInputNotice } from "@/components/kurti/KurtiDisclosure";
 import { KurtiMessageInput } from "@/components/kurti/KurtiMessageInput";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -916,7 +917,7 @@ export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, admin
           <Bot size={19} strokeWidth={2} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, lineHeight: 1.15, fontWeight: 800, color: "#111827" }}>Kurti {workspace === "sm" ? "SM" : "GM"} Admin</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, lineHeight: 1.15, fontWeight: 800, color: "#111827" }}><span>Kurti {workspace === "sm" ? "SM" : "GM"} Admin</span> <KurtiAiLabel /></div>
           <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, fontWeight: 650, color: "rgba(15,23,42,0.46)" }}>
             <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 999, background: "#22a06b" }} />
             {workspace === "sm" ? "SM · Planung und Ergebnisse" : "Dein Spark Daten-Assistent"}
@@ -930,6 +931,7 @@ export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, admin
             <ShieldCheck size={11} /> Nur Lesen · {memoryMinutes >= 60 ? `${memoryMinutes / 60} Std.` : `${memoryMinutes} Min.`}
           </span>
         </div>
+        <KurtiInformation workspace={workspace} admin />
         <button
           type="button"
           onClick={collapsePanel}
@@ -1028,6 +1030,7 @@ export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, admin
       </div>
 
       <div style={{ position: "relative", zIndex: 3, padding: "10px 12px 12px", borderTop: "1px solid rgba(15,23,42,0.065)", background: "rgba(255,255,255,0.55)" }}>
+        <KurtiInputNotice admin />
         <form
           onSubmit={(event) => {
             event.preventDefault();

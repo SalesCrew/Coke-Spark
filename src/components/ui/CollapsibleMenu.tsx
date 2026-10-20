@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { KurtiMessageInput } from "@/components/kurti/KurtiMessageInput";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -123,6 +124,7 @@ export function CollapsibleMenu({
   const [chatOpen, setChatOpen] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [chatInputDisplay, setChatInputDisplay] = useState("");
   const [chatMessages, setChatMessages] = useState<GmKurtiMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
@@ -583,7 +585,7 @@ export function CollapsibleMenu({
       {
         id: optimisticId,
         role: "user",
-        content: text,
+        content: chatInputDisplay,
         createdAt: new Date().toISOString(),
         expiresAt: "",
       },
@@ -612,7 +614,7 @@ export function CollapsibleMenu({
     } finally {
       setChatSending(false);
     }
-  }, [chatConfigured, chatInput, chatLoading, chatSending, chatTyping, kurtiWorkspace]);
+  }, [chatConfigured, chatInputDisplay, chatInput, chatLoading, chatSending, chatTyping, kurtiWorkspace]);
 
   return (
     <>
@@ -709,6 +711,7 @@ export function CollapsibleMenu({
         )}
         style={{
           height: expanded ? expandedHeight : collapsedHeight,
+          overflow: utilityPanelOpen ? "clip" : undefined,
           ...(messagesOpen
             ? { maxHeight: "calc(100dvh - var(--sm-menu-reserved-space, 80px))" }
             : smMessages && chatOpen
@@ -737,7 +740,7 @@ export function CollapsibleMenu({
                 : `translateX(0) translateY(-${activeRowIndex * ITEM_HEIGHT}px)`,
           }}
         >
-          <div inert={(smMessages || gmBriefings) && utilityPanelOpen ? true : undefined} style={{ width: "50%", ...(smMessages ? { flex: "0 0 50%", minWidth: 0 } : {}), paddingTop: CARD_PADDING, paddingBottom: CARD_PADDING }}>
+          <div inert={(smMessages || gmBriefings) && utilityPanelOpen ? true : undefined} style={{ width: "50%", ...(smMessages || gmBriefings ? { flex: "0 0 50%", minWidth: 0 } : {}), paddingTop: CARD_PADDING, paddingBottom: CARD_PADDING }}>
             {rows.map((row, i) => {
               const item =
                 row.type === "chat"
@@ -873,7 +876,7 @@ export function CollapsibleMenu({
             onPointerDown={(event) => event.stopPropagation()}
             style={{
               width: "50%",
-              ...(smMessages ? { flex: "0 0 50%", minWidth: 0 } : {}),
+              ...(smMessages || gmBriefings ? { flex: "0 0 50%", minWidth: 0 } : {}),
               height: "100%",
               boxSizing: "border-box",
               padding: "10px 12px 11px",
@@ -895,7 +898,7 @@ export function CollapsibleMenu({
                 <div className="min-h-0 min-w-0 flex-1">{smMessages.panel}</div>
               </div>
             ) : chatOpen ? (
-              <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0, position: "relative", isolation: "isolate", overflow: "hidden" }}>
+              <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0, position: "relative", isolation: "isolate", overflow: "clip" }}>
                 <video
                   ref={kurtiVideoRef}
                   src={kurtiVideoSource}
@@ -1163,12 +1166,15 @@ export function CollapsibleMenu({
                     boxShadow: "inset 0 1px 0 rgba(255,255,255,0.85), 0 4px 12px rgba(15,23,42,0.035)",
                   }}
                 >
-                  <input
+                  <KurtiMessageInput
                     value={chatInput}
-                    onChange={(event) => setChatInput(event.target.value)}
+                    workspace={kurtiWorkspace}
+                    audience="worker"
+                    onDisplayChange={setChatInputDisplay}
+                    onChange={setChatInput}
                     maxLength={1500}
                     disabled={chatInteractionLocked || !chatConfigured}
-                    placeholder="Frag Kurti..."
+                    placeholder="Frag Kurti · Personen mit @"
                     aria-label="Nachricht an Kurti"
                     style={{
                       minWidth: 0,

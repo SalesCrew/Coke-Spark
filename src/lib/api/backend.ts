@@ -1,5 +1,7 @@
 "use client";
 
+import { kurtiDisplayPayload, type KurtiPerson } from "@/lib/kurti-identity";
+
 import { saveSmPhotoJob, type SmPhotoUploadJob } from "@/lib/sm/photoUpload";
 
 import { getCustomerAdminPageKeyForPath } from "@/lib/auth/customerPageKey";
@@ -6785,19 +6787,26 @@ function kurtiRequestOwner() {
   return { isCurrent: () => !!owner && owner === getAuthPrincipalKey(readAuthSession()) };
 }
 
+function displayKurtiReply(payload: unknown) {
+ const data=payload as {people?:KurtiPerson[]};return kurtiDisplayPayload(payload,data.people??[]);
+}
+export async function fetchKurtiPeople(workspace:"gm"|"sm",audience:"worker"|"admin"):Promise<{people:KurtiPerson[]}> {
+ const base=audience==="admin"?(workspace==="sm"?"/admin/sm-kurti":"/admin/kurti"):`/${workspace}/kurti`;
+ return await authedFetch(`${base}/people`,{cache:"no-store"},30000,kurtiRequestOwner()) as {people:KurtiPerson[]};
+}
 export async function fetchGmKurtiMessages(workspace: "gm" | "sm" = "gm"): Promise<GmKurtiMessagesPayload> {
-  return (await authedFetch(`/${workspace}/kurti/messages`, { cache: "no-store" }, 30000, kurtiRequestOwner())) as GmKurtiMessagesPayload;
+  return displayKurtiReply(await authedFetch(`/${workspace}/kurti/messages`, { cache: "no-store" }, 30000, kurtiRequestOwner())) as GmKurtiMessagesPayload;
 }
 
 export async function sendGmKurtiMessage(message: string, workspace: "gm" | "sm" = "gm"): Promise<GmKurtiReplyPayload> {
-  return (await authedFetch(`/${workspace}/kurti/messages`, {
+  return displayKurtiReply(await authedFetch(`/${workspace}/kurti/messages`, {
     method: "POST",
     body: JSON.stringify({ message }),
   }, 60000, kurtiRequestOwner())) as GmKurtiReplyPayload;
 }
 
 export async function fetchAdminKurtiMessages(workspace: "gm" | "sm" = "gm"): Promise<AdminKurtiMessagesPayload> {
-  return (await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", { cache: "no-store" }, 30000, kurtiRequestOwner())) as AdminKurtiMessagesPayload;
+  return displayKurtiReply(await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", { cache: "no-store" }, 30000, kurtiRequestOwner())) as AdminKurtiMessagesPayload;
 }
 
 export async function fetchAdminKurtiWindowLayout(): Promise<AdminKurtiWindowLayoutPayload> {
@@ -6814,7 +6823,7 @@ export async function saveAdminKurtiWindowLayout(
 }
 
 export async function sendAdminKurtiMessage(message: string, workspace: "gm" | "sm" = "gm"): Promise<AdminKurtiReplyPayload> {
-  return (await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", {
+  return displayKurtiReply(await authedFetch(workspace === "sm" ? "/admin/sm-kurti/messages" : "/admin/kurti/messages", {
     method: "POST",
     body: JSON.stringify({ message }),
   }, 120000, kurtiRequestOwner())) as AdminKurtiReplyPayload;

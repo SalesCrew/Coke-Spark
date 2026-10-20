@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { Bot, ChevronLeft, Database, MessageCircle, Minimize2, SendHorizontal, ShieldCheck } from "lucide-react";
+import { KurtiMessageInput } from "@/components/kurti/KurtiMessageInput";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AdminKurtiChart } from "@/components/admin/AdminKurtiChart";
@@ -201,6 +202,7 @@ function inferVisualizationSkeletonKind(message: string): AdminKurtiVisualizatio
 export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, adminUserId, onOpen, onClose }: AdminKurtiPanelProps) {
   const [messages, setMessages] = useState<AdminKurtiMessage[]>([]);
   const [input, setInput] = useState("");
+  const [inputDisplay, setInputDisplay] = useState("");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [configured, setConfigured] = useState(true);
@@ -698,7 +700,7 @@ export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, admin
       {
         id: optimisticId,
         role: "user",
-        content: text,
+        content: inputDisplay,
         createdAt: new Date().toISOString(),
         expiresAt: "",
       },
@@ -725,7 +727,7 @@ export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, admin
       setSending(false);
       setPendingVisualizationKind(null);
     }
-  }, [configured, input, loading, sending, typing, workspace]);
+  }, [configured, input, inputDisplay, loading, sending, typing, workspace]);
 
   const shouldRender = open || (serverLayoutLoaded && collapsed && !bubbleDismissed);
   if (!shouldRender || !panelRect || !bubblePoint) return null;
@@ -1042,10 +1044,13 @@ export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, admin
             boxShadow: "inset 0 1px 0 rgba(255,255,255,0.85), 0 5px 15px rgba(15,23,42,0.035)",
           }}
         >
-          <textarea
+          <KurtiMessageInput
+            workspace={workspace}
+            audience="admin"
+            onDisplayChange={setInputDisplay}
             ref={textareaRef}
             value={input}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={setInput}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -1055,7 +1060,7 @@ export function AdminKurtiPanel({ workspace = "gm", open, sidebarExpanded, admin
             rows={1}
             maxLength={4000}
             disabled={interactionLocked || !configured}
-            placeholder={workspace === "sm" ? "Frag Kurti über SMs, Durcharbeit oder Ergebnisse..." : "Frag Kurti über alle GMs, Märkte oder Berechnungen..."}
+            placeholder={workspace === "sm" ? "Frag Kurti über SMs · Personen mit @" : "Frag Kurti über GMs · Personen mit @"}
             aria-label="Nachricht an Admin-Kurti"
             style={{
               minWidth: 0,

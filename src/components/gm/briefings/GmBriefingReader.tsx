@@ -8,9 +8,9 @@ import {
   ChevronRight,
   LoaderCircle,
 } from "lucide-react";
-import { requestGmBriefings } from "@/lib/api/backend";
+import { getAuthPrincipalKey, readAuthSession, requestGmBriefings } from "@/lib/api/backend";
 import type { GmBriefing } from "@/types/gmBriefings";
-import { PdfPage, useBriefingPdf } from "./PdfPage";
+import { PdfPage, PdfRecoveryActions, useBriefingPdf } from "./PdfPage";
 import styles from "./briefings.module.css";
 
 type Origin = { left: number; top: number; width: number; height: number };
@@ -45,6 +45,49 @@ export function GmBriefingReader({
     [ackAttempt, setAckAttempt] = useState(0),
     [visible, setVisible] = useState(!document.hidden);
   const { pdf, error: pdfError } = useBriefingPdf(fileUrl);
+  const originalPopup = useRef<Window | null>(null);
+  const [openingOriginal, setOpeningOriginal] = useState(false),
+    [originalError, setOriginalError] = useState("");
+  useEffect(() => {
+    // A different publication must not inherit an in-flight fallback or its error.
+    setOpeningOriginal(false);
+    setOriginalError("");
+    return () => {
+      originalPopup.current?.close();
+      originalPopup.current = null;
+    };
+  }, [selectedId]);
+  async function openOriginal() {
+    if (!selected || originalPopup.current) return;
+    // Open during the gesture, before fetching, so iPad popup protection permits it.
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      setOriginalError("Bitte erlaube das Öffnen eines neuen Tabs für die PDF.");
+      return;
+    }
+    popup.opener = null;
+    originalPopup.current = popup;
+    const principal = getAuthPrincipalKey(readAuthSession());
+    setOpeningOriginal(true);
+    setOriginalError("");
+    try {
+      // Always request fresh, authorized access; an older signed URL may have expired.
+      const { url } = await requestGmBriefings<{ url: string }>(`/gm/briefings/${selected.id}/file`);
+      if (originalPopup.current !== popup || principal !== getAuthPrincipalKey(readAuthSession())) {
+        popup.close();
+        return;
+      }
+      popup.location.replace(url);
+    } catch {
+      popup.close();
+      if (originalPopup.current === popup) setOriginalError("PDF konnte nicht geöffnet werden. Bitte erneut versuchen.");
+    } finally {
+      if (originalPopup.current === popup) {
+        originalPopup.current = null;
+        setOpeningOriginal(false);
+      }
+    }
+  }
   const close = useCallback(() => {
     if (closing.current) return;
     closing.current = true;
@@ -110,7 +153,6 @@ export function GmBriefingReader({
   useEffect(() => {
     let cancelled = false;
     // Clear the previous signed asset while synchronizing the selected PDF.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFileUrl(null);
     setFileError("");
     setRendered(new Set());
@@ -288,12 +330,7 @@ export function GmBriefingReader({
           <div role="alert" className={styles.status}>
             <div>
               <p>{fileError || "Die PDF konnte nicht dargestellt werden."}</p>
-              <button
-                type="button"
-                onClick={() => setFileAttempt((value) => value + 1)}
-              >
-                Erneut laden
-              </button>
+              <PdfRecoveryActions onRetry={() => setFileAttempt((value) => value + 1)} onOpenOriginal={openOriginal} openingOriginal={openingOriginal} />
             </div>
           </div>
         ) : (
@@ -318,10 +355,19 @@ export function GmBriefingReader({
               >
                 <div className={styles.pageContent}>
                   <div className={styles.pdfFrame}>
-                    {Math.abs(i - index) <= 1 ? (
+                    {i === index ? (
                       <PdfPage
+                        key={`${selected.id}:${page.pageNumber}`}
                         pdf={pdf}
                         pageNumber={page.pageNumber}
+                        onOpenOriginal={openOriginal}
+                        openingOriginal={openingOriginal}
+                        onRenderStart={() => setRendered((previous) => {
+                          if (!previous.has(page.pageNumber)) return previous;
+                          const next = new Set(previous);
+                          next.delete(page.pageNumber);
+                          return next;
+                        })}
                         onRendered={() =>
                           setRendered((previous) =>
                             previous.has(page.pageNumber)
@@ -350,17 +396,21 @@ export function GmBriefingReader({
             ))}
           </div>
         )}
-        {readError && (
+        {(originalError || readError) && (
           <div role="status" className={styles.errorToast}>
-            {readError}
+            {originalError || readError}
             <button
               type="button"
               onClick={() => {
+                if (originalError) {
+                  setOriginalError("");
+                  return;
+                }
                 setReadError("");
                 setAckAttempt((value) => value + 1);
               }}
             >
-              Erneut versuchen
+              {originalError ? "Schließen" : "Erneut versuchen"}
             </button>
           </div>
         )}

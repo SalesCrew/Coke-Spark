@@ -3,6 +3,7 @@ import test from "node:test";
 import * as XLSX from "xlsx-js-style";
 import { buildSMDurcharbeitReportWorkbook } from "../src/lib/exports/smSMDurcharbeitReportExport";
 import { smExportAnswerValue } from "../src/lib/exports/smAnswerValue";
+import { smReportAnswerCell, smReportQuestionColumnKey } from "../src/lib/exports/smReportQuestionColumns";
 import type { SMDurcharbeitReport, SMDurcharbeitReportAnswer, SMDurcharbeitTarget } from "../src/types/smSMDurcharbeitCampaign";
 import type { SmVisitAnswer } from "../src/types/smVisit";
 
@@ -82,7 +83,7 @@ test("all ten SM question types export readable snapshot answers, preserving zer
   assert.equal(smExportAnswerValue(answerRow("photo", { kind: "photo", fileIds: [] })), "Keine verfügbaren Fotos");
 });
 
-test("wide workbook keeps question versions separate and distinguishes hidden, missing, unasked and withdrawn answers", () => {
+test("wide workbook combines compatible question revisions and distinguishes hidden, missing, unasked and withdrawn answers", () => {
   const old = answerRow("single", { kind: "choice", optionCode: "option_1", comment: '=SUM(1,2)' });
   const changed = answerRow("single", { kind: "choice", optionCode: "option_2" });
   changed.question = { ...changed.question, id: "changed", questionVersionId: "new-version", submissionId: "submission-2" };
@@ -103,8 +104,9 @@ test("wide workbook keeps question versions separate and distinguishes hidden, m
   const value = (row: number, header: string) => rows[row]![headers.indexOf(header)];
   assert.equal(value(0, "Adresse"), "Original address"); assert.equal(value(0, "Shelf Merchandiser"), "Original SM");
   assert.equal(value(0, "PLZ"), "0010"); assert.equal(value(0, "Besuchsbeginn"), "03:00");
-  assert.equal(value(0, "Frage single"), "Historisches Ja"); assert.equal(value(1, "Frage single (2)"), "Historisches Nein");
-  assert.equal(value(1, "Frage single"), "", "A question not in that version is not falsely called unanswered");
+  assert.equal(value(0, "Frage single"), "Historisches Ja"); assert.equal(value(1, "Frage single"), "Historisches Nein");
+  assert.equal(headers.includes("Frage single (2)"), false, "A compatible revision uses the same report column");
+  assert.equal(value(1, "Frage numeric"), "", "A question not in that visit stays blank, never zero or Nein");
   assert.equal(value(0, "Frage text"), "Nicht anwendbar"); assert.equal(value(0, "Frage text · Kommentar"), "");
   assert.equal(value(0, "Frage numeric"), "Nicht beantwortet"); assert.equal(value(0, "Frage slider"), 0);
   assert.equal(value(0, "Frage matrix"), "Regal: Voll");
@@ -115,4 +117,91 @@ test("wide workbook keeps question versions separate and distinguishes hidden, m
   assert.equal(saved.Sheets["Einsätze"]!["!autofilter"]?.ref, `A4:${XLSX.utils.encode_col(headers.length - 1)}7`);
   const incomplete = { ...report, visitAnswers: undefined };
   assert.throws(() => buildSMDurcharbeitReportWorkbook(XLSX, XLSX.utils.book_new(), incomplete, "Campaign"), /Besuchsantworten fehlen/);
+});
+
+test("column compatibility requires stable question identity, wording, type and answer meaning", () => {
+  const original = answerRow("yesno", { kind: "choice", optionCode: "option_1" });
+  const revision = structuredClone(original);
+  revision.question.questionVersionId = "revised-version";
+  revision.question.configSnapshot = { commentRequired: true, photoRequired: true, basicActivity: { enabled: true } };
+  revision.question.answerOptionsSnapshot = [{ code: "new_yes", label: "Historisches Ja", score: 1 }, { code: "new_no", label: "Historisches Nein", score: 0 }];
+  assert.equal(smReportQuestionColumnKey(original), smReportQuestionColumnKey(revision), "Validation, scoring and option-code edits do not change the exported answer meaning");
+  for (const change of [
+    { questionCodeSnapshot: "different-question" },
+    { questionTextSnapshot: "A different question" },
+    { questionTypeSnapshot: "multiple" },
+    { answerOptionsSnapshot: [{ code: "yes", label: "Andere Bedeutung" }] },
+  ]) assert.notEqual(smReportQuestionColumnKey(original), smReportQuestionColumnKey({ ...revision, question: { ...revision.question, ...change } }));
+  const matrix = answerRow("matrix", { kind: "matrix", cells: [] }, { rows: ["Regal"], columns: ["Voll"], unit: "Stück" });
+  const reorderedConfig = { ...matrix, question: { ...matrix.question, questionVersionId: "matrix-revision", configSnapshot: { unit: "Stück", columns: ["Voll"], rows: ["Regal"] } } };
+  assert.equal(smReportQuestionColumnKey(matrix), smReportQuestionColumnKey(reorderedConfig), "JSON key order is not a semantic change");
+  assert.notEqual(smReportQuestionColumnKey(matrix), smReportQuestionColumnKey({ ...reorderedConfig, question: { ...reorderedConfig.question, configSnapshot: { rows: ["Regal"], columns: ["Leer"], unit: "Stück" } } }));
+});
+
+test("same-visit conflicting values are explicit; matching values keep all comments and missing answers never become Nein", () => {
+  const yes = answerRow("yesno", { kind: "choice", optionCode: "option_1", comment: "First observation" });
+  const no = answerRow("yesno", { kind: "choice", optionCode: "option_2", comment: "Second observation" });
+  no.question.questionVersionId = "other-version";
+  const before = JSON.stringify([yes, no]);
+  assert.deepEqual(smReportAnswerCell([yes, no]), {
+    value: "Widersprüchlich: Historisches Ja | Historisches Nein",
+    comment: "Historisches Ja: First observation\nHistorisches Nein: Second observation", conflict: true,
+  });
+  const missing = structuredClone(no); missing.answer = null;
+  assert.deepEqual(smReportAnswerCell([missing, yes]), { value: "Historisches Ja", comment: "First observation", conflict: false });
+  const hidden = structuredClone(no); hidden.question.isApplicable = false;
+  assert.deepEqual(smReportAnswerCell([hidden, yes]), { value: "Historisches Ja", comment: "First observation", conflict: false });
+  assert.deepEqual(smReportAnswerCell([hidden]), { value: "Nicht anwendbar", comment: "", conflict: false });
+  const same = structuredClone(yes); same.answer!.valueJson = { kind: "choice", optionCode: "option_1", comment: "Another comment" };
+  assert.deepEqual(smReportAnswerCell([yes, same]), { value: "Historisches Ja", comment: "First observation\nAnother comment", conflict: false });
+  assert.deepEqual(smReportAnswerCell([]), { value: "", comment: "", conflict: false });
+  const zero = answerRow("numeric", { kind: "number", value: 0 });
+  assert.deepEqual(smReportAnswerCell([zero]), { value: 0, comment: "", conflict: false });
+  assert.equal(JSON.stringify([yes, no]), before, "Neither answers nor snapshots are rewritten");
+});
+
+test("serialized workbook combines three revised questions and flags a real conflict without changing audit sheets", () => {
+  const answers = ["station", "cooler", "stock"].flatMap((code, index) => {
+    const old = answerRow("yesno", { kind: "choice", optionCode: "option_1", comment: `Original ${code}` });
+    old.question = { ...old.question, id: `old-${code}`, submissionId: "old-visit", questionCodeSnapshot: code, questionTextSnapshot: `Synthetic ${code}` };
+    const current = structuredClone(old);
+    current.question = { ...current.question, id: `new-${code}`, submissionId: "new-visit", questionVersionId: `revision-${code}`, configSnapshot: { photoRequired: true } };
+    current.answer!.valueJson = { kind: "choice", optionCode: "option_2", comment: `Current ${code}` };
+    return [old, current, ...(index ? [] : [{ ...old, question: { ...old.question, id: "conflict", submissionId: "new-visit" } }])];
+  });
+  const physicalVisits = ["old-visit", "new-visit"].map((submissionId, index) => ({ id: submissionId, targetId: "target", submissionId,
+    smUserId: "synthetic", smName: "Synthetic SM", marketName: "Synthetic market", questionnaireValid: true,
+    submittedAt: `2026-10-01T0${index + 1}:20:00Z`, originalStartedAt: null, originalCompletedAt: null,
+    startedAt: `2026-10-01T0${index + 1}:00:00Z`, completedAt: `2026-10-01T0${index + 1}:20:00Z`, actualMinutes: 20, travelMinutes: 0, timeRevision: 1 }));
+  const report = { month: "2026-10-01", targets: [], questionResults: [], answers,
+    summary: { required: 1, completed: 1, waived: 0, latestSubmissions: 1, physicalVisits: 2, validQuestionnaireVisits: 2, actualMinutes: 40, travelMinutes: 0, availablePhotoUploads: 0 },
+    physicalVisits, visitAnswers: answers } as SMDurcharbeitReport;
+  const before = JSON.stringify(report), wb = XLSX.utils.book_new();
+  buildSMDurcharbeitReportWorkbook(XLSX, wb, report, "Synthetic campaign");
+  const saved = XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer", cellFormula: true });
+  const [headers, ...rows] = XLSX.utils.sheet_to_json<unknown[]>(saved.Sheets["Einsätze"]!, { header: 1, range: 3 });
+  const cell = (row: number, name: string) => rows[row]![headers!.indexOf(name)];
+  for (const code of ["station", "cooler", "stock"]) {
+    assert.equal(headers!.filter(label => label === `Synthetic ${code}`).length, 1);
+    assert.equal(headers!.includes(`Synthetic ${code} (2)`), false);
+    assert.equal(cell(0, `Synthetic ${code}`), "Historisches Ja");
+  }
+  assert.equal(cell(1, "Synthetic cooler"), "Historisches Nein");
+  assert.equal(cell(1, "Synthetic cooler · Kommentar"), "Current cooler");
+  assert.match(String(cell(1, "Synthetic station")), /^Widersprüchlich: /);
+  assert.match(String(cell(1, "Synthetic station · Kommentar")), /Current station/);
+  assert.match(String(cell(1, "Synthetic station · Kommentar")), /Original station/);
+  assert.equal(cell(0, "Prüfhinweise"), "");
+  assert.match(String(cell(1, "Prüfhinweise")), /Synthetic station: widersprüchliche Antworten/);
+  const raw = XLSX.utils.sheet_to_json<unknown[]>(saved.Sheets["Letzte Antworten"]!, { header: 1, range: 4 });
+  assert.equal(raw.length, answers.length, "Every raw question version remains available");
+  assert.equal(JSON.stringify(report), before);
+  const collision = { ...report, visitAnswers: answers.map(row => row.question.questionCodeSnapshot === "station"
+    ? { ...row, question: { ...row.question, questionTextSnapshot: "Prüfhinweise" } } : row) };
+  const collisionBook = XLSX.utils.book_new(); buildSMDurcharbeitReportWorkbook(XLSX, collisionBook, collision, "Synthetic");
+  const collisionHeaders = XLSX.utils.sheet_to_json<unknown[]>(collisionBook.Sheets["Einsätze"]!, { header: 1, range: 3 })[0]!;
+  assert.equal(new Set(collisionHeaders).size, collisionHeaders.length, "Question titles cannot collide with the diagnostic column");
+  assert.ok(collisionHeaders.includes("Prüfhinweise (2)"));
+  const duplicate = { ...report, visitAnswers: [...answers, answers[0]!] };
+  assert.throws(() => buildSMDurcharbeitReportWorkbook(XLSX, XLSX.utils.book_new(), duplicate, "Synthetic"), /Doppelte Frage/);
 });

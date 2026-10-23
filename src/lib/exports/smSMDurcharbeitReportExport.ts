@@ -1,6 +1,7 @@
 import type { SMDurcharbeitReport, SMDurcharbeitReportAnswer } from "@/types/smSMDurcharbeitCampaign";
 import { appendMetaSheet, appendTableSheet, buildAndDownloadWorkbook, fileSafeName, formatExportDateTime, type ExportColumn } from "./workbook";
 import { smExportAnswerComment, smExportAnswerValue } from "./smAnswerValue";
+import { smReportAnswerCell, smReportQuestionColumnKey, type SmReportAnswerCell } from "./smReportQuestionColumns";
 
 type XlsxModule = typeof import("xlsx-js-style");
 type Workbook = ReturnType<XlsxModule["utils"]["book_new"]>;
@@ -29,22 +30,29 @@ function appendVisitAnswers(XLSX: XlsxModule, wb: Workbook, report: SMDurcharbei
   if (!report.visitAnswers) throw new Error("Die Besuchsantworten fehlen. Bitte die Monatsauswertung neu laden und den Export erneut starten.");
   const targets = new Map(report.targets.map(target => [target.id, target]));
   const validIds = new Set(report.physicalVisits.filter(visit => visit.questionnaireValid).map(visit => visit.submissionId));
-  const answersBySubmission = new Map<string, Map<string, SMDurcharbeitReportAnswer>>();
-  const key = (row: SMDurcharbeitReportAnswer) => `${row.question.questionVersionId}:${row.question.questionCodeSnapshot}`;
+  const answersBySubmission = new Map<string, Map<string, SMDurcharbeitReportAnswer[]>>();
+  const seenQuestions = new Set<string>();
   for (const row of report.visitAnswers) {
     if (!validIds.has(row.question.submissionId)) throw new Error("Eine Antwort gehört nicht zu den gültigen Besuchen dieser Auswertung. Bitte neu laden.");
-    const answers = answersBySubmission.get(row.question.submissionId) ?? new Map<string, SMDurcharbeitReportAnswer>();
-    if (answers.has(key(row))) throw new Error("Doppelte Frage im Besuch. Der Export wurde zum Schutz vor unvollständigen Antworten abgebrochen.");
-    answers.set(key(row), row); answersBySubmission.set(row.question.submissionId, answers);
+    const identity = JSON.stringify([row.question.submissionId, row.question.questionVersionId, row.question.questionCodeSnapshot]);
+    if (seenQuestions.has(identity)) throw new Error("Doppelte Frage im Besuch. Der Export wurde zum Schutz vor unvollständigen Antworten abgebrochen.");
+    seenQuestions.add(identity);
+    const answers = answersBySubmission.get(row.question.submissionId) ?? new Map<string, SMDurcharbeitReportAnswer[]>();
+    const key = smReportQuestionColumnKey(row);
+    answers.set(key, [...(answers.get(key) ?? []), row]); answersBySubmission.set(row.question.submissionId, answers);
   }
   const start = (visit: SMDurcharbeitReport["physicalVisits"][number]) => visit.startedAt ?? visit.originalStartedAt ?? visit.submittedAt;
   const rows = report.physicalVisits.slice().sort((a, b) => start(a).localeCompare(start(b)) || a.id.localeCompare(b.id))
-    .map(visit => ({ visit, target: targets.get(visit.targetId), answers: answersBySubmission.get(visit.submissionId) }));
+    .map(visit => {
+      const answers = answersBySubmission.get(visit.submissionId);
+      const cells = new Map<string, SmReportAnswerCell>([...(answers ?? [])].map(([key, values]) => [key, smReportAnswerCell(values)]));
+      return { visit, target: targets.get(visit.targetId), answers, cells };
+    });
   type Row = typeof rows[number];
   const questionColumns = new Map<string, { label: string }>();
-  for (const row of rows) for (const [id, answer] of row.answers ?? []) {
+  for (const row of rows) for (const [id, answers] of row.answers ?? []) {
     if (questionColumns.has(id)) continue;
-    questionColumns.set(id, { label: answer.question.questionTextSnapshot });
+    questionColumns.set(id, { label: answers[0]!.question.questionTextSnapshot });
   }
   const columns: ExportColumn<Row>[] = [
     { header: "Kampagne", value: () => campaignName, width: 28 },
@@ -67,19 +75,25 @@ function appendVisitAnswers(XLSX: XlsxModule, wb: Workbook, report: SMDurcharbei
     { header: "Antwortstatus", value: r => r.visit.questionnaireValid ? "Gültig" : "Ungültig / zurückgezogen", width: 24 },
     { header: "Monatsstand", value: r => r.target?.eligibility === "required" && r.target.latestSubmissionId === r.visit.submissionId ? "Aktuell" : "Nicht im aktuellen Monatsstand", width: 30 },
   ];
-  const usedLabels = new Set(columns.map(column => column.header));
+  const hasConflicts = rows.some(row => [...row.cells.values()].some(cell => cell.conflict));
+  const usedLabels = new Set([...columns.map(column => column.header), ...(hasConflicts ? ["Prüfhinweise"] : [])]);
   for (const [id, question] of questionColumns) {
     let label = question.label, suffix = 1;
     while (usedLabels.has(label) || usedLabels.has(`${label} · Kommentar`)) label = `${question.label} (${++suffix})`;
     usedLabels.add(label); usedLabels.add(`${label} · Kommentar`);
+    question.label = label;
     columns.push(
-      { header: label, width: 52, value: r => { const answer = r.answers?.get(id); return answer ? smExportAnswerValue(answer) : ""; } },
-      { header: `${label} · Kommentar`, width: 32, value: r => { const answer = r.answers?.get(id); return answer ? smExportAnswerComment(answer) : ""; } },
+      { header: label, width: 52, value: r => r.cells.get(id)?.value ?? "" },
+      { header: `${label} · Kommentar`, width: 32, value: r => r.cells.get(id)?.comment ?? "" },
     );
   }
+  if (hasConflicts) columns.push({
+    header: "Prüfhinweise", width: 52,
+    value: row => [...row.cells].filter(([, cell]) => cell.conflict).map(([id]) => `${questionColumns.get(id)!.label}: widersprüchliche Antworten, bitte prüfen.`).join("\n"),
+  });
   if (columns.length > 16384 || Math.max(1, rows.length) * columns.length > 2_000_000) throw new Error("Der Excel-Export ist zu groß. Bitte die Monatsauswertung auf einen SM eingrenzen.");
   appendTableSheet(XLSX, wb, { name: "Einsätze", title: "SM Durcharbeit · Besuchsantworten", rows, columns,
-    description: "Eine Zeile je tatsächlichem Besuch; Antworten in der damals abgegebenen Fragebogenfassung. Leere Zellen: Frage war in diesem Besuch nicht enthalten. Zeiten: Europe/Vienna." });
+    description: "Eine Zeile je tatsächlichem Besuch. Inhaltlich gleiche Fassungen derselben Frage stehen zusammen; abweichende Fragen bleiben getrennt. Leer: nicht enthalten. Widersprüche sind gekennzeichnet. Zeiten: Europe/Vienna." });
   const sheet = wb.Sheets["Einsätze"]!;
   if (!rows.length) {
     const end = XLSX.utils.encode_col(columns.length - 1);
@@ -109,6 +123,8 @@ export function buildSMDurcharbeitReportWorkbook(XLSX: XlsxModule, wb: Workbook,
     { label: "Verfügbare Foto-Originale", value: summary.availablePhotoUploads },
     { label: "Antwortbasis", value: "Letzte gültige Abgabe je erforderlichem Markt; Folgeabgaben zählen als ein Monatsstand." },
     { label: "Blatt Einsätze", value: "Jeder tatsächliche Besuch mit eigenen Antworten und aktuellen Zeiten. Ungültige/zurückgezogene Abgaben behalten die Zeitzeile, ohne Antwortinhalte." },
+    { label: "Fragefassungen", value: "Kompatible Versionen derselben Frage werden nur im Blatt Einsätze zusammengeführt. Originale Frageversionen und Monatsverteilungen bleiben unverändert." },
+    { label: "Widersprüchliche Antworten", value: "Unterschiedliche gespeicherte Antworten derselben Frage innerhalb eines Besuchs werden mit beiden Werten und Kommentaren gekennzeichnet. Es wird kein Wert überschrieben." },
     { label: "Verteilungsbasis", value: "Auswahl je beantworteter, anwendbarer Frage. Mehrfachauswahl kann zusammen über 100 % ergeben." },
     { label: "Zeitbasis", value: "Jeder tatsächliche Besuch einmal mit aktueller Zeitrevision. Ungültige Antworten entfernen keine geleistete Zeit." },
     { label: "Zeitstempel", value: "ISO 8601 / UTC; Monatszuordnung Europe/Vienna." },

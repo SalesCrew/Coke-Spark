@@ -26,6 +26,13 @@ test("SM submission → revised questionnaire → follow-up → scoped report �
     return rows.slice(1).map(row => Object.fromEntries(rows[0]!.map((name, index) => [String(name), row[index]])));
   }
   try {
+    // A validation-only edit must create a new frozen revision without splitting
+    // the same business question into a second export column.
+    const latestModule = await f.editModule();
+    await f.admin("patch", `/admin/sm-questionnaires/modules/${latestModule.id}?scope=SMDurcharbeit`).send({ ...latestModule,
+      questions: latestModule.questions.map((question: { text: string; required: boolean }) => question.text === "Bestand geprüft"
+        ? { ...question, required: true, config: { commentRequired: false } } : question),
+    }).expect(200);
     const preview = (await f.admin("get", `${root}/questionnaire-update?month=2026-10-01`).expect(200)).body;
     await f.admin("patch", `${root}/questionnaire-update`).send({ month: preview.month, expectedRevision: preview.campaignRevision, previewToken: preview.previewToken }).expect(200);
     const followUp = await f.start(f.targets[0].id, true);
@@ -50,7 +57,11 @@ test("SM submission → revised questionnaire → follow-up → scoped report �
       assert.equal(report.summary.physicalVisits, 2); assert.equal(report.summary.latestSubmissions, 1);
       assert.equal(report.summary.actualMinutes, 35); assert.equal(report.summary.availablePhotoUploads, 1);
       assert.equal(report.answers.length, 4); assert.equal(report.visitAnswers?.length, 11);
+      const revisions = report.visitAnswers!.filter(row => row.question.questionTextSnapshot === "Bestand geprüft");
+      assert.equal(new Set(revisions.map(row => row.question.questionCodeSnapshot)).size, 1);
+      assert.equal(new Set(revisions.map(row => row.question.questionVersionId)).size, 2, "Real authoring produced distinct compatible question revisions");
       assert.equal(rows.length, 2); assert.equal(rows[0]!["Bestand geprüft"], "Ja"); assert.equal(rows[1]!["Bestand geprüft"], "Nein");
+      assert.ok(rows.every(row => !("Bestand geprüft (2)" in row)));
       assert.equal(rows[0]!.Notiz, "Original note"); assert.equal(rows[1]!["Aktualisierte Notiz"], "New visit note");
       assert.equal(rows[0]!["Entfernte Frage 1"], "Ja"); assert.equal(rows[1]!["Entfernte Frage 1"], "");
       assert.equal(rows[0]!["Neue Kontrollfrage"], ""); assert.equal(rows[1]!["Neue Kontrollfrage"], "Nein");

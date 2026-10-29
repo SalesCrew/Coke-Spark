@@ -196,6 +196,7 @@ export async function exportGebietsmanagerExcel(input: {
         rows: gms,
         columns: [
           { header: "GM ID", width: 38, value: (gm) => gm.id },
+          { header: "GM-Zuordnung", width: 20, value: (gm) => gm.isSupplementalGm ? "Zusatz-GM" : "Regulärer GM" },
           { header: "Vorname", width: 18, value: (gm) => gm.firstName },
           { header: "Nachname", width: 18, value: (gm) => gm.lastName },
           { header: "Name", width: 26, value: (gm) => gmFullName(gm) },

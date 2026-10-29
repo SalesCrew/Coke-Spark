@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X, Copy, Check, UserCheck, Mail, Phone, Home, Eye, EyeOff, Save, ChevronDown, Upload, FileSpreadsheet } from "lucide-react";
+import { GmClassification } from "@/components/admin/GmClassification";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { MarketVisitLog } from "@/types/markets";
 import {
@@ -164,6 +165,7 @@ function GMCard({
       style={{
         background: active ? "rgba(220,38,38,0.03)" : "rgba(0,0,0,0.025)",
         border: active ? `1px solid rgba(220,38,38,0.25)` : "1px solid rgba(0,0,0,0.07)",
+        ...(gm.isSupplementalGm ? { boxShadow: "inset 0 1px 0 #c49653" } : {}),
         borderRadius: 14, overflow: "hidden", cursor: "pointer",
         animation: isNew ? "gmCardIn 0.3s cubic-bezier(0.4,0,0.2,1) both" : "none",
         transition: "border 0.15s, background 0.15s",
@@ -181,7 +183,11 @@ function GMCard({
             <div style={{ fontSize: 13, fontWeight: 700, color: active ? R : "#1a1a1a", letterSpacing: "-0.02em", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis", transition: "color 0.15s" }}>
               {gm.firstName} {gm.lastName}
             </div>
-            <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>Gebietsmanager</div>
+            {gm.isSupplementalGm ? (
+              <div style={{ fontSize: 9, color: "#996429", marginTop: 1, display: "flex", alignItems: "center", gap: 5 }}><span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: 2, background: "#c49653" }} />Zusatz-GM</div>
+            ) : (
+              <div style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 1 }}>Gebietsmanager</div>
+            )}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
@@ -479,7 +485,7 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
               </div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.025em", lineHeight: 1.2 }}>{draft.firstName} {draft.lastName}</div>
-                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>Gebietsmanager · {draft.region}{draft.isActive === false ? " · Inaktiv" : ""}</div>
+                <div style={{ fontSize: 9, color: "rgba(0,0,0,0.38)", marginTop: 2 }}>{draft.isSupplementalGm ? "Zusatz-GM" : "Gebietsmanager"} · {draft.region}{draft.isActive === false ? " · Inaktiv" : ""}</div>
               </div>
             </div>
             <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 7, border: "none", background: "rgba(0,0,0,0.05)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(0,0,0,0.4)", transition: "all 0.12s", flexShrink: 0 }}
@@ -523,6 +529,9 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
 
         <div className="map-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
 
+          {tab === "profil" && <GmClassification value={Boolean(draft.isSupplementalGm)} editing disabled={saving || Boolean(draft.deletedAt || draft.anonymizedAt)} onChange={value => {
+            setDraft(d => ({ ...d, isSupplementalGm: value })); setDirty(true); setSaved(false); setSaveError(null);
+          }} />}
           {/* Section: Kontakt */}
           {tab === "profil" && (<>
           <div>
@@ -646,11 +655,12 @@ function GMDetailDrawer({ gm, onClose, onSave, visits }: { gm: GMRecord; onClose
 
 // ── Create Modal form helpers ─────────────────────────────────
 type FormState = {
+  isSupplementalGm: boolean;
   firstName: string; lastName: string;
   email: string; phone: string;
   address: string; city: string; postalCode: string; region: string;
 };
-const EMPTY_FORM: FormState = { firstName: "", lastName: "", email: "", phone: "", address: "", city: "", postalCode: "", region: "" };
+const EMPTY_FORM: FormState = { isSupplementalGm: false, firstName: "", lastName: "", email: "", phone: "", address: "", city: "", postalCode: "", region: "" };
 function isValidEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function isFormValid(f: FormState) {
   return f.firstName.trim() && f.lastName.trim() && f.email.trim() && isValidEmail(f.email) &&
@@ -826,6 +836,7 @@ function CreateModal({
         </div>
         {step === "form" ? (
           <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 14 }}>
+            <GmClassification value={form.isSupplementalGm} disabled={submitting} onChange={value => setForm(f => ({ ...f, isSupplementalGm: value }))} />
             <div style={{ display: "flex", gap: 10 }}>
               <InputField label="Vorname *" value={form.firstName} onChange={set("firstName")} placeholder="Max" />
               <InputField label="Nachname *" value={form.lastName} onChange={set("lastName")} placeholder="Mustermann" />
@@ -1213,6 +1224,7 @@ export default function GebietsmanagerPage() {
       city: form.city,
       postalCode: form.postalCode,
       region: form.region,
+      isSupplementalGm: form.isSupplementalGm,
     });
     setGms((prev) => [created, ...prev]);
     setNewId(created.id);

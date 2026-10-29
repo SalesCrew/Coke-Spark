@@ -171,7 +171,7 @@ test("HTTP → canonical answers → original chart formulas → FB export → f
   } finally { await f.pg.close(); }
 });
 
-test("dashboard export retrieves a matching audit and refuses stale chart counts before downloading", async () => {
+test("dashboard export refreshes every inclusive dataset and refuses internally inconsistent audit counts before downloading", async () => {
   // Execute the real export function with explicit client/download boundaries.
   // No production API module, auth, environment files or network is loaded.
   const availability = { Cooler: { top: 1, mediocre: 2, bad: 1, total: 4, average: 50 },
@@ -181,18 +181,28 @@ test("dashboard export retrieves a matching audit and refuses stale chart counts
     Warehouse: { top: 0, mediocre: 0, bad: 0, total: 0, average: null } };
   const point = { ...intervals[0]!, availability, availabilityExpected: 4, availabilityAnswered: 4 } as DashboardData["points"][number];
   const data: DashboardData = { scope, points: [point], timezone: "Europe/Vienna", calculatedAt: "2026-10-07", stcApplied: false };
-  let latest = { ...data, availabilityAudit: [] as AvailabilityAudit[] }, downloads = 0;
+  const audit = auditAvailability(["Top", "Mediocre", "Mediocre", "Bad"].map((category, index) => ({ ...observation,
+    intervalId: "kw38", sessionId: `synthetic-${index}`, visitQuestionId: `q-${index}`,
+    answer: { id: `a-${index}`, isValid: true, answerStatus: "answered", valueText: category } })));
+  let latest = { ...data, availabilityAudit: audit }, downloads = 0;
+  const calls: any[] = [];
   const module = await isolatedModule<{ exportRealGmDashboard: (input: { datasets: DashboardExport[] }) => Promise<void> }>(
     new URL("../src/lib/gm-dashboard/export.ts", import.meta.url), {
-      "@/lib/api/backend": { requestGmDashboard: async (path: string, body: any) => { assert.equal(path, "/query"); assert.equal(body.includeAvailabilityAudit, true); return latest; } },
+      "@/lib/api/backend": { requestGmDashboard: async (path: string, body: any) => { assert.equal(path, "/query"); assert.equal(body.includeSupplementalGms, true); calls.push(body); return latest; } },
       "@/lib/exports/availabilityExport": { appendAvailabilityExportSheets },
+      "@/lib/availability.shared": { summarizeAvailability },
       "./data": { availabilitySummary }, "./chain-groups": { chainGroupLabel: () => "REWE" },
       "@/lib/exports/workbook": { ...workbook, buildAndDownloadWorkbook: async ({ build }: any) => { build({ XLSX, wb: XLSX.utils.book_new() }); downloads++; } },
     },
   );
   const datasets = ["IPP", "Fuellstand", "Platzierungen", "Aktivitaet"].map(title => ({ title, data, selectedIntervalId: "kw38", highlightedType: "Cooler" as const }));
   await module.exportRealGmDashboard({ datasets }); assert.equal(downloads, 1);
+  assert.equal(calls.length, 4); assert.equal(calls.filter(c => c.includeAvailabilityAudit).length, 1);
+  // The regular on-screen count differs legitimately from the inclusive export.
+  const regular = structuredClone(datasets);
+  regular.forEach(entry => { entry.data.points[0]!.availability.Cooler.top = 0; });
+  await module.exportRealGmDashboard({ datasets: regular }); assert.equal(downloads, 2);
   latest = { ...latest, points: [{ ...point, availability: { ...availability, Cooler: { ...availability.Cooler, top: 2 } } }] };
   await assert.rejects(() => module.exportRealGmDashboard({ datasets }), /Dashboard aktualisieren/);
-  assert.equal(downloads, 1);
+  assert.equal(downloads, 2);
 });

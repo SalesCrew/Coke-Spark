@@ -113,6 +113,7 @@ type BackendUser = {
   region?: string | null;
   travelTimeEnabled?: boolean | null;
   isBillaGm?: boolean | null;
+  isSupplementalGm?: boolean | null;
   ipp?: number | null;
   ippSampleCount?: number | null;
   createdAt?: string;
@@ -566,6 +567,7 @@ function mapBackendUserToGmRecord(user: BackendUser, oneTimePassword?: string): 
     postalCode: user.postalCode ?? "",
     region: user.region ?? "",
     isBillaGm: Boolean(user.isBillaGm ?? false),
+    isSupplementalGm: Boolean(user.isSupplementalGm ?? false),
     isActive: Boolean(user.isActive ?? true),
     deletedAt: user.deletedAt ?? null,
     anonymizedAt: user.anonymizedAt ?? null,
@@ -3104,6 +3106,7 @@ export async function createGmUser(
       postalCode: payload.postalCode,
       region: payload.region,
       isBillaGm: Boolean(payload.isBillaGm ?? false),
+      isSupplementalGm: Boolean(payload.isSupplementalGm ?? false),
       ipp: payload.ipp,
     }),
   })) as { user: BackendUser; oneTimePassword?: string };
@@ -3125,6 +3128,7 @@ export async function updateGmUser(payload: GMRecord, options?: { updateStatus?:
       postalCode: payload.postalCode,
       region: payload.region,
       isBillaGm: Boolean(payload.isBillaGm ?? false),
+      isSupplementalGm: Boolean(payload.isSupplementalGm ?? false),
       ...(options?.updateStatus ? { isActive: payload.isActive } : {}),
       ipp: payload.ipp,
     }),

@@ -1,8 +1,9 @@
 import type { DashboardData, DashboardExport } from "@/types/gm-dashboard";
-import { requestGmDashboard } from "@/lib/api/backend";
+import { requestPraemienWorkspace, requestGmDashboard } from "@/lib/api/backend";
 import { appendAvailabilityExportSheets } from "@/lib/exports/availabilityExport";
 import type { Workspace } from "@/types/praemien-workspace";
 import { availabilitySummary } from "./data";
+import { summarizeAvailability } from "@/lib/availability.shared";
 import { chainGroupLabel } from "./chain-groups";
 import {
   appendMetaSheet,
@@ -21,21 +22,29 @@ export async function exportRealGmDashboard(input: {
     )
   )
     throw new Error("Bitte warten, bis alle Dashboardkarten geladen sind.");
-  const availabilityEntry = input.datasets.find(entry => entry.title === "Fuellstand")!;
-  const availabilityData = await requestGmDashboard<DashboardData>("/query", {
-    intervals: availabilityEntry.data.points.map(({ id, label, shortLabel, start, end }) => ({ id, label, shortLabel, start, end })),
-    scope: availabilityEntry.data.scope,
-    includeAvailabilityAudit: true,
-  });
+  // Screen statistics exclude supplemental work. Exports deliberately request
+  // the original inclusive cohort instead of reusing the screen's aggregates.
+  const datasets = await Promise.all(input.datasets.map(async entry => ({
+    ...entry,
+    data: await requestGmDashboard<DashboardData>("/query", {
+      intervals: entry.data.points.map(({ id, label, shortLabel, start, end }) => ({ id, label, shortLabel, start, end })),
+      scope: entry.data.scope,
+      includeSupplementalGms: true,
+      includeAvailabilityAudit: entry.title === "Fuellstand",
+    }),
+  })));
+  const availabilityEntry = datasets.find(entry => entry.title === "Fuellstand")!;
+  const availabilityData = availabilityEntry.data;
   if (!availabilityData.availabilityAudit) throw new Error("Die Verfügbarkeitsprüfung ist im Backend noch nicht verfügbar.");
-  for (const point of availabilityEntry.data.points) {
-    const current = availabilityData.points.find(p => p.id === point.id);
-    if (!current || Object.keys(point.availability).some(key => {
+  for (const point of availabilityData.points) {
+    const audited = summarizeAvailability(availabilityData.availabilityAudit, point.id);
+    if (Object.keys(point.availability).some(key => {
       const type = key as keyof typeof point.availability;
-      return ["top", "mediocre", "bad"].some(category =>
-        point.availability[type][category as "top" | "mediocre" | "bad"] !== current.availability[type][category as "top" | "mediocre" | "bad"]);
-    })) throw new Error("Verfügbarkeitsdaten haben sich geändert. Bitte das Dashboard aktualisieren und erneut exportieren.");
+      return ["top", "mediocre", "bad", "total"].some(category =>
+        point.availability[type][category as "top" | "mediocre" | "bad" | "total"] !== audited.availability[type][category as "top" | "mediocre" | "bad" | "total"]);
+    })) throw new Error("Verfügbarkeitsdaten sind nicht konsistent. Bitte das Dashboard aktualisieren und erneut exportieren.");
   }
+  const inclusiveBonus = input.bonus ? await requestPraemienWorkspace<Workspace>(`/waves/${encodeURIComponent(input.bonus.wave.id)}?includeSupplementalGms=true`) : null;
   await buildAndDownloadWorkbook({
     filename: `CokeSpark_GM_Dashboard_${new Date().toISOString().slice(0, 10)}.xlsx`,
     build: ({ XLSX, wb }) => {
@@ -43,6 +52,7 @@ export async function exportRealGmDashboard(input: {
         { label: "Export", value: "GM Dashboard – Echtdaten" },
         { label: "Erstellt von", value: input.exportedBy },
         { label: "Zeitzone", value: "Europe/Vienna" },
+        { label: "GM-Zuordnung", value: "Inklusive Zusatz-GMs (separates Budget); Bildschirmstatistiken ohne Zusatz-GM-Besuche." },
         {
           label: "Regeln",
           value:
@@ -52,7 +62,7 @@ export async function exportRealGmDashboard(input: {
       appendAvailabilityExportSheets(XLSX, wb, availabilityData.availabilityAudit!, {
         source: "GM Dashboard", scope: JSON.stringify({ ...availabilityEntry.data.scope, highlightedType: availabilityEntry.highlightedType ?? "Alle" }),
       });
-      for (const entry of input.datasets) {
+      for (const entry of datasets) {
         const selected = entry.data.points.find(
           (p) => p.id === entry.selectedIntervalId,
         );
@@ -169,8 +179,8 @@ export async function exportRealGmDashboard(input: {
           });
         }
       }
-      if (input.bonus) {
-        const bonus = input.bonus;
+      if (inclusiveBonus) {
+        const bonus = inclusiveBonus;
         appendTableSheet(XLSX, wb, {
           name: "Boni",
           title: `${bonus.wave.name} – ${bonus.closedAt ? "Abgeschlossen" : bonus.wave.status === "draft" ? "Entwurf / Vorschau" : "Laufende Berechnung"}`,

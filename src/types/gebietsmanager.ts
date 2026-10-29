@@ -11,6 +11,7 @@ export interface GMRecord {
   ipp: number;
   ippSampleCount?: number;
   isBillaGm?: boolean;
+  isSupplementalGm?: boolean;
   isActive?: boolean;
   deletedAt?: string | null;
   anonymizedAt?: string | null;

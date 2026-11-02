@@ -1,5 +1,7 @@
 # GM Flexziel: Quartalsübernahme — LivingMD
 
+Ergänzung 02.11.2026: Nicht-Fotofragen aus dem GM-Abschnitt `durcharbeit` sind nun unabhängig von Bonusquellen direkt quartalsweise vorbelegt. Die hier dokumentierte Beschränkung auf verknüpfte Flexquellen gilt weiterhin für andere Abschnitte, insbesondere `flex`. Quellen, historische Daten und Bonusberechnungen bleiben unverändert. Siehe [GM Durcharbeit — Quartalsantworten](gm-durcharbeit-quarter-answer-persistence.md).
+
 Stand: 29.09.2026. Status: umgesetzt und lokal mit DB-/API-Integrationstests geprüft; Produktionsrelease vom Nutzer jetzt ausdrücklich beauftragt.
 
 ## Entscheidung und Abgrenzung

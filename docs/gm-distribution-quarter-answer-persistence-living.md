@@ -1,8 +1,12 @@
 # GM Distributionsantworten im Quartal — LivingMD
 
 Status: umgesetzt und geprüft
-Stand: 03.09.2026
+Stand: 02.11.2026 (Ergänzung zur GM-Durcharbeit; ursprüngliche Distributionsregeln vom 03.09.2026)
 Scope: Vorbelegung bereits beantworteter Distributionsfragen beim Start eines neuen GM-Marktbesuchs
+
+## Ergänzung 02.11.2026 — GM-Durcharbeit ohne Prämienabhängigkeit
+
+Der GM-Abschnitt `durcharbeit` verwendet für Nicht-Fotofragen jetzt direkt das Kalenderquartal, auch wenn keine passende Distribution-/Flex-Prämienquelle konfiguriert ist. Das behebt den reproduzierten Verlust der Vorbelegung beim RED-Monatswechsel Oktober → November innerhalb von Q4. Die nachfolgend dokumentierte Prämienquellen-Auswahl bleibt für andere GM-Abschnitte bestehen; sie ist für Durcharbeit nicht mehr Voraussetzung. Bestehende Entwürfe und historische Besuche werden nicht umgeschrieben. Details, Prüfgrenzen und lokale Verifikation: [GM Durcharbeit — Quartalsantworten](gm-durcharbeit-quarter-answer-persistence.md).
 
 ## Verbindliche Fachlogik
 

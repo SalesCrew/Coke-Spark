@@ -42,7 +42,6 @@ import {
 import { PdfPage, useBriefingPdf } from "@/components/gm/briefings/PdfPage";
 import type { BriefingDraft, BriefingPublication } from "@/types/gmBriefings";
 import styles from "./briefing-editor.module.css";
-const path = "/admin/gm-briefings";
 function date(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString("de-AT", {
     day: "2-digit",
@@ -61,11 +60,15 @@ function publicationState(item: BriefingDraft) {
   if (latest.visibleUntil && latest.visibleUntil < today) return "Abgelaufen";
   return "Veröffentlicht";
 }
-export function BriefingWorkspace() {
+export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" | "action" }) {
+  const actionBriefing = channel === "action";
+  const path = actionBriefing ? "/admin/gm-action-briefings" : "/admin/gm-briefings";
+  const permission = actionBriefing ? "aktionsbriefings" : "wochenschwerpunkte";
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Vienna" }).format(new Date());
   const router = useRouter();
   const { canWrite, canUpdate } = useAdminAccess(),
-    write = canWrite("wochenschwerpunkte"),
-    update = canUpdate("wochenschwerpunkte");
+    write = canWrite(permission),
+    update = canUpdate(permission);
   const [items, setItems] = useState<BriefingDraft[]>([]),
     [draft, setDraft] = useState<BriefingDraft | null>(null),
     [savedSignature, setSavedSignature] = useState(""),
@@ -141,7 +144,7 @@ export function BriefingWorkspace() {
       if (n === requestVersion.current && principal === owner.current)
         setLoading(false);
     }
-  }, []);
+  }, [path]);
   useEffect(() => {
     const requests = requestVersion;
     void load();
@@ -304,6 +307,7 @@ export function BriefingWorkspace() {
         replace && draft
           ? { id: draft.id, revision: draft.draftRevision }
           : undefined,
+        channel,
       );
       if (!isCurrent()) return;
       uploadAttempt.current = null;
@@ -378,6 +382,7 @@ export function BriefingWorkspace() {
       (dirty || published?.sourceDraftRevision !== draft.draftRevision);
   const valid =
     !!draft?.title.trim() &&
+    (!actionBriefing || (!!draft.visibleFrom && !!draft.visibleUntil)) &&
     (!draft.visibleFrom ||
       !draft.visibleUntil ||
       draft.visibleUntil >= draft.visibleFrom);
@@ -499,7 +504,7 @@ export function BriefingWorkspace() {
         </div>
       )}
       {!draft ? (
-        <section className={styles.library} aria-label="Wochenschwerpunkte verwalten" aria-busy={loading || !!busy}>
+        <section className={styles.library} aria-label={actionBriefing ? "Aktionsbriefings verwalten" : "Wochenschwerpunkte verwalten"} aria-busy={loading || !!busy}>
           <header className={styles.libraryHeader}>
             <div className={styles.collectionTitle}><h2>Dokumente</h2><span>{loading ? "…" : count}</span></div>
             <div className={styles.libraryActions}>{saveFeedback}
@@ -541,12 +546,12 @@ export function BriefingWorkspace() {
               </div>
             ) : <div className={styles.empty}>
               {query ? <Search size={23} strokeWidth={1.5} /> : <FileText size={27} strokeWidth={1.4} />}
-              <h3>{query ? "Keine Dokumente gefunden" : tab === "archive" ? "Noch keine archivierten Dokumente" : "Noch keine Wochenschwerpunkte"}</h3>
+              <h3>{query ? "Keine Dokumente gefunden" : tab === "archive" ? "Noch keine archivierten Dokumente" : actionBriefing ? "Noch keine Aktionsbriefings" : "Noch keine Wochenschwerpunkte"}</h3>
               <p>{query ? "Versuche einen anderen Suchbegriff." : tab === "archive" ? "Archivierte Dokumente bleiben hier erhalten." : "PDF hinzufügen oder hierher ziehen."}</p>
               {query ? <button type="button" className={styles.secondary} onClick={() => setQuery("")}>Suche zurücksetzen</button>
                 : tab === "current" && <span className={styles.fileLimits}>PDF · bis 500 MB · bis 80 Seiten</span>}
             </div>}
-          <footer className={styles.libraryFoot}><FileText size={12} /><span>PDF · bis 500 MB · bis 80 Seiten</span><span>Für Gebietsmanager</span></footer>
+          <footer className={styles.libraryFoot}><FileText size={12} /><span>PDF · bis 500 MB · bis 80 Seiten</span><span>{actionBriefing ? "Für alle Gebietsmanager" : "Für Gebietsmanager"}</span></footer>
         </section>
       ) : (
         <>
@@ -563,7 +568,7 @@ export function BriefingWorkspace() {
           </header>
           <div className={styles.editorBody}>
             <aside className={styles.settings} aria-label="Dokument bearbeiten">
-              <div className={styles.settingsTabs} role="tablist" aria-label="Einstellungen" onKeyDown={(event) => {
+              {!actionBriefing && <div className={styles.settingsTabs} role="tablist" aria-label="Einstellungen" onKeyDown={(event) => {
                 if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
                 event.preventDefault();
                 const next = event.key === "Home" ? "document" : event.key === "End" ? "page" : settingsTab === "document" ? "page" : "document";
@@ -572,26 +577,26 @@ export function BriefingWorkspace() {
               }}>
                 <button type="button" id="briefing-tab-document" role="tab" aria-selected={settingsTab === "document"} aria-controls="briefing-settings-document" tabIndex={settingsTab === "document" ? 0 : -1} onClick={() => setSettingsTab("document")}>Dokument</button>
                 <button type="button" id="briefing-tab-page" role="tab" aria-selected={settingsTab === "page"} aria-controls="briefing-settings-page" tabIndex={settingsTab === "page" ? 0 : -1} onClick={() => setSettingsTab("page")}>Seitentext{selectedPage && (selectedPage.title || selectedPage.description) && <span className={styles.contentDot} />}</button>
-              </div>
+              </div>}
               <div className={styles.settingsScroll}>
-                {settingsTab === "document" ? <div role="tabpanel" id="briefing-settings-document" aria-labelledby="briefing-tab-document" className={styles.settingsPanel}>
+                {actionBriefing || settingsTab === "document" ? <div role={actionBriefing ? undefined : "tabpanel"} id="briefing-settings-document" aria-labelledby={actionBriefing ? undefined : "briefing-tab-document"} className={styles.settingsPanel}>
                   <section className={styles.formSection}>
-                    <label className={styles.field}>Titel<input value={draft.title} disabled={!update || !!busy} maxLength={160} onChange={(event) => change({ title: event.target.value })} placeholder="Wochenschwerpunkte KW 43" /></label>
+                    <label className={styles.field}>{actionBriefing ? "Name" : "Titel"}<input value={draft.title} disabled={!update || !!busy} maxLength={160} onChange={(event) => change({ title: event.target.value })} placeholder={actionBriefing ? "z. B. Aktionsbriefing November" : "Wochenschwerpunkte KW 43"} /></label>
                     {!draft.title.trim() && <p className={styles.fieldError}>Bitte einen Titel eingeben.</p>}
-                    <details className={styles.introduction} key={draft.id} open={introductionOpen} onToggle={(event) => setIntroductionOpen(event.currentTarget.open)}>
+                    {!actionBriefing && <details className={styles.introduction} key={draft.id} open={introductionOpen} onToggle={(event) => setIntroductionOpen(event.currentTarget.open)}>
                       <summary><span>Einleitung <span className={styles.optional}>optional</span></span><ChevronDown size={13} /></summary>
                       <label className={styles.srOnly} htmlFor="briefing-introduction">Einleitung</label>
                       <textarea id="briefing-introduction" value={draft.description} disabled={!update || !!busy} maxLength={2000} rows={3} onChange={(event) => change({ description: event.target.value })} placeholder="Kurze Einordnung für die GMs …" />
-                    </details>
+                    </details>}
                   </section>
                   <section className={styles.formSection}>
                     <h3>Sichtbarkeit</h3>
                     <fieldset disabled={!update || !!busy} className={styles.dateFields}>
-                      <div><span className={styles.fieldLabel}>Von</span><AdminDatePicker value={draft.visibleFrom ?? ""} onChange={(value) => change({ visibleFrom: value || null })} ariaLabel="Sichtbar ab" {...(draft.visibleUntil ? { maxDate: draft.visibleUntil } : {})} /><button type="button" className={styles.dateShortcut} onClick={() => change({ visibleFrom: null })}>Ab sofort{!draft.visibleFrom && <Check size={11} />}</button></div>
-                      <div><span className={styles.fieldLabel}>Bis</span><AdminDatePicker value={draft.visibleUntil ?? ""} onChange={(value) => change({ visibleUntil: value || null })} ariaLabel="Sichtbar bis einschließlich" {...(draft.visibleFrom ? { minDate: draft.visibleFrom } : {})} /><button type="button" className={styles.dateShortcut} onClick={() => change({ visibleUntil: null })}>Ohne Ende{!draft.visibleUntil && <Check size={11} />}</button></div>
+                      <div><span className={styles.fieldLabel}>Von</span><AdminDatePicker value={draft.visibleFrom ?? ""} onChange={(value) => change({ visibleFrom: value || null })} ariaLabel="Sichtbar ab" {...(draft.visibleUntil ? { maxDate: draft.visibleUntil } : {})} /><button type="button" className={styles.dateShortcut} onClick={() => change({ visibleFrom: actionBriefing ? today : null })}>{actionBriefing ? "Heute" : "Ab sofort"}{(actionBriefing ? draft.visibleFrom === today : !draft.visibleFrom) && <Check size={11} />}</button></div>
+                      <div><span className={styles.fieldLabel}>Bis</span><AdminDatePicker value={draft.visibleUntil ?? ""} onChange={(value) => change({ visibleUntil: value || null })} ariaLabel="Sichtbar bis einschließlich" {...(draft.visibleFrom ? { minDate: draft.visibleFrom } : {})} />{!actionBriefing && <button type="button" className={styles.dateShortcut} onClick={() => change({ visibleUntil: null })}>Ohne Ende{!draft.visibleUntil && <Check size={11} />}</button>}</div>
                     </fieldset>
                     <div className={styles.visibilitySummary}><CalendarDays size={13} /><span>{visibility(draft.visibleFrom, draft.visibleUntil)}</span></div>
-                    {!valid && !!draft.title.trim() && <p className={styles.fieldError}>Das Ende muss nach dem Beginn liegen.</p>}
+                    {!valid && !!draft.title.trim() && <p className={styles.fieldError}>{actionBriefing && (!draft.visibleFrom || !draft.visibleUntil) ? "Bitte Beginn und Ende festlegen." : "Das Ende muss nach dem Beginn liegen."}</p>}
                   </section>
                 </div> : <div role="tabpanel" id="briefing-settings-page" aria-labelledby="briefing-tab-page" className={styles.settingsPanel}>
                   <section className={styles.formSection}>

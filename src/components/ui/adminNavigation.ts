@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  FileText,
   ClipboardList,
   Refrigerator,
   FlaskConical,
@@ -24,6 +25,7 @@ import {
 export type AdminPageKey =
   | "gm_dashboard"
   | "wochenschwerpunkte"
+  | "aktionsbriefings"
   | "datenschutzanfragen"
   | "ipp_berechnung"
   | "praemien"
@@ -119,6 +121,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     label: "Management",
     items: [
       { label: "Wochenschwerpunkte", icon: BookOpen, href: "/admin/wochenschwerpunkte", pageKey: "wochenschwerpunkte", color: cokeRed },
+      { label: "Aktionsbriefings", icon: FileText, href: "/admin/aktionsbriefings", pageKey: "aktionsbriefings", color: cokeRed },
       { label: "Verplanung", icon: CalendarRange, href: "/admin/sm/verplanung", pageKey: "sm_verplanung", workspace: "sm", color: cokeRed },
       { label: "Durcharbeit Verplanung", icon: CalendarRange, href: "/admin/sm/durcharbeit-verplanung", pageKey: "sm_durcharbeit_verplanung", workspace: "sm", color: { bg: "linear-gradient(to bottom, #2563EB, #1D4ED8)", ring: "#1E40AF", shadow: "rgba(37,99,235,0.24)" } },
       { label: "Zeiterfassung", icon: Clock, href: "/admin/sm/zeiterfassung", pageKey: "sm_zeiterfassung", workspace: "sm", color: cokeRed },

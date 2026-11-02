@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import {
   BookOpen,
+  FileText,
   ChevronLeft,
   Clock,
   Home,
@@ -46,6 +47,7 @@ interface CollapsibleMenuProps {
   enableClickToggle?: boolean;
   /** Opt-in supplied only by the SM Home menu. */
   smMessages?: { unreadCount: number | null; panel: React.ReactNode };
+  gmActionBriefings?: { unreadCount: number; render: (onBack: () => void) => React.ReactNode };
   gmBriefings?: { unreadCount: number | null; available: boolean; loading: boolean; error: boolean; onOpen: (rect: DOMRect) => void };
 }
 
@@ -117,12 +119,14 @@ export function CollapsibleMenu({
   enableClickToggle = false,
   smMessages,
   gmBriefings,
+  gmActionBriefings,
 }: CollapsibleMenuProps) {
   const [activeIndex, setActiveIndex] = useState(defaultIndex);
   const [expanded, setExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(false);
+  const [actionBriefingsOpen, setActionBriefingsOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<GmKurtiMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -153,8 +157,15 @@ export function CollapsibleMenu({
   } = useGmTextScale();
   const textScaleProgress = Math.min(100, Math.max(0, textScalePercent * 2));
   const sliderDraftPercentRef = useRef(textScalePercent);
-  const utilityPanelOpen = settingsOpen || chatOpen || messagesOpen;
+  const utilityPanelOpen = settingsOpen || chatOpen || messagesOpen || actionBriefingsOpen;
   const messagesEnabled = Boolean(smMessages);
+  useEffect(() => {
+    if (!actionBriefingsOpen) return;
+    const frame = requestAnimationFrame(() => containerRef.current
+      ?.querySelector<HTMLButtonElement>("[data-gm-action-briefings-back]")
+      ?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [actionBriefingsOpen]);
 
   useEffect(() => {
     if (!messagesOpen) return;
@@ -381,17 +392,18 @@ export function CollapsibleMenu({
       ...(enableKurti ? [{ type: "chat" as const }] : []),
       ...(messagesEnabled ? [{ type: "messages" as const }] : []),
       ...(gmBriefings ? [{ type: "briefings" as const }] : []),
+      ...(gmActionBriefings ? [{ type: "actionBriefings" as const }] : []),
       { type: "settings" as const },
       ...mapped.slice(logoutRowIndex),
     ];
-  }, [enableKurti, items, messagesEnabled, gmBriefings]);
+  }, [enableKurti, items, messagesEnabled, gmBriefings, gmActionBriefings]);
 
   const collapsedHeight = ITEM_HEIGHT + CARD_PADDING * 2;
   const activeRowIndex = Math.max(
     0,
     rows.findIndex((row) => row.type === "item" && row.itemIndex === activeIndex)
   );
-  const expandedHeight = messagesOpen ? 500 : chatOpen
+  const expandedHeight = actionBriefingsOpen ? 440 : messagesOpen ? 500 : chatOpen
     ? CHAT_PANEL_HEIGHT
     : settingsOpen
       ? SETTINGS_PANEL_HEIGHT
@@ -433,6 +445,7 @@ export function CollapsibleMenu({
         setSettingsOpen(false);
         setChatOpen(false);
         setMessagesOpen(false);
+        setActionBriefingsOpen(false);
         return;
       }
 
@@ -442,6 +455,7 @@ export function CollapsibleMenu({
         setSettingsOpen(false);
         setChatOpen(false);
         setMessagesOpen(false);
+        setActionBriefingsOpen(false);
         return;
       }
 
@@ -455,6 +469,15 @@ export function CollapsibleMenu({
 
       if (selectedRow.type === "messages") {
         setExpanded(true); setSettingsOpen(false); setChatOpen(false); setMessagesOpen(true);
+        return;
+      }
+
+      if (selectedRow.type === "actionBriefings") {
+        setExpanded(true);
+        setSettingsOpen(false);
+        setChatOpen(false);
+        setMessagesOpen(false);
+        setActionBriefingsOpen(true);
         return;
       }
 
@@ -617,7 +640,7 @@ export function CollapsibleMenu({
 
   return (
     <>
-      {messagesOpen ? <button type="button" tabIndex={-1} aria-label="Nachrichten schließen"
+      {messagesOpen || actionBriefingsOpen ? <button type="button" tabIndex={-1} aria-label={actionBriefingsOpen?"Aktionsbriefings schließen":"Nachrichten schließen"}
         onClick={() => { select(null); containerRef.current?.focus({ preventScroll: true }); }}
         className="fixed inset-0 -z-10 cursor-default bg-black/10" /> : null}
       {settingsOpen && (
@@ -680,17 +703,17 @@ export function CollapsibleMenu({
         data-menu-expanded={expanded}
         data-sm-messages-menu={smMessages ? true : undefined}
         data-gm-briefings-menu={gmBriefings ? true : undefined}
-        role={smMessages || gmBriefings ? messagesOpen ? "dialog" : expanded ? "navigation" : "button" : undefined}
+        role={smMessages || gmBriefings ? actionBriefingsOpen ? "dialog" : messagesOpen ? "dialog" : expanded ? "navigation" : "button" : undefined}
         tabIndex={smMessages || gmBriefings ? 0 : undefined}
-        aria-label={smMessages || gmBriefings ? messagesOpen ? "SM Nachrichten" : expanded ? (gmBriefings ? "GM Navigation" : "SM Navigation") : `${items[activeIndex]?.label ?? "Home"} Menü${(smMessages?.unreadCount ?? gmBriefings?.unreadCount) ? `, ${smMessages?.unreadCount ?? gmBriefings?.unreadCount} ungelesen` : ""}` : undefined}
-        aria-modal={smMessages && messagesOpen ? true : undefined}
+        aria-label={smMessages || gmBriefings ? actionBriefingsOpen ? "GM Aktionsbriefings" : messagesOpen ? "SM Nachrichten" : expanded ? (gmBriefings ? "GM Navigation" : "SM Navigation") : `${items[activeIndex]?.label ?? "Home"} Menü${(smMessages?.unreadCount ?? ((gmBriefings?.unreadCount ?? 0) + (gmActionBriefings?.unreadCount ?? 0))) ? `, ${smMessages?.unreadCount ?? ((gmBriefings?.unreadCount ?? 0) + (gmActionBriefings?.unreadCount ?? 0))} ungelesen` : ""}` : undefined}
+        aria-modal={actionBriefingsOpen || (smMessages && messagesOpen) ? true : undefined}
         aria-expanded={(smMessages || gmBriefings) && !expanded && !utilityPanelOpen ? false : undefined}
         onKeyDown={smMessages || gmBriefings ? event => {
           if (event.key === "Escape") {
             event.preventDefault(); event.stopPropagation(); select(null); containerRef.current?.focus({ preventScroll: true }); return;
           }
-          if (messagesOpen && event.key === "Tab") {
-            const controls = Array.from(containerRef.current?.querySelectorAll<HTMLElement>("[data-sm-messages-panel] button:not([disabled]), [data-sm-messages-panel] a[href], [data-sm-messages-panel] input:not([disabled])") ?? []);
+          if ((messagesOpen || actionBriefingsOpen) && event.key === "Tab") {
+            const controls = Array.from(containerRef.current?.querySelectorAll<HTMLElement>(actionBriefingsOpen?"[data-gm-action-briefings-panel] button:not([disabled])":"[data-sm-messages-panel] button:not([disabled]), [data-sm-messages-panel] a[href], [data-sm-messages-panel] input:not([disabled])") ?? []);
             const first = controls[0], last = controls.at(-1);
             if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus({ preventScroll: true }); }
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus({ preventScroll: true }); }
@@ -711,7 +734,7 @@ export function CollapsibleMenu({
         style={{
           height: expanded ? expandedHeight : collapsedHeight,
           overflow: utilityPanelOpen ? "clip" : undefined,
-          ...(messagesOpen
+          ...(actionBriefingsOpen?{maxHeight:"calc(100dvh - 90px)"}:messagesOpen
             ? { maxHeight: "calc(100dvh - var(--sm-menu-reserved-space, 80px))" }
             : smMessages && chatOpen
               ? { maxHeight: "var(--sm-menu-chat-max-height, none)" }
@@ -753,6 +776,8 @@ export function CollapsibleMenu({
                   ? { label: "Nachrichten", icon: <Mail size={11} strokeWidth={1.8} />, tone: "default" as const, action: undefined }
                   : row.type === "briefings"
                   ? { label: gmBriefings?.loading ? "Wochenschwerpunkte laden …" : gmBriefings?.error ? "Wochenschwerpunkte · erneut laden" : "Wochenschwerpunkte", icon: <BookOpen size={11} strokeWidth={1.8} />, tone: "default" as const, action: undefined }
+                  : row.type === "actionBriefings"
+                  ? { label: "Aktionsbriefings", icon: <FileText size={11} strokeWidth={1.8} />, tone: "default" as const, action: undefined }
                   : row.type === "settings"
                   ? {
                       label: "Einstellungen",
@@ -767,8 +792,8 @@ export function CollapsibleMenu({
               const isHighlighted = isSelected || isFeaturedKurti;
               const isDanger = item.tone === "danger" || item.action === "logout";
               const Row = (smMessages || gmBriefings) && expanded ? "button" : "div";
-              const count = smMessages?.unreadCount ?? gmBriefings?.unreadCount;
-              const showUnread = Boolean(count) && (row.type === "messages" || row.type === "briefings" || (!expanded && i === activeRowIndex));
+              const count = row.type === "actionBriefings" ? gmActionBriefings?.unreadCount : smMessages?.unreadCount ?? (expanded ? gmBriefings?.unreadCount : (gmBriefings?.unreadCount ?? 0) + (gmActionBriefings?.unreadCount ?? 0));
+              const showUnread = Boolean(count) && (row.type === "messages" || row.type === "briefings" || row.type === "actionBriefings" || (!expanded && i === activeRowIndex));
               const briefingDisabled = row.type === "briefings" && !gmBriefings?.available && !gmBriefings?.error;
               const dangerSoftBackground =
                 "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(254,226,226,0.94))";
@@ -882,7 +907,12 @@ export function CollapsibleMenu({
               fontFamily: "var(--font-inter), Inter, system-ui, sans-serif",
             }}
           >
-            {messagesOpen && smMessages ? (
+            {actionBriefingsOpen && gmActionBriefings ? gmActionBriefings.render(() => {
+              setActionBriefingsOpen(false);
+              window.requestAnimationFrame(() => containerRef.current
+                ?.querySelector<HTMLButtonElement>(`[data-menu-row="${rows.findIndex(row => row.type === "actionBriefings")}"]`)
+                ?.focus({ preventScroll: true }));
+            }) : messagesOpen && smMessages ? (
               <div data-sm-messages-panel className="flex h-full min-h-0 min-w-0 flex-col">
                 <header className="flex shrink-0 items-center gap-2 border-b border-black/[.05] pb-2">
                   <button type="button" data-sm-inbox-back aria-label="Zurück zum Home Menü"

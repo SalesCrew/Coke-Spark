@@ -20,12 +20,16 @@ export function GmBriefingReader({
   onClose,
   onRead,
   onRefresh,
+  basePath = "/gm/briefings",
+  contextLabel = "Wochenschwerpunkte",
 }: {
   items: GmBriefing[];
   origin: Origin;
   onClose: () => void;
   onRead: () => void;
   onRefresh: () => void;
+  basePath?: "/gm/briefings" | "/gm/action-briefings";
+  contextLabel?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
     carousel = useRef<HTMLDivElement>(null),
@@ -72,7 +76,7 @@ export function GmBriefingReader({
     setOriginalError("");
     try {
       // Always request fresh, authorized access; an older signed URL may have expired.
-      const { url } = await requestGmBriefings<{ url: string }>(`/gm/briefings/${selected.id}/file`);
+      const { url } = await requestGmBriefings<{ url: string }>(`${basePath}/${selected.id}/file`);
       if (originalPopup.current !== popup || principal !== getAuthPrincipalKey(readAuthSession())) {
         popup.close();
         return;
@@ -97,9 +101,9 @@ export function GmBriefingReader({
       return;
     }
     const destination =
-      document
+      (basePath === "/gm/briefings" ? document
         .querySelector<HTMLElement>("[data-gm-briefings-menu]")
-        ?.getBoundingClientRect() ?? origin;
+        ?.getBoundingClientRect() : null) ?? origin;
     const transform = `translate(${destination.left}px, ${destination.top}px) scale(${destination.width / innerWidth}, ${destination.height / innerHeight})`;
     node
       .querySelector<HTMLElement>("[data-reader-inner]")
@@ -115,7 +119,7 @@ export function GmBriefingReader({
       { duration: 280, easing: "cubic-bezier(.32,.72,0,1)", fill: "forwards" },
     );
     animation.onfinish = onClose;
-  }, [onClose, origin]);
+  }, [onClose, origin, basePath]);
   useEffect(() => {
     const node = dialog.current;
     if (!node) return;
@@ -162,7 +166,7 @@ export function GmBriefingReader({
     carousel.current?.scrollTo({ left: 0, behavior: "instant" });
     if (!selected) return;
     void requestGmBriefings<{ url: string }>(
-      `/gm/briefings/${selected.id}/file`,
+      `${basePath}/${selected.id}/file`,
     )
       .then((data) => {
         if (!cancelled) setFileUrl(data.url);
@@ -174,7 +178,7 @@ export function GmBriefingReader({
       cancelled = true;
     };
     // Read receipts arriving through refresh do not reset the open document or page.
-  }, [selectedId, fileAttempt, selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId, fileAttempt, selected?.id, basePath]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const update = () => setVisible(!document.hidden);
     document.addEventListener("visibilitychange", update);
@@ -192,7 +196,7 @@ export function GmBriefingReader({
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void requestGmBriefings(
-        `/gm/briefings/${selected.id}/read`,
+        `${basePath}/${selected.id}/read`,
         { pageNumber: index + 1 },
         "POST",
       )
@@ -211,7 +215,7 @@ export function GmBriefingReader({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [selected, index, rendered, acknowledged, visible, ackAttempt, onRead]);
+  }, [selected, index, rendered, acknowledged, visible, ackAttempt, onRead, basePath]);
   function go(next: number) {
     const node = carousel.current;
     if (!node || !selected) return;
@@ -274,10 +278,10 @@ export function GmBriefingReader({
           </button>
           <div className={styles.readerHeading}>
             <h2 id="gm-briefing-title">
-              {selected?.title ?? "Wochenschwerpunkte"}
+              {selected?.title ?? contextLabel}
             </h2>
             <p>
-              Wochenschwerpunkte
+              {contextLabel}
               {selected?.visibleUntil
                 ? ` · bis ${new Date(`${selected.visibleUntil}T12:00:00`).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit" })}`
                 : ""}
@@ -288,7 +292,7 @@ export function GmBriefingReader({
               <button
                 type="button"
                 className={styles.back}
-                aria-label="Andere Wochenschwerpunkte"
+                aria-label={`Andere ${contextLabel}`}
                 aria-expanded={chooser}
                 onClick={() => setChooser((value) => !value)}
               >
@@ -323,7 +327,7 @@ export function GmBriefingReader({
         </header>
         {!selected ? (
           <div className={styles.status}>
-            Dieser Wochenschwerpunkt ist nicht mehr aktiv.
+            {basePath === "/gm/briefings" ? "Dieser Wochenschwerpunkt ist nicht mehr aktiv." : "Dieses Aktionsbriefing ist nicht mehr verfügbar."}
             <button onClick={onRefresh}>Aktualisieren</button>
           </div>
         ) : fileError || pdfError ? (

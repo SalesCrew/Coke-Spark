@@ -1,0 +1,154 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  color: #484047;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #0000000a;
+  flex-shrink: 0;
+}
+.header > button {
+  height: 26px;
+  width: 26px;
+  border: 1px solid #0000000a;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #f7f7f8;
+  color: #8d8584;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.header h2 {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.header p {
+  font-size: 9px;
+  color: #aaa09b;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.list {
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+  padding: 0 2px;
+}
+.list::-webkit-scrollbar {
+  display: none;
+}
+.item {
+  padding: 14px 0 0;
+  border-bottom: 1px solid #0000000a;
+}
+.item:last-child {
+  border-bottom: 0;
+}
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.title h3 {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #484047;
+  overflow-wrap: anywhere;
+}
+.title > span {
+  flex-shrink: 0;
+  font-size: 8px;
+  color: #aa793d;
+  margin-left: auto;
+}
+.period {
+  font-size: 9px;
+  color: #a69b96;
+  margin: 3px 0 10px;
+  line-height: 1.5;
+}
+.pdfButton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  margin: 0 0 14px;
+  padding: 0 10px;
+  border: 1px solid #ce8b36;
+  border-radius: 7px;
+  background: rgba(206, 139, 54, 0.04);
+  box-shadow: 0 0 28px rgba(206, 139, 54, 0.085);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pdfButton > span {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 550;
+  color: #6f5042;
+}
+.pdfButton > svg {
+  display: block;
+  flex-shrink: 0;
+  color: #8c6d59;
+}
+.pdfButton > svg:last-child {
+  color: #b2783c;
+}
+.pdfButton:hover {
+  background: rgba(206, 139, 54, 0.075);
+}
+.panel button:focus-visible {
+  outline: 1px solid #b68a6a;
+  outline-offset: 3px;
+}
+.status {
+  padding: 24px 2px;
+  font-size: 10px;
+  color: #a69b96;
+  line-height: 1.7;
+}
+.status > button {
+  font: inherit;
+  color: #9c7460;
+  cursor: pointer;
+  margin-top: 9px;
+}
+.status > svg {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.spinner {
+  animation: briefing-spin 0.8s linear infinite;
+}
+@keyframes briefing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+  .pdfButton {
+    transition: none;
+  }
+}

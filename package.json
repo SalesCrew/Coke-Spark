@@ -32,7 +32,8 @@
     "test:gm-briefings": "node backend/node_modules/tsx/dist/cli.mjs --test backend/src/gm-briefings.integration.test.ts",
     "test:sm-photo-upload": "node --import ./backend/node_modules/tsx/dist/loader.mjs --test tests/sm-photo-upload.test.ts",
     "test:sm-kurti-navigation": "node --test tests/sm-kurti-navigation.test.mjs",
-    "test:kurti-identity": "node --import ./backend/node_modules/tsx/dist/loader.mjs --test tests/kurti-identity.test.ts backend/src/kurti-identity.integration.test.ts"
+    "test:kurti-identity": "node --import ./backend/node_modules/tsx/dist/loader.mjs --test tests/kurti-identity.test.ts backend/src/kurti-identity.integration.test.ts",
+    "test:gm-action-briefings": "node backend/node_modules/tsx/dist/cli.mjs --test backend/src/gm-briefings.integration.test.ts backend/src/gm-action-briefings.integration.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

@@ -4073,7 +4073,7 @@ function MarktbesuchInner() {
         if (resumeId) {
           let payload: GmVisitSessionReadPayload | null = null;
           try {
-            payload = await fetchGmVisitSession(resumeId);
+            payload = await fetchGmVisitSession(resumeId, { resumeQuarterAnswers: true });
           } catch (error) {
             if (!(error instanceof BackendApiError) || error.status !== 404) throw error;
           }
@@ -4100,7 +4100,7 @@ function MarktbesuchInner() {
         const activeVisit = await fetchActiveGmVisitSession({ marketId, campaignIds, kuehlerUnitId });
         if (isStale()) return;
         if (activeVisit?.session?.id) {
-          const hydratedPayload = await fetchGmVisitSession(activeVisit.session.id);
+          const hydratedPayload = await fetchGmVisitSession(activeVisit.session.id, { resumeQuarterAnswers: true });
           if (isStale()) return;
           hydrateFromSessionPayload(hydratedPayload);
           setVisitBootstrapDone(true);

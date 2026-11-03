@@ -8,6 +8,8 @@ import { SpezialfragenFragebogenField } from "@/components/admin/SpezialfragenFr
 import { cloneQuestionForModuleInsert } from "@/utils/existingQuestionPicker";
 import type { FragebogenScope } from "@/lib/api/backend";
 
+import { useAssignedModules } from "./useAssignedModules";
+
 let _fid = 0;
 function nextId(): string {
   _fid += 1;
@@ -1104,12 +1106,8 @@ export function FragebogenEditor({
   const [spezialfragen, setSpezialfragen] = useState(() =>
     (existingFragebogen?.spezialfragen ?? []).map(cloneQuestionForModuleInsert),
   );
-  const [selectedModules, setSelectedModules] = useState<Module[]>(() => {
-    if (!existingFragebogen) return [];
-    return existingFragebogen.moduleIds
-      .map((id) => availableModules.find((m) => m.id === id))
-      .filter((m): m is Module => !!m);
-  });
+  const { selectedModules, setSelectedModules, hasMissingModules } = useAssignedModules(existingFragebogen?.moduleIds ?? [], availableModules);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [moduleSearch, setModuleSearch] = useState("");
 
   // expanded module rows in workspace
@@ -1171,12 +1169,15 @@ export function FragebogenEditor({
   };
 
   const handleSave = async () => {
-    if (isSaving) return;
+    if (isSaving || hasMissingModules) return;
+    setSaveError(null);
     const fb: Fragebogen = {
       id: existingFragebogen?.id ?? nextId(),
       name: name || "Unbenannter Fragebogen",
       description,
       moduleIds: selectedModules.map((m) => m.id),
+      updatedAt: existingFragebogen?.updatedAt,
+      moduleRemovalConfirmed: Boolean(existingFragebogen?.moduleIds.length && selectedModules.length === 0),
       markets: existingFragebogen?.markets ?? [],
       scheduleType: existingFragebogen?.scheduleType ?? "always",
       startDate: existingFragebogen?.startDate,
@@ -1190,6 +1191,8 @@ export function FragebogenEditor({
     setIsSaving(true);
     try {
       await onSave(fb);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Fragebogen konnte nicht gespeichert werden.");
     } finally {
       setIsSaving(false);
     }
@@ -1266,18 +1269,23 @@ export function FragebogenEditor({
           </span>
           <button
             onClick={() => { void handleSave(); }}
-            disabled={isSaving}
+            disabled={isSaving || hasMissingModules}
             style={{
               ...btnBase, padding: "7px 18px", fontSize: 11,
               ...btnActive,
-              cursor: isSaving ? "not-allowed" : "pointer",
-              opacity: isSaving ? 0.8 : 1,
+              cursor: isSaving || hasMissingModules ? "not-allowed" : "pointer",
+              opacity: isSaving || hasMissingModules ? 0.6 : 1,
             }}
           >
             {isSaving ? "Speichern..." : "Speichern"}
           </button>
         </div>
 
+        {(saveError || hasMissingModules) && (
+          <div role="alert" style={{ padding: "10px 20px", fontSize: 11, color: "#DC2626", background: "#FEF2F2" }}>
+            {saveError ?? "Zugeordnete Module sind noch nicht geladen. Bitte die Seite neu laden. Deine Zuordnung bleibt erhalten."}
+          </div>
+        )}
         {/* Body */}
         <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
           {/* Left sidebar — module library */}

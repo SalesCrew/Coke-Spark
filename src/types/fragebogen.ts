@@ -79,6 +79,9 @@ export interface Fragebogen {
   startDate?: string;
   endDate?: string;
   createdAt: string;
+  /** Server version for optimistic concurrency; never substitute the client clock. */
+  updatedAt?: string;
+  moduleRemovalConfirmed?: boolean;
   status: "active" | "scheduled" | "inactive";
   sectionKeywords?: Array<"standard" | "flex" | "billa">;
   spezialfragen?: Question[];

@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  BackendApiError,
   fetchActiveGmVisitSession,
   fetchCurrentDaySession,
   fetchLatestActiveGmVisitSession,
@@ -711,15 +712,14 @@ export function GmMarketDetailModal({
               </div>
             )}
           </section>
-
-          {launchError && (
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#DC2626" }}>
-              {launchError}
-            </div>
-          )}
         </div>
 
         <div style={{ padding: "12px 18px 18px", borderTop: "1px solid rgba(15,23,42,0.06)" }}>
+          {launchError && (
+            <div role="alert" style={{ marginBottom: 10, padding: "9px 11px", borderRadius: 9, background: "#FEF2F2", fontSize: 11, lineHeight: 1.45, color: "#B91C1C" }}>
+              {launchError}
+            </div>
+          )}
           <button
             type="button"
             disabled={startDisabled}
@@ -1006,9 +1006,11 @@ export function MarketList({ visited, total, activeVisitLocked = false, pauseAct
         router.push(
           `/gm/marktbesuch?chain=${encodeURIComponent(market.chain)}&address=${encodeURIComponent(market.address)}&marketId=${encodeURIComponent(market.id)}&campaignIds=${encodeURIComponent(campaignIds.join(","))}${sessionParam}`,
         );
-      } catch {
+      } catch (error) {
         setIsLaunching(false);
-        setLaunchError("Marktbesuch konnte nicht vorbereitet werden. Bitte erneut versuchen.");
+        setLaunchError(error instanceof BackendApiError
+          ? `${error.message}${error.code ? ` (${error.code})` : ""}`
+          : "Marktbesuch konnte nicht vorbereitet werden. Bitte Verbindung prüfen und erneut versuchen.");
       }
     },
     [dayStarted, pauseActive, router],

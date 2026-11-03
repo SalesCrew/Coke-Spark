@@ -4986,8 +4986,14 @@ export function clearLatestActiveGmVisitHandoff(sessionId?: string): void {
   }
 }
 
-export async function fetchGmVisitSession(sessionId: string): Promise<GmVisitSessionReadPayload> {
-  return (await authedFetch(`/markets/gm/visit-sessions/${sessionId}`, { cache: "no-store" })) as GmVisitSessionReadPayload;
+export async function fetchGmVisitSession(sessionId: string, options?: { resumeQuarterAnswers?: boolean }): Promise<GmVisitSessionReadPayload> {
+  const path = `/markets/gm/visit-sessions/${sessionId}`;
+  const payload = (await authedFetch(path, { cache: "no-store" })) as GmVisitSessionReadPayload;
+  if (options?.resumeQuarterAnswers && payload.session.status === "draft") {
+    const result = (await authedFetch(`${path}/resume-quarter-answers`, { method: "POST" })) as { recoveredAnswers: number };
+    if (result.recoveredAnswers > 0) return (await authedFetch(path, { cache: "no-store" })) as GmVisitSessionReadPayload;
+  }
+  return payload;
 }
 
 export async function syncGmVisitSessionSpezialfragen(
@@ -5652,6 +5658,8 @@ type FragebogenWritePayload = {
   nurEinmalAusfuellbar?: boolean;
   spezialfragen?: Question[];
   createdAt?: string;
+  updatedAt?: string;
+  moduleRemovalConfirmed?: boolean;
 };
 
 const fragebogenModuleIdRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -5678,6 +5686,8 @@ function toFragebogenWritePayload(
     nurEinmalAusfuellbar: fragebogen.nurEinmalAusfuellbar ?? false,
     spezialfragen: fragebogen.spezialfragen ?? [],
     createdAt: fragebogen.createdAt,
+    updatedAt: fragebogen.updatedAt,
+    moduleRemovalConfirmed: fragebogen.moduleRemovalConfirmed,
   };
 }
 

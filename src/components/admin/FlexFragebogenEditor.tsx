@@ -7,6 +7,8 @@ import { typeBadgeColor, typeLabel } from "@/utils/fragebogen";
 import { SpezialfragenFragebogenField } from "@/components/admin/SpezialfragenFragebogenField";
 import { cloneQuestionForModuleInsert } from "@/utils/existingQuestionPicker";
 
+import { useAssignedModules } from "./useAssignedModules";
+
 // Lime green accent colours
 const G = "#84CC16";
 const GD = "#65a30d";
@@ -546,10 +548,8 @@ export function FlexFragebogenEditor({
   const [spezialfragen, setSpezialfragen] = useState(() =>
     (existingFragebogen?.spezialfragen ?? []).map(cloneQuestionForModuleInsert),
   );
-  const [selectedModules, setSelectedModules] = useState<Module[]>(() => {
-    if (!existingFragebogen) return [];
-    return existingFragebogen.moduleIds.map((id) => availableModules.find((m) => m.id === id)).filter((m): m is Module => !!m);
-  });
+  const { selectedModules, setSelectedModules, hasMissingModules } = useAssignedModules(existingFragebogen?.moduleIds ?? [], availableModules);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [moduleSearch, setModuleSearch] = useState("");
   const [expandedRowIds, setExpandedRowIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ moduleId: string; x: number; y: number } | null>(null);
@@ -590,12 +590,15 @@ export function FlexFragebogenEditor({
   };
 
   const handleSave = async () => {
-    if (isSaving) return;
+    if (isSaving || hasMissingModules) return;
+    setSaveError(null);
     const fb: Fragebogen = {
       id: existingFragebogen?.id ?? nextId(),
       name: name || "Unbenannter Fragebogen",
       description,
       moduleIds: selectedModules.map((m) => m.id),
+      updatedAt: existingFragebogen?.updatedAt,
+      moduleRemovalConfirmed: Boolean(existingFragebogen?.moduleIds.length && selectedModules.length === 0),
       markets: existingFragebogen?.markets ?? [],
       scheduleType: existingFragebogen?.scheduleType ?? "always",
       startDate: existingFragebogen?.startDate,
@@ -609,6 +612,8 @@ export function FlexFragebogenEditor({
     setIsSaving(true);
     try {
       await onSave(fb);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Fragebogen konnte nicht gespeichert werden.");
     } finally {
       setIsSaving(false);
     }
@@ -639,13 +644,18 @@ export function FlexFragebogenEditor({
           </span>
           <button
             onClick={() => { void handleSave(); }}
-            disabled={isSaving}
-            style={{ ...btnBase, padding: "7px 18px", fontSize: 11, ...btnActive, cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.8 : 1 }}
+            disabled={isSaving || hasMissingModules}
+            style={{ ...btnBase, padding: "7px 18px", fontSize: 11, ...btnActive, cursor: isSaving || hasMissingModules ? "not-allowed" : "pointer", opacity: isSaving || hasMissingModules ? 0.6 : 1 }}
           >
             {isSaving ? "Speichern..." : "Speichern"}
           </button>
         </div>
 
+        {(saveError || hasMissingModules) && (
+          <div role="alert" style={{ padding: "10px 20px", fontSize: 11, color: "#DC2626", background: "#FEF2F2" }}>
+            {saveError ?? "Zugeordnete Module sind noch nicht geladen. Bitte die Seite neu laden. Deine Zuordnung bleibt erhalten."}
+          </div>
+        )}
         {/* Body */}
         <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
           {/* Left sidebar — module library */}

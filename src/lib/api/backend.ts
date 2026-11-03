@@ -4990,8 +4990,10 @@ export async function fetchGmVisitSession(sessionId: string, options?: { resumeQ
   const path = `/markets/gm/visit-sessions/${sessionId}`;
   const payload = (await authedFetch(path, { cache: "no-store" })) as GmVisitSessionReadPayload;
   if (options?.resumeQuarterAnswers && payload.session.status === "draft") {
-    const result = (await authedFetch(`${path}/resume-quarter-answers`, { method: "POST" })) as { recoveredAnswers: number };
-    if (result.recoveredAnswers > 0) return (await authedFetch(path, { cache: "no-store" })) as GmVisitSessionReadPayload;
+    await authedFetch(`${path}/resume-quarter-answers`, { method: "POST" });
+    // Another resume may have recovered fields since our first read. Always
+    // hydrate after the write, even when this request reports zero insertions.
+    return (await authedFetch(path, { cache: "no-store" })) as GmVisitSessionReadPayload;
   }
   return payload;
 }

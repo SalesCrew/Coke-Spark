@@ -37,16 +37,44 @@ clean archives are reused. Whole-GM corrections affecting a mixed-budget market
 period are not apportioned: that dashboard view uses the regular-work calculation.
 The stored archives, personal IPP and corrections remain unchanged.
 
-Bonus amounts are whole GM/wave results. The dashboard keeps the entire GM/wave
-separate if it contains supplemental submitted work, including after conversion,
-or the GM is currently supplemental. This also applies to closed wave snapshots.
-The actual Prämien workspace, configuration and payouts are unchanged.
+Bonus amounts are whole GM/wave results. All bonus readers use the same regular-GM cohort,
+including administration, previews, employee summaries, cumulative totals, leaderboards,
+legacy scores, dashboard cards and statistical exports. A currently supplemental account
+is excluded even before it has a visit. A converted GM's entire wave remains separate when
+it contains a submitted supplemental snapshot. Closed snapshots and stored entries retain
+their original values. Only their reporting projection and displayed ranking are filtered.
+Stale/manual attempts to submit bonus values for an excluded GM are rejected. Legacy bulk
+score saves preserve excluded entries.
 
-Operational directories and exports include Zusatz-GMs. The dashboard export
-explicitly reloads inclusive datasets and bonus totals instead of exporting the
-screen's smaller cohort. Its metadata explains this difference. Availability
-export counts are checked against their included answer audit. The GM directory
-export adds the GM classification as a column.
+## Reporting correction of 5 November 2026
+
+The previous implementation excluded visit snapshots on the dashboard but left the
+bonus administration inclusive. Dashboard exports explicitly requested the inclusive
+cohort. Visits created before account classification could also have regular snapshots
+while their account was now marked Zusatz-GM.
+
+Reporting now requires both a regular visit snapshot and a currently regular GM
+account before selecting the latest answers, denominators, ownership or aggregates.
+Legacy dashboard inclusion flags cannot bypass this rule. Dashboard metadata, filters,
+availability audits and Excel output use the same scope. Shared markets still remain
+selectable.
+
+Admin IPP lists and drilldowns recompute mixed archived periods for reporting from
+eligible original answers. Clean archives remain usable. Stored archives and correction
+events retain their original values. Kurti's visit, answer, photo, campaign, IPP, bonus
+and work-time analytics use the regular reporting cohort. Work-time statistics exclude
+an entire day containing a supplemental visit, including after conversion, because a
+complete workday cannot be divided reliably between budgets.
+
+Operational directories, assignments, original visit/answer/photo records, timekeeping
+records and raw operational exports retain Zusatz-GMs. Their accounts continue to use
+the ordinary GM workflow. This distinction concerns reporting and bonus eligibility.
+
+The correction uses the existing classification and snapshot columns. It needs no new
+migration, backfill, deletion or changes to bonus rules/targets. Regression checks use
+synthetic PostgreSQL fixtures and the real HTTP routes, including forced legacy inclusion,
+read-only preview, cumulative and frozen rewards, stale edits, retained original snapshots,
+Kurti aggregates and a generated XLSX checked against the filtered dashboard.
 
 ## Migration and verification
 

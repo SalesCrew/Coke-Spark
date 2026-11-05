@@ -22,14 +22,13 @@ export async function exportRealGmDashboard(input: {
     )
   )
     throw new Error("Bitte warten, bis alle Dashboardkarten geladen sind.");
-  // Screen statistics exclude supplemental work. Exports deliberately request
-  // the original inclusive cohort instead of reusing the screen's aggregates.
+  // Fetch fresh data with the same reporting scope as the dashboard.
   const datasets = await Promise.all(input.datasets.map(async entry => ({
     ...entry,
     data: await requestGmDashboard<DashboardData>("/query", {
       intervals: entry.data.points.map(({ id, label, shortLabel, start, end }) => ({ id, label, shortLabel, start, end })),
       scope: entry.data.scope,
-      includeSupplementalGms: true,
+      includeSupplementalGms: false,
       includeAvailabilityAudit: entry.title === "Fuellstand",
     }),
   })));
@@ -44,7 +43,7 @@ export async function exportRealGmDashboard(input: {
         point.availability[type][category as "top" | "mediocre" | "bad" | "total"] !== audited.availability[type][category as "top" | "mediocre" | "bad" | "total"]);
     })) throw new Error("Verfügbarkeitsdaten sind nicht konsistent. Bitte das Dashboard aktualisieren und erneut exportieren.");
   }
-  const inclusiveBonus = input.bonus ? await requestPraemienWorkspace<Workspace>(`/waves/${encodeURIComponent(input.bonus.wave.id)}?includeSupplementalGms=true`) : null;
+  const reportBonus = input.bonus ? await requestPraemienWorkspace<Workspace>(`/waves/${encodeURIComponent(input.bonus.wave.id)}`) : null;
   await buildAndDownloadWorkbook({
     filename: `CokeSpark_GM_Dashboard_${new Date().toISOString().slice(0, 10)}.xlsx`,
     build: ({ XLSX, wb }) => {
@@ -52,7 +51,7 @@ export async function exportRealGmDashboard(input: {
         { label: "Export", value: "GM Dashboard – Echtdaten" },
         { label: "Erstellt von", value: input.exportedBy },
         { label: "Zeitzone", value: "Europe/Vienna" },
-        { label: "GM-Zuordnung", value: "Inklusive Zusatz-GMs (separates Budget); Bildschirmstatistiken ohne Zusatz-GM-Besuche." },
+        { label: "GM-Zuordnung", value: "Reguläre GMs; Zusatz-GMs und deren Besuche sind ausgeschlossen." },
         {
           label: "Regeln",
           value:
@@ -179,8 +178,8 @@ export async function exportRealGmDashboard(input: {
           });
         }
       }
-      if (inclusiveBonus) {
-        const bonus = inclusiveBonus;
+      if (reportBonus) {
+        const bonus = reportBonus;
         appendTableSheet(XLSX, wb, {
           name: "Boni",
           title: `${bonus.wave.name} – ${bonus.closedAt ? "Abgeschlossen" : bonus.wave.status === "draft" ? "Entwurf / Vorschau" : "Laufende Berechnung"}`,

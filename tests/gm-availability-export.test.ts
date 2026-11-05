@@ -171,7 +171,7 @@ test("HTTP → canonical answers → original chart formulas → FB export → f
   } finally { await f.pg.close(); }
 });
 
-test("dashboard export refreshes every inclusive dataset and refuses internally inconsistent audit counts before downloading", async () => {
+test("dashboard export refreshes every regular-GM reporting dataset and refuses internally inconsistent audit counts before downloading", async () => {
   // Execute the real export function with explicit client/download boundaries.
   // No production API module, auth, environment files or network is loaded.
   const availability = { Cooler: { top: 1, mediocre: 2, bad: 1, total: 4, average: 50 },
@@ -188,7 +188,7 @@ test("dashboard export refreshes every inclusive dataset and refuses internally 
   const calls: any[] = [];
   const module = await isolatedModule<{ exportRealGmDashboard: (input: { datasets: DashboardExport[] }) => Promise<void> }>(
     new URL("../src/lib/gm-dashboard/export.ts", import.meta.url), {
-      "@/lib/api/backend": { requestGmDashboard: async (path: string, body: any) => { assert.equal(path, "/query"); assert.equal(body.includeSupplementalGms, true); calls.push(body); return latest; } },
+      "@/lib/api/backend": { requestGmDashboard: async (path: string, body: any) => { assert.equal(path, "/query"); assert.equal(body.includeSupplementalGms, false); calls.push(body); return latest; } },
       "@/lib/exports/availabilityExport": { appendAvailabilityExportSheets },
       "@/lib/availability.shared": { summarizeAvailability },
       "./data": { availabilitySummary }, "./chain-groups": { chainGroupLabel: () => "REWE" },
@@ -198,7 +198,7 @@ test("dashboard export refreshes every inclusive dataset and refuses internally 
   const datasets = ["IPP", "Fuellstand", "Platzierungen", "Aktivitaet"].map(title => ({ title, data, selectedIntervalId: "kw38", highlightedType: "Cooler" as const }));
   await module.exportRealGmDashboard({ datasets }); assert.equal(downloads, 1);
   assert.equal(calls.length, 4); assert.equal(calls.filter(c => c.includeAvailabilityAudit).length, 1);
-  // The regular on-screen count differs legitimately from the inclusive export.
+  // A stale on-screen count is refreshed using the same regular-GM reporting scope.
   const regular = structuredClone(datasets);
   regular.forEach(entry => { entry.data.points[0]!.availability.Cooler.top = 0; });
   await module.exportRealGmDashboard({ datasets: regular }); assert.equal(downloads, 2);

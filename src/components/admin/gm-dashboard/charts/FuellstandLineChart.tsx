@@ -635,7 +635,7 @@ export function FuellstandLineChart({
                         activePoint.raw.typeScores[typeOption.key],
                       )
                         ? activePoint.raw.typeScores[typeOption.key].toFixed(
-                            1,
+                            0,
                           ) + "%"
                         : "—"}
                     </span>

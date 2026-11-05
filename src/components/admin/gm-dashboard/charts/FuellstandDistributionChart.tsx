@@ -583,7 +583,7 @@ export function FuellstandDistributionChart({
                 }}
               >
                 {Number.isFinite(hoveredPoint.raw.vollPct)
-                  ? hoveredPoint.raw.vollPct.toFixed(1) + "%"
+                  ? hoveredPoint.raw.vollPct.toFixed(0) + "%"
                   : "—"}
               </span>
             </div>
@@ -611,7 +611,7 @@ export function FuellstandDistributionChart({
                 }}
               >
                 {Number.isFinite(hoveredPoint.raw.mittelPct)
-                  ? hoveredPoint.raw.mittelPct.toFixed(1) + "%"
+                  ? hoveredPoint.raw.mittelPct.toFixed(0) + "%"
                   : "—"}
               </span>
             </div>
@@ -639,7 +639,7 @@ export function FuellstandDistributionChart({
                 }}
               >
                 {Number.isFinite(hoveredPoint.raw.leerPct)
-                  ? hoveredPoint.raw.leerPct.toFixed(1) + "%"
+                  ? hoveredPoint.raw.leerPct.toFixed(0) + "%"
                   : "—"}
               </span>
             </div>

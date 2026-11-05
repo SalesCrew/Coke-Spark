@@ -257,3 +257,12 @@
 @media (max-width: 1100px) { .fitSwitch button span { display: none; } .fitSwitch button { width: 26px; height: 25px; } .identityLine { gap: 8px; } .fileMeta > .draftNote { display: none; } .saveState { max-width: 115px; } }
 @media (prefers-reduced-motion: reduce) { .spinner, .skeletonRow { animation: none; } .workspace button, .workspace input, .workspace textarea, .confirm button { transition: none; } }
 @media (forced-colors: active) { .workspace button:focus-visible, .workspace input:focus-visible, .workspace textarea:focus-visible, .confirm button:focus-visible, .introduction summary:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; } }
+
+
+.actionTable { min-width: 960px; }
+.actionTable th:first-child { width: 33%; }
+.actionDate { color: #394354; font-size: 10.5px; line-height: 17px; font-weight: 550; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.missingDate { display: block; max-width: 150px; color: #9a8063; font-size: 10px; line-height: 15px; }
+.sectionHint { margin: -9px 0 15px; color: #8b929e; font-size: 10px; line-height: 16px; }
+.fieldHint { margin: 10px 0 0; color: #9299a4; font-size: 10px; line-height: 16px; }
+.historyAction { display: block; color: #677181; margin-bottom: 3px; }

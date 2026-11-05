@@ -7,14 +7,8 @@ import {
 } from "lucide-react";
 import type { GmBriefing } from "@/types/gmBriefings";
 import styles from "./action-briefings.module.css";
+import { actionPeriodLabel } from "@/lib/gm-briefing-dates";
 
-const date = (value: string) =>
-  new Intl.DateTimeFormat("de-AT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    timeZone: "Europe/Vienna",
-  }).format(new Date(`${value}T12:00:00Z`));
 export function ActionBriefingsPanel({
   items,
   loading,
@@ -69,8 +63,8 @@ export function ActionBriefingsPanel({
                 {!item.readAt && <span>Neu</span>}
               </div>
               <p className={styles.period}>
-                {date(item.visibleFrom)}
-                {item.visibleUntil ? ` – ${date(item.visibleUntil)}` : ""}
+                {item.actionFrom && item.actionUntil && <span>Aktion · </span>}
+                {actionPeriodLabel(item.actionFrom, item.actionUntil)}
               </p>
               <button
                 type="button"

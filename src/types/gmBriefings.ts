@@ -11,6 +11,8 @@ export type BriefingFile = {
   dimensions: { width: number; height: number }[];
 };
 export type BriefingPublication = {
+  actionFrom?: string | null;
+  actionUntil?: string | null;
   id: string;
   version: number;
   sourceDraftRevision: number;
@@ -19,6 +21,8 @@ export type BriefingPublication = {
   publishedAt: string;
 };
 export type BriefingDraft = {
+  actionFrom?: string | null;
+  actionUntil?: string | null;
   id: string;
   title: string;
   description: string;
@@ -31,6 +35,8 @@ export type BriefingDraft = {
   publications?: BriefingPublication[];
 };
 export type GmBriefing = {
+  actionFrom?: string | null;
+  actionUntil?: string | null;
   id: string;
   briefingId: string;
   version: number;

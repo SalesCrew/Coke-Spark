@@ -42,6 +42,7 @@ import {
 import { PdfPage, useBriefingPdf } from "@/components/gm/briefings/PdfPage";
 import type { BriefingDraft, BriefingPublication } from "@/types/gmBriefings";
 import styles from "./briefing-editor.module.css";
+import { actionPeriodLabel } from "@/lib/gm-briefing-dates";
 function date(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString("de-AT", {
     day: "2-digit",
@@ -123,6 +124,7 @@ export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" |
       description: value.description,
       visibleFrom: value.visibleFrom,
       visibleUntil: value.visibleUntil,
+      ...(actionBriefing ? { actionFrom: value.actionFrom ?? null, actionUntil: value.actionUntil ?? null } : {}),
       pages: value.pages,
     });
   const dirty = !!draft && signature(draft) !== savedSignature;
@@ -358,6 +360,7 @@ export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" |
         description: current.description,
         visibleFrom: current.visibleFrom,
         visibleUntil: current.visibleUntil,
+        ...(actionBriefing ? { actionFrom: current.actionFrom ?? null, actionUntil: current.actionUntil ?? null } : {}),
         pages: current.pages,
       },
       "PATCH",
@@ -380,12 +383,11 @@ export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" |
     unpublished =
       !!draft &&
       (dirty || published?.sourceDraftRevision !== draft.draftRevision);
-  const valid =
-    !!draft?.title.trim() &&
-    (!actionBriefing || (!!draft.visibleFrom && !!draft.visibleUntil)) &&
-    (!draft.visibleFrom ||
-      !draft.visibleUntil ||
-      draft.visibleUntil >= draft.visibleFrom);
+  const visibilityValid = !draft?.visibleFrom || !draft.visibleUntil || draft.visibleUntil >= draft.visibleFrom;
+  const actionDatesValid = !draft?.actionFrom || !draft.actionUntil || draft.actionUntil >= draft.actionFrom;
+  const draftValid = !!draft?.title.trim() && visibilityValid && (!actionBriefing || actionDatesValid);
+  const valid = draftValid && (!actionBriefing ||
+    (!!draft?.visibleFrom && !!draft.visibleUntil && !!draft.actionFrom && !!draft.actionUntil));
   function drop(event: DragEvent) {
     event.preventDefault();
     dropDepth.current = 0;
@@ -414,7 +416,7 @@ export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" |
     if (!draft) return;
     setConfirm({
       title: published ? "Neue Version veröffentlichen?" : "Für GMs veröffentlichen?",
-      text: `${draft.visibleFrom ? `Sichtbar ab ${date(draft.visibleFrom)}` : "Sofort sichtbar"}${draft.visibleUntil ? ` bis einschließlich ${date(draft.visibleUntil)}` : ", ohne Enddatum"}. ${published ? "GMs sehen ab dann diese Fassung und erhalten einen neuen Hinweis." : "Alle Gebietsmanager erhalten einen neuen Hinweis im Home-Menü."}`,
+      text: `${actionBriefing ? `Aktion: ${actionPeriodLabel(draft.actionFrom, draft.actionUntil)}. ` : ""}${draft.visibleFrom ? `Sichtbar ab ${date(draft.visibleFrom)}` : "Sofort sichtbar"}${draft.visibleUntil ? ` bis einschließlich ${date(draft.visibleUntil)}` : ", ohne Enddatum"}. ${published ? "GMs sehen ab dann diese Fassung und erhalten einen neuen Hinweis." : "Alle Gebietsmanager erhalten einen neuen Hinweis im Home-Menü."}`,
       label: published ? "Version veröffentlichen" : "Veröffentlichen",
       action: () => void act("Veröffentlicht …", async () => {
         const current = dirty ? await save(draft) : draft;
@@ -527,15 +529,18 @@ export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" |
             : error && !items.length ? <div className={styles.empty}><FileText size={25} strokeWidth={1.5} /><h3>Dokumente konnten nicht geladen werden</h3><p>Bitte versuche es erneut.</p></div>
             : filtered.length ? (
               <div className={styles.tableScroll}>
-                <table className={styles.table}>
-                  <thead><tr><th scope="col">Dokument</th><th scope="col">Status</th><th scope="col">Sichtbarkeit</th><th scope="col">Zuletzt veröffentlicht</th><th scope="col"><span className={styles.srOnly}>Öffnen</span></th></tr></thead>
+                <table className={`${styles.table} ${actionBriefing ? styles.actionTable : ""}`}>
+                  <thead><tr><th scope="col">Dokument</th>{actionBriefing && <th scope="col">Aktionszeitraum</th>}<th scope="col">Status</th><th scope="col">Sichtbarkeit</th><th scope="col">Zuletzt veröffentlicht</th><th scope="col"><span className={styles.srOnly}>Öffnen</span></th></tr></thead>
                   <tbody>{filtered.map((item) => {
                     const latest = item.publications?.[0];
+                    const period = latest ?? item;
+                    const hasActionDates = !!period.actionFrom && !!period.actionUntil;
                     return <tr key={item.id} className={styles.documentRow} aria-disabled={!!busy || undefined}>
                       <td><button type="button" id={`briefing-open-${item.id}`} className={styles.documentButton} disabled={!!busy} onClick={() => select(item)}>
                         <span className={styles.fileMark}><FileText size={17} strokeWidth={1.7} /></span>
                         <span className={styles.documentIdentity}><strong>{item.title}</strong><span title={item.file.name}>{item.file.name.replace(/\.pdf$/i, "") === item.title ? fileSummary(item) : `${item.file.name} · ${fileSummary(item)}`}</span></span>
                       </button></td>
+                      {actionBriefing && <td><span className={hasActionDates ? styles.actionDate : styles.missingDate}>{actionPeriodLabel(period.actionFrom, period.actionUntil)}</span></td>}
                       <td><Status item={item} />{latest && latest.sourceDraftRevision !== item.draftRevision && <span className={styles.draftNote}>Entwurf geändert</span>}</td>
                       <td><span className={styles.tableDate}>{visibility(latest ? latest.visibleFrom : item.visibleFrom, latest ? latest.visibleUntil : item.visibleUntil)}</span></td>
                       <td>{latest ? <><span className={styles.tableDate}>{new Intl.DateTimeFormat("de-AT", { timeZone: "Europe/Vienna", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(latest.publishedAt))}</span><span className={styles.versionNote}>Version {latest.version}</span></> : <span className={styles.muted}>—</span>}</td>
@@ -562,7 +567,7 @@ export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" |
               <div className={styles.fileMeta}><span title={draft.file.name}>{draft.file.name}</span><span>{fileSummary(draft)}</span>{published && unpublished && <span className={styles.draftNote}>Entwurf geändert</span>}</div>
             </div>
             <div className={styles.actions}>{saveFeedback}
-              <button type="button" className={styles.secondary} disabled={!update || !dirty || !!busy || !valid} onClick={() => void act("Speichert …", async () => { await save(draft); await load(); toast("Entwurf gespeichert"); })}>Speichern</button>
+              <button type="button" className={styles.secondary} disabled={!update || !dirty || !!busy || !draftValid} onClick={() => void act("Speichert …", async () => { await save(draft); await load(); toast("Entwurf gespeichert"); })}>Speichern</button>
               <button type="button" className={styles.primary} disabled={!write || (dirty && !update) || !!busy || !valid || !!draft.archivedAt || !unpublished} onClick={publish}>{published ? "Neue Version veröffentlichen" : "Veröffentlichen"}</button>
             </div>
           </header>
@@ -589,14 +594,25 @@ export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" |
                       <textarea id="briefing-introduction" value={draft.description} disabled={!update || !!busy} maxLength={2000} rows={3} onChange={(event) => change({ description: event.target.value })} placeholder="Kurze Einordnung für die GMs …" />
                     </details>}
                   </section>
+                  {actionBriefing && <section className={styles.formSection}>
+                    <h3>Aktionszeitraum</h3>
+                    <p className={styles.sectionHint}>Wann die Aktion stattfindet.</p>
+                    <fieldset disabled={!update || !!busy} className={styles.dateFields}>
+                      <div><span className={styles.fieldLabel}>Beginn</span><AdminDatePicker value={draft.actionFrom ?? ""} onChange={value => change({ actionFrom: value || null })} ariaLabel="Aktionsbeginn" {...(draft.actionUntil ? { maxDate: draft.actionUntil } : {})} /></div>
+                      <div><span className={styles.fieldLabel}>Ende</span><AdminDatePicker value={draft.actionUntil ?? ""} onChange={value => change({ actionUntil: value || null })} ariaLabel="Aktionsende einschließlich" {...(draft.actionFrom ? { minDate: draft.actionFrom } : {})} /></div>
+                    </fieldset>
+                    {!actionDatesValid && <p className={styles.fieldError}>Das Aktionsende muss am oder nach dem Beginn liegen.</p>}
+                    {(!draft.actionFrom || !draft.actionUntil) && <p className={styles.fieldHint}>Für die Veröffentlichung beide Daten ergänzen.</p>}
+                  </section>}
                   <section className={styles.formSection}>
                     <h3>Sichtbarkeit</h3>
+                    {actionBriefing && <p className={styles.sectionHint}>Wann das Briefing im GM-Menü erscheint.</p>}
                     <fieldset disabled={!update || !!busy} className={styles.dateFields}>
                       <div><span className={styles.fieldLabel}>Von</span><AdminDatePicker value={draft.visibleFrom ?? ""} onChange={(value) => change({ visibleFrom: value || null })} ariaLabel="Sichtbar ab" {...(draft.visibleUntil ? { maxDate: draft.visibleUntil } : {})} /><button type="button" className={styles.dateShortcut} onClick={() => change({ visibleFrom: actionBriefing ? today : null })}>{actionBriefing ? "Heute" : "Ab sofort"}{(actionBriefing ? draft.visibleFrom === today : !draft.visibleFrom) && <Check size={11} />}</button></div>
                       <div><span className={styles.fieldLabel}>Bis</span><AdminDatePicker value={draft.visibleUntil ?? ""} onChange={(value) => change({ visibleUntil: value || null })} ariaLabel="Sichtbar bis einschließlich" {...(draft.visibleFrom ? { minDate: draft.visibleFrom } : {})} />{!actionBriefing && <button type="button" className={styles.dateShortcut} onClick={() => change({ visibleUntil: null })}>Ohne Ende{!draft.visibleUntil && <Check size={11} />}</button>}</div>
                     </fieldset>
                     <div className={styles.visibilitySummary}><CalendarDays size={13} /><span>{visibility(draft.visibleFrom, draft.visibleUntil)}</span></div>
-                    {!valid && !!draft.title.trim() && <p className={styles.fieldError}>{actionBriefing && (!draft.visibleFrom || !draft.visibleUntil) ? "Bitte Beginn und Ende festlegen." : "Das Ende muss nach dem Beginn liegen."}</p>}
+                    {(!visibilityValid || actionBriefing && (!draft.visibleFrom || !draft.visibleUntil)) && !!draft.title.trim() && <p className={styles.fieldError}>{actionBriefing && (!draft.visibleFrom || !draft.visibleUntil) ? "Bitte Beginn und Ende festlegen." : "Das Ende muss nach dem Beginn liegen."}</p>}
                   </section>
                 </div> : <div role="tabpanel" id="briefing-settings-page" aria-labelledby="briefing-tab-page" className={styles.settingsPanel}>
                   <section className={styles.formSection}>
@@ -608,7 +624,7 @@ export function BriefingWorkspace({ channel = "weekly" }: { channel?: "weekly" |
                 <div className={styles.documentTools}>
                   {published && <>
                     <button type="button" className={styles.historyToggle} aria-expanded={history} onClick={() => setHistory((value) => !value)}><History size={13} /><span>Veröffentlichungen</span><span className={styles.historyCount}>{draft.publications?.length}</span><ChevronDown size={12} style={{ transform: history ? "rotate(180deg)" : undefined }} /></button>
-                    {history && <div className={styles.history}>{draft.publications?.map((publication) => <div key={publication.id}><strong>Version {publication.version}</strong><span>{visibility(publication.visibleFrom, publication.visibleUntil)}</span></div>)}</div>}
+                    {history && <div className={styles.history}>{draft.publications?.map((publication) => <div key={publication.id}><strong>Version {publication.version}</strong><span>{actionBriefing && <span className={styles.historyAction}>Aktion · {actionPeriodLabel(publication.actionFrom, publication.actionUntil)}</span>}{actionBriefing ? "Sichtbar · " : ""}{visibility(publication.visibleFrom, publication.visibleUntil)}</span></div>)}</div>}
                   </>}
                   <button type="button" className={styles.archiveButton} disabled={!update || !!busy || dirty} title={dirty ? "Bitte zuerst den Entwurf speichern" : undefined} onClick={archive}>{draft.archivedAt ? <RotateCcw size={13} /> : <Archive size={13} />}{draft.archivedAt ? "Wiederherstellen" : "Archivieren"}</button>
                 </div>

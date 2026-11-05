@@ -12,6 +12,7 @@ import { getAuthPrincipalKey, readAuthSession, requestGmBriefings } from "@/lib/
 import type { GmBriefing } from "@/types/gmBriefings";
 import { PdfPage, PdfRecoveryActions, useBriefingPdf } from "./PdfPage";
 import styles from "./briefings.module.css";
+import { actionPeriodLabel } from "@/lib/gm-briefing-dates";
 
 type Origin = { left: number; top: number; width: number; height: number };
 export function GmBriefingReader({
@@ -282,9 +283,11 @@ export function GmBriefingReader({
             </h2>
             <p>
               {contextLabel}
-              {selected?.visibleUntil
-                ? ` · bis ${new Date(`${selected.visibleUntil}T12:00:00`).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit" })}`
-                : ""}
+              {basePath === "/gm/action-briefings"
+                ? ` · ${actionPeriodLabel(selected?.actionFrom, selected?.actionUntil)}`
+                : selected?.visibleUntil
+                  ? ` · bis ${new Date(`${selected.visibleUntil}T12:00:00`).toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit" })}`
+                  : ""}
             </p>
           </div>
           {items.length > 1 && (

@@ -4,8 +4,14 @@ import { createRequire } from "node:module";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-const web = "http://127.0.0.1:3038",
-  api = "http://127.0.0.1:4038";
+const web = process.env.ACTION_BRIEFING_WEB_ORIGIN ?? "http://127.0.0.1:3038",
+  api = process.env.ACTION_BRIEFING_API_ORIGIN ?? "http://127.0.0.1:4038";
+for (const origin of [web, api]) {
+  const url = new URL(origin);
+  assert.equal(url.protocol, "http:");
+  assert.ok(["127.0.0.1", "localhost"].includes(url.hostname));
+  assert.ok(url.port && !["3000", "4000"].includes(url.port), "Use an independent synthetic preview");
+}
 const identity = await fetch(`${api}/__synthetic/identity`).then((r) =>
   r.json(),
 );
@@ -28,7 +34,8 @@ const browser = await engines[engine].launch({
         ]
       : [],
 });
-const artifacts = await mkdtemp(path.join(tmpdir(), "coke-action-briefings-"));
+const artifacts = process.env.ACTION_BRIEFING_ARTIFACT_DIR ?? await mkdtemp(path.join(tmpdir(), "coke-action-briefings-"));
+await (await import("node:fs/promises")).mkdir(artifacts, { recursive: true });
 const errors = [],
   external = [];
 const name = `Aktionsbriefing · Prüfung ${Date.now()}`;
@@ -112,6 +119,29 @@ try {
     .getByRole("dialog", { name: "Sichtbar bis einschließlich auswählen" })
     .getByRole("button", { name: dateLabel, exact: true })
     .click();
+  assert(await admin.getByRole("button", { name: "Veröffentlichen", exact: true }).isDisabled());
+  const actionStart = new Date(identity.today + "T12:00:00Z");
+  actionStart.setUTCDate(actionStart.getUTCDate() + 7);
+  const actionEnd = new Date(actionStart);
+  actionEnd.setUTCDate(actionEnd.getUTCDate() + 7);
+  async function chooseDate(label, value) {
+    await admin.getByRole("button", { name: label, exact: true }).click();
+    const dialog = admin.getByRole("dialog", { name: label + " auswählen" });
+    const name = new Intl.DateTimeFormat("de-AT", {
+      weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "Europe/Vienna",
+    }).format(value);
+    for (let count = 0; count < 4; count++) {
+      const day = dialog.getByRole("button", { name, exact: true });
+      if (await day.count() && await day.isEnabled()) {
+        await day.click();
+        return;
+      }
+      await dialog.getByRole("button", { name: "Nächster Monat", exact: true }).click();
+    }
+    assert.fail("Action date not found in custom calendar");
+  }
+  await chooseDate("Aktionsbeginn", actionStart);
+  await chooseDate("Aktionsende einschließlich", actionEnd);
   await admin.locator("canvas").first().waitFor();
   await admin.screenshot({ path: path.join(artifacts, "admin-editor.png") });
   await admin
@@ -124,8 +154,12 @@ try {
   await until(async () =>
     (await inbox()).items.some((item) => item.title === name),
   );
+  const published = (await inbox()).items.find(item => item.title === name);
+  assert.equal(published.visibleFrom, identity.today);
+  assert.equal(published.actionFrom, actionStart.toISOString().slice(0, 10));
+  assert.equal(published.actionUntil, actionEnd.toISOString().slice(0, 10));
   console.log(
-    "PASS admin: upload → name → required custom dates → PDF preview → publish",
+    "PASS admin: upload → name → independent visibility/action dates → PDF preview → publish",
   );
   const gm = await login({ width: 1024, height: 768 }, "gm");
   let panel = await openPanel(gm);

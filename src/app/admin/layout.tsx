@@ -831,8 +831,8 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : pathname === "/admin/fragebogen" ? "admin:fragebogen:export"
     : null;
   const showHeaderExcelExport = Boolean(exportEventName) && !isFbNeu && !isFbExtend;
-  const headerExportLabel = isFotoarchiv || isSmFotoarchiv ? "Foto Export" : isSMDurcharbeit ? "Fragenkatalog exportieren" : "Excel Export";
-  const HeaderExportIcon = isFotoarchiv || isSmFotoarchiv ? Download : FileSpreadsheet;
+  const headerExportLabel = isGmDashboard ? "Exportieren" : isFotoarchiv || isSmFotoarchiv ? "Foto Export" : isSMDurcharbeit ? "Fragenkatalog exportieren" : "Excel Export";
+  const HeaderExportIcon = isGmDashboard || isFotoarchiv || isSmFotoarchiv ? Download : FileSpreadsheet;
   const headerSecondaryButtonStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",

@@ -996,6 +996,9 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
   ownerGuard ??= automaticOwnerGuard ?? undefined;
 
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (init.signal?.aborted) abortFromCaller();
+  else init.signal?.addEventListener("abort", abortFromCaller, { once: true });
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const startedAtMs = Date.now();
   const method = String(init.method ?? "GET").toUpperCase();
@@ -1106,6 +1109,7 @@ async function authedFetch(path: string, init: RequestInit = {}, timeoutMs = 300
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    init.signal?.removeEventListener("abort", abortFromCaller);
     automaticOwnerGuard?.dispose();
   }
 }
@@ -2612,8 +2616,8 @@ export async function requestPraemienWorkspace<T>(path: string, body?: unknown, 
   return await authedFetch(`/admin/praemien/workspace${path}`, body === undefined ? undefined : { method, body: JSON.stringify(body) }) as T;
 }
 
-export async function requestGmDashboard<T>(path: string, body?: unknown): Promise<T> {
-  return await authedFetch(`/admin/gm-dashboard${path}`,body===undefined?undefined:{method:'POST',body:JSON.stringify(body)}) as T;
+export async function requestGmDashboard<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return await authedFetch(`/admin/gm-dashboard${path}`, { ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }), ...(signal ? { signal } : {}) }) as T;
 }
 
 export async function discardSmVisit(assignmentId: string): Promise<{ ok: true; assignmentId: string; status: "planned" | "confirmed" | "open" }> {

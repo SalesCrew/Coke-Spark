@@ -1,0 +1,15 @@
+{
+  "sourceSha256": {
+    "availability": "567b2e381db7172dbe8b4c9fcee97632d78646410481553960ef2fb6c648fc2e",
+    "competitor": "249c9cdf9f6ed4b5ddb72ec0ec0fed23f3ac55a000e186aa6fa724c705a65fdf"
+  },
+  "canvasPoints": [
+    960,
+    540
+  ],
+  "fonts": [
+    "Calibri",
+    "Arial"
+  ],
+  "artworkOnly": true
+}

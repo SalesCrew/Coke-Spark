@@ -11,10 +11,13 @@ import type { Workspace } from "@/types/praemien-workspace";
 import { BonusOverviewCard } from "@/components/admin/gm-dashboard/BonusOverviewCard";
 import { readAuthSession } from "@/lib/api/backend";
 import { exportRealGmDashboard } from "@/lib/gm-dashboard/export";
+import { GmReportExportDialog } from "@/components/admin/gm-dashboard/GmReportExportDialog";
 import { useAdminAccess } from "@/context/AdminAccessContext";
 
 export default function GmDashboardPage() {
   const { isAdmin } = useAdminAccess();
+  const [exportOpen, setExportOpen] = useState(false);
+  const [reportDatasets, setReportDatasets] = useState<DashboardExport[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const prepareExport = useRef<(() => Promise<void>) | null>(null);
@@ -23,6 +26,7 @@ export default function GmDashboardPage() {
   const register = useCallback((key: string, value: DashboardExport | null) => {
     if (value) datasets.current.set(key, value);
     else datasets.current.delete(key);
+    setReportDatasets([...datasets.current.values()]);
   }, []);
   const bonusSnapshot = useCallback((value: Workspace | null) => {
     bonus.current = value;
@@ -45,6 +49,7 @@ export default function GmDashboardPage() {
           ? error.message
           : "Export konnte nicht erstellt werden.",
       );
+      throw error;
     } finally {
       setIsExporting(false);
     }
@@ -52,15 +57,16 @@ export default function GmDashboardPage() {
 
   useEffect(() => {
     const handler = () => {
-      void handleExport();
+      setExportOpen(true);
     };
     window.addEventListener("admin:gm-dashboard:export", handler);
     return () =>
       window.removeEventListener("admin:gm-dashboard:export", handler);
-  }, [handleExport]);
+  }, []);
 
   return (
     <RealDashboardProvider register={register} prepareExportRef={prepareExport} needsBonus={isAdmin}>
+      {exportOpen && <GmReportExportDialog datasets={reportDatasets} onClose={() => setExportOpen(false)} onExcel={handleExport} />}
       <div
         style={{
           minHeight: "68vh",

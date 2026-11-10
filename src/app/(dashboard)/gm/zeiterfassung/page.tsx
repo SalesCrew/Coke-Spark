@@ -20,6 +20,7 @@ import {
 import { GmHomeMenu } from "@/components/gm/GmHomeMenu";
 import { GM_MENU_ITEMS } from "@/components/dashboard/gmMenuItems";
 import Aurora from "@/components/ui/Aurora";
+import { SpecialAssignmentPhotos } from "@/components/dashboard/SpecialAssignmentPhotos";
 import { DoctorConfirmationProofButton } from "@/components/dashboard/DoctorConfirmationProofButton";
 import {
   fetchGmZeiterfassung,
@@ -43,6 +44,7 @@ type SegmentKind = "anfahrt" | "marktbesuch" | "fahrtzeit" | "zusatzzeit" | "pau
 type GmZeitSegment = {
   id: string;
   kind: SegmentKind;
+  subtype?: string;
   start: string;
   end: string;
   durationMin: number;
@@ -310,6 +312,7 @@ function mapTimelineSegment(segment: AdminZeiterfassungTimelineSegment): GmZeitS
   return {
     id: segment.id,
     kind: segment.kind,
+    subtype: segment.subtype,
     start: segment.start,
     end: segment.end,
     durationMin: segment.durationMin,
@@ -826,6 +829,7 @@ function GmZeitTimelineRow({ segment, first, last, onRequestChange, onDoctorConf
       </div>
       <div style={{ padding: "9px 0", textAlign: "right", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
+          {segment.kind === "zusatzzeit" && segment.subtype === "sonderaufgabe" && <SpecialAssignmentPhotos groupKey={segment.id} entryId={segment.id} compact />}
           <DoctorConfirmationProofButton
             entryId={segment.id}
             doctorConfirmation={segment.doctorConfirmation}

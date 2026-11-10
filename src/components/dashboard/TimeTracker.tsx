@@ -1,5 +1,6 @@
 "use client";
 
+import { SpecialAssignmentPhotos } from "./SpecialAssignmentPhotos";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Car, Check, PencilLine } from "lucide-react";
 import {
@@ -2080,7 +2081,10 @@ export function TimeTracker({ daySessionPayload, daySessionLoading = false, onPa
                       <span style={{ width: 60, fontSize: 9, color: "rgba(0,0,0,0.42)", fontWeight: 700, letterSpacing: "0.01em", textTransform: "uppercase", flexShrink: 0 }}>{feedKindLabel(item)}</span>
                       <span style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{feedTitle(item)}</span>
                     </div>
-                    <span style={{ fontSize: 10, color: "#ef4444", fontWeight: 600, letterSpacing: "0.02em", marginLeft: 8 }}>{feedTimeText(item)}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
+                      {isTimelineFeedItem(item) && item.subtype === "sonderaufgabe" && <SpecialAssignmentPhotos groupKey={item.id} entryId={item.id} compact />}
+                      <span style={{ fontSize: 10, color: "#ef4444", fontWeight: 600, letterSpacing: "0.02em", marginLeft: 8 }}>{feedTimeText(item)}</span>
+                    </div>
                   </div>
                 )) : (
                   <div

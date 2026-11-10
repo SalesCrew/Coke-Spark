@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  fetchTimeTrackingPhotos,
   fetchActiveGmVisitSession,
   fetchCurrentDaySession,
   fetchActiveTimeTrackingDrafts,
@@ -54,6 +55,8 @@ import { getMarketChainLabel } from "@/lib/marketDisplay";
 import { ActiveFragebogenBlockModal } from "./ActiveFragebogenBlockModal";
 import { DashboardGateOverlay } from "./DashboardLockOverlay";
 import { GmSkeletonMarketRows } from "./GmDashboardSkeleton";
+import { SpecialAssignmentPhotos } from "./SpecialAssignmentPhotos";
+import { bindPhotoDraft, flushSpecialAssignmentPhotos, readPhotoDraftBinding, specialAssignmentDraftKey } from "@/lib/gm/specialAssignmentPhotoDraft";
 import type { MarketRecord } from "@/types/markets";
 
 const TODAY_SUBMISSIONS_UPDATED_EVENT = "gm:today-submissions-updated";
@@ -481,7 +484,7 @@ interface AccordionRowProps {
   onToggle: () => void;
   isLast: boolean;
   onRequestClock: (target: "von" | "bis", onSelect: (h: number, m: number) => void) => void;
-  onManualSave: (input: { activityType: ZusatzActivityKey; fromHm: string; toHm: string; comment?: string; doctorConfirmationFile?: File | null }) => Promise<void>;
+  onManualSave: (input: { activityType: ZusatzActivityKey; fromHm: string; toHm: string; comment?: string; photoGroupKey?: string; doctorConfirmationFile?: File | null }) => Promise<void>;
   dayStarted: boolean;
   dayStartedAt?: string | null;
   initialDraft?: TimeTrackingEntry | null;
@@ -530,6 +533,9 @@ function AccordionRow({
   const [manualComment, setManualComment] = useState("");
   const [doctorConfirmationFile, setDoctorConfirmationFile] = useState<File | null>(null);
   const [doctorConfirmationError, setDoctorConfirmationError] = useState<string | null>(null);
+  const [photoGroupKey, setPhotoGroupKey] = useState(() => typeof window === "undefined" || activity.key !== "sonderaufgabe" ? "" : specialAssignmentDraftKey("live"));
+  const [photosBusy, setPhotosBusy] = useState(false);
+  const supportsPhotos = activity.key === "sonderaufgabe";
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualSaved, setManualSaved] = useState(false);
@@ -540,6 +546,7 @@ function AccordionRow({
     minimumHm: string;
     error: string | null;
   } | null>(null);
+  const hydratedPhotoDraftRef = useRef<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentH, setContentH] = useState(0);
 
@@ -602,6 +609,8 @@ function AccordionRow({
   useEffect(() => {
     if (isManualOnly) return;
     if (!initialDraft || initialDraft.status !== "draft") return;
+    const keepComment = supportsPhotos && hydratedPhotoDraftRef.current === initialDraft.id;
+    hydratedPhotoDraftRef.current = initialDraft.id;
     setMode("live");
     setActiveDraftId(initialDraft.id);
     const hasEnd = Boolean(initialDraft.endAt);
@@ -613,8 +622,7 @@ function AccordionRow({
       const startMs = initialDraft.startAt ? new Date(initialDraft.startAt).getTime() : Date.now();
       const endMs = initialDraft.endAt ? new Date(initialDraft.endAt).getTime() : Date.now();
       setSeconds(Math.max(0, Math.floor((endMs - startMs) / 1000)));
-      setLiveComment(initialDraft.comment ?? "");
-      setLiveCommentDraft(initialDraft.comment ?? "");
+      if (!keepComment) { setLiveComment(initialDraft.comment ?? ""); setLiveCommentDraft(initialDraft.comment ?? ""); }
       return;
     }
     const startMs = initialDraft.startAt ? new Date(initialDraft.startAt).getTime() : Date.now();
@@ -623,9 +631,8 @@ function AccordionRow({
     setPaused(false);
     setAwaitingLiveDecision(false);
     setLiveStoppedAtIso(null);
-    setLiveComment(initialDraft.comment ?? "");
-    setLiveCommentDraft(initialDraft.comment ?? "");
-  }, [initialDraft, isManualOnly]);
+    if (!keepComment) { setLiveComment(initialDraft.comment ?? ""); setLiveCommentDraft(initialDraft.comment ?? ""); }
+  }, [initialDraft, isManualOnly, supportsPhotos]);
 
   useEffect(() => {
     if (!onRunningLockChange || isManualOnly || activity.key === "pause") return;
@@ -682,6 +689,7 @@ function AccordionRow({
   }
 
   async function handleManualSave() {
+    if (photosBusy) return;
     if (manualSaving) return;
     if (!isValidHm(vonVal) || !isValidHm(bisVal)) {
       setManualError("Bitte gültige Zeiten im Format HH:MM eingeben.");
@@ -704,11 +712,13 @@ function AccordionRow({
         toHm: bisVal,
         comment: supportsComment ? manualComment.trim() : undefined,
         doctorConfirmationFile: supportsDoctorConfirmation ? doctorConfirmationFile : null,
+        photoGroupKey: supportsPhotos ? photoGroupKey : undefined,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
       }
       setManualSaved(true);
+      if (supportsPhotos) setPhotoGroupKey(specialAssignmentDraftKey("live", true));
       setVonVal("");
       setBisVal("");
       setManualComment("");
@@ -756,11 +766,13 @@ function AccordionRow({
         toHm: nextTo,
         comment: supportsComment ? manualComment.trim() : undefined,
         doctorConfirmationFile: supportsDoctorConfirmation ? doctorConfirmationFile : null,
+        photoGroupKey: supportsPhotos ? photoGroupKey : undefined,
       });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
       }
       setManualSaved(true);
+      if (supportsPhotos) setPhotoGroupKey(specialAssignmentDraftKey("live", true));
       setVonVal("");
       setBisVal("");
       setManualComment("");
@@ -776,7 +788,7 @@ function AccordionRow({
 
   async function handleLiveStart() {
     if (isManualOnly || activity.key === "pause") return;
-    if (isPersistingLive || running || awaitingLiveDecision) return;
+    if (isPersistingLive || photosBusy || running || awaitingLiveDecision) return;
     if (!dayStarted) {
       setLiveError("Bitte zuerst den Arbeitstag starten.");
       return;
@@ -791,6 +803,7 @@ function AccordionRow({
         startAt: now.toISOString(),
         clientEntryToken: token,
       });
+      if (supportsPhotos) { bindPhotoDraft(photoGroupKey, started.entry.id); hydratedPhotoDraftRef.current = started.entry.id; }
       setActiveDraftId(started.entry.id);
       setRunning(true);
       setPaused(false);
@@ -874,7 +887,9 @@ function AccordionRow({
     setIsPersistingLive(true);
     setLiveError(null);
     try {
-      if (options?.updateEndToNow) {
+      if (photosBusy) throw new Error("Bitte zuerst den Foto-Upload abschließen.");
+      const alreadySubmitted = supportsPhotos && (await fetchTimeTrackingPhotos(activeDraftId)).entry.status === "submitted";
+      if (!alreadySubmitted && options?.updateEndToNow) {
         const nowIso = new Date().toISOString();
         const result = await endTimeTrackingDraft(activeDraftId, { endAt: nowIso });
         setLiveStoppedAtIso(result.entry.endAt ?? nowIso);
@@ -886,18 +901,20 @@ function AccordionRow({
           }
         }
       }
+      if (supportsPhotos) await flushSpecialAssignmentPhotos(photoGroupKey, activeDraftId);
       const trimmedComment = comment.trim();
-      if (trimmedComment.length > 0) {
+      if (!alreadySubmitted && trimmedComment.length > 0) {
         await commentTimeTrackingDraft(activeDraftId, { comment: trimmedComment });
       }
       if (supportsDoctorConfirmation && doctorConfirmationFile) {
         await uploadTimeTrackingDoctorConfirmation(activeDraftId, doctorConfirmationFile);
       }
-      await submitTimeTrackingEntry(activeDraftId);
+      if (!alreadySubmitted) await submitTimeTrackingEntry(activeDraftId);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
       }
       setActiveDraftId(null);
+      if (supportsPhotos) setPhotoGroupKey(specialAssignmentDraftKey("live", true));
       setAwaitingLiveDecision(false);
       setLiveStoppedAtIso(null);
       setStaleStopConfirmation(null);
@@ -943,6 +960,7 @@ function AccordionRow({
         window.dispatchEvent(new Event(TODAY_SUBMISSIONS_UPDATED_EVENT));
       }
       setActiveDraftId(null);
+      if (supportsPhotos) setPhotoGroupKey(specialAssignmentDraftKey("live", true));
       setAwaitingLiveDecision(false);
       setLiveStoppedAtIso(null);
       setStaleStopConfirmation(null);
@@ -961,7 +979,7 @@ function AccordionRow({
   }
 
   return (
-    <div>
+    <div data-activity={activity.key}>
       <div
         onClick={() => {
           if (running) return;
@@ -1085,7 +1103,7 @@ function AccordionRow({
                       <DoctorConfirmationUploadField
                         file={doctorConfirmationFile}
                         error={doctorConfirmationError}
-                        disabled={isPersistingLive}
+                        disabled={isPersistingLive || (supportsPhotos && photosBusy)}
                         onFileChange={handleDoctorConfirmationFile}
                       />
                     )}
@@ -1095,7 +1113,7 @@ function AccordionRow({
                           e.stopPropagation();
                           void handleLiveCancel();
                         }}
-                        disabled={isPersistingLive}
+                        disabled={isPersistingLive || (supportsPhotos && photosBusy)}
                         style={{
                           flex: 1,
                           padding: "4px 0",
@@ -1119,7 +1137,7 @@ function AccordionRow({
                           setLiveCommentDraft(liveComment);
                           setIsLiveCommentOpen(true);
                         }}
-                        disabled={isPersistingLive}
+                        disabled={isPersistingLive || (supportsPhotos && photosBusy)}
                         style={{
                           flex: 1,
                           padding: "4px 0",
@@ -1147,7 +1165,7 @@ function AccordionRow({
                       e.stopPropagation();
                       void handleLiveStart();
                     }}
-                    disabled={isPersistingLive}
+                    disabled={isPersistingLive || (supportsPhotos && photosBusy)}
                     style={{
                       flex: 1,
                       padding: "4px 0",
@@ -1168,6 +1186,7 @@ function AccordionRow({
                   </button>
                 )}
               </div>
+              {supportsPhotos && !isLiveCommentOpen && <SpecialAssignmentPhotos groupKey={photoGroupKey} entryId={activeDraftId ?? undefined} onBusyChange={setPhotosBusy} disabled={isPersistingLive || (supportsPhotos && photosBusy)} />}
               {liveError && (
                 <div style={{ marginTop: 6, fontSize: 9, color: "#b91c1c", fontWeight: 600 }}>
                   {liveError}
@@ -1290,17 +1309,18 @@ function AccordionRow({
                 <DoctorConfirmationUploadField
                   file={doctorConfirmationFile}
                   error={doctorConfirmationError}
-                  disabled={manualSaving}
+                  disabled={manualSaving || photosBusy}
                   onFileChange={handleDoctorConfirmationFile}
                 />
               )}
 
+              {supportsPhotos && <SpecialAssignmentPhotos groupKey={photoGroupKey} onBusyChange={setPhotosBusy} disabled={manualSaving} />}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   void handleManualSave();
                 }}
-                disabled={manualSaving}
+                disabled={manualSaving || photosBusy}
                 style={{
                   marginTop: 8,
                   width: "100%",
@@ -1502,7 +1522,7 @@ function AccordionRow({
                 </button>
                 <button
                   onClick={() => void handleManualConflictSave()}
-                  disabled={manualSaving}
+                  disabled={manualSaving || photosBusy}
                   style={{
                     flex: 1.35,
                     height: 36,
@@ -1653,7 +1673,7 @@ function AccordionRow({
               >
                 <button
                   onClick={() => setStaleStopConfirmation(null)}
-                  disabled={isPersistingLive}
+                  disabled={isPersistingLive || (supportsPhotos && photosBusy)}
                   style={{
                     height: 36,
                     borderRadius: 10,
@@ -1669,7 +1689,7 @@ function AccordionRow({
                 </button>
                 <button
                   onClick={() => void handleStaleStopConfirm(false)}
-                  disabled={isPersistingLive}
+                  disabled={isPersistingLive || (supportsPhotos && photosBusy)}
                   style={{
                     height: 36,
                     borderRadius: 10,
@@ -1686,7 +1706,7 @@ function AccordionRow({
                 </button>
                 <button
                   onClick={() => void handleStaleStopConfirm(true)}
-                  disabled={isPersistingLive}
+                  disabled={isPersistingLive || (supportsPhotos && photosBusy)}
                   style={{
                     height: 36,
                     borderRadius: 10,
@@ -1713,7 +1733,10 @@ function AccordionRow({
         typeof document !== "undefined" &&
         createPortal(
           <div
-            onClick={() => setIsLiveCommentOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label={supportsPhotos ? "Sondereinsatz abschließen" : "Kommentar"}
+            onClick={() => { if (supportsPhotos) setLiveComment(liveCommentDraft); setIsLiveCommentOpen(false); }}
             style={{
               position: "fixed",
               inset: 0,
@@ -1740,7 +1763,7 @@ function AccordionRow({
             >
               <div style={{ padding: "12px 16px 10px", backgroundColor: "rgba(0,0,0,0.03)", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
                 <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(0,0,0,0.28)" }}>
-                  Kommentar
+                  {supportsPhotos ? "Sondereinsatz abschließen" : "Kommentar"}
                 </div>
               </div>
               <div style={{ padding: "12px 16px", backgroundColor: "#fff" }}>
@@ -1762,13 +1785,15 @@ function AccordionRow({
                     fontFamily: "inherit",
                   }}
                 />
+                {supportsPhotos && <SpecialAssignmentPhotos groupKey={photoGroupKey} entryId={activeDraftId ?? undefined} onBusyChange={setPhotosBusy} />}
               </div>
               <div style={{ padding: "10px", display: "flex", alignItems: "center", gap: 7, backgroundColor: "rgba(0,0,0,0.03)", borderTop: "1px solid rgba(0,0,0,0.05)" }}>
                 <button
                   onClick={() => {
+                  if (supportsPhotos) { setLiveComment(liveCommentDraft); setIsLiveCommentOpen(false); return; }
                   setLiveComment("");
                   setLiveCommentDraft("");
-                    setIsLiveCommentOpen(false);
+                  setIsLiveCommentOpen(false);
                   void handleLiveSubmit("");
                   }}
                   style={{
@@ -1784,10 +1809,12 @@ function AccordionRow({
                   boxShadow: "0 1px 3px rgba(0,0,0,0.07), inset 0 0 0 1px rgba(0,0,0,0.06)",
                   }}
                 >
-                Überspringen
+                {supportsPhotos ? "Zurück" : "Überspringen"}
               </button>
               <button
+                disabled={photosBusy || isPersistingLive}
                 onClick={() => {
+                  if (photosBusy) return;
                   const nextComment = liveCommentDraft;
                   setLiveComment(nextComment);
                   setIsLiveCommentOpen(false);
@@ -2045,7 +2072,7 @@ export function ActivityLauncher({
     fromHm: string;
     toHm: string;
     comment?: string;
-    doctorConfirmationFile?: File | null;
+    photoGroupKey?: string; doctorConfirmationFile?: File | null;
   }) => {
     if (!dayStarted) {
       throw new Error("Bitte zuerst den Arbeitstag starten.");
@@ -2069,13 +2096,19 @@ export function ActivityLauncher({
       await createManualDayPause({ startAt: startIso, endAt: endIso });
       return;
     }
-    const token = `${input.activityType}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const boundPhotoEntry = input.photoGroupKey ? readPhotoDraftBinding(input.photoGroupKey) : null;
+    if (boundPhotoEntry) {
+      const prior = await fetchTimeTrackingPhotos(boundPhotoEntry);
+      if (prior.entry.status === "submitted") { await flushSpecialAssignmentPhotos(input.photoGroupKey!, boundPhotoEntry); return; }
+    }
+    const token = input.photoGroupKey ? `sonderaufgabe-${input.photoGroupKey}` : `${input.activityType}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const started = await startTimeTrackingDraft({
       activityType: input.activityType,
       startAt: startIso,
       endAt: endIso,
       clientEntryToken: token,
     });
+    if (input.photoGroupKey) bindPhotoDraft(input.photoGroupKey, started.entry.id);
     const trimmedComment = input.comment?.trim();
     if (trimmedComment) {
       await commentTimeTrackingDraft(started.entry.id, { comment: trimmedComment });
@@ -2084,6 +2117,7 @@ export function ActivityLauncher({
       await uploadTimeTrackingDoctorConfirmation(started.entry.id, input.doctorConfirmationFile);
     }
     await endTimeTrackingDraft(started.entry.id, { endAt: endIso });
+    if (input.photoGroupKey) await flushSpecialAssignmentPhotos(input.photoGroupKey, started.entry.id);
     await submitTimeTrackingEntry(started.entry.id);
   }, [currentDayStartedAt, dayStarted, pauseActive]);
 

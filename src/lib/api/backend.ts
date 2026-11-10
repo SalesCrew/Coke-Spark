@@ -7175,3 +7175,23 @@ export async function uploadGmBriefingPdf(file: File, operationId: string, repla
   return authedFetch(replace ? `${base}/${replace.id}/pdf` : `${base}/upload`, { method: replace ? 'PATCH' : 'POST', cache: 'no-store', body: file,
     headers: { 'Content-Type': 'application/pdf', 'x-pdf-filename': encodeURIComponent(file.name), 'x-operation-id': operationId, ...(replace ? { 'x-draft-revision': String(replace.revision) } : {}) } }, 600_000, { isCurrent: () => !!owner && owner === getAuthPrincipalKey(readAuthSession()) });
 }
+
+function timeEntryPhotoOwner() {
+  const owner = getAuthPrincipalKey(readAuthSession());
+  return { isCurrent: () => !!owner && owner === getAuthPrincipalKey(readAuthSession()) };
+}
+export async function fetchTimeEntryPhotoTags(): Promise<{tags: import("@/types/timeEntryPhotos").TimeEntryPhotoTag[]}> {
+  return await authedFetch("/time-tracking/photo-tags", {cache:"no-store"}, 30_000, timeEntryPhotoOwner()) as {tags: import("@/types/timeEntryPhotos").TimeEntryPhotoTag[]};
+}
+export async function fetchTimeTrackingPhotos(entryId: string): Promise<import("@/types/timeEntryPhotos").TimeEntryPhotoCollection> {
+  return await authedFetch(`/time-tracking/entries/${encodeURIComponent(entryId)}/photos`, {cache:"no-store"}, 30_000, timeEntryPhotoOwner()) as import("@/types/timeEntryPhotos").TimeEntryPhotoCollection;
+}
+export async function uploadTimeTrackingPhoto(entryId: string, id: string, file: File): Promise<import("@/types/timeEntryPhotos").TimeEntryPhotoCollection> {
+  return await authedFetch(`/time-tracking/entries/${encodeURIComponent(entryId)}/photos`, {method:"POST",body:file,headers:{"Content-Type":file.type || "image/jpeg","x-operation-id":id,"x-photo-filename":encodeURIComponent(file.name)}}, 120_000, timeEntryPhotoOwner()) as import("@/types/timeEntryPhotos").TimeEntryPhotoCollection;
+}
+export async function setTimeTrackingPhotoTags(entryId: string, photoId: string, expectedRevision: number, tagIds: string[]): Promise<import("@/types/timeEntryPhotos").TimeEntryPhotoCollection> {
+  return await authedFetch(`/time-tracking/entries/${encodeURIComponent(entryId)}/photos/${encodeURIComponent(photoId)}`, {method:"PATCH",body:JSON.stringify({expectedRevision,tagIds})},30_000,timeEntryPhotoOwner()) as import("@/types/timeEntryPhotos").TimeEntryPhotoCollection;
+}
+export async function removeTimeTrackingPhoto(entryId: string, photoId: string, expectedRevision: number): Promise<import("@/types/timeEntryPhotos").TimeEntryPhotoCollection> {
+  return await authedFetch(`/time-tracking/entries/${encodeURIComponent(entryId)}/photos/${encodeURIComponent(photoId)}`, {method:"DELETE",body:JSON.stringify({expectedRevision})},30_000,timeEntryPhotoOwner()) as import("@/types/timeEntryPhotos").TimeEntryPhotoCollection;
+}

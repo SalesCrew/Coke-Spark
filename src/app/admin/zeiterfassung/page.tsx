@@ -22,6 +22,7 @@ import {
 } from "@/lib/api/backend";
 import { AdminDatePicker, AdminFilterControlStyles } from "@/components/admin/AdminFilterControls";
 import { defaultZeiterfassungRange, ZeiterfassungRangeRequests, type ZeiterfassungRange } from "@/lib/admin/zeiterfassung-range";
+import { SpecialAssignmentPhotos } from "@/components/dashboard/SpecialAssignmentPhotos";
 import { DoctorConfirmationProofButton } from "@/components/dashboard/DoctorConfirmationProofButton";
 import { exportAdminDiaeten, MONTH_LABELS } from "@/lib/exports/diaetenExport";
 import { exportAdminZeiterfassung } from "@/lib/exports/zeiterfassungExport";
@@ -687,6 +688,7 @@ const ActionRow = React.memo(function ActionRow({
           </>
         ) : (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+            {seg.kind === "zusatzzeit" && seg.subtype === "sonderaufgabe" && <SpecialAssignmentPhotos groupKey={seg.id} entryId={seg.id} compact />}
             <DoctorConfirmationProofButton
               entryId={seg.id}
               doctorConfirmation={seg.doctorConfirmation}

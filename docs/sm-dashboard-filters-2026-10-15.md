@@ -44,3 +44,17 @@ Production data/configuration, deployments, and empirical production query perfo
 At Kilian's request, reduced date controls from 138px to 106px and capped Markt at 260px (about 29% below the previous 366px wide-laptop rendering). Markt remains wider than the other dropdowns, which cap at 180px. Removed the toolbar's two-row breakpoint; the reset action stays right-aligned in the same row. Other responsive dashboard rules and all filter/query logic are unchanged.
 
 Checked 1280px, 1440px and 1600px laptop widths: all seven controls share the same vertical position, neither date nor reset text clips, and there is no page overflow. Region-to-market filtering and reset still work. The updated optimized frontend build passed. This follow-up changes toolbar CSS only; no additional test suite or production access was needed.
+
+## Follow-up — 2026-11-12: only choices with results
+
+New feedback: “Dashboard, nur die Auswahlmöglichkeiten geben wo Ergebnisse vorhanden sind” (SM side).
+
+This supersedes the earlier directory-based option policy above. Region, Handelskette, Markt and Shelf Merchandiser now come only from current, nondeleted, submitted and reportable questionnaire results in the selected inclusive Vienna date range and questionnaire scope. Planned assignments, current directory owners without a matching result, and unvisited markets no longer supply choices. A real submitted visit with zero OOS remains a valid result. Historical submitters remain eligible after a market is reassigned; results are not attributed to its new owner.
+
+The option query reuses the dashboard's existing submission scope conditions. The complete result-backed market/person relationships remain in `marketContexts`, so the existing frontend can keep each facet dependent on the other selections while ignoring its own value. The existing date-change reconciliation clears incompatible dimensions and preserves the chosen dates. An empty period offers only the existing “Alle …” reset options.
+
+No frontend component, layout, calculation, export formula, GM filter, schema or stored business record changes are required. No migration is needed. Implementation is isolated on `codex/sm-dashboard-result-filters-20261112`. Kilian authorized pushing this change on 2026-11-12; release records are kept with the verification artifacts.
+
+Validation: 36 backend tests and 9 frontend helper/skeleton tests pass, and the backend TypeScript build passes. The disposable database tests use real questionnaire creation, answer and submit routes, then assert that every offered option produces a completed visit with the other filters retained. They cover empty periods, inclusive dates, shared markets, actual submitters, zero-OOS results, separate Durcharbeit scope and existing authorization. All dashboard GETs leave the synthetic business-record snapshot unchanged. No production environment files, connections or human localhost were used.
+
+Actual-UI browser checks also pass on the independent `3037/4037` synthetic preview: all four dropdowns, combined dimensions, an original reporter after reassignment, a zero-OOS visit, switching to an empty period, automatic stale-selection removal without changing dates, and reset. At 1280px and 1440px the existing seven toolbar buttons stay in one row without page overflow. No browser errors, failed requests or external requests occurred. Screenshots and the receipt are in `outputs/sm-dashboard-result-filters-2026-11-12` in the main workspace. The normal production-connected localhost was not used.

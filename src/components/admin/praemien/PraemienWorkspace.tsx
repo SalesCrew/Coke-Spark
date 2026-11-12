@@ -1052,6 +1052,9 @@ function GmValues({
                   definition = workspace.model?.pillars
                     .find((x) => x.key === p.key)
                     ?.metrics.find((x) => x.key === m.key);
+                const personalAnswerTarget = definition?.method === "answer_sum" &&
+                  definition.unit === "percent" &&
+                  workspace.model?.pillars.find((x) => x.key === p.key)?.kind === "displays";
                 return (
                   <div key={m.key} className={styles.metricValue}>
                     <div>
@@ -1093,9 +1096,9 @@ function GmValues({
                           disabled={frozen}
                         />
                       </label>
-                      {["ratio", "availability"].includes(
+                      {(["ratio", "availability"].includes(
                         definition?.method ?? "",
-                      ) && (
+                      ) || personalAnswerTarget) && (
                         <label>
                           Persönlicher Sollwert
                           <input
@@ -1105,7 +1108,9 @@ function GmValues({
                               field(id, "target", e.target.value)
                             }
                             placeholder={
-                              m.target === null
+                              personalAnswerTarget
+                                ? "Optional"
+                                : m.target === null
                                 ? "Soll fehlt"
                                 : String(m.target)
                             }
@@ -1114,7 +1119,11 @@ function GmValues({
                         </label>
                       )}
                     </div>}
-                    {definition?.method === "ratio" &&
+                    {personalAnswerTarget && <small>
+                      Mit persönlichem Soll: erreichte Punkte ÷ Sollwert × 100.
+                      Ohne persönlichen Sollwert bleibt die bisherige Berechnung erhalten.
+                    </small>}
+                    {(definition?.method === "ratio" || personalAnswerTarget) &&
                       workspace.model?.pillars.find((x) => x.key === p.key)
                         ?.kind === "displays" &&
                       !frozen && (

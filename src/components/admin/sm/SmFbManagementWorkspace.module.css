@@ -87,3 +87,7 @@
 .campaignReview input { accent-color:#2563eb; }
 .campaignReview button:focus-visible { outline-color:#2563eb; }
 .campaignReview .field textarea:focus,.campaignReview .editor>textarea:focus { border-color:#2563eb80; box-shadow:0 0 0 3px #2563eb08; }
+
+.exportStatus { margin:12px 20px; font-size:11px; color:#747b89; line-height:1.6; }
+@media(prefers-reduced-motion:no-preference) { .spin { animation:sm-export-spin 1s linear infinite; } }
+@keyframes sm-export-spin { to { transform:rotate(360deg); } }

@@ -17,6 +17,6 @@ export function smDashboardOverviewExportRows(payload: SmDashboardPayload) {
     row("Häufigkeit vorgefundener OOS", p.foundCategoryCases, p.foundCategoryCases, null),
     row("OOS-Behebungsquote", p.remediationRate, p.fixedCategoryCases, p.foundCategoryCases, "%"),
     row("Steigerung der Warenverfügbarkeit", p.availabilityGain, p.fixedCategoryCases, p.categoryChecks, "% vom Ganzen"),
-    row("Warenverfügbarkeit nach OOS-Behebung", p.availabilityAfter, p.categoryChecks - p.foundCategoryCases + p.fixedCategoryCases, p.categoryChecks, "%"),
+    row("Warenverfügbarkeit nach ganz oder teilweise Behebung", p.availabilityAfter, p.categoryChecks - p.foundCategoryCases + p.fixedCategoryCases, p.categoryChecks, "%"),
   ];
 }

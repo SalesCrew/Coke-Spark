@@ -35,7 +35,7 @@ export function SmDashboardOverview({ overview, summary, loading = false }: { ov
       detail: result?.foundCategoryCases ? `${count(result.fixedCategoryCases)} von ${count(result.foundCategoryCases)} Fällen behoben` : result?.categoryChecks ? "Kein OOS mit Behebungsbedarf" : "Noch keine auswertbaren Kategorieprüfungen" },
     { label: "Steigerung der Warenverfügbarkeit", value: percent(result?.availabilityGain, true), tone: "green" as const,
       detail: result?.categoryChecks ? `${count(result.fixedCategoryCases)} von ${count(result.categoryChecks)} Kategorieprüfungen zurückgewonnen` : "Vom Ganzen durch OOS-Behebung zurückgewonnen" },
-    { label: "Warenverfügbarkeit nach OOS-Behebung", value: percent(result?.availabilityAfter), tone: "green" as const,
+    { label: "Warenverfügbarkeit nach ganz oder teilweise Behebung", value: percent(result?.availabilityAfter), tone: "green" as const,
       detail: result?.availabilityBefore == null ? "Noch keine auswertbaren Kategorieprüfungen" : `${percent(result.availabilityBefore)} vor der Tätigkeit → ${percent(result.availabilityAfter)} danach` },
   ];
   const availability = !loading && result?.availabilityBefore != null && result.availabilityGain != null && result.availabilityAfter != null
@@ -79,7 +79,7 @@ export function SmDashboardOverview({ overview, summary, loading = false }: { ov
             <dl className={styles.resultSequence}>
               <div className={styles.resultBefore}><dt>Vor Behebung</dt><dd>{percent(availability.before)}</dd></div>
               <div className={styles.resultAdded}><dt><span aria-hidden="true">+</span>Zurückgewonnen</dt><dd>{percent(availability.gain, true)}</dd></div>
-              <div className={styles.resultAfter}><dt>Nach Behebung</dt><dd><Value tone="green">{metrics[5].value}</Value></dd></div>
+              <div className={styles.resultAfter}><dt>Nach ganz oder teilweise Behebung</dt><dd><Value tone="green">{metrics[5].value}</Value></dd></div>
             </dl>
             <div className={styles.resultScale}>
               <div className={styles.resultRail} aria-hidden="true">

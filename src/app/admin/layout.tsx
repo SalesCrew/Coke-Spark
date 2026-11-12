@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { CalendarDays, Plus, Download, FileSpreadsheet, RefreshCw, Upload } from "lucide-react";
+import { SmManagementReportExportButton } from "@/components/admin/sm/SmManagementReportExportButton";
 import { AdminSidenav } from "@/components/ui/AdminSidenav";
 import { ModuleEditor } from "@/components/admin/ModuleEditor";
 import { FragebogenEditor } from "@/components/admin/FragebogenEditor";
@@ -900,6 +901,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
             {/* Action buttons */}
             <div style={{ display: "flex", gap: 10 }}>
+              {isSmFbManagement ? <SmManagementReportExportButton style={headerSecondaryButtonStyle} /> : null}
               {showHeaderExcelExport && exportEventName ? (
                 <button
                   type="button"

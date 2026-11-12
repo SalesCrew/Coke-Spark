@@ -9,7 +9,7 @@ import { getCustomerAdminPageKeyForPath } from "@/lib/auth/customerPageKey";
 import { visibleSmAssignments } from "@/lib/sm/assignmentVisibility";
 import { smVisitApiPath, SMDurcharbeitVisitId } from "@/lib/sm/SMDurcharbeitVisitReference";
 import type { SMDurcharbeitTarget, SMDurcharbeitTargetPreview } from "@/types/smSMDurcharbeitCampaign";
-import type { SmManagementApi, SmManagementList, SmManagementDetail, SmManagementHistory, SmAdminPhotoReceipt } from "@/types/smManagement";
+import type { SmManagementApi, SmManagementReport, SmManagementList, SmManagementDetail, SmManagementHistory, SmAdminPhotoReceipt } from "@/types/smManagement";
 import type { SmPhotoArchiveApi } from "@/types/smPhotoArchive";
 import type { GMRecord } from "@/types/gebietsmanager";
 import type { SMRecord } from "@/types/shelfmerchandiser";
@@ -2583,6 +2583,11 @@ export const smPhotoArchiveApi: SmPhotoArchiveApi = (() => {
 export function createSmManagementApi(base = "/admin/sm-activity/completed", campaignReview = false): SmManagementApi {
 const request = (path: string, init?: RequestInit) => smManagementFetch(path, init, base);
 return {
+  ...(!campaignReview ? { report: async (query: import("@/types/smManagement").SmManagementReportQuery) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "") params.set(key, String(value));
+    return await request(`/report?${params}`) as SmManagementReport;
+  } } : {}),
   list: async query => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "" && !(campaignReview && ["from", "to", "SMDurcharbeitCampaignId", "SMDurcharbeitMonth", "SMDurcharbeitCatalogScope"].includes(key))) params.set(key, String(value));

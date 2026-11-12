@@ -1,4 +1,4 @@
-import type { SMDurcharbeitReportAnswer } from "@/types/smSMDurcharbeitCampaign";
+import type { SmExportAnswer } from "./smAnswerValue";
 import { smExportAnswerComment, smExportAnswerValue } from "./smAnswerValue";
 
 function canonical(value: unknown): unknown {
@@ -10,7 +10,7 @@ function canonical(value: unknown): unknown {
 }
 
 /** Merge revisions of one question, never unrelated questions sharing a title. */
-export function smReportQuestionColumnKey(row: SMDurcharbeitReportAnswer): string {
+export function smReportQuestionColumnKey(row: SmExportAnswer): string {
   const question = row.question;
   const code = question.questionCodeSnapshot.trim();
   const text = question.questionTextSnapshot.normalize("NFC").replace(/\s+/gu, " ").trim();
@@ -31,7 +31,7 @@ export function smReportQuestionColumnKey(row: SMDurcharbeitReportAnswer): strin
 export type SmReportAnswerCell = { value: string | number; comment: string; conflict: boolean };
 
 /** Keep missing/hidden states separate from real answers and preserve conflicts. */
-export function smReportAnswerCell(rows: SMDurcharbeitReportAnswer[]): SmReportAnswerCell {
+export function smReportAnswerCell(rows: SmExportAnswer[]): SmReportAnswerCell {
   if (!rows.length) return { value: "", comment: "", conflict: false };
   const applicable = rows.filter(row => row.question.isApplicable !== false && row.answer?.answerState !== "not_applicable");
   const answered = applicable.filter(row => row.answer?.answerState === "answered" && row.answer.valueJson && row.answer.valueJson.kind !== "empty");

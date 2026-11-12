@@ -1,5 +1,8 @@
 "use client";
 
+import { smReportEvents, type SmReportExportState } from "./SmManagementReportExportButton";
+import { exportSmManagementReport } from "@/lib/exports/smManagementReportExport";
+
 import { customerAdminReadOwner } from "@/lib/auth/customerPageKey";
 
 import { useCustomerPageAccess } from "@/hooks/useCustomerPageAccess";
@@ -72,6 +75,49 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
     ...(cursor ? { cursorDate: cursor.date, cursorId: cursor.id } : {}),
   };
   const queryKey = JSON.stringify(query), matching = data?.key === queryKey ? data.result : null;
+  const { cursorDate: _cursorDate, cursorId: _cursorId, limit: _limit, ...reportQuery } = query;
+  const reportKey = JSON.stringify({ ...reportQuery, search: filters.search.trim() || undefined });
+  const currentReport = useRef(reportKey); currentReport.current = reportKey;
+  const exportSequence = useRef(0);
+  const activeExport = useRef<{ key: string; sequence: number } | null>(null);
+  const exportAlive = useRef(true);
+  const [reportState, setReportState] = useState<{ key: string; busy: boolean; error?: string; message?: string } | null>(null);
+  useEffect(() => { exportAlive.current = true; return () => { exportAlive.current = false; exportSequence.current++; }; }, []);
+  useEffect(() => { exportSequence.current++; activeExport.current = null; setReportState(null); }, [reportKey]);
+  const exporting = reportState?.key === reportKey && reportState.busy;
+  const exportReport = async () => {
+    if (!api.report || exporting || activeExport.current?.key === reportKey || filters.search.trim() !== search) return;
+    const sequence = ++exportSequence.current, key = reportKey;
+    const isCurrent = () => exportAlive.current && currentOwner() === owner && currentReport.current === key && sequence === exportSequence.current;
+    activeExport.current = { key, sequence };
+    setReportState({ key, busy: true });
+    try {
+      const report = await api.report(reportQuery);
+      if (!isCurrent()) return;
+      if (!report.visits.length) { setReportState({ key, busy: false, message: "Für diese Auswahl gibt es keine abgeschlossenen Fragebögen." }); return; }
+      if (await exportSmManagementReport(report, isCurrent) && isCurrent()) setReportState({ key, busy: false,
+        message: `Komplettauswertung heruntergeladen: ${report.visits.length} ${report.visits.length === 1 ? "Besuch" : "Besuche"} mit allen Antworten, Kommentaren und Fotoangaben.` });
+    } catch (failure) { if (isCurrent()) setReportState({ key, busy: false, error: errorText(failure) }); }
+    finally { if (activeExport.current?.sequence === sequence) activeExport.current = null; }
+  };
+
+  const exportHandler = useRef(exportReport); exportHandler.current = exportReport;
+  const reportDisabled = !api.report || exporting || loading || !matching?.visits.length || filters.search.trim() !== search;
+  const headerState = useRef<SmReportExportState>({ disabled: true, busy: false });
+  headerState.current = { disabled: reportDisabled, busy: exporting };
+  useEffect(() => {
+    const request = () => { if (!headerState.current.disabled) void exportHandler.current(); };
+    const publish = () => window.dispatchEvent(new CustomEvent(smReportEvents.state, { detail: headerState.current }));
+    window.addEventListener(smReportEvents.request, request);
+    window.addEventListener(smReportEvents.requestState, publish);
+    publish();
+    return () => {
+      window.removeEventListener(smReportEvents.request, request);
+      window.removeEventListener(smReportEvents.requestState, publish);
+      window.dispatchEvent(new CustomEvent(smReportEvents.state, { detail: { disabled: true, busy: false } }));
+    };
+  }, []);
+  useEffect(() => { window.dispatchEvent(new CustomEvent(smReportEvents.state, { detail: headerState.current })); }, [reportDisabled, exporting]);
   useEffect(() => {
     let alive = true;
     setLoading(true); setError(null);
@@ -100,6 +146,8 @@ export function ManagementWorkspace({ api, owner, currentOwner = readOwner }: { 
         <label className={styles.field}>Suche<input type="search" value={filters.search} maxLength={200} placeholder="SM, Markt oder Adresse …" onChange={event => { setFilters(current => ({ ...current, search: event.target.value })); resetPage(); }} /></label>
         {filters.SMDurcharbeitCatalogScope !== "standard" && (campaignOptions.length > 1 || filters.SMDurcharbeitCampaignId !== "all") ? <><div className={styles.field}><span>Durcharbeit-Kampagne</span><AdminDropdown value={filters.SMDurcharbeitCampaignId} options={campaignOptions} ariaLabel="Durcharbeit-Kampagne" placeholder="Alle Kampagnen" searchable onChange={value => {setFilters(current => ({...current,SMDurcharbeitCampaignId:value}));resetPage();}} /></div><div className={styles.field}><span>Kalendermonat</span><AdminDropdown value={filters.SMDurcharbeitMonth} options={monthOptions} ariaLabel="Durcharbeit-Kalendermonat" placeholder="Alle Kalendermonate" onChange={value => {setFilters(current => ({...current,SMDurcharbeitMonth:value}));resetPage();}} /></div></> : null}
       </div>
+      {reportState?.key === reportKey && (reportState.message || reportState.busy) ? <p role="status" className={reportState.busy ? styles.exportStatus : styles.notice}>{reportState.busy ? "Komplettauswertung wird erstellt. Alle Treffer der aktuellen Filter werden geladen …" : reportState.message}</p> : null}
+      {reportState?.key === reportKey && reportState.error ? <div role="alert" className={styles.error}>{reportState.error} <button className={styles.textButton} onClick={() => void exportReport()}>Erneut exportieren</button></div> : null}
       {notice ? <p role="status" className={styles.notice}>{notice}</p> : null}
       {error ? <div role="alert" className={styles.error}>{error} <button className={styles.textButton} onClick={() => setReload(value => value + 1)}>Erneut laden</button></div> : null}
       {data?.result.facetsTruncated ? <p className={styles.hint} style={{ padding: "0 20px" }}>Viele Filteroptionen: Nutze die Suche oder einen kleineren Zeitraum, wenn ein Eintrag fehlt.</p> : null}

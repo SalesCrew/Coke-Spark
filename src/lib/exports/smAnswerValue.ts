@@ -1,7 +1,9 @@
 import type { SMDurcharbeitReportAnswer } from "@/types/smSMDurcharbeitCampaign";
 
+export type SmExportAnswer = Pick<SMDurcharbeitReportAnswer, "question" | "answer">;
+
 /** Labels belong to the submitted question snapshot, never the mutable authoring catalog. */
-export function smExportAnswerValue(row: SMDurcharbeitReportAnswer): string | number {
+export function smExportAnswerValue(row: SmExportAnswer): string | number {
   if (row.question.isApplicable === false || row.answer?.answerState === "not_applicable") return "Nicht anwendbar";
   const value = row.answer?.valueJson;
   if (!value || value.kind === "empty" || row.answer?.answerState === "unanswered") return "Nicht beantwortet";
@@ -30,6 +32,6 @@ export function smExportAnswerValue(row: SMDurcharbeitReportAnswer): string | nu
   }
 }
 
-export function smExportAnswerComment(row: SMDurcharbeitReportAnswer): string {
+export function smExportAnswerComment(row: SmExportAnswer): string {
   return row.question.isApplicable !== false && row.answer?.answerState === "answered" ? row.answer.valueJson?.comment ?? "" : "";
 }

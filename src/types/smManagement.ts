@@ -26,9 +26,30 @@ export type SmAdminCorrection = { expectedVersion: string; clientMutationToken: 
 export type SmManagementHistory = { entries: Array<{ id: string; version: number; current: boolean; state: string;
   value: SmVisitAnswer; at: string; actorId?: string | null; actor: string; reason: string | null; photos: SmManagementPhoto[] }>; nextCursor: number | null };
 export type SmManagementApi = {
+  report?: (query: SmManagementReportQuery) => Promise<SmManagementReport>;
   list: (query: SmManagementQuery) => Promise<SmManagementList>;
   detail: (id: string) => Promise<SmManagementDetail>;
   history: (id: string, questionId: string, cursor?: number) => Promise<SmManagementHistory>;
   correct: (id: string, input: SmAdminCorrection) => Promise<{ replayed: boolean; result: { submissionId: string; answerIds: string[] } }>;
   upload: (id: string, questionId: string, file: File) => Promise<SmAdminPhotoReceipt>;
+};
+
+/** All matching submitted visits, independent of the management list's pagination. */
+export type SmManagementReportQuery = Omit<SmManagementQuery, "cursorDate" | "cursorId" | "limit">;
+export type SmManagementReport = {
+  generatedAt: string;
+  filters: SmManagementReportQuery;
+  visits: Array<SmManagedVisit & {
+    postalCode: string; city: string; travelMinutes: number | null; actualMinutes: number | null;
+    originalStartedAt: string | null; originalCompletedAt: string | null; updatedAt: string;
+    timeMode: string | null; revision: number;
+  }>;
+  answers: Array<{
+    module: string;
+    question: import("./smSMDurcharbeitCampaign").SMDurcharbeitReportAnswer["question"] & { applicabilityReason: string | null };
+    answer: (NonNullable<import("./smSMDurcharbeitCampaign").SMDurcharbeitReportAnswer["answer"]> & {
+      answeredByUserId: string | null; answeredByName: string | null; earnedPoints: string; possiblePoints: string;
+    }) | null;
+    photos: Array<{ id: string; fileName: string | null; mimeType: string; byteSize: number; uploadedAt: string }>;
+  }>;
 };

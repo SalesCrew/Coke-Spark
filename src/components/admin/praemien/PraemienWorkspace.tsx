@@ -28,6 +28,7 @@ import { BoniSelect } from "./BoniSelect";
 import { ModelEditor } from "./ModelEditor";
 import { useDialog } from "./useDialog";
 import { exportPraemien } from "./praemienExport";
+import { DisplayPointsFields } from "./DisplayPointsFields";
 import styles from "./praemien.module.css";
 
 export const euro = (n: number) =>
@@ -944,7 +945,7 @@ function GmValues({
   });
   const frozen = workspace.wave.status === "archived" || readOnly;
   const [draft, setDraft] = useState<
-    Record<string, { value: string; target: string; note: string }>
+    Record<string, { value: string; target: string; note: string; rawPoints: string }>
   >(() =>
     Object.fromEntries(
       gm.pillars.flatMap((p) =>
@@ -962,6 +963,7 @@ function GmValues({
               target:
                 e?.target == null ? "" : String(e.target).replace(".", ","),
               note: e?.note ?? "",
+              rawPoints: e?.rawPoints == null ? "" : String(e.rawPoints).replace(".", ","),
             },
           ];
         }),
@@ -978,15 +980,18 @@ function GmValues({
         p.metrics.map((m) => {
           const d = draft[`${p.key}/${m.key}`];
           const value = parseDecimal(d.value),
-            target = parseDecimal(d.target);
+            target = parseDecimal(d.target),
+            rawPoints = parseDecimal(d.rawPoints);
           if (
             (value !== null && !Number.isFinite(value)) ||
-            (target !== null && (!Number.isFinite(target) || target <= 0))
+            (target !== null && (!Number.isFinite(target) || target <= 0)) ||
+            (rawPoints !== null && !Number.isFinite(rawPoints))
           )
             throw new Error(
               "Bitte gültige Zahlen eingeben; Sollwerte müssen größer als 0 sein.",
             );
           const def = workspace.model?.pillars.find(x => x.key === p.key)?.metrics.find(x => x.key === m.key);
+          const pointsMetric = def?.method === "answer_sum" && def.unit === "percent" && workspace.model?.pillars.find(x => x.key === p.key)?.kind === "displays" && !def.readOnly;
           if (value !== null && def && ((def.minValue !== undefined && value < def.minValue) || (def.maxValue !== undefined && value > def.maxValue) || (def.integerOnly && !Number.isInteger(value))))
             throw new Error(`${m.label}: Bitte einen Wert im zulässigen Bereich eingeben${def.manualRewardCap !== undefined ? ` (0 bis ${euro(def.manualRewardCap)})` : ""}.`);
           return {
@@ -996,6 +1001,7 @@ function GmValues({
             value,
             target,
             note: d.note,
+            ...(pointsMetric ? { rawPoints } : {}),
           };
         }),
       )
@@ -1010,10 +1016,11 @@ function GmValues({
           (before?.value ?? null) !== e.value ||
           (before?.target ?? null) !== e.target ||
           (before?.note ?? "") !== e.note
+          || (e.rawPoints !== undefined && (before?.rawPoints ?? null) !== e.rawPoints)
         );
       });
   }
-  function field(id: string, name: "value" | "target" | "note", value: string) {
+  function field(id: string, name: "value" | "target" | "note" | "rawPoints", value: string) {
     draftVersion.current++;
     setPreview(null);
     setDraft((d) => ({ ...d, [id]: { ...d[id], [name]: value } }));
@@ -1059,24 +1066,25 @@ function GmValues({
                   <div key={m.key} className={styles.metricValue}>
                     <div>
                       <strong>{m.label}</strong>
-                      <small>
+                      {!personalAnswerTarget && <small>
                         {m.origin === "manual"
                           ? `Manuell · ${m.actorName ?? ""} · ${m.updatedAt ? new Date(m.updatedAt).toLocaleString("de-AT") : ""}`
                           : m.origin === "pending"
                             ? "Noch nicht bewertet / nicht auswertbar"
                             : "Automatisch"}{" "}
                         · wirksam: {definition?.confirmation ? m.value === null ? "Prüfung offen" : m.value === 1 ? "Bestätigt" : "Nicht erfüllt" : `${decimal(m.value)} ${metricUnit(m.unit)}`}
-                      </small>
-                      <small>
+                      </small>}
+                      {!personalAnswerTarget && <small>
                         Automatisch: {decimal(m.automatic)}
                         {m.counted
                           ? ` · ${m.counted} gezählt, ${m.excluded} nicht zusätzlich gezählt`
                           : ""}
-                      </small>
+                      </small>}
+                      {!personalAnswerTarget && m.provisional && <small>Vorläufig · {m.sourceCoverage?.answered} von {m.sourceCoverage?.total} Quellen auswertbar</small>}
                     </div>
                     {definition?.hint && <p className={styles.notice}>{definition.hint}</p>}
                     {definition?.manualRewardCap !== undefined && <p>Maximalprämie: {euro(definition.manualRewardCap)} {!frozen && <button onClick={() => field(id, "value", String(definition.manualRewardCap).replace(".", ","))}>Volle Teilprämie übernehmen</button>}</p>}
-                    {definition?.confirmation ? <label>Nachweise geprüft<BoniSelect aria-label={m.label} value={d.value} disabled={frozen} onChange={e => field(id, "value", e.target.value)}><option value="">Prüfung offen</option><option value="1">Bestätigt · Voraussetzungen erfüllt</option><option value="0">Nicht erfüllt</option></BoniSelect></label> : definition?.readOnly ? <p>Wird aus den erfassten Werten berechnet: {decimal(m.value)} {metricUnit(m.unit)}</p> : <div className={styles.twoColumns}>
+                    {personalAnswerTarget && !definition?.readOnly ? <DisplayPointsFields metric={m} draft={d} frozen={frozen} onField={(name, value) => field(id, name, value)} /> : definition?.confirmation ? <label>Nachweise geprüft<BoniSelect aria-label={m.label} value={d.value} disabled={frozen} onChange={e => field(id, "value", e.target.value)}><option value="">Prüfung offen</option><option value="1">Bestätigt · Voraussetzungen erfüllt</option><option value="0">Nicht erfüllt</option></BoniSelect></label> : definition?.readOnly ? <p>Wird aus den erfassten Werten berechnet: {decimal(m.value)} {metricUnit(m.unit)}</p> : <div className={styles.twoColumns}>
                       <label>
                         {m.unit === "eur" ? "Manuelle Auszahlung in €" : m.unit === "percent"
                           ? "Manuell in %"
@@ -1119,10 +1127,6 @@ function GmValues({
                         </label>
                       )}
                     </div>}
-                    {personalAnswerTarget && <small>
-                      Mit persönlichem Soll: erreichte Punkte ÷ Sollwert × 100.
-                      Ohne persönlichen Sollwert bleibt die bisherige Berechnung erhalten.
-                    </small>}
                     {(definition?.method === "ratio" || personalAnswerTarget) &&
                       workspace.model?.pillars.find((x) => x.key === p.key)
                         ?.kind === "displays" &&
@@ -1142,7 +1146,7 @@ function GmValues({
                         disabled={frozen}
                       />
                     </label>
-                    {!frozen && !definition?.readOnly && (
+                    {!frozen && !definition?.readOnly && !personalAnswerTarget && (
                       <button onClick={() => field(id, "value", "")}>
                         {definition?.method === "manual"
                           ? "Bewertung entfernen"

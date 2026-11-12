@@ -35,7 +35,7 @@ export async function exportPraemien(workspace: Workspace) {
           { header: "Rang", value: (r) => r.rank },
           {
             header: "Bewertung",
-            value: (r) => (r.pending ? "Offen" : "Bewertet"),
+            value: (r) => (r.pending ? "Vorläufig" : "Bewertet"),
           },
           {
             header: "Prämie (€)",
@@ -79,6 +79,12 @@ export async function exportPraemien(workspace: Workspace) {
           { header: "Einheit", value: (r) => r.unit },
           { header: "Soll", value: (r) => r.target },
           { header: "Automatisch", value: (r) => r.automatic },
+          { header: "Ist-Punkte", value: (r) => r.rawPoints },
+          { header: "Ist-Punkte aus Antworten", value: (r) => r.automaticPoints },
+          { header: "Ist-Punkte manuell", value: (r) => r.manualPoints },
+          { header: "Quellen vollständig", value: (r) => r.sourceCoverage?.answered },
+          { header: "Quellen gesamt", value: (r) => r.sourceCoverage?.total },
+          { header: "Berechnungsstatus", value: (r) => r.provisional ? "Vorläufig" : r.value === null ? "Offen" : "Bewertet" },
           { header: "Herkunft", value: (r) => r.origin },
           { header: "Begründung", value: (r) => r.note, width: 44 },
           { header: "Bearbeiter", value: (r) => r.actorName, width: 25 },

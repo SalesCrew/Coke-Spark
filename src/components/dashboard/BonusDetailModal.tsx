@@ -175,7 +175,7 @@ export function BonusDetailModal({ goals, summary, onClose }: Props) {
           backgroundColor: "#ffffff",
           borderRadius: 20,
           boxShadow: "0 24px 64px rgba(0,0,0,0.14), 0 4px 16px rgba(0,0,0,0.08)",
-          overflow: "hidden",
+          overflowX: "hidden", overflowY: "auto", maxHeight: "calc(100dvh - 48px)", scrollbarWidth: "none",
           animation: "bonusModalIn 0.22s cubic-bezier(0.4,0,0.2,1) both",
         }}
       >
@@ -414,7 +414,7 @@ function TieredBonusContent({ goals, summary }: { goals: Goal[]; summary?: Praem
           <Award size={19} strokeWidth={1.6} color="#059669" />
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10, fontWeight: 650, color: "rgba(0,0,0,0.38)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Dein Quartalsbonus</div>
+          <div style={{ fontSize: 10, fontWeight: 650, color: "rgba(0,0,0,0.38)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{summary?.pending ? "Vorläufiger Quartalsbonus" : "Dein Quartalsbonus"}</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 3 }}>
             <span style={{ fontSize: 25, fontWeight: 900, color: "#059669", letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums" }}>{earned.toLocaleString("de-AT")} €</span>
             <span style={{ fontSize: 11, color: "rgba(0,0,0,0.32)" }}>von {maximum.toLocaleString("de-AT")} €</span>
@@ -437,7 +437,7 @@ function TieredBonusContent({ goals, summary }: { goals: Goal[]; summary?: Praem
                   <div style={{ fontSize: 11, fontWeight: 750, color: "#1f1f1f" }}>{goal.name}</div>
                   <div style={{ fontSize: 9, color: "rgba(0,0,0,0.4)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {goal.isPending
-                      ? "Bewertung noch offen"
+                      ? "Vorläufig · Bewertung noch offen"
                       : achievedLabels.length > 0
                         ? `Erreicht: ${achievedLabels.join(", ")}`
                         : goal.nextTierLabel
@@ -453,7 +453,7 @@ function TieredBonusContent({ goals, summary }: { goals: Goal[]; summary?: Praem
               <div style={{ height: 4, borderRadius: 99, background: "rgba(0,0,0,0.06)", overflow: "hidden", marginTop: 9 }}>
                 <div style={{ width: `${rewardPercent}%`, height: "100%", borderRadius: 99, background: goal.color || "#DC2626", transition: "width 0.35s ease" }} />
               </div>
-              {goal.metricDetails?.map(metric => <div key={metric.key} style={{display:'flex',justifyContent:'space-between',gap:10,fontSize:10,marginTop:8,color:'#64748b'}}><span>{metric.label} · {metric.origin === 'manual' ? 'manuell bewertet' : metric.origin === 'pending' ? 'Bewertung offen' : 'automatisch'}</span><strong>{metric.value === null ? 'offen' : metric.value.toLocaleString('de-AT',{maximumFractionDigits:2})}{metric.value === null ? '' : metric.unit === 'eur' ? ' €' : metric.unit === 'percent' ? ' %' : metric.unit === 'count' ? ' Stück' : ' P'}</strong></div>)}
+              {goal.metricDetails?.map(metric => <div key={metric.key} style={{display:'flex',justifyContent:'space-between',gap:10,fontSize:10,marginTop:8,color:'#64748b'}}><span>{metric.label} · {metric.provisional ? 'vorläufig' : metric.origin === 'manual' ? 'manuell bewertet' : metric.origin === 'pending' ? 'Bewertung offen' : 'automatisch'}</span><strong>{metric.value === null ? 'offen' : metric.value.toLocaleString('de-AT',{maximumFractionDigits:2})}{metric.value === null ? '' : metric.unit === 'eur' ? ' €' : metric.unit === 'percent' ? ' %' : metric.unit === 'count' ? ' Stück' : ' P'}</strong></div>)}
             </div>
           );
         })}

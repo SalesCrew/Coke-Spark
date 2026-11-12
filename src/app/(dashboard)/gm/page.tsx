@@ -249,6 +249,7 @@ function GMDashboardContent() {
     earnedRewardEur: goal.earnedRewardEur,
     maxRewardEur: goal.maxRewardEur,
     metricValues: goal.metricValues,
+    metricDetails: goal.metricDetails?.filter(metric => metric.provisional || metric.rawPoints !== undefined),
     achievedTierLabels: goal.achievedTierLabels,
     nextTierLabel: goal.nextTierLabel,
   })) ?? [];

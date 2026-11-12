@@ -172,7 +172,7 @@ export function BonusCircles({
         onMouseLeave={(e) => { if (onOpenDetail) (e.currentTarget as HTMLDivElement).style.backgroundColor = "rgba(0,0,0,0.03)"; }}
       >
         <span className="text-[12px] font-bold" style={{ color: "#059669" }}>
-          Dein Bonus: {resolvedBonus}€
+          {goals.some(goal => goal.isPending) ? "Vorläufiger Bonus" : "Dein Bonus"}: {resolvedBonus}€
         </span>
       </div>
     </div>

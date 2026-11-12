@@ -74,6 +74,7 @@ export type MetricEntry = {
   value: number | null;
   target: number | null;
   note: string;
+  rawPoints?: number | null | undefined;
   actorName?: string;
   updatedAt?: string;
 };
@@ -88,6 +89,13 @@ export type MetricResult = {
   note: string;
   counted: number;
   excluded: number;
+  provisional?: boolean | undefined;
+  sourceCoverage?: { answered: number; total: number } | undefined;
+  missingSources?: { questionId: string; label: string }[] | undefined;
+  rawPoints?: number | null | undefined;
+  automaticPoints?: number | null | undefined;
+  manualPoints?: number | null | undefined;
+  missingTarget?: boolean | undefined;
   actorName?: string | undefined;
   updatedAt?: string | undefined;
 };

@@ -1062,10 +1062,12 @@ function GmValues({
                 const personalAnswerTarget = definition?.method === "answer_sum" &&
                   definition.unit === "percent" &&
                   workspace.model?.pillars.find((x) => x.key === p.key)?.kind === "displays";
+                const sourceSections = definition?.sourceSectionOverrides?.find(o => o.gmId === gm.gmId)?.sections;
                 return (
                   <div key={m.key} className={styles.metricValue}>
                     <div>
                       <strong>{m.label}</strong>
+                      {sourceSections && <small>Antworten aus {sourceSections.map(s => ({ standard: "Standard", flex: "Flex", billa: "BILLA" })[s]).join(", ")} · je Frage und Markt im Quartal</small>}
                       {!personalAnswerTarget && <small>
                         {m.origin === "manual"
                           ? `Manuell · ${m.actorName ?? ""} · ${m.updatedAt ? new Date(m.updatedAt).toLocaleString("de-AT") : ""}`

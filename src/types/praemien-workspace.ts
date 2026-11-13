@@ -40,6 +40,7 @@ export type ModelMetric = {
   integerOnly?: boolean | undefined;
   confirmation?: boolean | undefined;
   manualRewardCap?: number | undefined;
+  sourceSectionOverrides?: { gmId: string; sections: ("standard" | "flex" | "billa")[] }[] | undefined;
 };
 export type ModelTier = {
   key: string;

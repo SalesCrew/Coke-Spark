@@ -2618,7 +2618,7 @@ return {
 export const smManagementApi = createSmManagementApi();
 
 export async function requestPraemienWorkspace<T>(path: string, body?: unknown, method = 'GET'): Promise<T> {
-  return await authedFetch(`/admin/praemien/workspace${path}`, body === undefined ? undefined : { method, body: JSON.stringify(body) }) as T;
+  return await authedFetch(`/admin/praemien/workspace${path}`, { method, cache: 'no-store', ...(body === undefined ? {} : { body: JSON.stringify(body) }) }) as T;
 }
 
 export async function requestGmDashboard<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {

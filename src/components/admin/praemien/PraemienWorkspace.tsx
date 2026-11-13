@@ -15,7 +15,8 @@ import {
   Settings2,
   X,
 } from "lucide-react";
-import { requestPraemienWorkspace as api } from "@/lib/api/backend";
+import { requestPraemienWorkspace as api, BackendApiError } from "@/lib/api/backend";
+import { draftIsDirty, valueDraft, valueChanges, reconcileValueDraft, type ValueConflict } from "@/lib/praemien-value-draft";
 import { useAdminAccess } from "@/context/AdminAccessContext";
 import type {
   Workspace,
@@ -136,18 +137,19 @@ export function PraemienWorkspace() {
       setLoading(false);
     }
   }
-  async function save(command: object) {
+  async function save(command: object, revision = workspace?.revision) {
     if (!workspace) return;
     setBusy(true);
     setError("");
     try {
       const w = await api<Workspace>(
         `/waves/${workspace.wave.id}`,
-        { ...command, revision: workspace.revision },
+        { ...command, revision },
         "PUT",
       );
       setWorkspace(w);
-      await loadWaves(w.wave.id);
+      // The PUT has committed. A list refresh failure must not turn it into a failed save.
+      try { await loadWaves(w.wave.id); } catch { /* Next reload refreshes the list. */ }
       return w;
     } catch (e) {
       setError((e as Error).message);
@@ -707,8 +709,14 @@ export function PraemienWorkspace() {
           workspace={workspace}
           busy={busy}
           onClose={() => setGm(null)}
-          onSave={async (entries) => {
-            await save({ type: "values", entries });
+          onRefresh={async () => {
+            const latest = await api<Workspace>(`/waves/${workspace.wave.id}`);
+            setWorkspace(latest);
+            setError("");
+            return latest;
+          }}
+          onSave={async (entries, revision) => {
+            await save({ type: "values", entries }, revision);
             setGm(null);
           }}
         />
@@ -927,98 +935,73 @@ function CreateWave({
 
 function GmValues({
   readOnly,
-  gm,
-  workspace,
+  gm: initialGm,
+  workspace: initialWorkspace,
   busy,
   onSave,
+  onRefresh,
   onClose,
 }: {
   readOnly: boolean;
   gm: GmResult;
   workspace: Workspace;
   busy: boolean;
-  onSave: (e: MetricEntry[]) => Promise<void>;
+  onSave: (e: MetricEntry[], revision: number) => Promise<void>;
+  onRefresh: () => Promise<Workspace>;
   onClose: () => void;
 }) {
-  useDialog(() => {
-    if (!busy) onClose();
-  });
-  const frozen = workspace.wave.status === "archived" || readOnly;
-  const [draft, setDraft] = useState<
-    Record<string, { value: string; target: string; note: string; rawPoints: string }>
-  >(() =>
-    Object.fromEntries(
-      gm.pillars.flatMap((p) =>
-        p.metrics.map((m) => {
-          const e = workspace.entries.find(
-            (e) =>
-              e.gmId === gm.gmId &&
-              e.pillarKey === p.key &&
-              e.metricKey === m.key,
-          );
-          return [
-            `${p.key}/${m.key}`,
-            {
-              value: e?.value == null ? "" : String(e.value).replace(".", ","),
-              target:
-                e?.target == null ? "" : String(e.target).replace(".", ","),
-              note: e?.note ?? "",
-              rawPoints: e?.rawPoints == null ? "" : String(e.rawPoints).replace(".", ","),
-            },
-          ];
-        }),
-      ),
-    ),
-  );
+  // An editor owns its baseline until an explicit reconciliation. Parent refreshes
+  // must never make untouched fields look like local edits.
+  const [workspace, setBaseline] = useState(initialWorkspace);
+  const gm = workspace.results.find(g => g.gmId === initialGm.gmId) ?? initialGm;
+  const [draft, setDraft] = useState(() => valueDraft(initialWorkspace, gm.gmId));
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [conflicts, setConflicts] = useState<ValueConflict[]>([]);
+  const [blocked, setBlocked] = useState("");
+  const [refreshNeeded, setRefreshNeeded] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [preview, setPreview] = useState<GmResult | null>(null),
     [checking, setChecking] = useState(false);
+  const inFlight = useRef(false);
   const draftVersion = useRef(0);
-  function changes(): MetricEntry[] {
-    return gm.pillars
-      .flatMap((p) =>
-        p.metrics.map((m) => {
-          const d = draft[`${p.key}/${m.key}`];
-          const value = parseDecimal(d.value),
-            target = parseDecimal(d.target),
-            rawPoints = parseDecimal(d.rawPoints);
-          if (
-            (value !== null && !Number.isFinite(value)) ||
-            (target !== null && (!Number.isFinite(target) || target <= 0)) ||
-            (rawPoints !== null && !Number.isFinite(rawPoints))
-          )
-            throw new Error(
-              "Bitte gültige Zahlen eingeben; Sollwerte müssen größer als 0 sein.",
-            );
-          const def = workspace.model?.pillars.find(x => x.key === p.key)?.metrics.find(x => x.key === m.key);
-          const pointsMetric = def?.method === "answer_sum" && def.unit === "percent" && workspace.model?.pillars.find(x => x.key === p.key)?.kind === "displays" && !def.readOnly;
-          if (value !== null && def && ((def.minValue !== undefined && value < def.minValue) || (def.maxValue !== undefined && value > def.maxValue) || (def.integerOnly && !Number.isInteger(value))))
-            throw new Error(`${m.label}: Bitte einen Wert im zulässigen Bereich eingeben${def.manualRewardCap !== undefined ? ` (0 bis ${euro(def.manualRewardCap)})` : ""}.`);
-          return {
-            gmId: gm.gmId,
-            pillarKey: p.key,
-            metricKey: m.key,
-            value,
-            target,
-            note: d.note,
-            ...(pointsMetric ? { rawPoints } : {}),
-          };
-        }),
-      )
-      .filter((e) => {
-        const before = workspace.entries.find(
-          (b) =>
-            b.gmId === e.gmId &&
-            b.pillarKey === e.pillarKey &&
-            b.metricKey === e.metricKey,
-        );
-        return (
-          (before?.value ?? null) !== e.value ||
-          (before?.target ?? null) !== e.target ||
-          (before?.note ?? "") !== e.note
-          || (e.rawPoints !== undefined && (before?.rawPoints ?? null) !== e.rawPoints)
-        );
-      });
+  const feedback = useRef<HTMLDivElement>(null);
+  const working = busy || syncing || checking;
+  const frozen = workspace.wave.status === "archived" || readOnly;
+  const dirty = draftIsDirty(workspace, gm.gmId, draft);
+  function close() {
+    if (working || inFlight.current) return;
+    if (discarding) { setDiscarding(false); return; }
+    if (dirty || conflicts.length) setDiscarding(true);
+    else onClose();
+  }
+  useDialog(close);
+  useEffect(() => {
+    if (error || notice || blocked || conflicts.length || discarding) feedback.current?.focus();
+  }, [error, notice, blocked, conflicts.length, discarding]);
+  function changes() { return valueChanges(workspace, gm.gmId, draft); }
+  async function refresh() {
+    setSyncing(true);
+    setPreview(null);
+    try {
+      const latest = await onRefresh();
+      const result = reconcileValueDraft(workspace, latest, gm.gmId, draft);
+      setBlocked(result.blocked ?? "");
+      if (!result.blocked) {
+        setBaseline(latest);
+        setDraft(result.draft);
+        setConflicts(result.conflicts);
+      }
+      setRefreshNeeded(false);
+      setError("");
+      setNotice(result.blocked ? "" : result.conflicts.length
+        ? "Derselbe Wert wurde zwischenzeitlich geändert. Bitte wähle für jedes Feld den gewünschten Stand."
+        : "Stand aktualisiert. Deine Eingaben sind erhalten. Bitte erneut speichern.");
+    } catch {
+      setRefreshNeeded(true);
+      setError("Der aktuelle Stand konnte nicht geladen werden. Deine Eingaben bleiben erhalten. Bitte erneut laden.");
+    } finally { setSyncing(false); }
   }
   function field(id: string, name: "value" | "target" | "note" | "rawPoints", value: string) {
     draftVersion.current++;
@@ -1042,11 +1025,41 @@ function GmValues({
               {gm.pending ? " · vorläufig" : ""}
             </p>
           </div>
-          <button aria-label="Schließen" onClick={onClose}>
+          <button aria-label="Schließen" onClick={close} disabled={working}>
             <X size={20} />
           </button>
         </header>
+        {(error || notice || blocked || discarding || syncing) && <div ref={feedback} tabIndex={-1} className={styles.saveFeedback}>
+          {discarding ? <div role="alert">
+            <strong>Ungespeicherte Eingaben verwerfen?</strong>
+            <p>Deine Änderungen sind noch nicht gespeichert.</p>
+            <div className={styles.feedbackActions}>
+              <button onClick={() => setDiscarding(false)}>Weiterbearbeiten</button>
+              <button onClick={onClose}>Eingaben verwerfen</button>
+            </div>
+          </div> : <>
+            {syncing && <p role="status">Aktuellen Stand laden · Eingaben bleiben erhalten …</p>}
+            {(error || blocked) && <p role="alert" className={styles.error}>{blocked || error}</p>}
+            {notice && <p role={conflicts.length ? "alert" : "status"}>{notice}</p>}
+            {refreshNeeded && <button disabled={working} onClick={() => void refresh()}>Aktuellen Stand erneut laden</button>}
+            {!!conflicts.length && <div className={styles.valueConflicts}>
+              {conflicts.map(c => <div key={`${c.id}/${c.field}`}>
+                <strong>{c.label}</strong>
+                <p>Aktuell gespeichert: <b>{c.current || "leer"}</b> · Deine Eingabe: <b>{c.mine || "leer"}</b></p>
+                <div className={styles.feedbackActions}>
+                  <button onClick={() => {
+                    field(c.id, c.field, c.current);
+                    setConflicts(items => items.filter(x => x !== c));
+                  }}>Aktuellen Wert übernehmen</button>
+                  <button onClick={() => setConflicts(items => items.filter(x => x !== c))}>Eigene Eingabe bestätigen</button>
+                </div>
+              </div>)}
+            </div>}
+          </>}
+        </div>}
         <div className={styles.dialogBody}>
+          <fieldset className={styles.valueFields} disabled={working || discarding || !!conflicts.length || refreshNeeded || !!blocked}>
+
           {gm.pillars.map((p) => (
             <section key={p.key} className={styles.ruleSummary}>
               <h3 style={{ color: `color-mix(in srgb, ${p.color} 75%, #111827)` }}>
@@ -1174,17 +1187,14 @@ function GmValues({
               ))}
             </section>
           )}
-          {error && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
+          </fieldset>
         </div>
         <footer>
-          <button onClick={onClose}>Schließen</button>
+          <button onClick={close} disabled={working}>Schließen</button>
+          {dirty && !discarding && <span className={styles.unsaved}>Nicht gespeichert</span>}
           {!frozen && (
             <button
-              disabled={busy || checking}
+              disabled={working || discarding || !!conflicts.length || refreshNeeded || !!blocked}
               onClick={async () => {
                 setError("");
                 setChecking(true);
@@ -1212,19 +1222,20 @@ function GmValues({
           {!frozen && (
             <button
               className={styles.primary}
-              disabled={busy || checking}
+              disabled={working || discarding || !!conflicts.length || refreshNeeded || !!blocked}
               onClick={async () => {
+                if (inFlight.current) return;
+                inFlight.current = true;
                 setError("");
+                setNotice("");
                 try {
                   const entries = changes();
-                  if (!entries.length) {
-                    onClose();
-                    return;
-                  }
-                  await onSave(entries);
+                  if (!entries.length) { onClose(); return; }
+                  await onSave(entries, workspace.revision);
                 } catch (e) {
-                  setError((e as Error).message);
-                }
+                  if (e instanceof BackendApiError && e.status === 409) await refresh();
+                  else setError((e as Error).message);
+                } finally { inFlight.current = false; }
               }}
             >
               Werte speichern & neu berechnen
@@ -1290,8 +1301,8 @@ function PersonalTarget({
         Wirksames Soll übernehmen
       </button>
       <small>
-        Manuell bestätigt, nicht automatisch aus Zeiterfassungs-Tätigkeiten
-        abgeleitet. Basis und Tage bitte als Begründung festhalten.
+        Übernimmt den Sollwert in diesen Entwurf. Abschließend unten „Werte
+        speichern & neu berechnen“ drücken.
       </small>
     </details>
   );

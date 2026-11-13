@@ -898,3 +898,21 @@
 .backdrop div.check { display: flex; flex-wrap: wrap; gap: 12px; }
 
 .calculationDetails > summary { cursor: pointer; color: #374151; font-weight: 600; padding: 13px 0; font-size: 12px; }
+
+/* Save feedback stays visible above the scrolling value form. */
+.saveFeedback {
+  padding: 16px 24px;
+  border-bottom: 1px solid #eceef2;
+  background: #fffaf0;
+  flex-shrink: 0;
+  font-size: 12px;
+  outline: none;
+}
+.saveFeedback p { margin: 6px 0; }
+.saveFeedback .error { margin: 0; }
+.feedbackActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.valueConflicts { max-height: 25dvh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #d5c7ad transparent; }
+.valueConflicts > div { border-top: 1px solid #eadfc9; margin-top: 12px; padding-top: 12px; }
+.valueConflicts b { overflow-wrap: anywhere; white-space: pre-wrap; }
+.backdrop .valueFields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.unsaved { margin-right: auto; font-size: 11px; color: #8c6b2e; }

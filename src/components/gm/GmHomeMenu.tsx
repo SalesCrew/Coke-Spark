@@ -68,6 +68,7 @@ export function GmHomeMenu(
   const load = useCallback(async () => {
     if (readAuthSession()?.user.role !== "gm") return;
     const current = ++sequence.current;
+    setError("");
     try {
       const data = await requestGmBriefings<BriefingInbox>("/gm/briefings");
       if (mounted.current && current === sequence.current) {
@@ -136,7 +137,7 @@ export function GmHomeMenu(
   return (
     <div ref={root}>
       <CollapsibleMenu
-        key={owner ?? "signed-out"}
+        key={`menu:${owner ?? "signed-out"}`}
         {...props}
         gmActionBriefings={{
           unreadCount: actionInbox?.unreadCount ?? 0,
@@ -163,17 +164,15 @@ export function GmHomeMenu(
           loading: !inbox && !error,
           error: !!error,
           onOpen: (rect) => {
-            if (error) {
-              void load();
-              return;
-            }
-            if (inbox?.items.length)
-              setOrigin({
-                left: rect.left,
-                top: rect.top,
-                width: rect.width,
-                height: rect.height,
-              });
+            // Keep the user's intent while a fresh inbox loads after returning
+            // from a saved visit. Retrying an error must open in this gesture too.
+            setOrigin({
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            });
+            if (error) void load();
           },
         }}
       />
@@ -195,10 +194,12 @@ export function GmHomeMenu(
           onRefresh={() => void loadActions()}
         />
       )}
-      {origin && inbox && (
+      {origin && (
         <GmBriefingReader
-          key={owner}
-          items={inbox.items}
+          key={`weekly-reader:${owner ?? "signed-out"}`}
+          items={inbox?.items ?? []}
+          loading={!inbox && !error}
+          inboxError={error}
           origin={origin}
           onClose={close}
           onRead={load}

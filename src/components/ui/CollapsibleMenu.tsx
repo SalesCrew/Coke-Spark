@@ -482,7 +482,7 @@ export function CollapsibleMenu({
       }
 
       if (selectedRow.type === "briefings") {
-        if (gmBriefings?.available || gmBriefings?.error) { const rect = containerRef.current?.getBoundingClientRect(); setExpanded(false); if (rect) gmBriefings.onOpen(rect); }
+        if (gmBriefings?.available || gmBriefings?.error || gmBriefings?.loading) { const rect = containerRef.current?.getBoundingClientRect(); setExpanded(false); if (rect) gmBriefings.onOpen(rect); }
         return;
       }
 
@@ -794,7 +794,7 @@ export function CollapsibleMenu({
               const Row = (smMessages || gmBriefings) && expanded ? "button" : "div";
               const count = row.type === "actionBriefings" ? gmActionBriefings?.unreadCount : smMessages?.unreadCount ?? (expanded ? gmBriefings?.unreadCount : (gmBriefings?.unreadCount ?? 0) + (gmActionBriefings?.unreadCount ?? 0));
               const showUnread = Boolean(count) && (row.type === "messages" || row.type === "briefings" || row.type === "actionBriefings" || (!expanded && i === activeRowIndex));
-              const briefingDisabled = row.type === "briefings" && !gmBriefings?.available && !gmBriefings?.error;
+              const briefingDisabled = row.type === "briefings" && !gmBriefings?.available && !gmBriefings?.error && !gmBriefings?.loading;
               const dangerSoftBackground =
                 "linear-gradient(180deg, rgba(254,242,242,0.96), rgba(254,226,226,0.94))";
               const dangerSoftShadow =

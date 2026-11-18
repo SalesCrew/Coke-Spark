@@ -23,6 +23,8 @@ export function GmBriefingReader({
   onRefresh,
   basePath = "/gm/briefings",
   contextLabel = "Wochenschwerpunkte",
+  loading = false,
+  inboxError = "",
 }: {
   items: GmBriefing[];
   origin: Origin;
@@ -31,6 +33,8 @@ export function GmBriefingReader({
   onRefresh: () => void;
   basePath?: "/gm/briefings" | "/gm/action-briefings";
   contextLabel?: string;
+  loading?: boolean;
+  inboxError?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
     carousel = useRef<HTMLDivElement>(null),
@@ -50,6 +54,12 @@ export function GmBriefingReader({
     [ackAttempt, setAckAttempt] = useState(0),
     [visible, setVisible] = useState(!document.hidden);
   const { pdf, error: pdfError } = useBriefingPdf(fileUrl);
+  // The reader can open before the inbox request completes. Select the first
+  // publication when it arrives without replacing an already selected version.
+  useEffect(() => {
+    if (selectedId === undefined && items.length)
+      setSelectedId(items.find(item => !item.readAt)?.id ?? items[0].id);
+  }, [items, selectedId]);
   const originalPopup = useRef<Window | null>(null);
   const [openingOriginal, setOpeningOriginal] = useState(false),
     [originalError, setOriginalError] = useState("");
@@ -328,9 +338,23 @@ export function GmBriefingReader({
             </span>
           )}
         </header>
-        {!selected ? (
+        {!selected && loading ? (
+          <div role="status" className={styles.status}>
+            <div>
+              <LoaderCircle size={20} className={styles.spinner} aria-hidden="true" />
+              <p>{contextLabel} werden geladen …</p>
+            </div>
+          </div>
+        ) : !selected && inboxError ? (
+          <div role="alert" className={styles.status}>
+            <div>
+              <p>{inboxError}</p>
+              <button type="button" onClick={onRefresh}>Erneut laden</button>
+            </div>
+          </div>
+        ) : !selected ? (
           <div className={styles.status}>
-            {basePath === "/gm/briefings" ? "Dieser Wochenschwerpunkt ist nicht mehr aktiv." : "Dieses Aktionsbriefing ist nicht mehr verfügbar."}
+            {basePath === "/gm/briefings" ? selectedId ? "Dieser Wochenschwerpunkt ist nicht mehr aktiv." : "Aktuell keine Wochenschwerpunkte verfügbar." : "Dieses Aktionsbriefing ist nicht mehr verfügbar."}
             <button onClick={onRefresh}>Aktualisieren</button>
           </div>
         ) : fileError || pdfError ? (

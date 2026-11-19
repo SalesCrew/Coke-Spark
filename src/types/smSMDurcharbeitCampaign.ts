@@ -15,11 +15,14 @@ export type SMDurcharbeitTarget = {
   completedAt: string | null; visitCount: number;
 };
 export type SMDurcharbeitTargetList = { month: string; currentMonth: string; months: string[]; targets: SMDurcharbeitTarget[] };
+export type SMDurcharbeitQuestionnaireOption = { id: string; templateId: string; name: string; versionNumber: number;
+  effectiveFrom: string | null; effectiveTo: string | null; templateStatus?: "active" | "inactive" };
 export type SMDurcharbeitCampaignOptions = {
   markets: Array<{ id: string; name: string; address: string; postalCode: string; city: string; region: string; chain: string;
     assignedSmUserId: string | null; sourcePerson: string | null }>;
   people: Array<{ id: string; firstName: string; lastName: string }>;
-  questionnaires: Array<{ id: string; templateId: string; name: string; versionNumber: number; effectiveFrom: string | null; effectiveTo: string | null }>;
+  questionnaires: SMDurcharbeitQuestionnaireOption[];
+  selectedQuestionnaire?: SMDurcharbeitQuestionnaireOption | null;
 };
 export type SMDurcharbeitTargetPreview = { target: SMDurcharbeitTarget; questionnaire: { name: string; versionNumber: number };
   profile: { travelTimeEnabled: boolean } };
@@ -34,6 +37,7 @@ export type SMDurcharbeitQuestionnaireUpdatePreview = {
 };
 export type SMDurcharbeitCampaignDraft = Pick<SMDurcharbeitCampaign, "name" | "startDate" | "endDate" | "questionnaireVersionId" | "rosterDraft">;
 export type SMDurcharbeitPublicationPreview = { campaign: SMDurcharbeitCampaign; months: string[]; marketCount: number; targetCount: number;
+  questionnaireRequiresActivation?: boolean;
   unresolved: string[]; overlapping: Array<{ id: string; name: string; marketId: string }>; legacy: Array<{ id: string; marketId: string; workDate: string }>; previewToken: string };
 export type SMDurcharbeitMarketEdit = { expectedRevision: number; month: string; scope: "month" | "future"; reason: string;
   roster: Array<{ smMarketId: string; smUserId?: string }> };

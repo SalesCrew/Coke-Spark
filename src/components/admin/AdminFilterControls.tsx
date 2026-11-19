@@ -45,6 +45,7 @@ export function AdminDropdown({
   searchable = false,
   disabled = false,
   portalContainer,
+  onOpen,
 }: {
   value: string;
   options: AdminDropdownOption[];
@@ -55,6 +56,8 @@ export function AdminDropdown({
   searchable?: boolean;
   disabled?: boolean;
   portalContainer?: HTMLElement | null;
+  /** Optional live catalog refresh. Selection waits for a successful refresh. */
+  onOpen?: () => Promise<void>;
 }) {
   const SMDurcharbeit = useContext(SMDurcharbeitControlTheme);
   const defaultPortalContainer = useContext(AdminControlPortalContext);
@@ -63,6 +66,10 @@ export function AdminDropdown({
   const searchRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [refreshState, setRefreshState] = useState<"idle" | "loading" | "error">("idle");
+  const refreshSequence = useRef(0);
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [position, setPosition] = useState<{ top: number; left: number; width: number; openAbove: boolean; maxHeight: number } | null>(null);
   const selectedOption = options.find((option) => option.value === value);
@@ -108,25 +115,51 @@ export function AdminDropdown({
 
   useEffect(() => {
     if (!open) return;
-    setQuery("");
-    setHighlightedIndex(Math.max(0, options.findIndex((option) => option.value === value)));
     if (searchable) window.requestAnimationFrame(() => searchRef.current?.focus());
-  }, [open, options, searchable, value]);
+  }, [open, searchable]);
+
+  const refresh = useCallback(async () => {
+    const load = onOpenRef.current;
+    if (!load) return;
+    const sequence = ++refreshSequence.current;
+    setRefreshState("loading");
+    try {
+      await load();
+      if (sequence === refreshSequence.current) setRefreshState("idle");
+    } catch {
+      if (sequence === refreshSequence.current) setRefreshState("error");
+    }
+  }, []);
+  useEffect(() => {
+    if (open) void refresh();
+    return () => { refreshSequence.current++; };
+  }, [open, refresh]);
 
   useEffect(() => {
     if (highlightedIndex >= filteredOptions.length) setHighlightedIndex(Math.max(0, filteredOptions.length - 1));
   }, [filteredOptions.length, highlightedIndex]);
 
   useEffect(() => {
+    if (open && !normalizedQuery) setHighlightedIndex(Math.max(0, options.findIndex(option => option.value === value)));
+  }, [open, normalizedQuery, options, value]);
+
+  useEffect(() => {
     if (!open) return;
     menuRef.current?.querySelectorAll<HTMLElement>('[role="option"]')[highlightedIndex]?.scrollIntoView({ block: "nearest" });
-  }, [highlightedIndex, open]);
+  }, [highlightedIndex, open, refreshState]);
 
   useEffect(() => {
     if (disabled && open) setOpen(false);
   }, [disabled, open]);
 
+  const openMenu = () => {
+    setQuery("");
+    setHighlightedIndex(Math.max(0, options.findIndex(option => option.value === value)));
+    setRefreshState(onOpen ? "loading" : "idle");
+    setOpen(true);
+  };
   const choose = (nextValue: string) => {
+    if (refreshState !== "idle") return;
     onChange(nextValue);
     setOpen(false);
     window.requestAnimationFrame(() => triggerRef.current?.focus());
@@ -143,14 +176,14 @@ export function AdminDropdown({
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!open) {
-        setOpen(true);
+        openMenu();
         return;
       }
       const direction = event.key === "ArrowDown" ? 1 : -1;
       setHighlightedIndex((current) => filteredOptions.length ? (current + direction + filteredOptions.length) % filteredOptions.length : 0);
       return;
     }
-    if (event.key === "Enter" && open && filteredOptions[highlightedIndex]) {
+    if (event.key === "Enter" && open && refreshState === "idle" && filteredOptions[highlightedIndex]) {
       event.preventDefault();
       choose(filteredOptions[highlightedIndex].value);
     }
@@ -161,6 +194,7 @@ export function AdminDropdown({
       ref={menuRef}
       role="listbox"
       aria-label={ariaLabel}
+      aria-busy={refreshState === "loading" || undefined}
       className={`sm-plan-dropdown-menu${SMDurcharbeit ? " is-SMDurcharbeit" : ""}`}
       onKeyDown={handleKeyDown}
       style={{
@@ -185,7 +219,9 @@ export function AdminDropdown({
         </label>
       ) : null}
       <div className="sm-plan-dropdown-options">
-        {filteredOptions.length ? filteredOptions.map((option, index) => {
+        {refreshState === "loading" ? <div role="status" className="sm-plan-dropdown-empty">Auswahl wird aktualisiert…</div>
+          : refreshState === "error" ? <div className="sm-plan-dropdown-empty"><span role="alert">Auswahl konnte nicht geladen werden.</span><button type="button" className="ml-2 underline" onClick={() => void refresh()}>Erneut laden</button></div>
+          : filteredOptions.length ? filteredOptions.map((option, index) => {
           const selected = option.value === value;
           const highlighted = index === highlightedIndex;
           return (
@@ -221,7 +257,7 @@ export function AdminDropdown({
         aria-expanded={disabled ? false : open}
         disabled={disabled}
         className={`sm-plan-dropdown-trigger${SMDurcharbeit ? " is-SMDurcharbeit" : ""}${compact ? " is-compact" : ""}${active && compact ? " is-active" : ""}${open ? " is-open" : ""}`}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => { if (open) setOpen(false); else openMenu(); }}
         onKeyDown={handleKeyDown}
       >
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedOption?.label ?? placeholder}</span>

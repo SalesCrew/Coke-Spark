@@ -1,5 +1,5 @@
 import { computeHiddenQuestionIds } from "@/lib/conditional-visibility";
-import { smCommentMissing, smCommentTriggerKey } from "@/lib/sm/answerComments";
+import { smCommentMissing, smCommentTriggerKey, smNextAnswerWithComment } from "@/lib/sm/answerComments";
 import type { SmManagedQuestion } from "@/types/smManagement";
 import type { SmVisitAnswer } from "@/types/smVisit";
 
@@ -76,9 +76,7 @@ export function smManagementAnswerComplete(question: SmManagedQuestion, answer: 
   return true;
 }
 export function smManagementNextAnswer(question: SmManagedQuestion, old: SmVisitAnswer, next: SmVisitAnswer): SmVisitAnswer {
-  if (next.kind === "empty") return next;
-  const key = smCommentTriggerKey(question, next);
-  return key && key === smCommentTriggerKey(question, old) && old.comment ? { ...next, comment: old.comment } : next;
+  return smNextAnswerWithComment(question, old, next);
 }
 export function smManagementTime(value: string | null): string {
   return value ? new Intl.DateTimeFormat("de-AT", { timeZone: "Europe/Vienna", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—";

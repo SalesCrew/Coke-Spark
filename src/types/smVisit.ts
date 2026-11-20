@@ -13,6 +13,8 @@ export type SmVisitAnswer = (
 ) & { comment?: string };
 
 export type SmVisitQuestion = {
+  /** Server-computed capability; never a saved answer or an authoring requirement. */
+  optionalCommentEnabled?: boolean;
   id: string;
   questionCode: string;
   type: SmQuestionType;

@@ -1,4 +1,5 @@
 import type { SMDurcharbeitReportAnswer } from "@/types/smSMDurcharbeitCampaign";
+import { smOptionalCommentsAllowed } from "@/lib/sm/answerComments";
 
 export type SmExportAnswer = Pick<SMDurcharbeitReportAnswer, "question" | "answer">;
 
@@ -33,5 +34,7 @@ export function smExportAnswerValue(row: SmExportAnswer): string | number {
 }
 
 export function smExportAnswerComment(row: SmExportAnswer): string {
-  return row.question.isApplicable !== false && row.answer?.answerState === "answered" ? row.answer.valueJson?.comment ?? "" : "";
+  const visible = row.question.isApplicable !== false && (row.answer?.answerState === "answered"
+    || (row.answer?.answerState === "unanswered" && smOptionalCommentsAllowed(row.question)));
+  return visible ? row.answer?.valueJson?.comment ?? "" : "";
 }

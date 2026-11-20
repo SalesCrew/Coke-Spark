@@ -50,7 +50,7 @@ export type SMDurcharbeitReportAnswer = {
   targetId: string; smName: string; sourceSubmissionId: string | null; sourceAnswerId: string | null;
   question: { id: string; submissionId: string; questionVersionId: string; questionCodeSnapshot: string;
     questionTypeSnapshot: string; questionTextSnapshot: string; answerOptionsSnapshot: Array<Record<string, unknown>>;
-    configSnapshot?: Record<string, unknown>; isApplicable?: boolean };
+    configSnapshot?: Record<string, unknown>; isApplicable?: boolean; optionalCommentEnabled?: boolean };
   answer: { id: string; answerState: string; answerVersion: number; valueJson: import("./smVisit").SmVisitAnswer | null; answeredAt: string | null } | null;
 };
 export type SMDurcharbeitReport = {

@@ -2,7 +2,7 @@
 
 import { useId, useRef } from "react";
 import { Camera, MessageSquare, X } from "lucide-react";
-import { smCommentTriggerKey } from "@/lib/sm/answerComments";
+import { smCommentTriggerKey, smOptionalCommentsAllowed } from "@/lib/sm/answerComments";
 import { smManagementAnswerLabel, smManagementNextAnswer, smManagementMatrixLabels, smManagementSelectMatrix, smManagementOptionSubheadings, smManagementConfigNumber } from "@/lib/sm/management";
 import type { SmManagedQuestion, SmManagementPhoto } from "@/types/smManagement";
 import type { SmVisitAnswer } from "@/types/smVisit";
@@ -18,7 +18,8 @@ export function SmManagementAnswer({ question, value, editable, disabled, photos
   const update = (next: SmVisitAnswer) => onChange(smManagementNextAnswer(question, value, next));
   const subheadings = smManagementOptionSubheadings(question);
   const commentEnabled = Boolean(smCommentTriggerKey(question, value));
-  const comment = value.kind !== "empty" ? value.comment ?? "" : "";
+  const optionalComment = smOptionalCommentsAllowed(question);
+  const comment = value.comment ?? "";
   if (!editable) return <div className={styles.answerRead}>
     <p>{question.answerState === "not_applicable" ? "Nicht zutreffend · " : ""}{smManagementAnswerLabel(question, value)}</p>
     {comment ? <div className={styles.commentRead}><MessageSquare size={12} /><span>{comment}</span></div> : null}
@@ -69,8 +70,8 @@ export function SmManagementAnswer({ question, value, editable, disabled, photos
       <button type="button" className={styles.secondary} onClick={() => fileRef.current?.click()}><Camera size={13} />Fotos ergänzen</button>
       <p className={styles.hint}>JPG, PNG oder WebP · bis 20 MB · Originale bleiben im Verlauf.</p>
     </div> : null}
-    {commentEnabled && value.kind !== "empty" ? <label className={styles.field}><span>Kommentar <span className={styles.required}>*</span></span>
-      <textarea aria-label="Pflichtkommentar" value={comment} maxLength={2000} rows={2} onChange={event => onChange({ ...value, comment: event.target.value })} placeholder="Kommentar zur ausgewählten Antwort …" />
+    {(commentEnabled && value.kind !== "empty") || optionalComment ? <label className={styles.field}><span>Kommentar {commentEnabled ? <span className={styles.required}>*</span> : <span>(optional)</span>}</span>
+      <textarea aria-label={commentEnabled ? "Pflichtkommentar" : "Kommentar (optional)"} value={comment} maxLength={2000} rows={2} onChange={event => onChange({ ...(value.kind === "photo" && !value.fileIds.length ? { kind: "empty" as const } : value), comment: event.target.value })} placeholder="Notiz zu dieser Frage …" />
     </label> : null}
     {!question.required && value.kind !== "empty" ? <button type="button" className={styles.textButton} onClick={() => update({ kind: "empty" })}>Antwort leeren</button> : null}
   </fieldset>;

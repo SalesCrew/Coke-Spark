@@ -31,7 +31,7 @@ import { useRouter } from "next/navigation";
 
 import Aurora from "@/components/ui/Aurora";
 import { SmAnswerCommentDialog } from "@/components/sm/SmAnswerCommentDialog";
-import { smCommentMissing, smCommentTriggerKey } from "@/lib/sm/answerComments";
+import { smCommentMissing, smCommentTriggerKey, smOptionalCommentsAllowed, smNextAnswerWithComment } from "@/lib/sm/answerComments";
 import { announcePausedVisit } from "@/components/sm/SmPausedVisitNotice";
 import { SmTravelTimeInput } from "@/components/sm/SmTravelTimeInput";
 import { SmVisitTimeConflict, type SmVisitTimeConflictDetails } from "@/components/sm/SmVisitTimeConflict";
@@ -1283,11 +1283,10 @@ type QuestionCardProps = {
 export function QuestionCard({ question, answer, onAnswer, saveState, saveError, photoFiles, photoBusy, photoRecovery, onPhotoUpload, onPhotoDelete, questionNumber, questionCount, previousDisabled, nextLabel, onPrevious, onNext, onPrepareComment }: QuestionCardProps) {
   const [commentOpen, setCommentOpen] = useState(false);
   const triggerKey = smCommentTriggerKey(question, answer);
+  const optionalComments = smOptionalCommentsAllowed(question);
   const changeAnswer = (next: SmVisitAnswer) => {
     const nextKey = smCommentTriggerKey(question, next);
-    const { comment: _oldComment, ...base } = next;
-    const nextAnswer = nextKey && nextKey === triggerKey && answer.comment ? { ...base, comment: answer.comment } : base;
-    onAnswer(nextAnswer);
+    onAnswer(smNextAnswerWithComment(question, answer, next));
     if (nextKey && nextKey !== triggerKey && ["choice", "multi", "yesnomulti", "matrix"].includes(next.kind)) setCommentOpen(true);
   };
   const openComment = async () => {
@@ -1303,7 +1302,11 @@ export function QuestionCard({ question, answer, onAnswer, saveState, saveError,
   return <article className="flex min-w-0 w-full flex-col overflow-hidden rounded-[14px] border border-white/90 bg-white/80 px-4 pb-4 pt-[18px] shadow-[0_2px_16px_rgba(0,0,0,.05),0_1px_4px_rgba(0,0,0,.04)] backdrop-blur-2xl">
     <div className="flex items-center justify-between gap-3">
       <span className="text-[9px] font-bold uppercase tracking-[.07em] text-black/25">{questionTypeLabel(question.type)} · {questionNumber} von {questionCount}</span>
-      <SaveState state={saveState} />
+      <div className="flex shrink-0 items-center gap-2"><SaveState state={saveState} />{optionalComments ? <button
+        type="button" aria-label={answer.comment?.trim() ? "Kommentar bearbeiten" : "Kommentar hinzufügen"} title={answer.comment?.trim() ? "Kommentar bearbeiten" : triggerKey ? "Kommentar erforderlich" : "Kommentar hinzufügen"}
+        disabled={photoBusy} onClick={() => void openComment()}
+        className={`relative flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] transition-colors before:absolute before:-inset-[11px] before:content-[''] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-black/25 disabled:opacity-40 ${answer.comment?.trim() ? "bg-emerald-500/10 text-emerald-600" : "bg-black/[.04] text-black/30 hover:bg-black/[.07]"}`}
+      >{answer.comment?.trim() ? <Check size={11} strokeWidth={3} /> : <MessageSquare size={11} strokeWidth={1.8} />}</button> : null}</div>
     </div>
     <h1 className="mt-3 break-words text-[13px] font-semibold leading-[1.5] tracking-[-.01em] text-[#1a1a1a]">{question.text}{question.required ? <span className="ml-1 text-[11px] text-red-600">*</span> : null}</h1>
     {subheading ? <p className="mt-0.5 overflow-hidden break-words text-[9px] font-normal leading-[1.4] text-black/35 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{subheading}</p> : null}
@@ -1312,7 +1315,11 @@ export function QuestionCard({ question, answer, onAnswer, saveState, saveError,
     <div className="mt-4 min-h-0 min-w-0"><QuestionInput question={question} answer={answer} onAnswer={changeAnswer} photoFiles={photoFiles} photoBusy={photoBusy} onPhotoUpload={onPhotoUpload} onPhotoDelete={onPhotoDelete} /></div>
     {photoRecovery}
     {triggerKey ? <button type="button" disabled={photoBusy} onClick={() => void openComment()} className="mt-2 flex w-full items-center gap-1.5 text-left text-[9px] font-medium text-black/40"><MessageSquare size={11} className={answer.comment?.trim() ? "text-emerald-600" : "text-red-500"} /><span className="min-w-0 flex-1 truncate">{answer.comment?.trim() || "Kommentar erforderlich"}</span><span className="shrink-0 text-black/30">{answer.comment?.trim() ? "Bearbeiten" : "Ergänzen"}</span></button> : null}
-    {commentOpen && triggerKey ? <SmAnswerCommentDialog questionText={question.text} value={answer.comment ?? ""} onClose={() => setCommentOpen(false)} onSave={(comment) => { onAnswer({ ...answer, comment }); setCommentOpen(false); }} /> : null}
+    {commentOpen && (optionalComments || triggerKey) ? <SmAnswerCommentDialog questionText={question.text} required={Boolean(triggerKey)} value={answer.comment ?? ""} onClose={() => setCommentOpen(false)} onSave={(comment) => {
+      const base = answer.kind === "photo" && !answer.fileIds.length ? { kind: "empty" as const } : answer;
+      const { comment: _previous, ...value } = base;
+      onAnswer(comment ? { ...value, comment } : value); setCommentOpen(false);
+    }} /> : null}
     {saveError ? <p role="alert" className="mt-3 flex items-start gap-2 rounded-[9px] bg-red-50 px-3 py-2 text-[9px] font-semibold leading-relaxed text-red-700"><AlertCircle size={11} className="mt-0.5 shrink-0" />{saveError}</p> : null}
     <div className="mt-4 border-t border-black/[0.055] pt-3">
       <div className="flex gap-2">

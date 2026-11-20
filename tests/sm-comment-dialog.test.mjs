@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 
-function setup(value = "") {
+function setup(value = "", required = true) {
   const require = createRequire(import.meta.url), state = [];
   let cursor = 0;
   const module = {exports:{}};
@@ -17,7 +17,7 @@ function setup(value = "") {
     return require(name);
   }});
   const saves=[];let closes=0;
-  const render=()=>{cursor=0;return module.exports.SmAnswerCommentDialog({questionText:"Testfrage",value,onSave:comment=>saves.push(comment),onClose:()=>closes++});};
+  const render=()=>{cursor=0;return module.exports.SmAnswerCommentDialog({questionText:"Testfrage",value,required,onSave:comment=>saves.push(comment),onClose:()=>closes++});};
   const find=(node,predicate)=>{if(!node||typeof node!=="object")return null;if(predicate(node))return node;for(const child of [node.props?.children].flat(Infinity)){const found=find(child,predicate);if(found)return found;}return null;};
   return {render,find,saves,get closes(){return closes;}};
 }
@@ -44,4 +44,15 @@ test("blank comments cannot be applied and final text is trimmed",()=>{
   f.find(f.render(),node=>node.type==="textarea").props.onChange({target:{value:"  Ein vollständiger Kommentar.  "}});
   f.find(f.render(),node=>node.type==="button"&&node.props.children==="Übernehmen").props.onClick();
   assert.deepEqual(f.saves,["Ein vollständiger Kommentar."]);
+});
+
+test("optional notes can be erased explicitly without submitting partial typing",()=>{
+  const f=setup("Freiwillige Notiz",false);
+  const input=f.find(f.render(),node=>node.type==="textarea");
+  assert.equal(input.props.required,false);
+  input.props.onChange({target:{value:""}});
+  assert.equal(f.saves.length,0);
+  const button=f.find(f.render(),node=>node.type==="button"&&node.props.children==="Übernehmen");
+  assert.equal(button.props.disabled,false);button.props.onClick();
+  assert.deepEqual(f.saves,[""]);
 });

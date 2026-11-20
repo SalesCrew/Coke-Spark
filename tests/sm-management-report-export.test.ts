@@ -77,6 +77,32 @@ test("invalid, duplicate, empty or oversized report data fails without a silentl
   const tooLong = report(); tooLong.answers[2]!.answer!.valueJson = { kind: "text", value: "x".repeat(32768) }; assert.throws(() => buildSmManagementReportWorkbook(XLSX, tooLong), /ohne Kürzung/);
 });
 
+test("Durcharbeit revisions also combine in the management export while standard SM retains its existing behavior", () => {
+  const data = report(), old = structuredClone(data.answers[0]!);
+  old.question.questionVersionNumber = 1;
+  const next = structuredClone(old);
+  next.question = { ...next.question, id: "next-question", submissionId: "visit-2", questionVersionId: "new-version", questionVersionNumber: 2,
+    questionTextSnapshot: "Ja/Nein mit Grund", questionTypeSnapshot: "yesnomulti", configSnapshot: { photoRequired: true } };
+  next.answer!.valueJson = { kind: "yesnomulti", optionCode: "no", subOptions: ["Bestellt"], comment: "Neuer Kommentar" };
+  data.answers = [next, old];
+  data.visits = data.visits.map(visit => ({ ...visit, SMDurcharbeitCatalogScope: "SMDurcharbeit" }));
+  const before = JSON.stringify(data);
+  const wb = buildSmManagementReportWorkbook(XLSX, data);
+  const saved = XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer" });
+  const rows = table(saved.Sheets.Besuche!);
+  assert.equal(rows[0]!["Ja/Nein mit Grund"], "Nein");
+  assert.equal(rows[1]!["Ja/Nein mit Grund"], "Nein · Bestellt");
+  assert.ok(rows.every(row => !("Ja/Nein" in row) && !("Ja/Nein mit Grund (2)" in row)));
+  const details = table(saved.Sheets.Antwortdetails!);
+  assert.deepEqual(details.map(row => row.Frage), ["Ja/Nein mit Grund", "Ja/Nein"]);
+  assert.equal(JSON.stringify(data), before);
+  const standard = structuredClone(data);
+  standard.visits = standard.visits.map(visit => ({ ...visit, SMDurcharbeitCatalogScope: "standard" }));
+  standard.answers[0]!.question.questionTextSnapshot = "Ja/Nein";
+  const standardRows = table(buildSmManagementReportWorkbook(XLSX, standard).Sheets.Besuche!);
+  assert.ok("Ja/Nein" in standardRows[0]! && "Ja/Nein (2)" in standardRows[0]!, "Do not change unrelated standard SM column rules");
+});
+
 test("selected filters show names, while unmapped answer authors never inherit another employee's name", () => {
   const data = report(); data.filters = { ...data.filters, smUserId: "sm", marketId: "market", questionnaireId: "form", search: "Test" };
   data.answers[0]!.answer!.answeredByName = "Admin Muster";

@@ -132,10 +132,43 @@ test("column compatibility requires stable question identity, wording, type and 
     { questionTypeSnapshot: "multiple" },
     { answerOptionsSnapshot: [{ code: "yes", label: "Andere Bedeutung" }] },
   ]) assert.notEqual(smReportQuestionColumnKey(original), smReportQuestionColumnKey({ ...revision, question: { ...revision.question, ...change } }));
+  for (const change of [
+    { questionTextSnapshot: "Neu formulierte Frage" }, { questionTypeSnapshot: "yesnomulti" },
+    { answerOptionsSnapshot: [{ code: "other", label: "Neue Option" }] },
+  ]) assert.equal(smReportQuestionColumnKey(original, true), smReportQuestionColumnKey({ ...revision, question: { ...revision.question, ...change } }, true), "Durcharbeit combines versions by logical question identity");
+  assert.notEqual(smReportQuestionColumnKey(original, true), smReportQuestionColumnKey({ ...revision, question: { ...revision.question, questionCodeSnapshot: "unrelated" } }, true));
   const matrix = answerRow("matrix", { kind: "matrix", cells: [] }, { rows: ["Regal"], columns: ["Voll"], unit: "Stück" });
   const reorderedConfig = { ...matrix, question: { ...matrix.question, questionVersionId: "matrix-revision", configSnapshot: { unit: "Stück", columns: ["Voll"], rows: ["Regal"] } } };
   assert.equal(smReportQuestionColumnKey(matrix), smReportQuestionColumnKey(reorderedConfig), "JSON key order is not a semantic change");
   assert.notEqual(smReportQuestionColumnKey(matrix), smReportQuestionColumnKey({ ...reorderedConfig, question: { ...reorderedConfig.question, configSnapshot: { rows: ["Regal"], columns: ["Leer"], unit: "Stück" } } }));
+});
+
+test("Durcharbeit yes/no → yes/no multi and renamed question export in one position with the newest header and original row labels", () => {
+  const old = answerRow("yesno", { kind: "choice", optionCode: "option_2", comment: "Alter Kommentar" });
+  old.question = { ...old.question, submissionId: "old", questionCodeSnapshot: "same-logical-question", questionTextSnapshot: "Im Kühler vorhanden?", questionVersionNumber: 1 };
+  const next = structuredClone(old);
+  next.question = { ...next.question, id: "new-question", submissionId: "new", questionVersionId: "new-question-version", questionVersionNumber: 2,
+    questionTypeSnapshot: "yesnomulti", questionTextSnapshot: "Im Kühler vorhanden? + Foto", configSnapshot: { photoRequired: true } };
+  next.answer!.valueJson = { kind: "yesnomulti", optionCode: "option_2", subOptions: ["Ware bestellt"], comment: "Neuer Kommentar" };
+  // The old frozen questionnaire was submitted later. Header selection follows
+  // the question's revision number, not visit date or questionnaire numbering.
+  const physicalVisits = ["new", "old"].map((id, index) => ({ id, submissionId: id, targetId: "target", smUserId: "sm", smName: "SM", marketName: "Synthetic",
+    questionnaireVersion: index ? 9 : 1, questionnaireValid: true, submittedAt: `2026-10-19T${index ? "11" : "10"}:20:00Z`,
+    startedAt: `2026-10-19T${index ? "11" : "10"}:00:00Z`, completedAt: `2026-10-19T${index ? "11" : "10"}:20:00Z`,
+    originalStartedAt: null, originalCompletedAt: null, actualMinutes: 20, travelMinutes: 0, timeRevision: 1 }));
+  const answers = [next, old];
+  const report = { month: "2026-10-01", targets: [], questionResults: [], answers, visitAnswers: answers, physicalVisits,
+    summary: { required: 1, completed: 1, waived: 0, latestSubmissions: 1, physicalVisits: 2, validQuestionnaireVisits: 2, actualMinutes: 40, travelMinutes: 0, availablePhotoUploads: 0 } } as SMDurcharbeitReport;
+  const before = JSON.stringify(report), wb = XLSX.utils.book_new(); buildSMDurcharbeitReportWorkbook(XLSX, wb, report, "Synthetic");
+  const saved = XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer" });
+  const [headers, ...rows] = XLSX.utils.sheet_to_json<unknown[]>(saved.Sheets["Einsätze"]!, { header: 1, range: 3 });
+  assert.equal(headers!.length, 21); assert.equal(headers![19], "Im Kühler vorhanden? + Foto");
+  assert.equal(rows[0]![19], "Historisches Nein · Ware bestellt"); assert.equal(rows[0]![20], "Neuer Kommentar");
+  assert.equal(rows[1]![19], "Historisches Nein"); assert.equal(rows[1]![20], "Alter Kommentar");
+  const audit = XLSX.utils.sheet_to_json<Record<string, unknown>>(saved.Sheets["Letzte Antworten"]!, { range: 3 });
+  assert.ok(audit.some(row => Object.values(row).includes("Im Kühler vorhanden?")));
+  assert.ok(audit.some(row => Object.values(row).includes("Im Kühler vorhanden? + Foto")));
+  assert.equal(JSON.stringify(report), before);
 });
 
 test("same-visit conflicting values are explicit; matching values keep all comments and missing answers never become Nein", () => {
@@ -158,6 +191,52 @@ test("same-visit conflicting values are explicit; matching values keep all comme
   const zero = answerRow("numeric", { kind: "number", value: 0 });
   assert.deepEqual(smReportAnswerCell([zero]), { value: 0, comment: "", conflict: false });
   assert.equal(JSON.stringify([yes, no]), before, "Neither answers nor snapshots are rewritten");
+});
+
+test("Durcharbeit edited answer options and configurations stay in one original column across all question types", () => {
+  const definitions: Array<[string, SmVisitAnswer, SmVisitAnswer]> = [
+    ["yesno", { kind: "choice", optionCode: "option_1" }, { kind: "choice", optionCode: "new_yes" }],
+    ["single", { kind: "choice", optionCode: "option_2" }, { kind: "choice", optionCode: "new_no" }],
+    ["multiple", { kind: "multi", optionCodes: ["option_1", "option_2"] }, { kind: "multi", optionCodes: ["new_no"] }],
+    ["yesnomulti", { kind: "yesnomulti", optionCode: "option_1", subOptions: ["Alter Grund"] }, { kind: "yesnomulti", optionCode: "new_no", subOptions: ["Neuer Grund"] }],
+    ["likert", { kind: "choice", optionCode: "option_1" }, { kind: "choice", optionCode: "new_yes" }],
+    ["text", { kind: "text", value: "Originaltext" }, { kind: "text", value: "Neuer Text" }],
+    ["numeric", { kind: "number", value: 0 }, { kind: "number", value: 5 }],
+    ["slider", { kind: "number", value: 0 }, { kind: "number", value: 15 }],
+    ["photo", { kind: "photo", fileIds: ["old-photo"] }, { kind: "photo", fileIds: ["new-photo-1", "new-photo-2"] }],
+    ["matrix", { kind: "matrix", cells: [{ rowCode: "row_2", columnCode: "column_2", selected: true }] }, { kind: "matrix", cells: [{ rowCode: "row_2", columnCode: "column_2", selected: true }] }],
+  ];
+  const answers = definitions.flatMap(([type, oldValue, newValue]) => {
+    const old = answerRow(type, { ...oldValue, comment: "Historischer Kommentar" }, { rows: ["", "Altes Regal"], columns: ["", "Alt voll"] });
+    old.question = { ...old.question, id: `old-${type}`, submissionId: "old-visit", questionVersionNumber: 1 };
+    const next = structuredClone(old);
+    next.question = { ...next.question, id: `new-${type}`, submissionId: "new-visit", questionVersionId: `new-version-${type}`, questionVersionNumber: 2,
+      configSnapshot: { rows: ["", "Neues Regal"], columns: ["", "Neu leer"], photoRequired: true, max: 100 },
+      answerOptionsSnapshot: [{ code: "new_yes", label: "Aktuelles Ja" }, { code: "new_no", label: "Aktuelles Nein" }] };
+    next.answer!.valueJson = { ...newValue, comment: "Aktueller Kommentar" };
+    return [old, next];
+  });
+  const physicalVisits = ["old-visit", "new-visit"].map((submissionId, i) => ({ id: submissionId, targetId: "target", submissionId,
+    smUserId: "sm", smName: "SM", marketName: "Synthetic", questionnaireValid: true, questionnaireVersion: i + 1,
+    submittedAt: `2026-10-19T${i ? "10" : "09"}:20:00Z`, startedAt: `2026-10-19T${i ? "10" : "09"}:00:00Z`, completedAt: `2026-10-19T${i ? "10" : "09"}:20:00Z`,
+    originalStartedAt: null, originalCompletedAt: null, actualMinutes: 20, travelMinutes: 0, timeRevision: 1 }));
+  const report = { month: "2026-10-01", targets: [], questionResults: [], answers, visitAnswers: answers, physicalVisits,
+    summary: { required: 1, completed: 1, waived: 0, latestSubmissions: 1, physicalVisits: 2, validQuestionnaireVisits: 2, actualMinutes: 40, travelMinutes: 0, availablePhotoUploads: 3 } } as SMDurcharbeitReport;
+  const before = JSON.stringify(report), wb = XLSX.utils.book_new(); buildSMDurcharbeitReportWorkbook(XLSX, wb, report, "Synthetic");
+  const saved = XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer" });
+  const [headers, ...rows] = XLSX.utils.sheet_to_json<unknown[]>(saved.Sheets["Einsätze"]!, { header: 1, range: 3 });
+  assert.equal(headers!.length, 19 + definitions.length * 2, "Exactly one answer/comment pair per logical question, no appended (2) columns");
+  definitions.forEach(([type], index) => {
+    const name = `Frage ${type}`, column = headers!.indexOf(name);
+    assert.equal(column, 19 + index * 2, "Revision stays at the original question position");
+    assert.equal(headers!.includes(name + " (2)"), false);
+    assert.equal(rows[0]![column], smExportAnswerValue(answers[index * 2]!));
+    assert.equal(rows[1]![column], smExportAnswerValue(answers[index * 2 + 1]!));
+    assert.equal(rows[0]![column + 1], "Historischer Kommentar");
+    assert.equal(rows[1]![column + 1], "Aktueller Kommentar");
+  });
+  assert.equal(XLSX.utils.sheet_to_json(saved.Sheets["Letzte Antworten"]!, { range: 3 }).length, answers.length);
+  assert.equal(JSON.stringify(report), before, "Export cannot rewrite a historical response or photo ID");
 });
 
 test("serialized workbook combines three revised questions and flags a real conflict without changing audit sheets", () => {

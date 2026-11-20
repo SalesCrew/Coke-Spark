@@ -1,7 +1,7 @@
 import type { SmManagementReport } from "@/types/smManagement";
 import { appendMetaSheet, appendTableSheet, buildAndDownloadWorkbook, type ExportColumn } from "./workbook";
 import { smExportAnswerComment, smExportAnswerValue } from "./smAnswerValue";
-import { smReportAnswerCell, smReportQuestionColumnKey } from "./smReportQuestionColumns";
+import { smReportAnswerCell, smReportQuestionColumnKey, smReportLatestQuestion } from "./smReportQuestionColumns";
 
 type Xlsx = typeof import("xlsx-js-style");
 type Answer = SmManagementReport["answers"][number];
@@ -14,14 +14,18 @@ const number = (value: string | undefined) => value !== undefined && value !== "
 export function buildSmManagementReportWorkbook(XLSX: Xlsx, report: SmManagementReport, appOrigin?: string) {
   if (!report.visits.length) throw new Error("Für diese Auswahl gibt es keine abgeschlossenen Fragebögen.");
   const ids = new Set(report.visits.map(visit => visit.id));
+  const durcharbeitIds = new Set(report.visits.filter(visit => visit.SMDurcharbeitCatalogScope === "SMDurcharbeit" || visit.SMDurcharbeitContext).map(visit => visit.id));
   if (ids.size !== report.visits.length) throw new Error("Doppelte Besuche in der Auswertung. Bitte neu laden.");
   const grouped = new Map<string, Map<string, Answer[]>>(), columns = new Map<string, string>(), seen = new Set<string>();
+  const definitions = new Map<string, Answer["question"]>();
   for (const row of report.answers) {
     if (!ids.has(row.question.submissionId) || seen.has(row.question.id)) throw new Error("Die Besuchsantworten sind nicht eindeutig. Bitte neu laden.");
     seen.add(row.question.id);
-    const key = smReportQuestionColumnKey(row), groups = grouped.get(row.question.submissionId) ?? new Map<string, Answer[]>();
+    const durcharbeit = durcharbeitIds.has(row.question.submissionId);
+    const key = smReportQuestionColumnKey(row, durcharbeit), groups = grouped.get(row.question.submissionId) ?? new Map<string, Answer[]>();
     groups.set(key, [...(groups.get(key) ?? []), row]); grouped.set(row.question.submissionId, groups);
-    if (!columns.has(key)) columns.set(key, row.question.questionTextSnapshot);
+    const definition = durcharbeit ? smReportLatestQuestion(definitions.get(key), row.question) : definitions.get(key) ?? row.question;
+    definitions.set(key, definition); columns.set(key, definition.questionTextSnapshot);
   }
   const rows = report.visits.map(visit => ({ visit, cells: new Map([...(grouped.get(visit.id) ?? [])].map(([key, values]) => [key, smReportAnswerCell(values)])) }));
   type Row = typeof rows[number];

@@ -10,9 +10,12 @@ function canonical(value: unknown): unknown {
 }
 
 /** Merge revisions of one question, never unrelated questions sharing a title. */
-export function smReportQuestionColumnKey(row: SmExportAnswer): string {
+export function smReportQuestionColumnKey(row: SmExportAnswer, combineRevisions = false): string {
   const question = row.question;
   const code = question.questionCodeSnapshot.trim();
+  // Durcharbeit exports group the logical question, not its wording, option
+  // labels or validation settings. Each cell still uses its own frozen snapshot.
+  if (combineRevisions && code) return JSON.stringify(["question", code]);
   const text = question.questionTextSnapshot.normalize("NFC").replace(/\s+/gu, " ").trim();
   if (!code || !text) return JSON.stringify(["version", question.questionVersionId]);
   const type = question.questionTypeSnapshot;
@@ -26,6 +29,11 @@ export function smReportQuestionColumnKey(row: SmExportAnswer): string {
     config: canonical(question.configSnapshot ?? {}),
   };
   return JSON.stringify([code, type, text, meaning]);
+}
+
+/** Newest included definition supplies the header, without moving the column. */
+export function smReportLatestQuestion<T extends SmExportAnswer["question"]>(current: T | undefined, candidate: T): T {
+  return !current || (candidate.questionVersionNumber ?? 0) > (current.questionVersionNumber ?? 0) ? candidate : current;
 }
 
 export type SmReportAnswerCell = { value: string | number; comment: string; conflict: boolean };

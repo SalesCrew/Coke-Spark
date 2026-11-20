@@ -5,6 +5,10 @@ import { createRequire } from "node:module";
 import * as XLSX from "xlsx-js-style";
 import { createQuestionnaireUpdateFixture } from "../backend/tests/SMDurcharbeit-questionnaire-update-fixture";
 import { buildSMDurcharbeitReportWorkbook } from "../src/lib/exports/smSMDurcharbeitReportExport";
+import { buildSmManagementReportWorkbook } from "../src/lib/exports/smManagementReportExport";
+import { loadSmManagementReport, smManagementReportSchema } from "../backend/src/sm-management-report.shared";
+import type { SmManagementTx } from "../backend/src/sm-management";
+import type { SmManagementReport } from "../src/types/smManagement";
 import type { SMDurcharbeitReport } from "../src/types/smSMDurcharbeitCampaign";
 
 const { eq } = createRequire(new URL("../backend/package.json", import.meta.url))("drizzle-orm");
@@ -62,7 +66,13 @@ test("SM submission → revised questionnaire → follow-up → scoped report �
       assert.equal(new Set(revisions.map(row => row.question.questionVersionId)).size, 2, "Real authoring produced distinct compatible question revisions");
       assert.equal(rows.length, 2); assert.equal(rows[0]!["Bestand geprüft"], "Ja"); assert.equal(rows[1]!["Bestand geprüft"], "Nein");
       assert.ok(rows.every(row => !("Bestand geprüft (2)" in row)));
-      assert.equal(rows[0]!.Notiz, "Original note"); assert.equal(rows[1]!["Aktualisierte Notiz"], "New visit note");
+      assert.equal(rows[0]!["Aktualisierte Notiz"], "Original note"); assert.equal(rows[1]!["Aktualisierte Notiz"], "New visit note");
+      assert.ok(rows.every(row => !("Notiz" in row)), "Renaming the same question updates its single export header, not its original answers");
+      const notes = report.visitAnswers!.filter(row => row.question.questionTypeSnapshot === "text");
+      assert.deepEqual(notes.map(row => row.question.questionVersionNumber).sort(), [1, 2]);
+      const draft = (await f.sm("get", `${f.visitRoot}/${f.draft.visitId}`).expect(200)).body;
+      assert.equal(draft.sections[0].questions.length, 7, "Export changes do not replace or rewrite a running visit graph");
+      assert.equal(draft.SMDurcharbeitQuestionnaireSelection.versionNumber, 1);
       assert.equal(rows[0]!["Entfernte Frage 1"], "Ja"); assert.equal(rows[1]!["Entfernte Frage 1"], "");
       assert.equal(rows[0]!["Neue Kontrollfrage"], ""); assert.equal(rows[1]!["Neue Kontrollfrage"], "Nein");
       assert.equal(rows[0]!.Regalfoto, "1 Foto"); assert.equal(rows[1]!.Regalfoto, "1 Foto");
@@ -79,6 +89,22 @@ test("SM submission → revised questionnaire → follow-up → scoped report �
       assert.deepEqual(other.visitAnswers, []);
       await f.admin("get", `${root}/results?includeVisitAnswers=invalid`).expect(400);
       assert.deepEqual(await history(), before, "GET and XLSX generation never change answer, photo, provenance or time history");
+    });
+    await t.test("management report also supplies revision metadata and combines original answers without changing history", async () => {
+      const before = await history();
+      const result = await f.database.transaction(tx => loadSmManagementReport(tx as unknown as SmManagementTx,
+        smManagementReportSchema.parse({ from: "2026-10-01", to: "2026-10-31", SMDurcharbeitCampaignId: f.campaign.id })));
+      const report = JSON.parse(JSON.stringify(result)) as SmManagementReport;
+      assert.equal(report.visits.length, 2);
+      assert.deepEqual(report.answers.filter(row => row.question.questionTypeSnapshot === "text").map(row => row.question.questionVersionNumber).sort(), [1, 2]);
+      const built = buildSmManagementReportWorkbook(XLSX, report);
+      const saved = XLSX.read(XLSX.write(built, { type: "buffer", bookType: "xlsx" }), { type: "buffer" });
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(saved.Sheets["Besuche"]!, { header: 1, range: 3 });
+      const header = rows[0]!, note = header.indexOf("Aktualisierte Notiz");
+      assert.ok(note >= 0); assert.ok(!header.includes("Notiz")); assert.ok(!header.includes("Aktualisierte Notiz (2)"));
+      assert.deepEqual(rows.slice(1).map(row => row[note]).sort(), ["New visit note", "Original note"]);
+      assert.equal(f.objects.size, 1);
+      assert.deepEqual(await history(), before);
     });
     await t.test("withdrawn originals disappear from photo counts in both original and inherited answers", async () => {
       await f.database.update(f.schema.smQuestionAnswerFiles).set({ isDeleted: true, deletedAt: new Date() }).where(eq(f.schema.smQuestionAnswerFiles.id, f.photoId));

@@ -1,7 +1,7 @@
 import type { SMDurcharbeitReport, SMDurcharbeitReportAnswer } from "@/types/smSMDurcharbeitCampaign";
 import { appendMetaSheet, appendTableSheet, buildAndDownloadWorkbook, fileSafeName, formatExportDateTime, type ExportColumn } from "./workbook";
 import { smExportAnswerComment, smExportAnswerValue } from "./smAnswerValue";
-import { smReportAnswerCell, smReportQuestionColumnKey, type SmReportAnswerCell } from "./smReportQuestionColumns";
+import { smReportAnswerCell, smReportQuestionColumnKey, smReportLatestQuestion, type SmReportAnswerCell } from "./smReportQuestionColumns";
 
 type XlsxModule = typeof import("xlsx-js-style");
 type Workbook = ReturnType<XlsxModule["utils"]["book_new"]>;
@@ -38,7 +38,7 @@ function appendVisitAnswers(XLSX: XlsxModule, wb: Workbook, report: SMDurcharbei
     if (seenQuestions.has(identity)) throw new Error("Doppelte Frage im Besuch. Der Export wurde zum Schutz vor unvollständigen Antworten abgebrochen.");
     seenQuestions.add(identity);
     const answers = answersBySubmission.get(row.question.submissionId) ?? new Map<string, SMDurcharbeitReportAnswer[]>();
-    const key = smReportQuestionColumnKey(row);
+    const key = smReportQuestionColumnKey(row, true);
     answers.set(key, [...(answers.get(key) ?? []), row]); answersBySubmission.set(row.question.submissionId, answers);
   }
   const start = (visit: SMDurcharbeitReport["physicalVisits"][number]) => visit.startedAt ?? visit.originalStartedAt ?? visit.submittedAt;
@@ -49,10 +49,12 @@ function appendVisitAnswers(XLSX: XlsxModule, wb: Workbook, report: SMDurcharbei
       return { visit, target: targets.get(visit.targetId), answers, cells };
     });
   type Row = typeof rows[number];
-  const questionColumns = new Map<string, { label: string }>();
+  const questionColumns = new Map<string, { label: string; definition: SMDurcharbeitReportAnswer["question"] }>();
   for (const row of rows) for (const [id, answers] of row.answers ?? []) {
-    if (questionColumns.has(id)) continue;
-    questionColumns.set(id, { label: answers[0]!.question.questionTextSnapshot });
+    for (const answer of answers) {
+      const definition = smReportLatestQuestion(questionColumns.get(id)?.definition, answer.question);
+      questionColumns.set(id, { label: definition.questionTextSnapshot, definition });
+    }
   }
   const columns: ExportColumn<Row>[] = [
     { header: "Kampagne", value: () => campaignName, width: 28 },
@@ -93,7 +95,7 @@ function appendVisitAnswers(XLSX: XlsxModule, wb: Workbook, report: SMDurcharbei
   });
   if (columns.length > 16384 || Math.max(1, rows.length) * columns.length > 2_000_000) throw new Error("Der Excel-Export ist zu groß. Bitte die Monatsauswertung auf einen SM eingrenzen.");
   appendTableSheet(XLSX, wb, { name: "Einsätze", title: "SM Durcharbeit · Besuchsantworten", rows, columns,
-    description: "Eine Zeile je tatsächlichem Besuch. Inhaltlich gleiche Fassungen derselben Frage stehen zusammen; abweichende Fragen bleiben getrennt. Leer: nicht enthalten. Widersprüche sind gekennzeichnet. Zeiten: Europe/Vienna." });
+    description: "Eine Zeile je tatsächlichem Besuch. Fassungen derselben Frage stehen gemeinsam in einer Spalte; jede Antwort behält ihre ursprüngliche Bedeutung. Leer: nicht enthalten. Widersprüche sind gekennzeichnet. Zeiten: Europe/Vienna." });
   const sheet = wb.Sheets["Einsätze"]!;
   if (!rows.length) {
     const end = XLSX.utils.encode_col(columns.length - 1);
@@ -123,7 +125,7 @@ export function buildSMDurcharbeitReportWorkbook(XLSX: XlsxModule, wb: Workbook,
     { label: "Verfügbare Foto-Originale", value: summary.availablePhotoUploads },
     { label: "Antwortbasis", value: "Letzte gültige Abgabe je erforderlichem Markt; Folgeabgaben zählen als ein Monatsstand." },
     { label: "Blatt Einsätze", value: "Jeder tatsächliche Besuch mit eigenen Antworten und aktuellen Zeiten. Ungültige/zurückgezogene Abgaben behalten die Zeitzeile, ohne Antwortinhalte." },
-    { label: "Fragefassungen", value: "Kompatible Versionen derselben Frage werden nur im Blatt Einsätze zusammengeführt. Originale Frageversionen und Monatsverteilungen bleiben unverändert." },
+    { label: "Fragefassungen", value: "Versionen derselben Frage stehen im Blatt Einsätze in einer gemeinsamen Spalte mit der neuesten enthaltenen Frageformulierung. Jede Zeile verwendet ihre ursprünglichen Antwortbezeichnungen. Originale Frageversionen und Monatsverteilungen bleiben unverändert." },
     { label: "Widersprüchliche Antworten", value: "Unterschiedliche gespeicherte Antworten derselben Frage innerhalb eines Besuchs werden mit beiden Werten und Kommentaren gekennzeichnet. Es wird kein Wert überschrieben." },
     { label: "Verteilungsbasis", value: "Auswahl je beantworteter, anwendbarer Frage. Mehrfachauswahl kann zusammen über 100 % ergeben." },
     { label: "Zeitbasis", value: "Jeder tatsächliche Besuch einmal mit aktueller Zeitrevision. Ungültige Antworten entfernen keine geleistete Zeit." },

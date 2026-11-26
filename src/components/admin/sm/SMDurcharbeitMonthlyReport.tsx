@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Download, LoaderCircle } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { AdminDropdown } from "@/components/admin/AdminFilterControls";
 import { getAuthPrincipalKey, readAuthSession, requestSMDurcharbeitCampaign, subscribeAuthSession } from "@/lib/api/backend";
-import { exportSMDurcharbeitReport } from "@/lib/exports/smSMDurcharbeitReportExport";
 import type { SMDurcharbeitCampaign, SMDurcharbeitReport, SMDurcharbeitTarget } from "@/types/smSMDurcharbeitCampaign";
 
 import styles from "./SMDurcharbeitCampaignWorkspace.module.css";
@@ -23,38 +22,24 @@ export function SMDurcharbeitMonthlyReport({ campaign, month, targets, reloadKey
 
 function Report({ campaign, month, targets }: { campaign: SMDurcharbeitCampaign; month: string; targets: SMDurcharbeitTarget[] }) {
   const [open, setOpen] = useState(false), [sm, setSm] = useState(""), [retry, setRetry] = useState(0);
-  const [report, setReport] = useState<SMDurcharbeitReport | null>(null), [error, setError] = useState<string | null>(null), [exporting, setExporting] = useState(false);
-  const generation = useRef(0), latestReport = useRef(report); latestReport.current = report;
+  const [report, setReport] = useState<SMDurcharbeitReport | null>(null), [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
   useEffect(() => {
     if (!open) return;
     const requests = generation, request = ++requests.current; setReport(null); setError(null);
     requestSMDurcharbeitCampaign<SMDurcharbeitReport>(`/${campaign.id}/results?month=${encodeURIComponent(month)}${sm ? `&smUserId=${encodeURIComponent(sm)}` : ""}`)
       .then(result => { if (request === generation.current) setReport(result); })
       .catch(failure => { if (request === generation.current) setError(failure instanceof Error ? failure.message : "Auswertung konnte nicht geladen werden."); });
-    return () => { requests.current++; latestReport.current = null; };
+    return () => { requests.current++; };
   }, [campaign.id, month, open, retry, sm]);
-  const exportReport = async () => {
-    if (!report || exporting) return;
-    const version = generation.current, owner = ownerKey(); setExporting(true); setError(null);
-    const isCurrent = () => version === generation.current && ownerKey() === owner && latestReport.current !== null;
-    try {
-      // Export a fresh, complete visit history; the on-screen distributions remain monthly.
-      const exportData = await requestSMDurcharbeitCampaign<SMDurcharbeitReport>(`/${campaign.id}/results?month=${encodeURIComponent(month)}&includeVisitAnswers=true${sm ? `&smUserId=${encodeURIComponent(sm)}` : ""}`);
-      if (isCurrent()) await exportSMDurcharbeitReport(exportData, campaign.name, isCurrent);
-    }
-    catch (failure) { if (version === generation.current) setError(failure instanceof Error ? failure.message : "Export konnte nicht erstellt werden."); }
-    finally { if (version === generation.current) setExporting(false); }
-  };
   const people = [...new Map(targets.flatMap(target => target.smUserId ? [[target.smUserId, { value: target.smUserId, label: target.smName }] as const] : [])).values()];
-  return <details className={styles.disclosure} onToggle={event => { setOpen(event.currentTarget.open); if (!event.currentTarget.open) setExporting(false); }}>
+  return <details className={styles.disclosure} onToggle={event => { setOpen(event.currentTarget.open); }}>
     <summary className={styles.disclosureHeader}>Monatsauswertung<ChevronDown size={13} /></summary>
     {open ? <div className={styles.disclosureBody}>
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="w-[220px]"><AdminDropdown value={sm} options={[{ value: "", label: "Alle SMs" }, ...people]} onChange={value => { generation.current++; latestReport.current = null; setReport(null); setExporting(false); setSm(value); }} ariaLabel="SM für Monatsauswertung" placeholder="Alle SMs" /></div>
-        <button type="button" disabled={!report || exporting} onClick={() => void exportReport()} className={button}>{exporting ? <LoaderCircle size={12} className="motion-safe:animate-spin" /> : <Download size={12} />}Antworten exportieren</button>
+        <div className="w-[220px]"><AdminDropdown value={sm} options={[{ value: "", label: "Alle SMs" }, ...people]} onChange={value => { generation.current++; setReport(null); setSm(value); }} ariaLabel="SM für Monatsauswertung" placeholder="Alle SMs" /></div>
       </header>
       <p className="mb-4 text-[11px] leading-5 text-gray-600">Antworten: letzte gültige Abgabe je erforderlichem Markt. Tatsächliche Besuche und Zeiten bleiben einzeln erhalten.</p>
-      <p className="mb-4 text-[11px] leading-5 text-gray-600">Excel: eine Zeile je Besuch mit Markt, SM und lesbaren Antworten in Frage-Spalten. Monatsstand und Antwortverteilung bleiben separat enthalten.</p>
       {error ? <p role="alert" className="text-[11px] text-red-700">{error} <button type="button" onClick={() => setRetry(value => value + 1)} className="ml-2 underline">Erneut laden</button></p> : null}
       {!report && !error ? <div role="status" className="space-y-3 motion-safe:animate-pulse"><span className="sr-only">Monatsauswertung wird geladen</span><div className="h-10 rounded-lg bg-gray-50" /><div className="h-24 rounded-lg bg-gray-50" /></div> : null}
       {report ? <>

@@ -22,7 +22,7 @@ function DimensionSkeleton({ title }: { title: string }) {
       </div>
       <div className="sm-live-dimension">
         <div className="sm-live-dimension-head">
-          <span>Bereich</span><span>Besuche</span><span>OOS</span><span>Behoben</span><span>Märkte mit OOS</span>
+          <span>Bereich</span><span>Besuche</span><span>OOS</span><span>Ganz oder teilweise behoben</span><span>Märkte mit OOS</span>
         </div>
         {["64%", "42%", "76%"].map((width) => (
           <div className="sm-live-dimension-row" key={width}>
@@ -52,7 +52,7 @@ export function SmDashboardSkeleton() {
           </div>
           <div className="sm-live-category">
             <div className="sm-live-category-head">
-              <span>Kategorie</span><span>Gefunden</span><span>OOS-Quote</span><span>Behoben</span><span>Behebungsquote</span><span>Märkte mit OOS</span>
+              <span>Kategorie</span><span>Gefunden</span><span>OOS-Quote</span><span>Ganz oder teilweise behoben</span><span>Behebungsquote</span><span>Märkte mit OOS</span>
             </div>
             {["68%", "82%", "56%", "74%"].map((width) => (
               <div className="sm-live-category-row" key={width}>

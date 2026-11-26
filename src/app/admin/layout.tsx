@@ -822,6 +822,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     : isPraemien ? "admin:praemien:export"
     : isSmDashboard ? "admin:sm-dashboard:export"
     : isSmFragebogen || isSMDurcharbeit ? `admin:${smCatalogEventNamespace}:export`
+    : isSMDurcharbeitCampaigns ? "admin:sm-durcharbeit-planning:export"
     : isSmVerplanung ? "admin:sm-verplanung:export"
     : isMaerkte ? "admin:maerkte:export"
     : isLager ? "admin:lager:export"

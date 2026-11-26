@@ -2149,13 +2149,15 @@ export async function requestMySmActivityAnswerChange(input: {
   submissionId: string;
   submissionQuestionId: string;
   answer: SmVisitAnswer;
+  commentOnly?: boolean;
+  expectedAnswerVersion?: number;
   requestedAnswerSummary?: string;
   reason: string;
   clientRequestToken: string;
 }): Promise<{ request: { id: string; status: "pending" }; replayed: boolean }> {
   return (await authedFetch(`/sm/activity/submissions/${encodeURIComponent(input.submissionId)}/questions/${encodeURIComponent(input.submissionQuestionId)}/change-requests`, {
     method: "POST",
-    body: JSON.stringify({ answer: input.answer, requestedAnswerSummary: input.requestedAnswerSummary, reason: input.reason, clientRequestToken: input.clientRequestToken }),
+    body: JSON.stringify({ answer: input.answer, commentOnly: input.commentOnly, expectedAnswerVersion: input.expectedAnswerVersion, requestedAnswerSummary: input.requestedAnswerSummary, reason: input.reason, clientRequestToken: input.clientRequestToken }),
   })) as { request: { id: string; status: "pending" }; replayed: boolean };
 }
 

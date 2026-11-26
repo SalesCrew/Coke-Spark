@@ -129,7 +129,7 @@ function DimensionTable({ title, subtitle, rows, emptyLabel }: {
       </div>
       <div className="sm-live-dimension">
         <div className="sm-live-dimension-head">
-          <span>Bereich</span><span>Besuche</span><span>OOS</span><span>Behoben</span><span>Märkte mit OOS</span>
+          <span>Bereich</span><span>Besuche</span><span>OOS</span><span>Ganz oder teilweise behoben</span><span>Märkte mit OOS</span>
         </div>
         {rows.length ? rows.map((row) => (
           <div className="sm-live-dimension-row" key={row.id}>
@@ -179,7 +179,7 @@ async function exportDashboardWorkbook(payload: SmDashboardPayload) {
     "OOS-Prüfungen": row.classifiedChecks,
     "OOS gefunden": row.foundCases,
     "OOS-Quote (%)": row.foundRate ?? "—",
-    "OOS behoben": row.fixedCases,
+    "OOS ganz oder teilweise behoben": row.fixedCases,
     "Behebungsquote (%)": row.fixedRate ?? "—",
     "Märkte mit OOS": row.marketsWithOos,
     "Geprüfte Märkte": row.observedMarkets,
@@ -190,7 +190,7 @@ async function exportDashboardWorkbook(payload: SmDashboardPayload) {
     "Besuchte Märkte": row.submittedMarkets,
     "OOS-Prüfungen": row.classifiedChecks,
     "OOS gefunden": row.foundCases,
-    "OOS behoben (%)": row.fixedRate ?? "—",
+    "OOS ganz oder teilweise behoben (%)": row.fixedRate ?? "—",
     "Märkte mit OOS (%)": row.affectedMarketRate ?? "—",
   })));
   XLSX.utils.book_append_sheet(workbook, overview, "Übersicht");
@@ -354,7 +354,7 @@ export function SmDashboardWorkspace() {
               <article className="sm-live-card">
                 <div className="sm-live-card-head"><div><h2>OOS & Behebung nach Kategorie</h2><p>Fallzahl, Besuchsquote und Marktbetroffenheit aus denselben aktuellen Antworten</p></div></div>
                 <div className="sm-live-category">
-                  <div className="sm-live-category-head"><span>Kategorie</span><span>Gefunden</span><span>OOS-Quote</span><span>Behoben</span><span>Behebungsquote</span><span>Märkte mit OOS</span></div>
+                  <div className="sm-live-category-head"><span>Kategorie</span><span>Gefunden</span><span>OOS-Quote</span><span>Ganz oder teilweise behoben</span><span>Behebungsquote</span><span>Märkte mit OOS</span></div>
                   {(payload?.categories ?? []).map((row) => (
                     <div className="sm-live-category-row" key={row.category}>
                       <strong>{row.label}</strong>

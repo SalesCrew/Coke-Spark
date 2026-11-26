@@ -26,13 +26,13 @@ export function SmDashboardOverview({ overview, summary, loading = false }: { ov
   ];
   const metrics = [
     { label: "Durchgeführte Basistätigkeiten", value: percent(result?.basicActivityRate), tone: "green" as const,
-      detail: result?.basicActivityAnswers ? `${count(result.basicActivityAnswers)} gewertete Antworten · teilweise zählt halb` : "Noch keine zugeordneten Antworten" },
+      detail: result?.basicActivityAnswers ? `${count(result.basicActivityAnswers)} gewertete Antworten · teilweise zählt halb` : "Noch keine zugeordneten Antworten · Zuordnung im Frageneditor prüfen" },
     { label: "Märkte mit OOS", value: percent(result?.affectedMarketRate ?? summary?.affectedMarketRate), tone: "red" as const,
       detail: `${count(result?.affectedMarkets ?? summary?.marketsWithOos)} von ${count(result?.observedMarkets ?? summary?.observedMarkets)} geprüften Märkten` },
     { label: "Häufigkeit vorgefundener OOS", value: count(result?.foundCategoryCases ?? summary?.foundCases), tone: "red" as const,
       detail: "Mindestens ein OOS je Besuch und Kategorie" },
-    { label: "OOS-Behebungsquote", value: percent(result?.remediationRate), tone: "green" as const,
-      detail: result?.foundCategoryCases ? `${count(result.fixedCategoryCases)} von ${count(result.foundCategoryCases)} Fällen behoben` : result?.categoryChecks ? "Kein OOS mit Behebungsbedarf" : "Noch keine auswertbaren Kategorieprüfungen" },
+    { label: "Ganz oder teilweise behoben", value: percent(result?.remediationRate), tone: "green" as const,
+      detail: result?.foundCategoryCases ? `${count(result.fixedCategoryCases)} von ${count(result.foundCategoryCases)} Fällen ganz oder teilweise behoben` : result?.categoryChecks ? "Kein OOS mit Behebungsbedarf" : "Noch keine auswertbaren Kategorieprüfungen" },
     { label: "Steigerung der Warenverfügbarkeit", value: percent(result?.availabilityGain, true), tone: "green" as const,
       detail: result?.categoryChecks ? `${count(result.fixedCategoryCases)} von ${count(result.categoryChecks)} Kategorieprüfungen zurückgewonnen` : "Vom Ganzen durch OOS-Behebung zurückgewonnen" },
     { label: "Warenverfügbarkeit nach ganz oder teilweise Behebung", value: percent(result?.availabilityAfter), tone: "green" as const,
@@ -61,7 +61,7 @@ export function SmDashboardOverview({ overview, summary, loading = false }: { ov
     </article>
     <article className={styles.performance} aria-label="Leistung im Markt">
       <div className={styles.heading}><h2>Leistung im Markt</h2>{!loading && <details className={styles.help}><summary>Berechnung</summary><div>
-        <p><b>Basistätigkeiten:</b> Ja zählt 1, teilweise 0,5 und Nein 0. Der Wert bezieht sich auf zugeordnete Antworten.</p>
+        <p><b>Basistätigkeiten:</b> Ja zählt 1, teilweise 0,5 und Nein 0. Der Wert bezieht sich auf zugeordnete Antworten. Im Frageneditor „Basistätigkeiten-Zuordnung“ aktivieren und die Antworten zuordnen. Bereits gespeicherte Antworten werden dadurch nicht nachträglich umgewertet.</p>
         <p><b>Märkte mit OOS:</b> unterschiedliche betroffene Märkte im Verhältnis zu allen geprüften Märkten.</p>
         <p><b>Häufigkeit:</b> jede betroffene Kategorie zählt pro Besuch einmal. Wiederholte Besuche zählen erneut.</p>
         <p><b>Behebung:</b> vollständig und teilweise behobene Fälle zählen als behoben.</p>

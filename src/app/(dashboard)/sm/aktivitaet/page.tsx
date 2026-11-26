@@ -6,7 +6,7 @@ import { SMDurcharbeitQuestionnaireBadge } from "@/components/sm/SMDurcharbeitQu
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SmAnswerCommentDialog } from "@/components/sm/SmAnswerCommentDialog";
-import { smCommentMissing, smCommentTriggerKey } from "@/lib/sm/answerComments";
+import { smCommentMissing, smCommentTriggerKey, smNextAnswerWithComment, smOptionalCommentsAllowed } from "@/lib/sm/answerComments";
 import {
   Activity,
   AlertCircle,
@@ -23,6 +23,7 @@ import {
   Loader2,
   LogOut,
   MapPin,
+  MessageSquare,
   RefreshCw,
   Search,
   Send,
@@ -597,6 +598,8 @@ function AnswerEditor({
 }
 
 function ChangeRequestSheet({
+  commentOnly = false,
+  expectedAnswerVersion,
   summary,
   question,
   currentAnswer,
@@ -605,6 +608,8 @@ function ChangeRequestSheet({
   onClose,
   onSaved,
 }: {
+  commentOnly?: boolean;
+  expectedAnswerVersion: number;
   summary: SmCompletedActivitySummary;
   question: SmVisitQuestion;
   currentAnswer: SmVisitAnswer | null;
@@ -616,15 +621,15 @@ function ChangeRequestSheet({
   const pendingRequest = existing?.status === "pending" ? existing : null;
   const [commentOpen, setCommentOpen] = useState(false);
   const [answer, setAnswer] = useState<SmVisitAnswer>(() =>
-    defaultAnswer(question, currentAnswer),
+    commentOnly ? currentAnswer ?? { kind: "empty" } : defaultAnswer(question, currentAnswer),
   );
   const [reason, setReason] = useState("");
   const [token] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const unchanged =
-    JSON.stringify(answer) ===
-    JSON.stringify(currentAnswer ?? { kind: "empty" });
+  const unchanged = commentOnly
+    ? (answer.comment ?? "").trim() === (currentAnswer?.comment ?? "").trim()
+    : JSON.stringify(answer) === JSON.stringify(currentAnswer ?? { kind: "empty" });
   useEffect(() => {
     const old = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -634,7 +639,8 @@ function ChangeRequestSheet({
   }, []);
   const submit = async () => {
     if (pendingRequest || busy) return;
-    if (!isMeaningful(question, answer)) {
+    if (smCommentMissing(question, answer)) { setError("Bitte den erforderlichen Kommentar ergänzen."); return; }
+    if (!commentOnly && !isMeaningful(question, answer)) {
       setError(
         question.required
           ? "Diese Pflichtfrage braucht eine vollständige Antwort."
@@ -643,7 +649,7 @@ function ChangeRequestSheet({
       return;
     }
     if (unchanged) {
-      setError("Bitte ändere die Antwort, bevor du die Anfrage sendest.");
+      setError(commentOnly ? "Bitte ändere den Kommentar, bevor du die Anfrage sendest." : "Bitte ändere die Antwort, bevor du die Anfrage sendest.");
       return;
     }
     if (reason.trim().length < 2) {
@@ -657,6 +663,7 @@ function ChangeRequestSheet({
         submissionId: summary.submissionId,
         submissionQuestionId: question.id,
         answer,
+        ...(commentOnly ? { commentOnly: true, expectedAnswerVersion } : {}),
         requestedAnswerSummary: answerText(question, answer),
         reason: reason.trim(),
         clientRequestToken: token,
@@ -675,13 +682,13 @@ function ChangeRequestSheet({
   };
   return (
     <div className="sm-act-modal-backdrop">
-      <section className="sm-act-sheet" role="dialog" aria-modal="true">
+      <section className="sm-act-sheet" role="dialog" aria-modal="true" aria-label={commentOnly ? "Kommentar anfragen" : "Antwortänderung anfragen"}>
         <header>
           <div>
-            <span>Antwortkorrektur</span>
-            <h3>{pendingRequest ? "Anfrage ansehen" : "Änderung anfragen"}</h3>
+            <span>{commentOnly ? "Kommentaranfrage" : "Antwortkorrektur"}</span>
+            <h3>{pendingRequest ? "Anfrage ansehen" : commentOnly ? currentAnswer?.comment?.trim() ? "Kommentar ändern" : "Kommentar nachtragen" : "Änderung anfragen"}</h3>
           </div>
-          <button type="button" onClick={onClose}>
+          <button type="button" disabled={busy} onClick={onClose}>
             <X size={14} />
           </button>
         </header>
@@ -713,6 +720,11 @@ function ChangeRequestSheet({
             </>
           ) : (
             <>
+              {commentOnly ? <label className="sm-act-field">
+                <span>Gewünschter Kommentar</span>
+                <textarea value={answer.comment ?? ""} disabled={busy} maxLength={2000} placeholder="Kommentar nachtragen …" onChange={event=>setAnswer(current=>({...current,comment:event.target.value}))} />
+                <p className="sm-act-photo-help">Antwort und Fotos bleiben gleich. Der Kommentar wird erst nach Freigabe durch einen Admin übernommen.</p>
+              </label> : <>
               <label className="sm-act-field">
                 <span>Gewünschte Antwort</span>
                 <AnswerEditor
@@ -721,8 +733,7 @@ function ChangeRequestSheet({
                   photos={photos}
                   onChange={(next) => {
                     const key = smCommentTriggerKey(question, next);
-                    const { comment: _previous, ...base } = next;
-                    setAnswer(key && key === smCommentTriggerKey(question, answer) && answer.comment ? { ...base, comment: answer.comment } : base);
+                    setAnswer(smNextAnswerWithComment(question, answer, next));
                     if (key && key !== smCommentTriggerKey(question, answer) && ["choice", "multi", "yesnomulti", "matrix"].includes(next.kind)) setCommentOpen(true);
                   }}
                 />
@@ -736,12 +747,14 @@ function ChangeRequestSheet({
                   </button>
                 ) : null}
               </label>
-              {smCommentTriggerKey(question, answer) ? <button type="button" className="text-left text-[11px] text-red-600" onClick={() => setCommentOpen(true)}>{answer.comment?.trim() ? "Kommentar bearbeiten" : "Kommentar ergänzen *"}</button> : null}
+              {(smOptionalCommentsAllowed(question) || smCommentTriggerKey(question, answer)) ? <button type="button" className="text-left text-[11px] text-red-600" onClick={() => setCommentOpen(true)}>{answer.comment?.trim() ? "Kommentar bearbeiten" : smCommentTriggerKey(question, answer) ? "Kommentar ergänzen *" : "Kommentar ergänzen"}</button> : null}
               {commentOpen ? <SmAnswerCommentDialog questionText={question.text} value={answer.comment ?? ""} onClose={() => setCommentOpen(false)} onSave={(comment) => { setAnswer((current) => ({ ...current, comment })); setCommentOpen(false); }} /> : null}
+              </>}
               <label className="sm-act-field">
                 <span>Grund für die Änderung</span>
                 <textarea
                   value={reason}
+                  disabled={busy}
                   onChange={(event) => setReason(event.target.value)}
                   maxLength={2000}
                   placeholder="Kurz erklären, warum die Antwort korrigiert werden soll …"
@@ -757,7 +770,7 @@ function ChangeRequestSheet({
           ) : null}
         </div>
         <footer>
-          <button type="button" className="secondary" onClick={onClose}>
+          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
             Schließen
           </button>
           {!pendingRequest ? (
@@ -1092,7 +1105,7 @@ function ActivityViewer({
   deleteRequest: SmActivitySubmissionDeleteRequest | null;
   onClose: () => void;
   onRetry: () => void;
-  onQuestion: (question: SmVisitQuestion) => void;
+  onQuestion: (question: SmVisitQuestion, commentOnly?: boolean) => void;
   onDelete: () => void;
 }) {
   useEffect(() => {
@@ -1234,7 +1247,8 @@ function ActivityViewer({
                             note={request.adminNote}
                           />
                         ) : null}
-                        <div className="sm-act-question-action">
+                        <div className="sm-act-question-action" style={{flexWrap:"wrap",gap:6}}>
+                          {smOptionalCommentsAllowed(question) && request?.status !== "pending" && <button type="button" onClick={()=>onQuestion(question,true)}><MessageSquare size={10} />{payload.answers[question.id]?.comment?.trim() ? "Kommentar ändern" : "Kommentar nachtragen"}</button>}
                           <button
                             type="button"
                             className={
@@ -1300,6 +1314,7 @@ export default function SmActivityPage() {
   useEffect(() => () => { payloadSequence.current += 1; }, []);
   const [selectedQuestion, setSelectedQuestion] =
     useState<SmVisitQuestion | null>(null);
+  const [commentRequestOnly, setCommentRequestOnly] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -1844,12 +1859,14 @@ export default function SmActivityPage() {
             setSelectedQuestion(null);
           }}
           onRetry={() => void loadPayload(selected)}
-          onQuestion={setSelectedQuestion}
+          onQuestion={(question,commentOnly=false)=>{setCommentRequestOnly(commentOnly);setSelectedQuestion(question);}}
           onDelete={() => setDeleteOpen(true)}
         />
       ) : null}
       {selected && payload && selectedQuestion ? (
         <ChangeRequestSheet
+          commentOnly={commentRequestOnly}
+          expectedAnswerVersion={payload.answerVersions[selectedQuestion.id] ?? 0}
           summary={selected}
           question={selectedQuestion}
           currentAnswer={payload.answers[selectedQuestion.id] ?? null}

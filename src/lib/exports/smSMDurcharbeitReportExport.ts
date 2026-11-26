@@ -1,5 +1,5 @@
 import type { SMDurcharbeitReport, SMDurcharbeitReportAnswer } from "@/types/smSMDurcharbeitCampaign";
-import { appendMetaSheet, appendTableSheet, buildAndDownloadWorkbook, fileSafeName, formatExportDateTime, type ExportColumn } from "./workbook";
+import { appendMetaSheet, appendTableSheet, formatExportDateTime, type ExportColumn } from "./workbook";
 import { smExportAnswerComment, smExportAnswerValue } from "./smAnswerValue";
 import { smReportAnswerCell, smReportQuestionColumnKey, smReportLatestQuestion, type SmReportAnswerCell } from "./smReportQuestionColumns";
 
@@ -172,12 +172,4 @@ export function buildSMDurcharbeitReportWorkbook(XLSX: XlsxModule, wb: Workbook,
     { header: "Fahrtzeit (Min)", value: r => r.travelMinutes }, { header: "Zeitrevision", value: r => r.timeRevision },
   ] });
   applyLightBackground(XLSX, wb);
-}
-export async function exportSMDurcharbeitReport(report: SMDurcharbeitReport, campaignName: string, isCurrent: () => boolean) {
-  // Lazy dependency loading is also guarded against an account/filter switch.
-  if (!isCurrent()) return;
-  const XLSX = await import("xlsx-js-style");
-  if (!isCurrent()) return;
-  await buildAndDownloadWorkbook({ filename: `CokeSpark_SM_Durcharbeit_${fileSafeName(campaignName)}_${report.month.slice(0, 7)}.xlsx`,
-    build: ({ wb }) => { if (!isCurrent()) throw new Error("Die Auswertung wurde gewechselt. Bitte neu laden."); buildSMDurcharbeitReportWorkbook(XLSX, wb, report, campaignName); } });
 }

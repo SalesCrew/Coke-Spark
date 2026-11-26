@@ -222,6 +222,13 @@ function settledActionError(
 }
 
 function smOriginalAnswerLabel(request: SmActivityAnswerChangeRequest): string {
+  const base = smOriginalAnswerValueLabel(request);
+  const value = request.originalAnswerSnapshot.value;
+  const comment = value && typeof value === "object" ? (value as Record<string, unknown>).comment : null;
+  return typeof comment === "string" && comment.trim() ? `${base}\nKommentar: ${comment}` : base;
+}
+
+function smOriginalAnswerValueLabel(request: SmActivityAnswerChangeRequest): string {
   const value = request.originalAnswerSnapshot.value;
   if (!value || typeof value !== "object") return "Keine Antwort";
   const answer = value as Record<string, unknown>;
@@ -751,6 +758,7 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
             <strong>{request.requestedAnswerSummary}</strong>
           </div>
           {request.autoApplicabilityError ? <div className="answer-card-note">{request.autoApplicabilityError}</div> : null}
+          {request.requestNote ? <div className="answer-card-note">{request.requestNote}</div> : null}
         </article>
       ))}
       {completedTimeRequests.length > 0 ? <div className="answer-section-heading">Zeiterfassung</div> : null}
@@ -950,6 +958,7 @@ function SharedAnswerChangeRequestFlap({ workspace = "gm" }: AnswerChangeRequest
                         <strong>{request.requestedAnswerSummary}</strong>
                       </div>
                       {request.autoApplicabilityError ? <div className="answer-card-note">{request.autoApplicabilityError}</div> : null}
+                      {request.requestNote ? <div className="answer-card-note">{request.requestNote}</div> : null}
                       {request.status === "pending" ? (
                         <div className="answer-card-actions">
                           <button

@@ -11,6 +11,7 @@ import { subscribeToAuthSessionChanges } from "@/lib/auth/sessionRegistry";
 import type { SMDurcharbeitCampaign, SMDurcharbeitCampaignDraft, SMDurcharbeitCampaignOptions, SMDurcharbeitMonthlySummary, SMDurcharbeitPublicationPreview, SMDurcharbeitTarget } from "@/types/smSMDurcharbeitCampaign";
 import { SMDurcharbeitVisitReview } from "./SMDurcharbeitVisitReview";
 import { SmManagementDrawer } from "./SmFbManagementWorkspace";
+import { SMDurcharbeitPlanningExport } from "./SMDurcharbeitPlanningExport";
 import { SMDurcharbeitMonthlyReport } from "./SMDurcharbeitMonthlyReport";
 import { SMDurcharbeitCampaignHistory } from "./SMDurcharbeitCampaignHistory";
 import { SMDurcharbeitCampaignMarketsEditor } from "./SMDurcharbeitCampaignMarketsEditor";
@@ -136,7 +137,7 @@ export function SmSMDurcharbeitCampaignWorkspace() {
   const peopleById = new Map(options?.people.map(person => [person.id, `${person.firstName} ${person.lastName}`.trim()]));
   const editableMonths = selected ? campaignMonths(selected).filter(value => value >= `${today().slice(0, 7)}-01`) : [];
   const monthDefaultSm = options?.people.find(person => person.id === options?.markets.find(market => market.id === changeSmTarget?.market.id)?.assignedSmUserId);
-  return <SMDurcharbeitFilterTheme enabled><AdminFilterControlStyles /><div className={styles.workspace}>
+  return <SMDurcharbeitFilterTheme enabled><AdminFilterControlStyles /><SMDurcharbeitPlanningExport /><div className={styles.workspace}>
     <header className={styles.toolbar}>
       <span className={styles.eyebrow}>Monatliche Kampagnen</span>
       <div className={styles.compactCampaigns}><AdminDropdown

@@ -774,7 +774,7 @@ export function buildPreparedFbManagementExportRows(
   return { columns, rows };
 }
 
-function appendSaraEinsaetzeSheet(
+export function appendSaraEinsaetzeSheet(
   XLSX: typeof import("xlsx-js-style"),
   wb: ReturnType<(typeof import("xlsx-js-style"))["utils"]["book_new"]>,
   rows: SaraCellValue[][],

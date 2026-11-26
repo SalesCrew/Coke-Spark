@@ -42,6 +42,8 @@ import {
 } from "@/lib/api/backend";
 import { exportFotoarchivImagesZip } from "@/lib/exports/analysisExports";
 import { resolvePhotoExportTimeframe, selectPhotoExportRangeDay, type PhotoExportDateRange, type PhotoExportTimeframe, type PhotoExportTimeframeMode } from "@/lib/exports/photoExportTimeframe";
+import { BoniSelect } from "@/components/admin/praemien/BoniSelect";
+import selectStyles from "./FotoarchivSelect.module.css";
 import { useAdminAccess } from "@/context/AdminAccessContext";
 import type { Campaign } from "@/types/campaign";
 import type { RedMonthPeriod } from "@/types/red-month";
@@ -53,6 +55,7 @@ const BUTTON_SHADOW = "inset 0 1px 0.6px rgba(255,255,255,0.9), inset 0 -1px 0 r
 const ADMIN_FONT_STACK = "var(--font-inter), Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 const TYPE_META: Record<AdminPhotoCampaignType, { label: string; color: string; bg: string }> = {
+  sonderaufgabe: { label: "Sondereinsatz", color: "#047857", bg: "rgba(4,120,87,0.08)" },
   standard: { label: "Standard", color: "#DC2626", bg: "rgba(220,38,38,0.08)" },
   flex: { label: "Flex", color: "#65a30d", bg: "rgba(132,204,22,0.10)" },
   billa: { label: "Billa", color: "#0891B2", bg: "rgba(8,145,178,0.10)" },
@@ -67,6 +70,7 @@ type PhotoSignedUrlState = Pick<AdminPhotoSignedUrl, "signedUrl" | "expiresAt">;
 type ExportTimeframeMode = PhotoExportTimeframeMode;
 type ExportSelection = PhotoExportTimeframe & {
   campaignId?: string;
+  campaignType?: AdminPhotoCampaignType;
   chains: string[];
   tagKeys: string[];
 };
@@ -151,6 +155,7 @@ function fmtBytes(bytes: number | null | undefined): string {
 }
 
 function marketDisplayName(photo: AdminPhotoArchiveItem): string {
+  if (photo.source === "special_assignment") return photo.gm.name || "Sondereinsatz";
   const name = photo.market.name.trim();
   if (name) return name;
   return [photo.market.address, `${photo.market.postalCode} ${photo.market.city}`.trim()].filter(Boolean).join(", ");
@@ -175,6 +180,7 @@ function photoFileExtension(photo: AdminPhotoArchiveItem): string {
 }
 
 function photoDownloadFileName(photo: AdminPhotoArchiveItem): string {
+  if(photo.source === "special_assignment") return `Sondereinsatz - ${photo.gm.name.replace(/[<>:"/\\|?*]/g,"-")} - ${fmtDate(photo.visit.startedAt).replace(/\./g,"-")}${photoFileExtension(photo)}`;
   const address = [photo.market.address, `${photo.market.postalCode} ${photo.market.city}`.trim()].filter(Boolean).join(", ");
   const masterNumber = photo.market.cokeMasterNumber || photo.market.kuehlerStammnr;
   const baseName = [masterNumber, marketDisplayName(photo), address]
@@ -321,42 +327,15 @@ function dedupePhotosById(items: AdminPhotoArchiveItem[]): AdminPhotoArchiveItem
   return result;
 }
 
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value?: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
+function SelectField({ label, value, onChange, options }: {
+  label: string; value?: string; onChange: (value: string) => void; options: Array<{value:string;label:string}>;
 }) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
-      <span style={{ fontSize: 9, fontWeight: 800, color: "rgba(0,0,0,0.36)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</span>
-      <select
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value)}
-        style={{
-          height: 34,
-          borderRadius: 8,
-          border: SOFT_BORDER,
-          background: "linear-gradient(to bottom, #fff, #fafafa)",
-          color: "rgba(0,0,0,0.66)",
-          fontSize: 11,
-          fontWeight: 700,
-          padding: "0 10px",
-          outline: "none",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 4px rgba(0,0,0,0.04)",
-        }}
-      >
-        {options.map((option) => (
-          <option key={option.value || "all"} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-    </label>
-  );
+  return <div className={selectStyles.control} style={{display:"flex",flexDirection:"column",gap:5,minWidth:0}}>
+    <span style={{fontSize:9,fontWeight:800,color:"rgba(0,0,0,0.36)",letterSpacing:"0.08em",textTransform:"uppercase"}}>{label}</span>
+    <BoniSelect aria-label={label} value={value ?? ""} onChange={event=>onChange(event.target.value)}>
+      {options.map(option=><option key={option.value || "all"} value={option.value}>{option.label}</option>)}
+    </BoniSelect>
+  </div>;
 }
 
 function DateRangeCalendar({
@@ -603,7 +582,8 @@ function FilterModal({
 
   if (!open) return null;
 
-  const update = (patch: Filters) => setDraft((prev) => compact({ ...prev, ...patch, page: 1 }));
+  const update = (patch: Filters) => setDraft((prev) => compact({ ...prev, ...(patch.campaignType === "sonderaufgabe" ? {campaignId:undefined,marketId:undefined,region:undefined,city:undefined,postalCode:undefined,chain:undefined,questionId:undefined,moduleId:undefined} : {}), ...patch, page: 1 }));
+  const specialOnly = draft.campaignType === "sonderaufgabe";
   const dateLabel = draft.dateFrom && draft.dateTo ? `${fmtDate(draft.dateFrom)} - ${fmtDate(draft.dateTo)}` : "Alle Zeiträume";
 
   return (
@@ -615,7 +595,7 @@ function FilterModal({
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 10, fontWeight: 800, color: "rgba(0,0,0,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Fotoarchiv filtern</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
-            <h2 style={{ margin: 0, fontSize: 19, lineHeight: 1, letterSpacing: "-0.03em", color: "#111827" }}>Bilder aus Foto-Fragen</h2>
+            <h2 style={{ margin: 0, fontSize: 19, lineHeight: 1, letterSpacing: "-0.03em", color: "#111827" }}>{hideMhdCampaigns ? "Bilder aus Foto-Fragen" : "Fotos aus Besuchen & Sondereinsätzen"}</h2>
             <span style={{ borderRadius: 999, border: SOFT_BORDER, padding: "3px 8px", fontSize: 10, fontWeight: 800, color: "rgba(0,0,0,0.42)", background: "#f7f7f8" }}>
               {activeFilterCount(draft)} aktiv
             </span>
@@ -655,15 +635,15 @@ function FilterModal({
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.8fr 0.9fr", gap: 10, marginBottom: 10 }}>
-            <SelectField label="Kampagne" value={draft.campaignId} onChange={(value) => update({ campaignId: value || undefined })} options={[{ value: "", label: "Alle Kampagnen" }, ...facets.campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name }))]} />
-            <SelectField label="Typ" value={draft.campaignType} onChange={(value) => update({ campaignType: value as AdminPhotoCampaignType || undefined })} options={[{ value: "", label: "Alle Typen" }, ...Object.entries(TYPE_META).filter(([value]) => !hideMhdCampaigns || value !== "mhd").map(([value, meta]) => ({ value, label: meta.label }))]} />
+            <SelectField label="Kampagne" value={draft.campaignId} onChange={(value) => update({ campaignId: value || undefined })} options={[{ value: "", label: specialOnly ? "Ohne Kampagne" : "Alle Kampagnen" }, ...(specialOnly ? [] : facets.campaigns).map((campaign) => ({ value: campaign.id, label: campaign.name }))]} />
+            <SelectField label="Typ" value={draft.campaignType} onChange={(value) => update({ campaignType: value as AdminPhotoCampaignType || undefined })} options={[{ value: "", label: "Alle Typen" }, ...Object.entries(TYPE_META).filter(([value]) => !hideMhdCampaigns || !["mhd","sonderaufgabe"].includes(value)).map(([value, meta]) => ({ value, label: meta.label }))]} />
             <SelectField label="Kalenderwoche" value={draft.week} onChange={(value) => update({ week: value || undefined, dateFrom: undefined, dateTo: undefined, redMonthId: undefined })} options={[{ value: "", label: "Alle Wochen" }, ...recentWeeks()]} />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 10 }}>
             <SelectField label="GM" value={draft.gmUserId} onChange={(value) => update({ gmUserId: value || undefined })} options={[{ value: "", label: "Alle GMs" }, ...facets.gms.map((gm) => ({ value: gm.id, label: gm.name }))]} />
-            <SelectField label="Region" value={draft.region} onChange={(value) => update({ region: value || undefined })} options={[{ value: "", label: "Alle Regionen" }, ...facets.regions.map((region) => ({ value: region, label: region }))]} />
-            <SelectField label="Chain" value={draft.chain} onChange={(value) => update({ chain: value || undefined })} options={[{ value: "", label: "Alle Chains" }, ...facets.chains.map((chain) => ({ value: chain, label: chain }))]} />
+            <SelectField label="Region" value={draft.region} onChange={(value) => update({ region: value || undefined })} options={[{ value: "", label: "Alle Regionen" }, ...(specialOnly ? [] : facets.regions).map((region) => ({ value: region, label: region }))]} />
+            <SelectField label="Chain" value={draft.chain} onChange={(value) => update({ chain: value || undefined })} options={[{ value: "", label: "Alle Chains" }, ...(specialOnly ? [] : facets.chains).map((chain) => ({ value: chain, label: chain }))]} />
             <SelectField
               label="Foto-Tag"
               value={draft.tagId ? `id:${draft.tagId}` : draft.tagLabel ? `label:${draft.tagLabel}` : ""}
@@ -688,11 +668,11 @@ function FilterModal({
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <span style={{ fontSize: 9, fontWeight: 800, color: "rgba(0,0,0,0.36)", letterSpacing: "0.08em", textTransform: "uppercase" }}>PLZ</span>
-              <input value={draft.postalCode ?? ""} onChange={(event) => update({ postalCode: event.target.value || undefined })} placeholder="Alle" style={{ height: 34, borderRadius: 8, border: SOFT_BORDER, background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, outline: "none", color: "rgba(0,0,0,0.68)" }} />
+              <input disabled={specialOnly} value={draft.postalCode ?? ""} onChange={(event) => update({ postalCode: event.target.value || undefined })} placeholder="Alle" style={{ height: 34, borderRadius: 8, border: SOFT_BORDER, background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, outline: "none", color: "rgba(0,0,0,0.68)" }} />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <span style={{ fontSize: 9, fontWeight: 800, color: "rgba(0,0,0,0.36)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Ort</span>
-              <input value={draft.city ?? ""} onChange={(event) => update({ city: event.target.value || undefined })} placeholder="Alle" style={{ height: 34, borderRadius: 8, border: SOFT_BORDER, background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, outline: "none", color: "rgba(0,0,0,0.68)" }} />
+              <input disabled={specialOnly} value={draft.city ?? ""} onChange={(event) => update({ city: event.target.value || undefined })} placeholder="Alle" style={{ height: 34, borderRadius: 8, border: SOFT_BORDER, background: "#fff", padding: "0 10px", fontSize: 11, fontWeight: 700, outline: "none", color: "rgba(0,0,0,0.68)" }} />
             </label>
           </div>
         </div>
@@ -929,6 +909,7 @@ function ExportMultiPicker({
 
 function FotoExportModal({
   open,
+  defaultCampaignType,
   campaigns,
   photoCampaigns,
   chains,
@@ -941,6 +922,7 @@ function FotoExportModal({
 }: {
   open: boolean;
   campaigns: Campaign[];
+  defaultCampaignType?: AdminPhotoCampaignType;
   photoCampaigns: AdminPhotoArchiveFacets["campaigns"];
   chains: AdminPhotoArchiveFacets["chains"];
   tags: AdminPhotoArchiveFacets["tags"];
@@ -992,8 +974,8 @@ function FotoExportModal({
     .map((chain) => ({ value: chain, label: chain })), [chains]);
 
   useEffect(() => {
-    if (open) setSelection({ timeframeMode: "all", chains: [], tagKeys: [] });
-  }, [open]);
+    if (open) setSelection({ timeframeMode: "all", campaignType:defaultCampaignType, chains: [], tagKeys: [] });
+  }, [open, defaultCampaignType]);
 
   useEffect(() => {
     if (!open) return;
@@ -1048,7 +1030,7 @@ function FotoExportModal({
 
   const submit = () => {
     if (!timeframeFilters || exporting) return;
-    const exportFilters: AdminPhotoArchiveFilters = { ...timeframeFilters };
+    const exportFilters: AdminPhotoArchiveFilters = { ...timeframeFilters, campaignType:selection.campaignType };
     if (selection.campaignId) exportFilters.campaignId = selection.campaignId;
     if (selection.chains.length > 0) exportFilters.chains = selection.chains;
     const tagIds = selection.tagKeys.filter((key) => key.startsWith("id:")).map((key) => key.slice(3));
@@ -1077,10 +1059,11 @@ function FotoExportModal({
         <div className="fotoExportGrid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.08fr) minmax(300px, 0.92fr)", gap: 16, padding: 18 }}>
           <section style={{ minWidth: 0 }}>
             <div style={{ marginBottom: 9 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: "#111827" }}>Kampagne</div>
-              <div style={{ marginTop: 3, fontSize: 9.5, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.44)" }}>Aktuelle und historische Kampagnen gemeinsam durchsuchen und direkt auswählen.</div>
+              <SelectField label="Typ" value={selection.campaignType} onChange={value=>setSelection(current=>({...current,campaignType:value as AdminPhotoCampaignType || undefined,...(value === "sonderaufgabe" ? {campaignId:undefined,chains:[]} : {})}))} options={[{value:"",label:"Alle Typen"},...Object.entries(TYPE_META).filter(([value])=>readAuthSession()?.user.role !== "kunde" || !["mhd","sonderaufgabe"].includes(value)).map(([value,meta])=>({value,label:meta.label}))]} />
+              {selection.campaignType !== "sonderaufgabe" && <><div style={{ marginTop:10,fontSize: 10.5, fontWeight: 800, color: "#111827" }}>Kampagne</div>
+              <div style={{ marginTop: 3, fontSize: 9.5, lineHeight: 1.4, fontWeight: 550, color: "rgba(15,23,42,0.44)" }}>Aktuelle und historische Kampagnen gemeinsam durchsuchen und direkt auswählen.</div></>}
             </div>
-            <ExportCampaignPicker campaigns={campaignOptions} value={selection.campaignId} onChange={(campaignId) => setSelection((current) => ({ ...current, campaignId }))} />
+            {selection.campaignType === "sonderaufgabe" ? <p style={{fontSize:11,lineHeight:1.5,color:"rgba(15,23,42,0.5)"}}>Sondereinsätze sind keiner Kampagne und keinem Markt zugeordnet. Exportiert werden Fotos abgeschlossener Einsätze.</p> : <ExportCampaignPicker campaigns={campaignOptions} value={selection.campaignId} onChange={(campaignId) => setSelection((current) => ({ ...current, campaignId }))} />}
           </section>
 
           <section style={{ minWidth: 0 }}>
@@ -1130,15 +1113,15 @@ function FotoExportModal({
               {selection.timeframeMode === "all" && (
                 <div style={{ minHeight: 76, borderRadius: 12, border: "1px dashed rgba(15,23,42,0.11)", background: "rgba(248,250,252,0.56)", display: "flex", alignItems: "center", gap: 10, padding: 12 }}>
                   <Clock3 size={16} color="rgba(15,23,42,0.34)" />
-                  <div><div style={{ fontSize: 10.5, fontWeight: 750, color: "rgba(15,23,42,0.68)" }}>Kein Zeitfilter</div><div style={{ marginTop: 2, fontSize: 9, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Alle vorhandenen Fotos der Kampagnenauswahl werden berücksichtigt.</div></div>
+                  <div><div style={{ fontSize: 10.5, fontWeight: 750, color: "rgba(15,23,42,0.68)" }}>Kein Zeitfilter</div><div style={{ marginTop: 2, fontSize: 9, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Alle vorhandenen Fotos dieser Auswahl werden berücksichtigt.</div></div>
                 </div>
               )}
             </div>
 
-            <div style={{ marginTop: 14 }}>
+            {selection.campaignType !== "sonderaufgabe" && <div style={{ marginTop: 14 }}>
               <ExportMultiPicker label="Handelsketten" allLabel="Alle Handelsketten" searchPlaceholder="Handelskette suchen..." emptyLabel="Keine Handelsketten gefunden" options={chainOptions} values={selection.chains} onChange={(chains) => setSelection((current) => ({ ...current, chains }))} />
               <div style={{ marginTop: 5, fontSize: 8.8, lineHeight: 1.35, fontWeight: 550, color: "rgba(15,23,42,0.40)" }}>Bei mehreren Handelsketten werden Fotos aus mindestens einer ausgewählten Kette exportiert.</div>
-            </div>
+            </div>}
 
             <div style={{ marginTop: 14 }}>
               <ExportMultiPicker label="Foto-Tags" allLabel="Alle Tags" searchPlaceholder="Tag suchen..." emptyLabel="Keine Tags gefunden" options={tagOptions} values={selection.tagKeys} onChange={(tagKeys) => setSelection((current) => ({ ...current, tagKeys }))} />
@@ -1152,11 +1135,12 @@ function FotoExportModal({
               <span style={{ width: 3, height: 12, borderRadius: 999, background: R, opacity: 0.72 }} />
               <div style={{ fontSize: 8.5, fontWeight: 850, color: "rgba(15,23,42,0.38)", letterSpacing: "0.085em", textTransform: "uppercase" }}>Exportauswahl</div>
             </div>
-            <div className="fotoExportSummaryValues" style={{ marginTop: 10, display: "grid", gridTemplateColumns: "minmax(190px, 1.55fr) repeat(3, minmax(105px, 1fr))", gap: 0 }}>
+            <div className="fotoExportSummaryValues" style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 0 }}>
               {[
-                ["Kampagne", selectedCampaign?.name ?? "Alle Kampagnen"],
+                ["Typ", selection.campaignType ? TYPE_META[selection.campaignType].label : "Alle Typen"],
+                ...(selection.campaignType === "sonderaufgabe" ? [] : [["Kampagne", selectedCampaign?.name ?? "Alle Kampagnen"]]),
                 ["Zeitraum", timeframeSummary],
-                ["Handelsketten", chainSummary],
+                ...(selection.campaignType === "sonderaufgabe" ? [] : [["Handelsketten", chainSummary]]),
                 ["Foto-Tags", tagSummary],
               ].map(([label, value], index) => (
                 <div key={label} className="fotoExportSummaryItem" style={{ minWidth: 0, padding: index === 0 ? "0 16px 0 0" : "0 16px", borderLeft: index === 0 ? 0 : "1px solid rgba(15,23,42,0.07)" }}>
@@ -1275,6 +1259,7 @@ function PhotoTile({
   const [failed, setFailed] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
   const meta = TYPE_META[photo.campaign.type];
+  const durationLabel = photo.visit.durationMinutes == null ? "Sondereinsatz" : `${photo.visit.durationMinutes} min`;
   const previewSrc = !previewFailed ? (previewUrl?.signedUrl ?? "") : "";
   const originalSrc = originalUrl?.signedUrl ?? "";
   const imageSrc = previewSrc || originalSrc;
@@ -1311,16 +1296,16 @@ function PhotoTile({
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{marketDisplayName(photo)}</div>
-          <div style={{ marginTop: 3, fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.question.text}</div>
+          <div style={{ marginTop: 3, fontSize: 10, color: "rgba(0,0,0,0.45)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.source === "special_assignment" ? photo.comment || "Fotodokumentation zum Einsatz" : photo.question.text}</div>
           <div style={{ marginTop: 5, display: "flex", gap: 5, flexWrap: "wrap" }}>{photo.tags.slice(0, 3).map((tag) => <span key={tag.id} style={tagStyle}>{tag.label}</span>)}</div>
         </div>
         <div style={{ minWidth: 0 }}>
           <span style={{ ...chipStyle, color: meta.color, background: meta.bg }}>{meta.label}</span>
-          <div style={{ marginTop: 5, fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.62)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.campaign.name}</div>
+          <div style={{ marginTop: 5, fontSize: 11, fontWeight: 600, color: "rgba(0,0,0,0.62)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.source === "special_assignment" ? durationLabel : photo.campaign.name}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{fmtDateTime(photo.visit.submittedAt)}</div>
-          <div style={{ marginTop: 4, fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.38)" }}>{photo.gm.name}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{fmtDateTime(photo.source === "special_assignment" ? photo.visit.startedAt : photo.visit.submittedAt)}</div>
+          <div style={{ marginTop: 4, fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.38)" }}>{photo.source === "special_assignment" ? "Abgeschlossen" : photo.gm.name}</div>
         </div>
       </button>
     );
@@ -1347,10 +1332,10 @@ function PhotoTile({
       </div>
       <div style={{ padding: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{marketDisplayName(photo)}</div>
-        <div style={{ marginTop: 5, fontSize: 10, color: "rgba(0,0,0,0.48)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.campaign.name}</div>
+        <div style={{ marginTop: 5, fontSize: 10, color: "rgba(0,0,0,0.48)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.source === "special_assignment" ? photo.comment || "Fotodokumentation zum Einsatz" : photo.campaign.name}</div>
         <div style={{ marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.42)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.gm.name}</span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.54)", fontVariantNumeric: "tabular-nums" }}>{fmtDate(photo.visit.submittedAt)}</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.42)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{photo.source === "special_assignment" ? durationLabel : photo.gm.name}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.54)", fontVariantNumeric: "tabular-nums" }}>{fmtDate(photo.source === "special_assignment" ? photo.visit.startedAt : photo.visit.submittedAt)}</span>
         </div>
         {photo.tags.length > 0 && (
           <div style={{ marginTop: 9, display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -1481,7 +1466,7 @@ function DetailDrawer({
     setTagsSaving(true);
     setTagError(null);
     try {
-      const tags = await updateAdminPhotoTags(photo.id, selectedTagIds);
+      const tags = await updateAdminPhotoTags(photo.id, selectedTagIds, photo.revision ?? undefined);
       onTagsUpdated(photo.id, tags);
       setEditingTags(false);
     } catch (error) {
@@ -1510,7 +1495,7 @@ function DetailDrawer({
               </div>
             ) : null}
           </div>
-          <button type="button" onClick={onClose} style={iconButtonStyle}><X size={15} /></button>
+          <button type="button" aria-label="Fotodetail schließen" onClick={onClose} style={iconButtonStyle}><X size={15} /></button>
         </div>
 
         {loading || !photo ? (
@@ -1542,7 +1527,7 @@ function DetailDrawer({
                   <Download size={13} /> Download
                 </button>
               </a>
-              <button
+              {photo.source !== "special_assignment" && <button
                 type="button"
                 onClick={() => {
                   void navigator.clipboard?.writeText(address).then(() => {
@@ -1553,20 +1538,25 @@ function DetailDrawer({
                 style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 700 }}
               >
                 <Copy size={13} /> {copied ? "Kopiert" : "Adresse"}
-              </button>
-              <a href={`/admin/fbmanagement?campaignId=${encodeURIComponent(photo.campaign.id)}&marketId=${encodeURIComponent(photo.market.id)}&sessionId=${encodeURIComponent(photo.visitSessionId)}`} style={{ textDecoration: "none" }}>
+              </button>}
+              {photo.campaign.id && photo.market.id && photo.visitSessionId && <a href={`/admin/fbmanagement?campaignId=${encodeURIComponent(photo.campaign.id)}&marketId=${encodeURIComponent(photo.market.id)}&sessionId=${encodeURIComponent(photo.visitSessionId)}`} style={{ textDecoration: "none" }}>
                 <button type="button" style={{ ...iconButtonStyle, width: "auto", padding: "0 12px", gap: 6, fontSize: 11, fontWeight: 700 }}>
                   <ExternalLink size={13} /> FB Management
                 </button>
-              </a>
+              </a>}
             </div>
 
             <section style={{ marginTop: 18, border: SOFT_BORDER, borderRadius: 14, padding: 14, background: "#fff" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ ...chipStyle, color: meta.color, background: meta.bg }}>{meta.label}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{photo.campaign.name}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#111827" }}>{photo.source === "special_assignment" ? fmtDate(photo.visit.startedAt) : photo.campaign.name}</span>
               </div>
-              <InfoGrid rows={[
+              <InfoGrid rows={photo.source === "special_assignment" ? [
+                ["GM", photo.gm.name || "-"],
+                ["Sondereinsatz", `${fmtDateTime(photo.visit.startedAt)} – ${fmtDateTime(photo.timeEntry?.endAt)}`],
+                ["Dauer", photo.visit.durationMinutes == null ? "-" : `${photo.visit.durationMinutes} min`],
+                ["Gespeichert", fmtDateTime(photo.visit.submittedAt)],
+              ] : [
                 ["Markt", marketDisplayName(photo)],
                 ["Stammnr.", masterNumber || "-"],
                 ["Adresse", address],
@@ -1590,7 +1580,7 @@ function DetailDrawer({
               </div>
               <InfoGrid rows={[
                 ["Typ", photo.mimeType || "-"],
-                ["Gr??e", fmtBytes(photo.byteSize)],
+                ["Größe", fmtBytes(photo.byteSize)],
                 ["Abmessung", photo.widthPx && photo.heightPx ? `${photo.widthPx} x ${photo.heightPx}` : "-"],
                 ["Upload", fmtDateTime(photo.uploadedAt)],
               ]} />
@@ -1703,7 +1693,7 @@ export default function FotoarchivPage() {
   }, [searchDraft]);
 
   useEffect(() => {
-    if (!isKunde || filters.campaignType !== "mhd") return;
+    if (!isKunde || !["mhd","sonderaufgabe"].includes(filters.campaignType ?? "")) return;
     setFilters((current) => compact({ ...current, campaignType: undefined, page: 1 }));
   }, [filters.campaignType, isKunde]);
 
@@ -1870,8 +1860,8 @@ export default function FotoarchivPage() {
   }, []);
 
   const handlePhotoTagsUpdated = useCallback((photoId: string, tags: AdminPhotoArchiveItem["tags"]) => {
-    setPhotos((current) => current.map((photo) => photo.id === photoId ? { ...photo, tags } : photo));
-    setSelectedPhoto((current) => current?.id === photoId ? { ...current, tags } : current);
+    setPhotos((current) => current.map((photo) => photo.id === photoId ? { ...photo, tags, revision:photo.revision == null ? photo.revision : photo.revision + 1 } : photo));
+    setSelectedPhoto((current) => current?.id === photoId ? { ...current, tags, revision:current.revision == null ? current.revision : current.revision + 1 } : current);
     void fetchAdminPhotoFacets().then(setFacets).catch(() => {});
   }, []);
 
@@ -1957,13 +1947,13 @@ export default function FotoarchivPage() {
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(15,23,42,0.38)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Fotoarchiv</div>
-                <h1 style={{ margin: "2px 0 0", fontSize: 19, letterSpacing: "-0.035em", lineHeight: 1.04, color: "#111827" }}>Bilder aus Foto-Fragen</h1>
+                <h1 style={{ margin: "2px 0 0", fontSize: 19, letterSpacing: "-0.035em", lineHeight: 1.04, color: "#111827" }}>{isKunde ? "Bilder aus Foto-Fragen" : "Fotos aus Besuchen & Sondereinsätzen"}</h1>
               </div>
             </div>
             <div style={{ marginTop: 13, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", color: "rgba(15,23,42,0.72)" }}>
               <Stat label="Fotos" value={loading ? "..." : total.toLocaleString("de-AT")} />
-              <Stat label="Märkte" value={loading ? "..." : stats.visitedMarkets.toLocaleString("de-AT")} />
-              <Stat label="Kampagnen" value={loading ? "..." : stats.campaigns.toLocaleString("de-AT")} />
+              {filters.campaignType !== "sonderaufgabe" && <><Stat label="Märkte" value={loading ? "..." : stats.visitedMarkets.toLocaleString("de-AT")} />
+              <Stat label="Kampagnen" value={loading ? "..." : stats.campaigns.toLocaleString("de-AT")} /></>}
               <Stat label="Zeitraum" value={timeframeLabel} />
             </div>
           </div>
@@ -1997,8 +1987,9 @@ export default function FotoarchivPage() {
               }}
             >
               <Search size={13} color="rgba(15,23,42,0.34)" />
-              <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Markt, Kampagne, GM, Frage, Tag..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, fontWeight: 500, color: "#111827", fontFamily: "inherit" }} />
+              <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Markt, Kampagne, GM, Kommentar, Tag..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 11, fontWeight: 500, color: "#111827", fontFamily: "inherit" }} />
             </label>
+            {!isKunde && <button type="button" aria-pressed={filters.campaignType === "sonderaufgabe"} onClick={()=>applyFilters(filters.campaignType === "sonderaufgabe" ? {...filters,campaignType:undefined,page:1} : {...filters,campaignType:"sonderaufgabe",campaignId:undefined,marketId:undefined,region:undefined,city:undefined,postalCode:undefined,chain:undefined,chains:undefined,questionId:undefined,moduleId:undefined,page:1})} style={{...iconButtonStyle,height:32,width:"auto",padding:"0 11px",gap:6,fontSize:11,fontWeight:700,color:filters.campaignType === "sonderaufgabe" ? "#047857" : "rgba(15,23,42,0.58)",background:filters.campaignType === "sonderaufgabe" ? "rgba(4,120,87,0.07)" : "#fff"}}><Clock3 size={13} /> Sondereinsätze</button>}
             <button
               type="button"
               onClick={() => setFilterOpen(true)}
@@ -2107,6 +2098,7 @@ export default function FotoarchivPage() {
       />
       <FotoExportModal
         open={exportOpen}
+        defaultCampaignType={filters.campaignType}
         campaigns={campaignCatalog}
         photoCampaigns={facets.campaigns}
         chains={facets.chains}

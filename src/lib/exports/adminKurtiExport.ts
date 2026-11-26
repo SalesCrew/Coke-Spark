@@ -289,6 +289,8 @@ function photoMatchesClientFilters(
   resolvedGmIds: string[],
   resolvedCampaignIds: string[],
 ): boolean {
+  // This export contract is campaign-based; special assignments use the archive ZIP.
+  if (photo.campaign.type === "sonderaufgabe" || !photo.campaign.id || !photo.market.id) return false;
   const { campaignIds, campaignNames, gmUserIds, gmNames, marketIds, marketSearch, regions, sections, search } = exportSpec.filters;
   if (!matchesIdentity(photo.campaign.id, photo.campaign.name, resolvedCampaignIds, campaignNames)) return false;
   if (!matchesIdentity(photo.gm.id, photo.gm.name, resolvedGmIds, gmNames)) return false;

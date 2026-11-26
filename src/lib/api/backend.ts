@@ -3884,7 +3884,7 @@ export type CampaignMarketVisitExportIndexItem = {
   startedAt: string;
   submittedAt: string | null;
 };
-export type AdminPhotoCampaignType = "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit";
+export type AdminPhotoCampaignType = "standard" | "flex" | "billa" | "kuehler" | "mhd" | "durcharbeit" | "sonderaufgabe";
 export type AdminPhotoArchiveFilters = {
   page?: number;
   pageSize?: number;
@@ -3910,8 +3910,11 @@ export type AdminPhotoArchiveFilters = {
 };
 export type AdminPhotoArchiveItem = {
   id: string;
-  visitAnswerId: string;
-  visitSessionId: string;
+  source?: "visit" | "special_assignment";
+  revision?: number | null;
+  timeEntry?: {id:string;endAt:string|null} | null;
+  visitAnswerId: string | null;
+  visitSessionId: string | null;
   storageBucket: string;
   storagePath: string;
   signedUrl: string | null;
@@ -3924,22 +3927,22 @@ export type AdminPhotoArchiveItem = {
   uploadedAt: string | null;
   tags: Array<{ id: string; photoTagId: string | null; label: string }>;
   question: {
-    id: string;
-    visitQuestionId: string;
+    id: string | null;
+    visitQuestionId: string | null;
     text: string;
     moduleId: string | null;
     moduleName: string;
     sectionName: string;
   };
   campaign: {
-    id: string;
+    id: string | null;
     name: string;
     type: AdminPhotoCampaignType;
     startDate: string | null;
     endDate: string | null;
   };
   market: {
-    id: string;
+    id: string | null;
     name: string;
     standardMarketNumber: string | null;
     cokeMasterNumber: string | null;
@@ -5997,6 +6000,8 @@ export async function fetchCampaignAssignedMarkets(campaignIds: string[], includ
   return (data.markets ?? []).map((market) => mapBackendMarketToMarketRecord(market));
 }
 
+const PHOTO_ARCHIVE_HEADERS = {"X-Photo-Archive-Version":"2"};
+
 export async function fetchAdminPhotos(input: AdminPhotoArchiveFilters = {}): Promise<AdminPhotoArchiveResponse> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(input)) {
@@ -6006,11 +6011,11 @@ export async function fetchAdminPhotos(input: AdminPhotoArchiveFilters = {}): Pr
     params.set(key, serialized);
   }
   const query = params.toString();
-  return (await authedFetch(`/admin/photos${query ? `?${query}` : ""}`, {}, 30000)) as AdminPhotoArchiveResponse;
+  return (await authedFetch(`/admin/photos${query ? `?${query}` : ""}`, {headers:PHOTO_ARCHIVE_HEADERS}, 30000)) as AdminPhotoArchiveResponse;
 }
 
 export async function fetchAdminPhotoFacets(): Promise<AdminPhotoArchiveFacets> {
-  const data = (await authedFetch("/admin/photos/facets", {}, 30000)) as {
+  const data = (await authedFetch("/admin/photos/facets", {headers:PHOTO_ARCHIVE_HEADERS}, 30000)) as {
     facets?: AdminPhotoArchiveFacets;
   };
   return data.facets ?? { campaigns: [], gms: [], tags: [], regions: [], chains: [] };
@@ -6024,6 +6029,7 @@ export async function fetchAdminPhotoSignedUrls(
   if (uniquePhotoIds.length === 0) return [];
   const data = (await authedFetch("/admin/photos/signed-urls", {
     method: "POST",
+    headers:PHOTO_ARCHIVE_HEADERS,
     body: JSON.stringify({ photoIds: uniquePhotoIds, variant }),
   }, 30000)) as {
     urls?: AdminPhotoSignedUrl[];
@@ -6056,6 +6062,7 @@ async function fetchAdminPhotoExportResponse(filters: AdminPhotoArchiveFilters):
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...PHOTO_ARCHIVE_HEADERS,
       Authorization: `Bearer ${accessToken}`,
       ...getKundePageKeyHeader(),
     },
@@ -6143,7 +6150,7 @@ export async function downloadAdminPhotoArchiveZip(
 }
 
 export async function fetchAdminPhotoDetail(photoId: string): Promise<AdminPhotoArchiveItem> {
-  const data = (await authedFetch(`/admin/photos/${encodeURIComponent(photoId)}`, {}, 30000)) as {
+  const data = (await authedFetch(`/admin/photos/${encodeURIComponent(photoId)}`, {headers:PHOTO_ARCHIVE_HEADERS}, 30000)) as {
     photo?: AdminPhotoArchiveItem;
   };
   if (!data.photo) {
@@ -6152,10 +6159,11 @@ export async function fetchAdminPhotoDetail(photoId: string): Promise<AdminPhoto
   return data.photo;
 }
 
-export async function updateAdminPhotoTags(photoId: string, photoTagIds: string[]): Promise<AdminPhotoArchiveItem["tags"]> {
+export async function updateAdminPhotoTags(photoId: string, photoTagIds: string[], expectedRevision?: number): Promise<AdminPhotoArchiveItem["tags"]> {
   const data = (await authedFetch(`/admin/photos/${encodeURIComponent(photoId)}/tags`, {
     method: "PATCH",
-    body: JSON.stringify({ photoTagIds: Array.from(new Set(photoTagIds)) }),
+    headers:PHOTO_ARCHIVE_HEADERS,
+    body: JSON.stringify({ photoTagIds: Array.from(new Set(photoTagIds)), expectedRevision }),
   })) as { tags?: AdminPhotoArchiveItem["tags"] };
   return data.tags ?? [];
 }

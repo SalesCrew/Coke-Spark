@@ -1,5 +1,5 @@
 "use client";
-import { fetchTimeTrackingPhotos, getAuthPrincipalKey, readAuthSession, setTimeTrackingPhotoTags, uploadTimeTrackingPhoto } from "@/lib/api/backend";
+import { getAuthPrincipalKey, readAuthSession, setTimeTrackingPhotoTags, uploadTimeTrackingPhoto } from "@/lib/api/backend";
 export type SpecialAssignmentPhotoJob = { id: string; owner: string; draftKey: string; entryId?: string; file: File; tagIds: string[] };
 export const SPECIAL_ASSIGNMENT_PHOTOS_CHANGED = "gm:special-assignment-photos";
 const active = new Map<string,Promise<void>>();
@@ -18,14 +18,17 @@ export async function savePhotoJob(job:SpecialAssignmentPhotoJob){assertOwner(jo
 export async function deletePhotoJob(id:string){const owner=photoOwner();const job=await transact<SpecialAssignmentPhotoJob|undefined>("readonly",store=>store.get(id));assertOwner(owner);if(job&&job.owner!==owner)throw Error("Keine Berechtigung für dieses Foto.");await transact("readwrite",store=>store.delete(id));window.dispatchEvent(new Event(SPECIAL_ASSIGNMENT_PHOTOS_CHANGED));}
 function bindingKey(key:string){return `gm:special-photo-entry:${photoOwner()}:${key}`;}
 export function readPhotoDraftBinding(key:string){return sessionStorage.getItem(bindingKey(key));}
-export function bindPhotoDraft(key:string,entryId:string){sessionStorage.setItem(bindingKey(key),entryId);window.dispatchEvent(new Event(SPECIAL_ASSIGNMENT_PHOTOS_CHANGED));}
+export function bindPhotoDraft(key:string,entryId:string){const storageKey=bindingKey(key);if(sessionStorage.getItem(storageKey)===entryId)return;sessionStorage.setItem(storageKey,entryId);window.dispatchEvent(new Event(SPECIAL_ASSIGNMENT_PHOTOS_CHANGED));}
 export function specialAssignmentDraftKey(mode:"live"|"manual",reset=false){const key=`gm:special-photo-draft:${photoOwner()}:${mode}`;let value=reset?null:sessionStorage.getItem(key);if(!value){value=crypto.randomUUID();sessionStorage.setItem(key,value);}return value;}
 function retryable(error:unknown){const status=(error as {status?:number})?.status;return error instanceof TypeError||error instanceof Error&&["AbortError","BackendTimeoutError"].includes(error.name)||status===408||status===429||!!status&&status>=500;}
 export async function flushSpecialAssignmentPhotos(draftKey:string,entryId:string):Promise<void>{
   const owner=photoOwner(),key=`${owner}:${entryId}:${draftKey}`,existing=active.get(key);if(existing)return existing;
+  let transferred=false;
   const operation=(async()=>{
     bindPhotoDraft(draftKey,entryId);
     const jobs=await readPhotoJobs(draftKey,entryId);
+    if(!jobs.length)return;
+    transferred=true;
     for(const job of jobs){
       assertOwner(owner);if(job.entryId&&job.entryId!==entryId)throw Error("Diese Fotos gehören bereits zu einem anderen Sondereinsatz.");
       await savePhotoJob({...job,entryId});
@@ -38,6 +41,6 @@ export async function flushSpecialAssignmentPhotos(draftKey:string,entryId:strin
         }catch(error){if(attempt>=2||!retryable(error))throw error;await new Promise(resolve=>setTimeout(resolve,[750,2000][attempt]));}
       }
     }
-    await fetchTimeTrackingPhotos(entryId);assertOwner(owner);
-  })();active.set(key,operation);try{await operation;}finally{active.delete(key);window.dispatchEvent(new Event(SPECIAL_ASSIGNMENT_PHOTOS_CHANGED));}
+    assertOwner(owner);
+  })();active.set(key,operation);try{await operation;}finally{active.delete(key);if(transferred)window.dispatchEvent(new Event(SPECIAL_ASSIGNMENT_PHOTOS_CHANGED));}
 }

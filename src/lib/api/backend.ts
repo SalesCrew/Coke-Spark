@@ -7191,6 +7191,9 @@ export async function fetchTimeEntryPhotoTags(): Promise<{tags: import("@/types/
 export async function fetchTimeTrackingPhotos(entryId: string): Promise<import("@/types/timeEntryPhotos").TimeEntryPhotoCollection> {
   return await authedFetch(`/time-tracking/entries/${encodeURIComponent(entryId)}/photos`, {cache:"no-store"}, 30_000, timeEntryPhotoOwner()) as import("@/types/timeEntryPhotos").TimeEntryPhotoCollection;
 }
+export async function fetchTimeTrackingEntry(entryId: string): Promise<{ entry: TimeTrackingEntry }> {
+  return await authedFetch(`/time-tracking/entries/${encodeURIComponent(entryId)}`, {cache:"no-store"}, 30_000, timeEntryPhotoOwner()) as {entry: TimeTrackingEntry};
+}
 export async function uploadTimeTrackingPhoto(entryId: string, id: string, file: File): Promise<import("@/types/timeEntryPhotos").TimeEntryPhotoCollection> {
   return await authedFetch(`/time-tracking/entries/${encodeURIComponent(entryId)}/photos`, {method:"POST",body:file,headers:{"Content-Type":file.type || "image/jpeg","x-operation-id":id,"x-photo-filename":encodeURIComponent(file.name)}}, 120_000, timeEntryPhotoOwner()) as import("@/types/timeEntryPhotos").TimeEntryPhotoCollection;
 }

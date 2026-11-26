@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
-  fetchTimeTrackingPhotos,
+  fetchTimeTrackingEntry,
   fetchActiveGmVisitSession,
   fetchCurrentDaySession,
   fetchActiveTimeTrackingDrafts,
@@ -64,6 +64,12 @@ const DAY_SESSION_UPDATED_EVENT = "gm:day-session-updated";
 const CARD_MENU_SPACE = 80;
 const MIN_CARD_HEIGHT = 260;
 const LIVE_STOP_CONFIRM_AFTER_MS = 10 * 60 * 1000;
+function specialAssignmentSaveError(error: unknown): string {
+  if (error instanceof Error && (error instanceof TypeError || error.name === "BackendTimeoutError" || /failed to fetch|load failed|network request failed|networkerror|fetch failed/i.test(error.message))) {
+    return "Speichern konnte nicht bestätigt werden. Deine Eingaben bleiben erhalten. Bitte erneut versuchen.";
+  }
+  return error instanceof Error && error.message ? error.message : "Speichern fehlgeschlagen. Deine Eingaben bleiben erhalten.";
+}
 const DOCTOR_CONFIRMATION_MAX_BYTES = 10 * 1024 * 1024;
 const DOCTOR_CONFIRMATION_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "heic", "heif"]);
 
@@ -888,7 +894,7 @@ function AccordionRow({
     setLiveError(null);
     try {
       if (photosBusy) throw new Error("Bitte zuerst den Foto-Upload abschließen.");
-      const alreadySubmitted = supportsPhotos && (await fetchTimeTrackingPhotos(activeDraftId)).entry.status === "submitted";
+      const alreadySubmitted = supportsPhotos && (await fetchTimeTrackingEntry(activeDraftId)).entry.status === "submitted";
       if (!alreadySubmitted && options?.updateEndToNow) {
         const nowIso = new Date().toISOString();
         const result = await endTimeTrackingDraft(activeDraftId, { endAt: nowIso });
@@ -925,8 +931,9 @@ function AccordionRow({
       setDoctorConfirmationError(null);
       setSeconds(0);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Speichern fehlgeschlagen.";
+      const message = supportsPhotos ? specialAssignmentSaveError(error) : error instanceof Error ? error.message : "Speichern fehlgeschlagen.";
       setLiveError(message || "Speichern fehlgeschlagen.");
+      if (supportsPhotos) setIsLiveCommentOpen(true);
     } finally {
       setIsPersistingLive(false);
     }
@@ -937,6 +944,7 @@ function AccordionRow({
     const nextComment = (commentOverride ?? liveComment).trim();
     const confirmation = getStaleStopConfirmation(nextComment);
     if (confirmation) {
+      setIsLiveCommentOpen(false);
       setStaleStopConfirmation(confirmation);
       return;
     }
@@ -1736,7 +1744,7 @@ function AccordionRow({
             role="dialog"
             aria-modal="true"
             aria-label={supportsPhotos ? "Sondereinsatz abschließen" : "Kommentar"}
-            onClick={() => { if (supportsPhotos) setLiveComment(liveCommentDraft); setIsLiveCommentOpen(false); }}
+            onClick={() => { if (isPersistingLive) return; if (supportsPhotos) setLiveComment(liveCommentDraft); setIsLiveCommentOpen(false); }}
             style={{
               position: "fixed",
               inset: 0,
@@ -1769,6 +1777,7 @@ function AccordionRow({
               <div style={{ padding: "12px 16px", backgroundColor: "#fff" }}>
                 <textarea
                   value={liveCommentDraft}
+                  disabled={isPersistingLive}
                   onChange={(e) => setLiveCommentDraft(e.target.value)}
                   placeholder="Anmerkung zur Zusatzzeiterfassung..."
                   maxLength={2000}
@@ -1786,9 +1795,11 @@ function AccordionRow({
                   }}
                 />
                 {supportsPhotos && <SpecialAssignmentPhotos groupKey={photoGroupKey} entryId={activeDraftId ?? undefined} onBusyChange={setPhotosBusy} />}
+                {supportsPhotos && liveError && <p role="alert" style={{margin:"10px 0 0",fontSize:11,lineHeight:1.5,color:"#b91c1c"}}>{liveError}</p>}
               </div>
               <div style={{ padding: "10px", display: "flex", alignItems: "center", gap: 7, backgroundColor: "rgba(0,0,0,0.03)", borderTop: "1px solid rgba(0,0,0,0.05)" }}>
                 <button
+                  disabled={isPersistingLive}
                   onClick={() => {
                   if (supportsPhotos) { setLiveComment(liveCommentDraft); setIsLiveCommentOpen(false); return; }
                   setLiveComment("");
@@ -1817,7 +1828,7 @@ function AccordionRow({
                   if (photosBusy) return;
                   const nextComment = liveCommentDraft;
                   setLiveComment(nextComment);
-                  setIsLiveCommentOpen(false);
+                  if (!supportsPhotos) setIsLiveCommentOpen(false);
                   void handleLiveSubmit(nextComment);
                 }}
                 style={{
@@ -2098,7 +2109,7 @@ export function ActivityLauncher({
     }
     const boundPhotoEntry = input.photoGroupKey ? readPhotoDraftBinding(input.photoGroupKey) : null;
     if (boundPhotoEntry) {
-      const prior = await fetchTimeTrackingPhotos(boundPhotoEntry);
+      const prior = await fetchTimeTrackingEntry(boundPhotoEntry);
       if (prior.entry.status === "submitted") { await flushSpecialAssignmentPhotos(input.photoGroupKey!, boundPhotoEntry); return; }
     }
     const token = input.photoGroupKey ? `sonderaufgabe-${input.photoGroupKey}` : `${input.activityType}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

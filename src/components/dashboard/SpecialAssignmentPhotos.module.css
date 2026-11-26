@@ -1,4 +1,5 @@
 .entry,.badge{font-family:inherit;cursor:pointer;display:flex;align-items:center;color:rgba(15,23,42,.64);border:1px solid rgba(15,23,42,.075);background:rgba(15,23,42,.022);transition:background .15s ease}
+.unavailablePreview{display:flex;width:100%;height:100%;min-height:90px;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:#8d949e;text-align:center}.unavailablePreview small{font-size:10px;padding:0 8px;line-height:1.4}
 .entry{width:100%;min-height:34px;border-radius:9px;padding:6px 9px;gap:7px;font-size:10px;font-weight:600;text-align:left;margin-top:8px}
 .entry:hover,.badge:hover{background:rgba(15,23,42,.045)}
 .entry:focus-visible,.badge:focus-visible,.dialog button:focus-visible,.dialog input:focus-visible{outline:2px solid rgba(220,38,38,.35);outline-offset:2px}

@@ -36,7 +36,14 @@ export function SpecialAssignmentPhotos({ groupKey, entryId, compact = false, di
     try{await flushSpecialAssignmentPhotos(groupKey,id);await load();}catch(e){await load();setError(e instanceof Error?e.message:"Foto noch nicht übertragen. Bitte erneut versuchen.");}finally{setUploading(false);}
   },[groupKey,entryId,load]);
   useEffect(()=>{setLoading(true);void load();let principal=getAuthPrincipalKey(readAuthSession());const unsubscribe=subscribeAuthSession(()=>{const next=getAuthPrincipalKey(readAuthSession());if(next!==principal){principal=next;++sequence.current;setPhotos([]);setTags([]);close();void load();}});const refresh=()=>{void load();};window.addEventListener(SPECIAL_ASSIGNMENT_PHOTOS_CHANGED,refresh);window.addEventListener("focus",refresh);return()=>{unsubscribe();++sequence.current;window.removeEventListener(SPECIAL_ASSIGNMENT_PHOTOS_CHANGED,refresh);window.removeEventListener("focus",refresh);};},[load]);
-  useEffect(()=>{if(entryId)void retry();},[entryId,retry]);
+  useEffect(()=>{
+    if(!entryId)return;
+    let current=true;const owner=getAuthPrincipalKey(readAuthSession());
+    // Only resume actual queued uploads, not every historical photo collection.
+    void readPhotoJobs(groupKey,entryId).then(jobs=>{if(current&&jobs.length&&owner===getAuthPrincipalKey(readAuthSession()))void retry();})
+      .catch(e=>{if(current&&owner===getAuthPrincipalKey(readAuthSession()))setError(e instanceof Error?e.message:"Fotos konnten nicht geladen werden.");});
+    return()=>{current=false;};
+  },[entryId,groupKey,retry]);
   useEffect(()=>{onBusyChange?.(busy);},[busy,onBusyChange]);
   useEffect(()=>{if(open)dialog.current?.showModal();},[open]);
   function close(){setOpen(false);setActiveId(null);setTagPicker(false);setSearch("");}
@@ -72,7 +79,7 @@ export function SpecialAssignmentPhotos({ groupKey, entryId, compact = false, di
   return <>
     {compact ? <span role="button" tabIndex={0} className={styles.badge} aria-label={`Sondereinsatz: ${photos.length} Fotos öffnen`} onClick={e => { e.stopPropagation(); setOpen(true); void load(); }} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setOpen(true); void load(); } }}><Camera size={12} strokeWidth={1.7} /><span className={styles.count}>{loading ? "…" : photos.length || "+"}</span></span> : <button type="button" className={styles.entry} disabled={disabled} aria-label="Fotos zum Sondereinsatz öffnen" onClick={e => { e.stopPropagation(); setOpen(true); void load(); }}>
       <Camera size={13} strokeWidth={1.7} /><span>{photos.length ? "Fotos zum Einsatz" : "Fotos hinzufügen"}</span>
-      {photos.length > 0 && <span className={styles.miniPhotos}>{photos.slice(0, 2).map(p => <img key={p.id} src={p.url} alt="" />)}</span>}
+      {photos.some(p=>p.url) && <span className={styles.miniPhotos}>{photos.filter(p=>p.url).slice(0, 2).map(p => <img key={p.id} src={p.url!} alt="" />)}</span>}
       <span className={styles.count}>{loading ? "…" : photos.length || "Optional"}</span><ChevronRight size={12} className={styles.chevron} />
     </button>}
     {open && typeof document !== "undefined" && createPortal(<dialog ref={dialog} className={styles.dialog} aria-labelledby="special-assignment-photo-title" onCancel={e => { e.preventDefault(); close(); }} onClick={e => { if (e.target === e.currentTarget) close(); }} onKeyDown={e => { if (e.target instanceof HTMLInputElement) return; if (e.key === "ArrowLeft" && active) navigate(-1); if (e.key === "ArrowRight" && active) navigate(1); }}>
@@ -84,6 +91,7 @@ export function SpecialAssignmentPhotos({ groupKey, entryId, compact = false, di
         </header>
         <div className={styles.body}>
           {error && <div className={styles.error} role="alert">{error}<button onClick={() => void retry()}>Erneut versuchen</button></div>}
+          {photos.some(p=>p.previewError) && <div className={styles.error} role="status">Die Fotovorschau ist gerade nicht verfügbar. Der Fotoeintrag bleibt erhalten. Eine fehlende Vorschau verhindert den Abschluss nicht.<button type="button" disabled={busy} onClick={()=>void load()}>Vorschau erneut laden</button></div>}
           {!active ? <>
             <div className={styles.sources}>
               <button type="button" disabled={busy} onClick={() => camera.current?.click()}><Camera size={16} strokeWidth={1.7} /><span>Foto aufnehmen</span></button>
@@ -92,7 +100,7 @@ export function SpecialAssignmentPhotos({ groupKey, entryId, compact = false, di
             {loading ? <p className={styles.hint}>Fotos werden geladen…</p> : photos.length === 0 && <div className={styles.empty}><div><Camera size={23} strokeWidth={1.2} /></div><p>Den Einsatz mit Fotos dokumentieren.</p><span>Mehrere Fotos möglich · bis 10 MB pro Foto</span></div>}
             {(photos.length > 0) && <div className={styles.grid}>
               {photos.map((photo, index) => <button key={photo.id} type="button" className={styles.tile} onClick={() => { setActiveId(photo.id); setTagPicker(false); }}>
-                <span className={styles.thumbnail}><img src={photo.url} alt={`Sondereinsatz, Foto ${index + 1}`} /><span className={styles.savedMark}>{photo.local ? <Clock size={10} /> : <Check size={10} strokeWidth={2.4} />}</span></span>
+                <span className={styles.thumbnail}>{photo.url ? <img src={photo.url} alt={`Sondereinsatz, Foto ${index + 1}`} /> : <span className={styles.unavailablePreview}><Camera size={20} /><small>Vorschau nicht verfügbar</small></span>}<span className={styles.savedMark}>{photo.local ? <Clock size={10} /> : <Check size={10} strokeWidth={2.4} />}</span></span>
                 <span className={styles.tileCaption}><span>Foto {index + 1}</span><span>{photo.tags.length ? <><Tag size={10} />{photo.tags.length}</> : <Tag size={10} />}</span></span>
                 {photo.tags.length > 0 && <span className={styles.tileTags}>{photo.tags.map(t=>t.label).join(" · ")}</span>}
               </button>)}
@@ -100,7 +108,7 @@ export function SpecialAssignmentPhotos({ groupKey, entryId, compact = false, di
             </div>}
           </> : <>
             <div className={styles.stage}>
-              <img src={active.url} alt={`Sondereinsatz, Foto ${activeIndex + 1}`} />
+              {active.url ? <img src={active.url} alt={`Sondereinsatz, Foto ${activeIndex + 1}`} /> : <span className={styles.unavailablePreview}><Camera size={24} /><small>Vorschau nicht verfügbar</small></span>}
               {photos.length > 1 && <><button className={styles.prev} aria-label="Vorheriges Foto" onClick={() => navigate(-1)}><ChevronLeft size={19} /></button><button className={styles.next} aria-label="Nächstes Foto" onClick={() => navigate(1)}><ChevronRight size={19} /></button></>}
             </div>
             <div className={styles.photoMeta}><span>{active.name}</span><button type="button" disabled={mutating} onClick={() => void remove()} aria-label="Dieses Foto entfernen"><Trash2 size={13} />Entfernen</button></div>
